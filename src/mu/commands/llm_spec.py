@@ -21,7 +21,7 @@ def _load_content(filename: str) -> str:
 def _copy_to_clipboard(content: str) -> bool:
     """Attempt to copy content to clipboard. Returns True on success."""
     try:
-        import pyperclip  # type: ignore[import-untyped]
+        import pyperclip
 
         pyperclip.copy(content)
         return True
