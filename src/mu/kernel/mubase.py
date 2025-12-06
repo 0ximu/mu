@@ -13,9 +13,10 @@ import duckdb
 
 from mu.kernel.builder import GraphBuilder
 from mu.kernel.models import Edge, Node
-from mu.kernel.schema import SCHEMA_SQL, EdgeType, NodeType
+from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
 
 if TYPE_CHECKING:
+    from mu.kernel.embeddings.models import NodeEmbedding
     from mu.parser.models import ModuleDef
 
 
@@ -90,9 +91,7 @@ class MUbase:
         self.conn.execute("DELETE FROM nodes")
 
         # Update build timestamp
-        self.conn.execute(
-            "INSERT OR REPLACE INTO metadata VALUES ('built_at', CURRENT_TIMESTAMP)"
-        )
+        self.conn.execute("INSERT OR REPLACE INTO metadata VALUES ('built_at', CURRENT_TIMESTAMP)")
         self.conn.execute(
             "INSERT OR REPLACE INTO metadata VALUES ('root_path', ?)",
             [str(root_path)],
@@ -471,15 +470,11 @@ class MUbase:
         edge_count = edge_result[0] if edge_result else 0
 
         by_type: dict[str, int] = {}
-        for row in self.conn.execute(
-            "SELECT type, COUNT(*) FROM nodes GROUP BY type"
-        ).fetchall():
+        for row in self.conn.execute("SELECT type, COUNT(*) FROM nodes GROUP BY type").fetchall():
             by_type[row[0]] = row[1]
 
         edges_by_type: dict[str, int] = {}
-        for row in self.conn.execute(
-            "SELECT type, COUNT(*) FROM edges GROUP BY type"
-        ).fetchall():
+        for row in self.conn.execute("SELECT type, COUNT(*) FROM edges GROUP BY type").fetchall():
             edges_by_type[row[0]] = row[1]
 
         # Get metadata
@@ -515,6 +510,228 @@ class MUbase:
         if params:
             return self.conn.execute(sql, params).fetchall()
         return self.conn.execute(sql).fetchall()
+
+    # =========================================================================
+    # Embeddings Methods
+    # =========================================================================
+
+    def _ensure_embeddings_schema(self) -> None:
+        """Create embeddings table if it doesn't exist."""
+        try:
+            self.conn.execute("SELECT 1 FROM embeddings LIMIT 1")
+        except duckdb.CatalogException:
+            # Table doesn't exist, create it
+            self.conn.execute(EMBEDDINGS_SCHEMA_SQL)
+
+    def add_embedding(self, embedding: NodeEmbedding) -> None:
+        """Add or update an embedding for a node.
+
+        Args:
+            embedding: The NodeEmbedding to store
+        """
+        self._ensure_embeddings_schema()
+        self.conn.execute("DELETE FROM embeddings WHERE node_id = ?", [embedding.node_id])
+        self.conn.execute(
+            """
+            INSERT INTO embeddings
+            (node_id, code_embedding, docstring_embedding, name_embedding,
+             model_name, model_version, dimensions, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            embedding.to_tuple(),
+        )
+
+    def add_embeddings_batch(self, embeddings: list[NodeEmbedding]) -> None:
+        """Add multiple embeddings in a batch.
+
+        Args:
+            embeddings: List of NodeEmbedding objects to store
+        """
+        if not embeddings:
+            return
+
+        self._ensure_embeddings_schema()
+
+        # Delete existing embeddings for these nodes
+        node_ids = [e.node_id for e in embeddings]
+        placeholders = ", ".join(["?"] * len(node_ids))
+        self.conn.execute(
+            f"DELETE FROM embeddings WHERE node_id IN ({placeholders})",
+            node_ids,
+        )
+
+        # Insert all embeddings
+        for embedding in embeddings:
+            self.conn.execute(
+                """
+                INSERT INTO embeddings
+                (node_id, code_embedding, docstring_embedding, name_embedding,
+                 model_name, model_version, dimensions, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                embedding.to_tuple(),
+            )
+
+    def get_embedding(self, node_id: str) -> NodeEmbedding | None:
+        """Get embedding for a node.
+
+        Args:
+            node_id: The node ID
+
+        Returns:
+            NodeEmbedding if found, None otherwise
+        """
+        from mu.kernel.embeddings.models import NodeEmbedding
+
+        self._ensure_embeddings_schema()
+        row = self.conn.execute(
+            "SELECT * FROM embeddings WHERE node_id = ?",
+            [node_id],
+        ).fetchone()
+        return NodeEmbedding.from_row(row) if row else None
+
+    def vector_search(
+        self,
+        query_embedding: list[float],
+        embedding_type: str = "code",
+        limit: int = 10,
+        node_type: NodeType | None = None,
+    ) -> list[tuple[Node, float]]:
+        """Find similar nodes by cosine similarity.
+
+        Args:
+            query_embedding: The query embedding vector
+            embedding_type: Which embedding to search ('code', 'docstring', 'name')
+            limit: Maximum number of results
+            node_type: Optional filter by node type
+
+        Returns:
+            List of (Node, similarity_score) tuples, sorted by similarity descending
+        """
+        self._ensure_embeddings_schema()
+
+        # Map embedding type to column
+        column_map = {
+            "code": "code_embedding",
+            "docstring": "docstring_embedding",
+            "name": "name_embedding",
+        }
+        if embedding_type not in column_map:
+            raise ValueError(f"Invalid embedding_type: {embedding_type}")
+
+        column = column_map[embedding_type]
+
+        # Build type filter
+        type_filter = ""
+        params: list[Any] = [query_embedding]
+        if node_type:
+            type_filter = "AND n.type = ?"
+            params.append(node_type.value)
+
+        params.append(limit)
+
+        # DuckDB cosine similarity using list functions
+        # cosine_similarity = dot(a, b) / (norm(a) * norm(b))
+        rows = self.conn.execute(
+            f"""
+            WITH query_vec AS (
+                SELECT ?::FLOAT[] as vec
+            ),
+            similarities AS (
+                SELECT
+                    n.*,
+                    list_cosine_similarity(e.{column}, q.vec) as similarity
+                FROM nodes n
+                JOIN embeddings e ON n.id = e.node_id
+                CROSS JOIN query_vec q
+                WHERE e.{column} IS NOT NULL
+                {type_filter}
+            )
+            SELECT * FROM similarities
+            WHERE similarity IS NOT NULL
+            ORDER BY similarity DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+
+        results: list[tuple[Node, float]] = []
+        for row in rows:
+            # Last column is similarity, rest are node columns
+            similarity = row[-1]
+            node_row = row[:-1]
+            node = Node.from_row(node_row)
+            results.append((node, float(similarity)))
+
+        return results
+
+    def embedding_stats(self) -> dict[str, Any]:
+        """Get embedding statistics.
+
+        Returns:
+            Dictionary with embedding coverage and model info
+        """
+        self._ensure_embeddings_schema()
+
+        # Total nodes
+        node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
+        total_nodes = node_result[0] if node_result else 0
+
+        # Nodes with embeddings
+        embed_result = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()
+        nodes_with_embeddings = embed_result[0] if embed_result else 0
+
+        # Nodes without embeddings
+        nodes_without = total_nodes - nodes_with_embeddings
+
+        # Coverage by node type
+        coverage_by_type: dict[str, dict[str, int]] = {}
+        type_rows = self.conn.execute(
+            """
+            SELECT
+                n.type,
+                COUNT(n.id) as total,
+                COUNT(e.node_id) as with_embedding
+            FROM nodes n
+            LEFT JOIN embeddings e ON n.id = e.node_id
+            GROUP BY n.type
+            """
+        ).fetchall()
+        for row in type_rows:
+            coverage_by_type[row[0]] = {
+                "total": row[1],
+                "with_embedding": row[2],
+                "without_embedding": row[1] - row[2],
+            }
+
+        # Model distribution
+        model_dist: dict[str, int] = {}
+        model_rows = self.conn.execute(
+            """
+            SELECT model_name, model_version, COUNT(*)
+            FROM embeddings
+            GROUP BY model_name, model_version
+            """
+        ).fetchall()
+        for row in model_rows:
+            key = f"{row[0]}:{row[1]}"
+            model_dist[key] = row[2]
+
+        # Dimensions (should be consistent)
+        dim_result = self.conn.execute("SELECT DISTINCT dimensions FROM embeddings").fetchall()
+        dimensions = [r[0] for r in dim_result]
+
+        return {
+            "total_nodes": total_nodes,
+            "nodes_with_embeddings": nodes_with_embeddings,
+            "nodes_without_embeddings": nodes_without,
+            "coverage_percent": (
+                (nodes_with_embeddings / total_nodes * 100) if total_nodes > 0 else 0
+            ),
+            "coverage_by_type": coverage_by_type,
+            "model_distribution": model_dist,
+            "dimensions": dimensions,
+        }
 
     def close(self) -> None:
         """Close database connection."""

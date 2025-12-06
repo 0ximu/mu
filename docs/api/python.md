@@ -177,6 +177,95 @@ for change in result.changes:
         print(f"  {delta.kind}: {delta.name}")
 ```
 
+### `mu.kernel.embeddings`
+
+Vector embeddings for semantic code search.
+
+```python
+from mu.kernel import MUbase, EmbeddingService, NodeEmbedding
+
+# Create embedding service
+service = EmbeddingService(
+    provider="openai",  # or "local"
+    model="text-embedding-3-small"  # or "all-MiniLM-L6-v2" for local
+)
+
+# Get nodes from database
+db = MUbase("./src/.mubase")
+nodes = db.get_nodes()
+
+# Generate embeddings
+async def embed_codebase():
+    def on_progress(current, total):
+        print(f"Progress: {current}/{total}")
+
+    embeddings = await service.embed_nodes(
+        nodes,
+        batch_size=100,
+        on_progress=on_progress
+    )
+
+    # Store embeddings
+    db.add_embeddings_batch(embeddings)
+
+    return embeddings
+
+# Run embedding generation
+import asyncio
+embeddings = asyncio.run(embed_codebase())
+
+# Search by semantic similarity
+results = db.vector_search(
+    query_embedding=query_vector,
+    embedding_type="code",  # code, docstring, name
+    limit=10,
+    node_type=NodeType.FUNCTION  # optional filter
+)
+
+for node, similarity in results:
+    print(f"{node.name}: {similarity:.3f}")
+
+# Convenience method: semantic search with text query
+async def search():
+    query_embedding = await service.embed_query("authentication logic")
+    return db.vector_search(query_embedding, limit=5)
+
+# Get embedding statistics
+stats = db.embedding_stats()
+print(f"Embedded: {stats['nodes_with_embeddings']}/{stats['total_nodes']}")
+```
+
+#### Embedding Providers
+
+**OpenAI (default)**:
+- Model: `text-embedding-3-small` (1536 dimensions)
+- Requires: `OPENAI_API_KEY` environment variable
+- Best for: Production, high quality
+
+**Local (sentence-transformers)**:
+- Model: `all-MiniLM-L6-v2` (384 dimensions)
+- Requires: `pip install sentence-transformers`
+- Best for: Offline use, privacy, cost savings
+
+```python
+# OpenAI provider
+from mu.kernel.embeddings import OpenAIEmbeddingProvider
+
+provider = OpenAIEmbeddingProvider(
+    model="text-embedding-3-small",
+    timeout=60.0,
+    max_retries=3
+)
+
+# Local provider
+from mu.kernel.embeddings import LocalEmbeddingProvider
+
+provider = LocalEmbeddingProvider(
+    model="all-MiniLM-L6-v2",
+    device="auto"  # auto, cpu, cuda, mps
+)
+```
+
 ## Error Handling
 
 MU uses error-as-data pattern instead of exceptions:

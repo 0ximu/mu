@@ -72,9 +72,11 @@ Each task must include:
 
 ## Branch Creation
 
-Before handing off to the Coder agent, create a feature branch:
+Before handing off to the Coder agent, create a feature branch from `dev`:
 
 ```bash
+git checkout dev
+git pull origin dev
 git checkout -b feature/{feature-name}
 ```
 
@@ -86,8 +88,12 @@ Branch naming conventions:
 
 Example:
 ```bash
+git checkout dev
+git pull origin dev
 git checkout -b feature/rust-parser-support
 ```
+
+**Important**: All feature branches are created from `dev` and will be merged back to `dev` via draft PR.
 
 ## Checks Before Handoff
 
