@@ -97,6 +97,38 @@ class ContextResponse(BaseModel):
     nodes: list[NodeResponse] = Field(description="Included nodes")
 
 
+class ContractsRequest(BaseModel):
+    """Request model for /contracts/verify endpoint."""
+
+    contracts_path: str | None = Field(
+        default=None,
+        description="Path to contracts file (default: .mu-contracts.yml)",
+    )
+
+
+class ContractViolationResponse(BaseModel):
+    """A single contract violation."""
+
+    contract: str = Field(description="Contract name")
+    rule: str = Field(description="Rule name")
+    message: str = Field(description="Violation message")
+    severity: str = Field(description="Severity: 'error' or 'warning'")
+    file_path: str | None = Field(default=None, description="File path if applicable")
+    line: int | None = Field(default=None, description="Line number if applicable")
+    node_id: str | None = Field(default=None, description="Node ID if applicable")
+
+
+class ContractsResponse(BaseModel):
+    """Response model for /contracts/verify endpoint."""
+
+    passed: bool = Field(description="Whether all contracts passed")
+    error_count: int = Field(description="Number of errors")
+    warning_count: int = Field(description="Number of warnings")
+    violations: list[ContractViolationResponse] = Field(
+        description="List of violations"
+    )
+
+
 # =============================================================================
 # WebSocket Connection Manager
 # =============================================================================
@@ -453,6 +485,77 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
+    @app.post("/contracts/verify", response_model=ContractsResponse)
+    async def verify_contracts(request: ContractsRequest) -> ContractsResponse:
+        """Verify architecture contracts against the graph."""
+        state: AppState = app.state.daemon
+
+        # Determine contracts file path
+        contracts_path = Path(request.contracts_path or ".mu-contracts.yml")
+        if not contracts_path.is_absolute():
+            contracts_path = state.mubase_path.parent / contracts_path
+
+        # Resolve to absolute and validate no path traversal
+        contracts_path = contracts_path.resolve()
+        project_root = state.mubase_path.parent.resolve()
+        if not str(contracts_path).startswith(str(project_root)):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid contracts path: path traversal not allowed",
+            )
+
+        try:
+            from mu.contracts import ContractVerifier, parse_contracts_file
+
+            # Check if contracts file exists
+            if not contracts_path.exists():
+                # No contracts file - return passed with no violations
+                return ContractsResponse(
+                    passed=True,
+                    error_count=0,
+                    warning_count=0,
+                    violations=[],
+                )
+
+            # Parse contracts and verify
+            contracts = parse_contracts_file(contracts_path)
+            verifier = ContractVerifier(state.mubase)
+            result = verifier.verify(contracts)
+
+            # Convert violations to response format
+            # Combine violations and warnings into a single list
+            all_violations = result.violations + result.warnings
+            violations = []
+            for v in all_violations:
+                violations.append(
+                    ContractViolationResponse(
+                        contract=v.contract.name,
+                        rule=v.contract.rule.type.value,
+                        message=v.message,
+                        severity=v.contract.severity.value,
+                        file_path=v.file_path,
+                        line=v.line,
+                        node_id=None,  # Violation model doesn't have node_id
+                    )
+                )
+
+            return ContractsResponse(
+                passed=result.passed,
+                error_count=result.error_count,
+                warning_count=result.warning_count,
+                violations=violations,
+            )
+        except FileNotFoundError:
+            # Contracts file not found - return passed
+            return ContractsResponse(
+                passed=True,
+                error_count=0,
+                warning_count=0,
+                violations=[],
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
     # -------------------------------------------------------------------------
     # WebSocket Endpoint
     # -------------------------------------------------------------------------
@@ -507,4 +610,7 @@ __all__ = [
     "QueryResponse",
     "ContextRequest",
     "ContextResponse",
+    "ContractsRequest",
+    "ContractsResponse",
+    "ContractViolationResponse",
 ]
