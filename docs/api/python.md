@@ -177,6 +177,84 @@ for change in result.changes:
         print(f"  {delta.kind}: {delta.name}")
 ```
 
+### `mu.kernel.context`
+
+Smart context extraction for answering questions about code.
+
+```python
+from mu.kernel import MUbase, ContextResult, ExtractionConfig
+
+# Open database
+db = MUbase("./src/.mubase")
+
+# Simple usage
+result = db.get_context_for_question(
+    "How does authentication work?",
+    max_tokens=4000,
+)
+
+print(result.mu_text)           # MU format output
+print(result.token_count)       # Actual token count
+print(len(result.nodes))        # Number of nodes included
+print(result.relevance_scores)  # node_id -> score mapping
+print(result.extraction_stats)  # Debug statistics
+
+# Advanced usage with custom config
+from mu.kernel.context import SmartContextExtractor, ExtractionConfig
+
+config = ExtractionConfig(
+    max_tokens=8000,
+    include_imports=True,
+    include_parent=True,      # Include parent class for methods
+    expand_depth=1,           # Graph expansion depth
+    entity_weight=1.0,        # Weight for entity name match
+    vector_weight=0.7,        # Weight for vector similarity
+    proximity_weight=0.3,     # Weight for graph proximity
+    min_relevance=0.1,        # Minimum score threshold
+    exclude_tests=False,      # Filter test files
+)
+
+extractor = SmartContextExtractor(db, config)
+result = extractor.extract("Where is Redis used?")
+
+# Export as JSON
+from mu.kernel.context import ContextExporter
+
+exporter = ContextExporter(db, include_scores=True)
+json_output = exporter.export_json(result)
+```
+
+#### Entity Extraction
+
+```python
+from mu.kernel.context.extractor import EntityExtractor
+
+# Create extractor with known codebase names
+extractor = EntityExtractor(known_names={"AuthService", "UserModel"})
+
+# Extract entities from question
+entities = extractor.extract("How does AuthService validate the user login?")
+# Returns: [ExtractedEntity(name="AuthService", confidence=1.0, source="known_name"), ...]
+```
+
+#### Token Budgeting
+
+```python
+from mu.kernel.context.budgeter import TokenBudgeter
+
+budgeter = TokenBudgeter(max_tokens=8000)
+
+# Count tokens in text
+tokens = budgeter.get_actual_tokens("Some MU format text...")
+
+# Fit nodes to budget
+selected = budgeter.fit_to_budget(
+    scored_nodes,
+    mubase=db,
+    include_parent=True,
+)
+```
+
 ### `mu.kernel.embeddings`
 
 Vector embeddings for semantic code search.
