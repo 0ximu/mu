@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/mu-logo.svg" alt="MU Logo" width="400"/>
+  <img src="docs/assets/intro.gif" alt="MU Demo" width="600"/>
 </p>
 
 <h1 align="center">Machine Understanding</h1>
