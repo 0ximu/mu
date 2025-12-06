@@ -908,12 +908,20 @@ def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
 
     print_info(f"Found {len(scan_result.files)} files")
 
-    # Parse all files
+    # Parse all files (only supported languages)
+    from mu.scanner import SUPPORTED_LANGUAGES
+
     print_info("Parsing files...")
     modules = []
     errors = 0
+    skipped = 0
 
     for file_info in scan_result.files:
+        # Skip non-parseable languages (markdown, json, yaml, toml, etc.)
+        if file_info.language not in SUPPORTED_LANGUAGES:
+            skipped += 1
+            continue
+
         parsed = parse_file(Path(root_path / file_info.path), file_info.language)
         if parsed.success and parsed.module:
             modules.append(parsed.module)
