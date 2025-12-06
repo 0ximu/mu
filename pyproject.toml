@@ -43,6 +43,9 @@ dependencies = [
     "pyperclip>=1.8.0",
     "tiktoken>=0.5.0",
     "python-dotenv>=1.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.25.0",
+    "watchfiles>=0.21.0",
 ]
 
 [project.optional-dependencies]

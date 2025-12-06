@@ -17,6 +17,7 @@ src/mu/kernel/temporal/CLAUDE.md      # Git-linked snapshots and time-travel
 src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
 src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
+src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
@@ -50,6 +51,12 @@ mu kernel export <path> --format json     # Export as JSON
 mu kernel export <path> --format mermaid  # Export as Mermaid diagram
 mu kernel export <path> --format d2       # Export as D2 diagram
 mu kernel export <path> --format cytoscape # Export for Cytoscape.js
+
+# Daemon (real-time updates)
+mu daemon start .                    # Start daemon in background
+mu daemon status                     # Check daemon status
+mu daemon stop                       # Stop running daemon
+mu daemon run .                      # Run in foreground (debugging)
 ```
 
 ## Pipeline
@@ -69,6 +76,8 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`ContextResult`**: Smart context extraction result with MU output
 - **`Snapshot`**: Point-in-time graph state linked to git commit
 - **`ExportResult`**: Multi-format export output with error handling
+- **`DaemonConfig`**: Daemon server configuration
+- **`GraphEvent`**: Real-time graph change notifications
 
 ## Supported Languages
 

@@ -846,6 +846,97 @@ class MUbase:
 
         return unique
 
+    # =========================================================================
+    # Incremental Update Methods (for daemon mode)
+    # =========================================================================
+
+    def get_nodes_by_file(self, file_path: str) -> list[Node]:
+        """Get all nodes from a specific file.
+
+        Args:
+            file_path: The file path to match
+
+        Returns:
+            List of nodes from the specified file
+        """
+        return self.get_nodes(file_path=file_path)
+
+    def remove_nodes_by_file(self, file_path: str) -> list[str]:
+        """Remove all nodes from a file and their edges.
+
+        Args:
+            file_path: The file path whose nodes should be removed
+
+        Returns:
+            List of removed node IDs
+        """
+        nodes = self.get_nodes_by_file(file_path)
+        removed_ids = [n.id for n in nodes]
+
+        if not removed_ids:
+            return []
+
+        # Remove edges first (to avoid foreign key issues if constraints exist)
+        placeholders = ", ".join(["?"] * len(removed_ids))
+        self.conn.execute(
+            f"DELETE FROM edges WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})",
+            removed_ids + removed_ids,
+        )
+
+        # Remove nodes
+        self.conn.execute(
+            f"DELETE FROM nodes WHERE id IN ({placeholders})",
+            removed_ids,
+        )
+
+        return removed_ids
+
+    def update_node(self, node: Node) -> None:
+        """Update an existing node (upsert pattern).
+
+        Uses the existing add_node which implements INSERT OR REPLACE.
+
+        Args:
+            node: The node to update
+        """
+        self.add_node(node)
+
+    def remove_node(self, node_id: str) -> bool:
+        """Remove a single node and its edges.
+
+        Args:
+            node_id: The ID of the node to remove
+
+        Returns:
+            True if the node was removed, False if it didn't exist
+        """
+        # Check if node exists
+        node = self.get_node(node_id)
+        if node is None:
+            return False
+
+        # Remove edges first
+        self.conn.execute(
+            "DELETE FROM edges WHERE source_id = ? OR target_id = ?",
+            [node_id, node_id],
+        )
+
+        # Remove node
+        self.conn.execute("DELETE FROM nodes WHERE id = ?", [node_id])
+        return True
+
+    def remove_edge(self, edge_id: str) -> bool:
+        """Remove a single edge.
+
+        Args:
+            edge_id: The ID of the edge to remove
+
+        Returns:
+            True if the edge was removed, False if it didn't exist
+        """
+        result = self.conn.execute("DELETE FROM edges WHERE id = ?", [edge_id])
+        return result.rowcount > 0 if hasattr(result, "rowcount") else True
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()
