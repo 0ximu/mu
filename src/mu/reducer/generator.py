@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from mu.parser.models import ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef
-from mu.reducer.rules import TransformationRules, DEFAULT_RULES
+from mu.reducer.rules import DEFAULT_RULES, TransformationRules
 
 
 @dataclass
@@ -199,7 +199,7 @@ class MUGenerator:
 
     def _generate_header(self, codebase: ReducedCodebase) -> list[str]:
         """Generate MU header."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         stats = codebase.stats
 
         return [
@@ -262,10 +262,10 @@ class MUGenerator:
         ]
 
         # External dependencies
-        external_deps = list(set(
+        external_deps = list({
             imp.module for imp in module.imports
             if imp.module and not imp.module.startswith(".")
-        ))
+        })
         if external_deps:
             deps_str = ", ".join(sorted(external_deps)[:10])
             lines.append(f"{self._sigil('SIGIL_METADATA')}deps [{deps_str}]")

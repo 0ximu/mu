@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -139,7 +139,7 @@ def compute_file_hash(file_path: Path) -> str:
 def count_lines(file_path: Path) -> int:
     """Count lines in a file."""
     try:
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             return sum(1 for _ in f)
     except Exception:
         return 0
@@ -178,7 +178,7 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
 
     result = ScanResult(
         root=str(root),
-        scanned_at=datetime.now(timezone.utc).isoformat(),
+        scanned_at=datetime.now(UTC).isoformat(),
     )
 
     ignore_patterns = config.scanner.ignore

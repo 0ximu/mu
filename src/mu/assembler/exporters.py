@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from mu.assembler import AssembledOutput, ModuleGraph
-from mu.reducer.generator import ReducedCodebase, MUGenerator
+from mu.assembler import AssembledOutput
+from mu.reducer.generator import MUGenerator
 
 
 def export_json(
@@ -28,7 +28,7 @@ def export_json(
     data: dict[str, Any] = {
         "version": "1.0",
         "format": "mu-json",
-        "generated": datetime.now(timezone.utc).isoformat(),
+        "generated": datetime.now(UTC).isoformat(),
         "source": output.codebase.source,
         "stats": output.codebase.stats,
     }
@@ -109,7 +109,7 @@ def export_markdown(output: AssembledOutput) -> str:
     lines.append("# MU Codebase Analysis")
     lines.append("")
     lines.append(f"**Source:** `{output.codebase.source}`")
-    lines.append(f"**Generated:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"**Generated:** {datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")
 
     # Stats

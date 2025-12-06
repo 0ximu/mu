@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
 
-from mu.parser.models import ClassDef, FunctionDef, ImportDef, ModuleDef
+from mu.parser.models import FunctionDef, ImportDef
 
 
 @dataclass

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import logging
 from pathlib import Path
 from typing import Any
@@ -18,14 +17,13 @@ from mu.llm.prompts import (
     format_summarize_prompt,
     parse_summary_response,
 )
-from mu.llm.providers import get_model_config, ModelConfig
+from mu.llm.providers import get_model_config
 from mu.llm.types import (
     LLMProvider,
     LLMStats,
     SummarizationRequest,
     SummarizationResult,
 )
-
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +217,7 @@ class LLMPool:
                     error=f"Authentication failed: {e}",
                 )
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 last_error = f"Timeout after {self.config.timeout_seconds}s"
                 if attempt < self.config.max_retries:
                     logger.warning(f"Timeout, retrying ({attempt + 1}/{self.config.max_retries})")

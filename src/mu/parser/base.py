@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from tree_sitter import Language, Parser, Node
+from tree_sitter import Language, Node, Parser
 
-from mu.parser.models import ModuleDef
-from mu.errors import ParseError, UnsupportedLanguageError
+from mu.errors import UnsupportedLanguageError
 from mu.logging import get_logger
+from mu.parser.models import ModuleDef
 
 
 class LanguageExtractor(Protocol):
@@ -59,8 +59,8 @@ def _get_language(lang: str) -> Language:
             import tree_sitter_python as tspython
             _languages[lang] = Language(tspython.language())
         elif lang in ("typescript", "javascript"):
-            import tree_sitter_typescript as tstypescript
             import tree_sitter_javascript as tsjavascript
+            import tree_sitter_typescript as tstypescript
             if lang == "typescript":
                 _languages[lang] = Language(tstypescript.language_typescript())
             else:

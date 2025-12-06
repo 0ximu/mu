@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from mu.llm.prompts import format_summarize_prompt
-from mu.llm.providers import get_model_config, ModelConfig
+from mu.llm.providers import ModelConfig, get_model_config
 from mu.llm.types import CostEstimate, LLMProvider, SummarizationRequest
-
 
 # Average characters per token (rough estimate)
 # Actual tokenization varies by model, but ~4 chars/token is reasonable for code

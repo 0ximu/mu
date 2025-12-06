@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from tree_sitter import Node
 
+from mu.parser.base import (
+    count_nodes,
+    find_child_by_type,
+    get_node_text,
+)
 from mu.parser.models import (
     ClassDef,
     FunctionDef,
     ImportDef,
     ModuleDef,
     ParameterDef,
-)
-from mu.parser.base import (
-    count_nodes,
-    get_node_text,
-    find_child_by_type,
-    find_children_by_type,
 )
 
 
@@ -162,7 +162,6 @@ class GoExtractor:
             end_line=node.end_point[0] + 1,
         )
 
-        receiver_type = None
         param_list_count = 0
 
         for child in node.children:
@@ -171,7 +170,6 @@ class GoExtractor:
                     # First parameter_list is the receiver
                     receiver = self._extract_receiver(child, source)
                     if receiver:
-                        receiver_type = receiver
                         func.decorators.append(f"receiver:{receiver}")
                 elif param_list_count == 1:
                     # Second parameter_list is the actual parameters

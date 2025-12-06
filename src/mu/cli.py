@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 import click
 from rich.table import Table
 
 from mu import __version__
 from mu.config import MUConfig, get_default_config_toml
-from mu.errors import ConfigError, ExitCode
+from mu.errors import ExitCode
 from mu.logging import (
     console,
-    err_console,
     print_error,
     print_info,
     print_success,
@@ -44,7 +42,7 @@ pass_context = click.make_pass_decorator(MUContext, ensure=True)
 )
 @click.version_option(version=__version__, prog_name="mu")
 @pass_context
-def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Optional[Path]) -> None:
+def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Path | None) -> None:
     """MU - Machine Understanding: Semantic compression for AI-native development.
 
     Translate codebases into token-efficient representations optimized for LLM comprehension.
@@ -114,7 +112,7 @@ def init(ctx: MUContext, force: bool) -> None:
     help="Output format",
 )
 @pass_context
-def scan(ctx: MUContext, path: Path, output: Optional[Path], format: str) -> None:
+def scan(ctx: MUContext, path: Path, output: Path | None, format: str) -> None:
     """Analyze codebase structure and output manifest.
 
     Walks the filesystem, identifies modules, languages, and structure.
@@ -192,11 +190,11 @@ def format_scan_result(result) -> str:
 def compress(
     ctx: MUContext,
     path: Path,
-    output: Optional[Path],
+    output: Path | None,
     llm: bool,
     local: bool,
-    llm_provider: Optional[str],
-    llm_model: Optional[str],
+    llm_provider: str | None,
+    llm_model: str | None,
     no_redact: bool,
     shell_safe: bool,
     format: str,
@@ -240,15 +238,16 @@ def compress(
         print_info("Local-only mode: using Ollama, no data sent externally")
 
     import asyncio
-    from mu.cache import CacheManager
-    from mu.scanner import scan_codebase
-    from mu.parser import parse_file
-    from mu.reducer import reduce_codebase, MUGenerator
-    from mu.reducer.rules import TransformationRules
-    from mu.logging import create_progress
+
     from mu.assembler import assemble
     from mu.assembler.exporters import export_json, export_markdown, export_mu
-    from mu.security import SecretScanner, load_custom_patterns, DEFAULT_PATTERNS
+    from mu.cache import CacheManager
+    from mu.logging import create_progress
+    from mu.parser import parse_file
+    from mu.reducer import reduce_codebase
+    from mu.reducer.rules import TransformationRules
+    from mu.scanner import scan_codebase
+    from mu.security import DEFAULT_PATTERNS, SecretScanner, load_custom_patterns
 
     # Initialize cache manager
     cache_manager = CacheManager(ctx.config.cache, path.resolve())
@@ -356,9 +355,9 @@ def compress(
     if ctx.config.llm.enabled and stats.get("needs_llm_summary", 0) > 0:
         from mu.llm import (
             LLMPool,
+            LLMProvider,
             SummarizationRequest,
             estimate_cost,
-            LLMProvider,
         )
 
         # Collect functions needing summarization
@@ -526,7 +525,7 @@ def view(
     format: str,
     theme: str,
     line_numbers: bool,
-    output: Optional[Path],
+    output: Path | None,
 ) -> None:
     """Render MU file in human-readable format.
 
@@ -587,7 +586,7 @@ def diff(
     ctx: MUContext,
     base_ref: str,
     target_ref: str,
-    output: Optional[Path],
+    output: Path | None,
     format: str,
     path: Path,
     no_color: bool,
@@ -604,20 +603,18 @@ def diff(
         mu diff v1.0.0 v2.0.0           # Compare tagged releases
         mu diff main HEAD -f json       # Output as JSON
     """
+    from mu.assembler import assemble
     from mu.diff import (
+        SemanticDiffer,
         format_diff,
         format_diff_json,
-        GitWorktreeManager,
-        SemanticDiffer,
     )
     from mu.diff.formatters import format_diff_markdown
-    from mu.diff.git_utils import compare_refs, GitError
-    from mu.scanner import scan_codebase
+    from mu.diff.git_utils import GitError, compare_refs
     from mu.parser import parse_file
     from mu.reducer import reduce_codebase
     from mu.reducer.rules import TransformationRules
-    from mu.assembler import assemble
-    from mu.logging import create_progress
+    from mu.scanner import scan_codebase
 
     if ctx.config is None:
         ctx.config = MUConfig()
@@ -758,6 +755,7 @@ def cache_clear(ctx: MUContext, llm_only: bool, files_only: bool) -> None:
 def cache_stats(ctx: MUContext, as_json: bool) -> None:
     """Show cache statistics."""
     import json as json_module
+
     from mu.cache import CacheManager
 
     if ctx.config is None:
@@ -874,7 +872,7 @@ def kernel_init(path: Path, force: bool) -> None:
     help="Output .mubase file (default: {path}/.mubase)",
 )
 @pass_context
-def kernel_build(ctx: MUContext, path: Path, output: Optional[Path]) -> None:
+def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
     """Build graph database from codebase.
 
     Scans the directory, parses all supported files, and builds a
@@ -1022,9 +1020,9 @@ def kernel_stats(path: Path, as_json: bool) -> None:
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_query(
     path: Path,
-    node_type: Optional[str],
-    complexity: Optional[int],
-    name: Optional[str],
+    node_type: str | None,
+    complexity: int | None,
+    name: str | None,
     limit: int,
     as_json: bool,
 ) -> None:
@@ -1113,7 +1111,7 @@ def kernel_query(
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
 def kernel_muql(
     path: Path,
-    query: Optional[str],
+    query: str | None,
     interactive: bool,
     output_format: str,
     no_color: bool,

@@ -5,10 +5,10 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 
 class GitError(Exception):
@@ -43,7 +43,7 @@ def run_git(args: list[str], cwd: Path | None = None) -> str:
         )
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
-        raise GitError(f"Git command failed: git {' '.join(args)}\n{e.stderr}")
+        raise GitError(f"Git command failed: git {' '.join(args)}\n{e.stderr}") from e
 
 
 def resolve_ref(ref: str, repo_path: Path) -> GitRef:
@@ -51,8 +51,8 @@ def resolve_ref(ref: str, repo_path: Path) -> GitRef:
     # Get the commit hash
     try:
         commit_hash = run_git(["rev-parse", ref], cwd=repo_path)
-    except GitError:
-        raise GitError(f"Could not resolve git reference: {ref}")
+    except GitError as e:
+        raise GitError(f"Could not resolve git reference: {ref}") from e
 
     # Check if it's a branch
     is_branch = False
@@ -83,8 +83,8 @@ def get_repo_root(path: Path) -> Path:
     try:
         root = run_git(["rev-parse", "--show-toplevel"], cwd=path)
         return Path(root)
-    except GitError:
-        raise GitError(f"Not a git repository: {path}")
+    except GitError as e:
+        raise GitError(f"Not a git repository: {path}") from e
 
 
 def is_clean_worktree(repo_path: Path) -> bool:
@@ -174,7 +174,7 @@ class GitWorktreeManager:
             shutil.rmtree(self._temp_dir, ignore_errors=True)
             self._temp_dir = None
 
-    def __enter__(self) -> "GitWorktreeManager":
+    def __enter__(self) -> GitWorktreeManager:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:

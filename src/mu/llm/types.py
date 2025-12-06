@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -57,7 +57,7 @@ class CostEstimate:
     def format_summary(self) -> str:
         """Format cost estimate for display."""
         lines = [
-            f"Estimated LLM usage:",
+            "Estimated LLM usage:",
             f"  Functions to summarize: {self.function_count}",
             f"  Estimated input tokens: ~{self.estimated_input_tokens:,}",
             f"  Estimated output tokens: ~{self.estimated_output_tokens:,}",
