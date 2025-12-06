@@ -44,6 +44,15 @@ from mu.kernel.embeddings import (
     EmbeddingStats,
     NodeEmbedding,
 )
+
+# Re-export key export classes for convenience
+from mu.kernel.export import (
+    Exporter,
+    ExportManager,
+    ExportOptions,
+    ExportResult,
+    get_default_manager,
+)
 from mu.kernel.models import Edge, Node
 from mu.kernel.mubase import MUbase
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
@@ -70,4 +79,10 @@ __all__ = [
     "ContextResult",
     "ExtractionConfig",
     "SmartContextExtractor",
+    # Export (convenience re-exports)
+    "Exporter",
+    "ExportOptions",
+    "ExportResult",
+    "ExportManager",
+    "get_default_manager",
 ]

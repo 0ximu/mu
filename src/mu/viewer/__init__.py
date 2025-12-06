@@ -12,23 +12,23 @@ class TokenType(Enum):
     """Token types for MU format syntax highlighting."""
 
     HEADER = "header"
-    SIGIL_MODULE = "sigil_module"       # !
-    SIGIL_ENTITY = "sigil_entity"       # $
-    SIGIL_FUNCTION = "sigil_function"   # #
-    SIGIL_METADATA = "sigil_metadata"   # @
-    SIGIL_CONDITIONAL = "sigil_cond"    # ?
-    ANNOTATION = "annotation"           # ::
-    OPERATOR = "operator"               # ->, =>, |, ~
-    KEYWORD = "keyword"                 # module, async, static, etc.
-    TYPE = "type"                       # Type annotations
-    NAME = "name"                       # Identifiers
-    PARAMETER = "parameter"             # Function parameters
-    COMMENT = "comment"                 # Comments
-    STRING = "string"                   # String literals
-    NUMBER = "number"                   # Numbers
-    PUNCTUATION = "punctuation"         # Brackets, commas, etc.
+    SIGIL_MODULE = "sigil_module"  # !
+    SIGIL_ENTITY = "sigil_entity"  # $
+    SIGIL_FUNCTION = "sigil_function"  # #
+    SIGIL_METADATA = "sigil_metadata"  # @
+    SIGIL_CONDITIONAL = "sigil_cond"  # ?
+    ANNOTATION = "annotation"  # ::
+    OPERATOR = "operator"  # ->, =>, |, ~
+    KEYWORD = "keyword"  # module, async, static, etc.
+    TYPE = "type"  # Type annotations
+    NAME = "name"  # Identifiers
+    PARAMETER = "parameter"  # Function parameters
+    COMMENT = "comment"  # Comments
+    STRING = "string"  # String literals
+    NUMBER = "number"  # Numbers
+    PUNCTUATION = "punctuation"  # Brackets, commas, etc.
     WHITESPACE = "whitespace"
-    TEXT = "text"                       # Plain text
+    TEXT = "text"  # Plain text
 
 
 @dataclass
@@ -72,8 +72,15 @@ class MUDocument:
 
 # Keywords in MU format
 MU_KEYWORDS = {
-    "module", "async", "static", "classmethod", "property",
-    "class", "interface", "struct", "enum",
+    "module",
+    "async",
+    "static",
+    "classmethod",
+    "property",
+    "class",
+    "interface",
+    "struct",
+    "enum",
 }
 
 
@@ -100,7 +107,7 @@ def tokenize_line(line: str, line_num: int = 0) -> Iterator[Token]:
             return
 
         # Annotation (::)
-        if line[pos:pos + 2] == "::":
+        if line[pos : pos + 2] == "::":
             # Find the rest of the annotation
             yield Token(TokenType.ANNOTATION, "::", line_num, pos)
             pos += 2
@@ -112,12 +119,12 @@ def tokenize_line(line: str, line_num: int = 0) -> Iterator[Token]:
             continue
 
         # Operators (check multi-char first)
-        if line[pos:pos + 2] == "->":
+        if line[pos : pos + 2] == "->":
             yield Token(TokenType.OPERATOR, "->", line_num, pos)
             pos += 2
             continue
 
-        if line[pos:pos + 2] == "=>":
+        if line[pos : pos + 2] == "=>":
             yield Token(TokenType.OPERATOR, "=>", line_num, pos)
             pos += 2
             continue
@@ -181,7 +188,9 @@ def tokenize_line(line: str, line_num: int = 0) -> Iterator[Token]:
             continue
 
         # Numbers
-        if line[pos].isdigit() or (line[pos] == "-" and pos + 1 < length and line[pos + 1].isdigit()):
+        if line[pos].isdigit() or (
+            line[pos] == "-" and pos + 1 < length and line[pos + 1].isdigit()
+        ):
             start = pos
             if line[pos] == "-":
                 pos += 1
@@ -203,9 +212,9 @@ def tokenize_line(line: str, line_num: int = 0) -> Iterator[Token]:
             # Type annotations often come after -> or :
             elif start > 0 and line[start - 1] == ":":
                 yield Token(TokenType.TYPE, word, line_num, start)
-            elif start > 1 and line[start - 2:start] == "->":
+            elif start > 1 and line[start - 2 : start] == "->":
                 yield Token(TokenType.TYPE, word, line_num, start)
-            elif start > 1 and line[start - 3:start] == "-> ":
+            elif start > 1 and line[start - 3 : start] == "-> ":
                 yield Token(TokenType.TYPE, word, line_num, start)
             else:
                 yield Token(TokenType.NAME, word, line_num, start)
@@ -221,42 +230,42 @@ class TerminalRenderer:
 
     # ANSI color codes for different themes
     DARK_THEME = {
-        TokenType.HEADER: "\033[1;36m",       # Bold cyan
+        TokenType.HEADER: "\033[1;36m",  # Bold cyan
         TokenType.SIGIL_MODULE: "\033[1;35m",  # Bold magenta
         TokenType.SIGIL_ENTITY: "\033[1;33m",  # Bold yellow
         TokenType.SIGIL_FUNCTION: "\033[1;32m",  # Bold green
         TokenType.SIGIL_METADATA: "\033[1;34m",  # Bold blue
         TokenType.SIGIL_CONDITIONAL: "\033[1;31m",  # Bold red
-        TokenType.ANNOTATION: "\033[2;37m",   # Dim white
-        TokenType.OPERATOR: "\033[1;37m",     # Bold white
-        TokenType.KEYWORD: "\033[1;35m",      # Bold magenta
-        TokenType.TYPE: "\033[0;33m",         # Yellow
-        TokenType.NAME: "\033[0;37m",         # White
-        TokenType.PARAMETER: "\033[0;36m",    # Cyan
-        TokenType.COMMENT: "\033[2;32m",      # Dim green
-        TokenType.STRING: "\033[0;32m",       # Green
-        TokenType.NUMBER: "\033[0;34m",       # Blue
+        TokenType.ANNOTATION: "\033[2;37m",  # Dim white
+        TokenType.OPERATOR: "\033[1;37m",  # Bold white
+        TokenType.KEYWORD: "\033[1;35m",  # Bold magenta
+        TokenType.TYPE: "\033[0;33m",  # Yellow
+        TokenType.NAME: "\033[0;37m",  # White
+        TokenType.PARAMETER: "\033[0;36m",  # Cyan
+        TokenType.COMMENT: "\033[2;32m",  # Dim green
+        TokenType.STRING: "\033[0;32m",  # Green
+        TokenType.NUMBER: "\033[0;34m",  # Blue
         TokenType.PUNCTUATION: "\033[2;37m",  # Dim white
         TokenType.WHITESPACE: "",
         TokenType.TEXT: "\033[0m",
     }
 
     LIGHT_THEME = {
-        TokenType.HEADER: "\033[1;34m",       # Bold blue
+        TokenType.HEADER: "\033[1;34m",  # Bold blue
         TokenType.SIGIL_MODULE: "\033[1;35m",  # Bold magenta
         TokenType.SIGIL_ENTITY: "\033[1;33m",  # Bold yellow/orange
         TokenType.SIGIL_FUNCTION: "\033[1;32m",  # Bold green
         TokenType.SIGIL_METADATA: "\033[1;34m",  # Bold blue
         TokenType.SIGIL_CONDITIONAL: "\033[1;31m",  # Bold red
-        TokenType.ANNOTATION: "\033[0;90m",   # Gray
-        TokenType.OPERATOR: "\033[1;30m",     # Bold black
-        TokenType.KEYWORD: "\033[1;35m",      # Bold magenta
-        TokenType.TYPE: "\033[0;34m",         # Blue
-        TokenType.NAME: "\033[0;30m",         # Black
-        TokenType.PARAMETER: "\033[0;36m",    # Cyan
-        TokenType.COMMENT: "\033[0;32m",      # Green
-        TokenType.STRING: "\033[0;32m",       # Green
-        TokenType.NUMBER: "\033[0;34m",       # Blue
+        TokenType.ANNOTATION: "\033[0;90m",  # Gray
+        TokenType.OPERATOR: "\033[1;30m",  # Bold black
+        TokenType.KEYWORD: "\033[1;35m",  # Bold magenta
+        TokenType.TYPE: "\033[0;34m",  # Blue
+        TokenType.NAME: "\033[0;30m",  # Black
+        TokenType.PARAMETER: "\033[0;36m",  # Cyan
+        TokenType.COMMENT: "\033[0;32m",  # Green
+        TokenType.STRING: "\033[0;32m",  # Green
+        TokenType.NUMBER: "\033[0;34m",  # Blue
         TokenType.PUNCTUATION: "\033[0;90m",  # Gray
         TokenType.WHITESPACE: "",
         TokenType.TEXT: "\033[0m",
@@ -450,8 +459,8 @@ class HTMLRenderer:
     <title>{self.escape_html(title)}</title>
     {self.CSS_STYLES}
 </head>
-<body style="margin: 0; padding: 20px; background: {'#eff1f5' if self.theme == 'light' else '#11111b'};">
-    <h1 style="font-family: sans-serif; color: {'#4c4f69' if self.theme == 'light' else '#cdd6f4'}; margin-bottom: 20px;">
+<body style="margin: 0; padding: 20px; background: {"#eff1f5" if self.theme == "light" else "#11111b"};">
+    <h1 style="font-family: sans-serif; color: {"#4c4f69" if self.theme == "light" else "#cdd6f4"}; margin-bottom: 20px;">
         {self.escape_html(title)}
     </h1>
     {content}

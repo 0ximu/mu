@@ -177,7 +177,9 @@ class GitWorktreeManager:
     def __enter__(self) -> GitWorktreeManager:
         return self
 
-    def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object) -> None:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: object
+    ) -> None:
         self.cleanup()
 
 

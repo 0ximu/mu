@@ -1,0 +1,50 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {
+    "started": "2025-12-06T16:30:00Z",
+    "last_updated": "2025-12-06T16:45:00Z"
+  },
+  "mode": "initial_scan",
+  "scan_level": "quick",
+  "project_root": "/Users/imu/Dev/work/mu",
+  "output_folder": "/Users/imu/Dev/work/mu/docs",
+  "completed_steps": [
+    {
+      "step": "step_1",
+      "status": "completed",
+      "timestamp": "2025-12-06T16:45:00Z",
+      "summary": "Classified as monolith with 1 main part (backend/cli/library hybrid)"
+    }
+  ],
+  "current_step": "step_2",
+  "findings": {
+    "project_classification": "Monolith, backend+cli+library hybrid, Python 3.11+"
+  },
+  "project_types": [
+    {
+      "part_id": "main",
+      "project_type_id": "backend",
+      "display_name": "MU - Semantic Code Analysis Platform"
+    }
+  ],
+  "project_parts": [
+    {
+      "part_id": "main",
+      "root_path": "/Users/imu/Dev/work/mu",
+      "project_type_id": "backend",
+      "tech_stack": "Python 3.11+, DuckDB, Tree-sitter, LiteLLM",
+      "entry_point": "mu.cli:main"
+    }
+  ],
+  "kernel_stats": {
+    "total_nodes": 1805,
+    "total_edges": 1940,
+    "classes": 281,
+    "modules": 89,
+    "functions": 1435,
+    "file_size_kb": 10252,
+    "built_at": "2025-12-06T17:43:30Z"
+  },
+  "outputs_generated": ["project-scan-report.json"],
+  "resume_instructions": "Continue from step 2 - discover existing documentation"
+}

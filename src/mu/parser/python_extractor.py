@@ -130,7 +130,9 @@ class PythonExtractor:
             is_from=True,
         )
 
-    def _extract_class(self, node: Node, source: bytes, decorators: list[str] | None = None) -> ClassDef:
+    def _extract_class(
+        self, node: Node, source: bytes, decorators: list[str] | None = None
+    ) -> ClassDef:
         """Extract class definition."""
         class_def = ClassDef(
             name="",
@@ -332,7 +334,7 @@ class PythonExtractor:
                     dec_text = dec_text[1:]
                 # Get just the decorator name (not arguments)
                 if "(" in dec_text:
-                    dec_text = dec_text[:dec_text.index("(")]
+                    dec_text = dec_text[: dec_text.index("(")]
                 decorators.append(dec_text)
             elif child.type == "class_definition":
                 return self._extract_class(child, source, decorators)
@@ -408,7 +410,9 @@ class PythonExtractor:
 
         return None
 
-    def _extract_importlib_call(self, node: Node, source: bytes, line_number: int) -> ImportDef | None:
+    def _extract_importlib_call(
+        self, node: Node, source: bytes, line_number: int
+    ) -> ImportDef | None:
         """Extract importlib.import_module() call."""
         args_node = find_child_by_type(node, "argument_list")
         if not args_node:
@@ -448,7 +452,9 @@ class PythonExtractor:
                 line_number=line_number,
             )
 
-    def _extract_builtin_import_call(self, node: Node, source: bytes, line_number: int) -> ImportDef | None:
+    def _extract_builtin_import_call(
+        self, node: Node, source: bytes, line_number: int
+    ) -> ImportDef | None:
         """Extract __import__() call."""
         args_node = find_child_by_type(node, "argument_list")
         if not args_node:

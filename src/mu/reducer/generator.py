@@ -23,7 +23,9 @@ class ReducedModule:
     functions: list[FunctionDef] = field(default_factory=list)
     annotations: list[str] = field(default_factory=list)  # Special notes
     needs_llm: list[str] = field(default_factory=list)  # Functions needing LLM summary
-    summaries: dict[str, list[str]] = field(default_factory=dict)  # LLM-generated summaries: func_name -> bullets
+    summaries: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # LLM-generated summaries: func_name -> bullets
 
 
 @dataclass
@@ -43,7 +45,9 @@ class ReducedCodebase:
 
     source: str
     modules: list[ReducedModule] = field(default_factory=list)
-    dependency_graph: dict[str, list[str]] = field(default_factory=dict)  # module_name -> [dep_module_names]
+    dependency_graph: dict[str, list[str]] = field(
+        default_factory=dict
+    )  # module_name -> [dep_module_names]
     external_packages: list[str] = field(default_factory=list)  # Third-party packages used
     dynamic_dependencies: list[DynamicDependency] = field(default_factory=list)  # Runtime imports
     stats: dict[str, Any] = field(default_factory=dict)
@@ -147,10 +151,7 @@ def reduce_codebase(
         "total_modules": len(reduced.modules),
         "total_classes": sum(len(m.classes) for m in reduced.modules),
         "total_functions": sum(len(m.functions) for m in reduced.modules),
-        "total_methods": sum(
-            sum(len(c.methods) for c in m.classes)
-            for m in reduced.modules
-        ),
+        "total_methods": sum(sum(len(c.methods) for c in m.classes) for m in reduced.modules),
         "needs_llm_summary": sum(len(m.needs_llm) for m in reduced.modules),
     }
 
@@ -169,10 +170,10 @@ class MUGenerator:
     SIGIL_ANNOTATION = "::"
 
     # MU Operators
-    OP_FLOW = "->"      # Pure data flow
+    OP_FLOW = "->"  # Pure data flow
     OP_MUTATION = "=>"  # State mutation
-    OP_MATCH = "|"      # Match/switch
-    OP_ITERATE = "~"    # Iteration
+    OP_MATCH = "|"  # Match/switch
+    OP_ITERATE = "~"  # Iteration
 
     def __init__(self, shell_safe: bool = False):
         self.shell_safe = shell_safe
@@ -226,23 +227,31 @@ class MUGenerator:
                     deps_str = ", ".join(deps_formatted)
                     if len(deps) > 5:
                         deps_str += f" (+{len(deps) - 5} more)"
-                    lines.append(f"{self._sigil('SIGIL_MODULE')}{module_name} {self.OP_FLOW} {deps_str}")
+                    lines.append(
+                        f"{self._sigil('SIGIL_MODULE')}{module_name} {self.OP_FLOW} {deps_str}"
+                    )
 
         # External packages summary
         if codebase.external_packages:
             lines.append("")
-            lines.append(f"{self._sigil('SIGIL_METADATA')}external [{', '.join(sorted(codebase.external_packages)[:15])}]")
+            lines.append(
+                f"{self._sigil('SIGIL_METADATA')}external [{', '.join(sorted(codebase.external_packages)[:15])}]"
+            )
             if len(codebase.external_packages) > 15:
                 lines.append(f"  (+{len(codebase.external_packages) - 15} more packages)")
 
         # Dynamic dependencies summary
         if codebase.dynamic_dependencies:
             lines.append("")
-            lines.append(f"{self._sigil('SIGIL_ANNOTATION')} DYNAMIC IMPORTS ({len(codebase.dynamic_dependencies)} detected)")
+            lines.append(
+                f"{self._sigil('SIGIL_ANNOTATION')} DYNAMIC IMPORTS ({len(codebase.dynamic_dependencies)} detected)"
+            )
             for dyn_dep in codebase.dynamic_dependencies[:10]:
                 dep_desc = f"  {self._sigil('SIGIL_MODULE')}{dyn_dep.module_name}"
                 if dyn_dep.pattern:
-                    dep_desc += f" {self.OP_MUTATION}{self._sigil('SIGIL_CONDITIONAL')} {dyn_dep.pattern}"
+                    dep_desc += (
+                        f" {self.OP_MUTATION}{self._sigil('SIGIL_CONDITIONAL')} {dyn_dep.pattern}"
+                    )
                 elif dyn_dep.resolved_target:
                     dep_desc += f" {self.OP_MUTATION}{self._sigil('SIGIL_CONDITIONAL')} {self._sigil('SIGIL_MODULE')}{dyn_dep.resolved_target}"
                 if dyn_dep.source:
@@ -262,10 +271,9 @@ class MUGenerator:
         ]
 
         # External dependencies
-        external_deps = list({
-            imp.module for imp in module.imports
-            if imp.module and not imp.module.startswith(".")
-        })
+        external_deps = list(
+            {imp.module for imp in module.imports if imp.module and not imp.module.startswith(".")}
+        )
         if external_deps:
             deps_str = ", ".join(sorted(external_deps)[:10])
             lines.append(f"{self._sigil('SIGIL_METADATA')}deps [{deps_str}]")
@@ -288,7 +296,9 @@ class MUGenerator:
         pending_llm = [f for f in module.needs_llm if f not in module.summaries]
         if pending_llm:
             lines.append("")
-            lines.append(f"{self._sigil('SIGIL_ANNOTATION')} NOTE: Complex functions needing review: {', '.join(pending_llm)}")
+            lines.append(
+                f"{self._sigil('SIGIL_ANNOTATION')} NOTE: Complex functions needing review: {', '.join(pending_llm)}"
+            )
 
         return lines
 
@@ -302,12 +312,14 @@ class MUGenerator:
         lines = []
 
         # Class declaration
-        parts = [self._sigil('SIGIL_ENTITY')]
+        parts = [self._sigil("SIGIL_ENTITY")]
 
         # Decorators
         if cls.decorators:
             # Filter out visibility modifiers for cleaner output
-            visible_decorators = [d for d in cls.decorators if d not in ("public", "private", "protected", "internal")]
+            visible_decorators = [
+                d for d in cls.decorators if d not in ("public", "private", "protected", "internal")
+            ]
             if visible_decorators:
                 parts.append(f"{self._sigil('SIGIL_METADATA')}{', '.join(visible_decorators)} ")
 
@@ -341,7 +353,7 @@ class MUGenerator:
     def _generate_function(self, func: FunctionDef, indent: int = 0) -> str:
         """Generate MU output for a function/method."""
         prefix = " " * indent
-        parts = [prefix, self._sigil('SIGIL_FUNCTION')]
+        parts = [prefix, self._sigil("SIGIL_FUNCTION")]
 
         # Modifiers
         if func.is_async:

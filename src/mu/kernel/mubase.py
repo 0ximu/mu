@@ -790,9 +790,7 @@ class MUbase:
         """
         try:
             self._ensure_embeddings_schema()
-            result = self.conn.execute(
-                "SELECT COUNT(*) FROM embeddings LIMIT 1"
-            ).fetchone()
+            result = self.conn.execute("SELECT COUNT(*) FROM embeddings LIMIT 1").fetchone()
             return result is not None and result[0] > 0
         except Exception:
             return False

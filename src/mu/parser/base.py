@@ -57,25 +57,31 @@ def _get_language(lang: str) -> Language:
     if lang not in _languages:
         if lang == "python":
             import tree_sitter_python as tspython
+
             _languages[lang] = Language(tspython.language())
         elif lang in ("typescript", "javascript"):
             import tree_sitter_javascript as tsjavascript
             import tree_sitter_typescript as tstypescript
+
             if lang == "typescript":
                 _languages[lang] = Language(tstypescript.language_typescript())
             else:
                 _languages[lang] = Language(tsjavascript.language())
         elif lang == "csharp":
             import tree_sitter_c_sharp as tscsharp
+
             _languages[lang] = Language(tscsharp.language())
         elif lang == "go":
             import tree_sitter_go as tsgo
+
             _languages[lang] = Language(tsgo.language())
         elif lang == "rust":
             import tree_sitter_rust as tsrust
+
             _languages[lang] = Language(tsrust.language())
         elif lang == "java":
             import tree_sitter_java as tsjava
+
             _languages[lang] = Language(tsjava.language())
         else:
             raise UnsupportedLanguageError(lang, "")
@@ -87,21 +93,27 @@ def _get_extractor(lang: str) -> LanguageExtractor:
     if lang not in _extractors:
         if lang == "python":
             from mu.parser.python_extractor import PythonExtractor
+
             _extractors[lang] = PythonExtractor()
         elif lang in ("typescript", "javascript"):
             from mu.parser.typescript_extractor import TypeScriptExtractor
+
             _extractors[lang] = TypeScriptExtractor()
         elif lang == "csharp":
             from mu.parser.csharp_extractor import CSharpExtractor
+
             _extractors[lang] = CSharpExtractor()
         elif lang == "go":
             from mu.parser.go_extractor import GoExtractor
+
             _extractors[lang] = GoExtractor()
         elif lang == "rust":
             from mu.parser.rust_extractor import RustExtractor
+
             _extractors[lang] = RustExtractor()
         elif lang == "java":
             from mu.parser.java_extractor import JavaExtractor
+
             _extractors[lang] = JavaExtractor()
         else:
             raise UnsupportedLanguageError(lang, "")
@@ -175,7 +187,7 @@ def count_nodes(node: Node) -> int:
 
 def get_node_text(node: Node, source: bytes) -> str:
     """Extract text content of a node."""
-    return source[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    return source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
 def find_children_by_type(node: Node, type_name: str) -> list[Node]:

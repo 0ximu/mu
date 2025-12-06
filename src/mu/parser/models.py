@@ -14,7 +14,7 @@ class ParameterDef:
     type_annotation: str | None = None
     default_value: str | None = None
     is_variadic: bool = False  # *args
-    is_keyword: bool = False   # **kwargs
+    is_keyword: bool = False  # **kwargs
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -101,7 +101,9 @@ class ImportDef:
     is_from: bool = False  # from x import y vs import x
     is_dynamic: bool = False  # True for runtime imports (importlib, dynamic import())
     dynamic_pattern: str | None = None  # Pattern/expression used (e.g., "f'plugins.{name}'")
-    dynamic_source: str | None = None  # Detection method: "importlib", "__import__", "import()", "require()"
+    dynamic_source: str | None = (
+        None  # Detection method: "importlib", "__import__", "import()", "require()"
+    )
     line_number: int = 0  # Source line for reference
 
     def to_dict(self) -> dict[str, Any]:

@@ -131,7 +131,9 @@ class TypeScriptExtractor:
             return get_node_text(identifiers[-1], source)
         return None
 
-    def _extract_class(self, node: Node, source: bytes, decorators: list[str] | None = None) -> ClassDef:
+    def _extract_class(
+        self, node: Node, source: bytes, decorators: list[str] | None = None
+    ) -> ClassDef:
         """Extract class declaration."""
         class_def = ClassDef(
             name="",
@@ -378,7 +380,9 @@ class TypeScriptExtractor:
 
         return None
 
-    def _extract_dynamic_import_expr(self, node: Node, source: bytes, line_number: int) -> ImportDef | None:
+    def _extract_dynamic_import_expr(
+        self, node: Node, source: bytes, line_number: int
+    ) -> ImportDef | None:
         """Extract dynamic import() expression."""
         # Find the arguments - typically the second child after "import" keyword
         args_node = find_child_by_type(node, "arguments")
@@ -401,7 +405,9 @@ class TypeScriptExtractor:
 
         return self._create_import_def_from_arg(first_arg, source, line_number, "import()")
 
-    def _extract_require_call(self, node: Node, source: bytes, line_number: int) -> ImportDef | None:
+    def _extract_require_call(
+        self, node: Node, source: bytes, line_number: int
+    ) -> ImportDef | None:
         """Extract require() call."""
         args_node = find_child_by_type(node, "arguments")
         if not args_node:
