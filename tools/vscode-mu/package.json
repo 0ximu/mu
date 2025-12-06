@@ -1,0 +1,150 @@
+{
+  "name": "vscode-mu",
+  "displayName": "MU - Semantic Compression",
+  "description": "Syntax highlighting and tooling for MU (Machine Understanding) semantic compression format",
+  "version": "0.2.0",
+  "publisher": "dominaite",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dominaite/mu"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Themes",
+    "Formatters",
+    "Other"
+  ],
+  "keywords": [
+    "mu",
+    "semantic compression",
+    "llm",
+    "code analysis",
+    "machine understanding"
+  ],
+  "activationEvents": [
+    "onLanguage:mu",
+    "onCommand:mu.compress",
+    "onCommand:mu.preview",
+    "onCommand:mu.diff"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "mu",
+        "aliases": ["MU", "Machine Understanding"],
+        "extensions": [".mu"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mu",
+        "scopeName": "source.mu",
+        "path": "./syntaxes/mu.tmLanguage.json"
+      }
+    ],
+    "themes": [
+      {
+        "label": "MU Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/mu-dark.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mu.compress",
+        "title": "MU: Compress Directory",
+        "category": "MU"
+      },
+      {
+        "command": "mu.compressFile",
+        "title": "MU: Compress Current File's Directory",
+        "category": "MU"
+      },
+      {
+        "command": "mu.compressWorkspace",
+        "title": "MU: Compress Workspace",
+        "category": "MU"
+      },
+      {
+        "command": "mu.preview",
+        "title": "MU: Preview Output",
+        "category": "MU"
+      },
+      {
+        "command": "mu.diff",
+        "title": "MU: Semantic Diff Between Git Refs",
+        "category": "MU"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mu.compress",
+          "when": "explorerResourceIsFolder",
+          "group": "mu@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "mu.preview",
+          "when": "editorLangId != mu",
+          "group": "mu@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MU",
+      "properties": {
+        "mu.executablePath": {
+          "type": "string",
+          "default": "mu",
+          "description": "Path to the mu CLI executable"
+        },
+        "mu.defaultFormat": {
+          "type": "string",
+          "enum": ["mu", "json", "markdown"],
+          "default": "mu",
+          "description": "Default output format for compression"
+        },
+        "mu.autoPreview": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically show preview pane when compressing"
+        }
+      }
+    },
+    "keybindings": [
+      {
+        "command": "mu.preview",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorTextFocus"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0"
+  }
+}

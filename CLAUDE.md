@@ -1,0 +1,68 @@
+# CLAUDE.md
+
+This file provides quick-reference guidance for Claude Code. For detailed documentation, see the nested CLAUDE.md files.
+
+## Documentation Structure
+
+```
+.claude/CLAUDE.md              # Project-wide standards, pre-PR checklist
+src/mu/parser/CLAUDE.md        # Multi-language AST extraction
+src/mu/llm/CLAUDE.md           # LLM provider integration
+src/mu/assembler/CLAUDE.md     # Import resolution, dependency graph
+src/mu/reducer/CLAUDE.md       # Transformation rules, compression
+src/mu/diff/CLAUDE.md          # Semantic diff computation
+src/mu/security/CLAUDE.md      # Secret detection and redaction
+tests/CLAUDE.md                # Testing standards and patterns
+```
+
+## Project Overview
+
+MU (Machine Understanding) is a semantic compression tool that translates codebases into token-efficient representations optimized for LLM comprehension. Achieves 92-98% compression while preserving semantic signal.
+
+## Quick Commands
+
+```bash
+# Development
+pip install -e ".[dev]"        # Install
+pytest                          # Test
+mypy src/mu                    # Type check
+ruff check src/ && ruff format src/  # Lint + format
+
+# CLI
+mu scan <path>                 # Analyze structure
+mu compress <path>             # Generate MU output
+mu compress <path> --llm       # With LLM summarization
+mu diff <base> <head>          # Semantic diff
+```
+
+## Pipeline
+
+```
+Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
+                  |           |          |          |
+              manifest    ModuleDef  Reduced   ModuleGraph -> MU/JSON/MD
+```
+
+## Key Models
+
+- **`ModuleDef`**: File-level AST (imports, classes, functions)
+- **`ReducedModule`**: Post-compression with `needs_llm` markers
+- **`ModuleGraph`**: Dependency graph with resolved imports
+- **`DiffResult`**: Semantic changes between versions
+
+## Supported Languages
+
+Python, TypeScript, JavaScript, Go, Java, Rust, C#
+
+## MU Sigils
+
+- `!` Module/Service
+- `$` Entity/Class (`<` inheritance)
+- `#` Function/Method
+- `@` Dependencies
+- `::` Annotations
+- `->` Return, `=>` Mutation
+
+## Keeping Documentation Current
+
+When making significant changes to a module (new features, architectural changes, new patterns), update the corresponding CLAUDE.md file. This ensures Claude Code has accurate context for future work.
