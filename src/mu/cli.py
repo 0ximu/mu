@@ -2318,6 +2318,253 @@ def kernel_export(
         db.close()
 
 
+# =============================================================================
+# Daemon Commands - Real-time file watching and HTTP/WebSocket API
+# =============================================================================
+
+
+@cli.group()
+def daemon() -> None:
+    """MU daemon commands (real-time updates).
+
+    Run a long-running daemon that watches for file changes
+    and serves HTTP/WebSocket API for queries.
+
+    \\b
+    Examples:
+        mu daemon start .         # Start daemon in background
+        mu daemon status          # Check daemon status
+        mu daemon stop            # Stop running daemon
+        mu daemon run .           # Run in foreground (for debugging)
+    """
+    pass
+
+
+@daemon.command("start")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--port", "-p", type=int, default=8765, help="Server port")
+@click.option("--host", type=str, default="127.0.0.1", help="Server host")
+@click.option(
+    "--watch",
+    "-w",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Additional paths to watch",
+)
+@click.option(
+    "--debounce",
+    type=int,
+    default=100,
+    help="Debounce delay in milliseconds",
+)
+def daemon_start(
+    path: Path,
+    port: int,
+    host: str,
+    watch: tuple[Path, ...],
+    debounce: int,
+) -> None:
+    """Start MU daemon in background.
+
+    The daemon watches for file changes and provides an HTTP/WebSocket
+    API for querying the code graph.
+
+    \\b
+    Examples:
+        mu daemon start .
+        mu daemon start . --port 9000
+        mu daemon start . --watch ./lib --watch ./tests
+    """
+    from mu.daemon.config import DaemonConfig
+    from mu.daemon.lifecycle import DaemonLifecycle
+
+    mubase_path = path.resolve() / ".mubase"
+    if not mubase_path.exists():
+        print_error("No .mubase found. Run 'mu kernel build' first.")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Build watch paths
+    watch_paths = list(watch) if watch else [path.resolve()]
+
+    config = DaemonConfig(
+        host=host,
+        port=port,
+        watch_paths=watch_paths,
+        debounce_ms=debounce,
+        pid_file=path.resolve() / ".mu.pid",
+    )
+
+    lifecycle = DaemonLifecycle(pid_file=config.pid_file, config=config)
+
+    running, pid = lifecycle.is_running()
+    if running:
+        print_warning(f"Daemon already running (PID {pid})")
+        return
+
+    try:
+        pid = lifecycle.start_background(mubase_path, config)
+        print_success(f"MU daemon started on http://{host}:{port}")
+        print_info(f"PID: {pid}")
+        print_info(f"PID file: {config.pid_file}")
+    except RuntimeError as e:
+        print_error(str(e))
+        sys.exit(ExitCode.FATAL_ERROR)
+
+
+@daemon.command("stop")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+def daemon_stop(path: Path) -> None:
+    """Stop running MU daemon.
+
+    \\b
+    Example:
+        mu daemon stop
+    """
+    from mu.daemon.lifecycle import DaemonLifecycle
+
+    pid_file = path.resolve() / ".mu.pid"
+    lifecycle = DaemonLifecycle(pid_file=pid_file)
+
+    if lifecycle.stop():
+        print_success("MU daemon stopped")
+    else:
+        print_info("Daemon not running")
+
+
+@daemon.command("status")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def daemon_status(path: Path, as_json: bool) -> None:
+    """Check daemon status.
+
+    \\b
+    Example:
+        mu daemon status
+        mu daemon status --json
+    """
+    import json as json_module
+
+    from mu.daemon.config import DaemonConfig
+    from mu.daemon.lifecycle import DaemonLifecycle
+
+    pid_file = path.resolve() / ".mu.pid"
+    config = DaemonConfig(pid_file=pid_file)
+    lifecycle = DaemonLifecycle(pid_file=pid_file, config=config)
+
+    status = lifecycle.status()
+
+    if as_json:
+        console.print(json_module.dumps(status, indent=2))
+        return
+
+    if status.get("status") == "stopped":
+        print_info("Daemon is not running")
+        return
+
+    # Build status table
+    table = Table(title="MU Daemon Status")
+    table.add_column("Property", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Status", status.get("status", "unknown"))
+    if "pid" in status:
+        table.add_row("PID", str(status["pid"]))
+    if "healthy" in status:
+        table.add_row("Healthy", "Yes" if status["healthy"] else "No")
+    if "mubase_path" in status:
+        table.add_row("Database", status["mubase_path"])
+    if "uptime_seconds" in status:
+        uptime = status["uptime_seconds"]
+        hours = int(uptime // 3600)
+        minutes = int((uptime % 3600) // 60)
+        seconds = int(uptime % 60)
+        if hours > 0:
+            table.add_row("Uptime", f"{hours}h {minutes}m {seconds}s")
+        elif minutes > 0:
+            table.add_row("Uptime", f"{minutes}m {seconds}s")
+        else:
+            table.add_row("Uptime", f"{seconds}s")
+    if "connections" in status:
+        table.add_row("WebSocket Connections", str(status["connections"]))
+    if "stats" in status:
+        stats = status["stats"]
+        if "nodes" in stats:
+            table.add_row("Nodes", str(stats["nodes"]))
+        if "edges" in stats:
+            table.add_row("Edges", str(stats["edges"]))
+
+    console.print(table)
+
+
+@daemon.command("run")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--port", "-p", type=int, default=8765, help="Server port")
+@click.option("--host", type=str, default="127.0.0.1", help="Server host")
+@click.option(
+    "--watch",
+    "-w",
+    multiple=True,
+    type=click.Path(exists=True, path_type=Path),
+    help="Additional paths to watch",
+)
+@click.option(
+    "--debounce",
+    type=int,
+    default=100,
+    help="Debounce delay in milliseconds",
+)
+def daemon_run(
+    path: Path,
+    port: int,
+    host: str,
+    watch: tuple[Path, ...],
+    debounce: int,
+) -> None:
+    """Run daemon in foreground (for debugging).
+
+    Press Ctrl+C to stop.
+
+    \\b
+    Examples:
+        mu daemon run .
+        mu daemon run . --port 9000
+    """
+    from mu.daemon.config import DaemonConfig
+    from mu.daemon.lifecycle import DaemonLifecycle
+
+    mubase_path = path.resolve() / ".mubase"
+    if not mubase_path.exists():
+        print_error("No .mubase found. Run 'mu kernel build' first.")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Build watch paths
+    watch_paths = list(watch) if watch else [path.resolve()]
+
+    config = DaemonConfig(
+        host=host,
+        port=port,
+        watch_paths=watch_paths,
+        debounce_ms=debounce,
+        pid_file=path.resolve() / ".mu.pid",
+    )
+
+    lifecycle = DaemonLifecycle(pid_file=config.pid_file, config=config)
+
+    running, pid = lifecycle.is_running()
+    if running:
+        print_warning(f"Daemon already running (PID {pid})")
+        print_info("Stop it first with 'mu daemon stop'")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    print_info(f"Starting MU daemon on http://{host}:{port}")
+    print_info("Press Ctrl+C to stop")
+
+    try:
+        lifecycle.start_foreground(mubase_path, config)
+    except KeyboardInterrupt:
+        print_info("\nShutting down...")
+
+
 def _register_doc_commands() -> None:
     """Register documentation commands (lazy import to avoid E402)."""
     from mu.commands.llm_spec import llm_command

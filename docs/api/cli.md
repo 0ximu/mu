@@ -266,6 +266,91 @@ mu kernel search "database connection" --json
 mu kernel search "api endpoint" --local
 ```
 
+### `mu daemon`
+
+Manage the MU daemon for real-time file watching and HTTP/WebSocket API.
+
+```bash
+mu daemon <subcommand>
+```
+
+**Subcommands:**
+
+| Command | Description |
+|---------|-------------|
+| `start` | Start daemon in background |
+| `stop` | Stop running daemon |
+| `status` | Check daemon status |
+| `run` | Run daemon in foreground (debugging) |
+
+**Options for `start` and `run`:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--port, -p` | `8765` | Server port |
+| `--host` | `127.0.0.1` | Server host |
+| `--watch, -w` | project root | Additional paths to watch (multiple allowed) |
+
+**Examples:**
+```bash
+# Start daemon in background
+mu daemon start .
+
+# Start with custom port
+mu daemon start . --port 9000
+
+# Watch multiple directories
+mu daemon start . --watch ./src --watch ./lib
+
+# Check status
+mu daemon status
+
+# Check status as JSON
+mu daemon status --json
+
+# Stop daemon
+mu daemon stop
+
+# Run in foreground (for debugging)
+mu daemon run .
+```
+
+**HTTP API Endpoints:**
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/status` | GET | Daemon and graph statistics |
+| `/nodes/{id}` | GET | Node details by ID |
+| `/nodes/{id}/neighbors` | GET | Node neighbors |
+| `/query` | POST | Execute MUQL query |
+| `/context` | POST | Smart context extraction |
+| `/export` | GET | Export graph in various formats |
+| `/live` | WebSocket | Real-time graph change notifications |
+
+**Example API Usage:**
+```bash
+# Check daemon status
+curl http://localhost:8765/status
+
+# Get node by ID
+curl http://localhost:8765/nodes/fn:auth.login
+
+# Execute MUQL query
+curl -X POST http://localhost:8765/query \
+  -H "Content-Type: application/json" \
+  -d '{"muql": "SELECT * FROM functions WHERE complexity > 20"}'
+
+# Get context for a question
+curl -X POST http://localhost:8765/context \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How does authentication work?", "max_tokens": 4000}'
+
+# Export as JSON
+curl "http://localhost:8765/export?format=json"
+
+# WebSocket for live updates
+websocat ws://localhost:8765/live
+```
+
 ### `mu cache`
 
 Manage the MU cache.
