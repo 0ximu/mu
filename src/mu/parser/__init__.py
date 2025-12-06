@@ -5,8 +5,8 @@ from mu.parser.models import (
     ClassDef,
     FunctionDef,
     ImportDef,
-    ParameterDef,
     ModuleDef,
+    ParameterDef,
 )
 
 __all__ = [

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable
 
 
 class SecretCategory(Enum):
@@ -397,7 +396,7 @@ class SecretScanner:
                 last_end = end
 
         # Process matches in reverse order to maintain position validity
-        for start, end, pattern, match in reversed(filtered_matches):
+        for start, end, pattern, _match in reversed(filtered_matches):
             # Calculate line number
             line_number = source[:start].count("\n") + 1
 

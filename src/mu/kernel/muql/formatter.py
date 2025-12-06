@@ -1,0 +1,302 @@
+"""MUQL Result Formatter - Formats query results for output.
+
+Provides formatting in table, JSON, CSV, and tree formats.
+"""
+
+from __future__ import annotations
+
+import json
+from enum import Enum
+from typing import Any
+
+from mu.kernel.muql.executor import QueryResult
+
+
+class OutputFormat(Enum):
+    """Available output formats."""
+
+    TABLE = "table"
+    JSON = "json"
+    CSV = "csv"
+    TREE = "tree"
+
+
+# =============================================================================
+# ANSI Colors
+# =============================================================================
+
+
+class Colors:
+    """ANSI color codes for terminal output."""
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+
+    BG_RED = "\033[41m"
+    BG_GREEN = "\033[42m"
+
+
+def _color(text: str, color: str, no_color: bool = False) -> str:
+    """Apply color to text."""
+    if no_color:
+        return text
+    return f"{color}{text}{Colors.RESET}"
+
+
+# =============================================================================
+# Table Formatter
+# =============================================================================
+
+
+def format_table(result: QueryResult, no_color: bool = False) -> str:
+    """Format query result as ASCII table.
+
+    Args:
+        result: The query result to format.
+        no_color: If True, disable ANSI colors.
+
+    Returns:
+        Formatted table string.
+    """
+    if result.error:
+        return _color(f"Error: {result.error}", Colors.RED, no_color)
+
+    if not result.rows:
+        return _color("No results found.", Colors.DIM, no_color)
+
+    columns = result.columns
+    rows = result.rows
+
+    # Calculate column widths
+    widths = [len(col) for col in columns]
+    for row in rows:
+        for i, val in enumerate(row):
+            if i < len(widths):
+                widths[i] = max(widths[i], len(str(val)))
+
+    # Build table
+    lines: list[str] = []
+
+    # Header
+    header_parts = []
+    for i, col in enumerate(columns):
+        header_parts.append(str(col).ljust(widths[i]))
+    header = " | ".join(header_parts)
+    lines.append(_color(header, Colors.BOLD, no_color))
+
+    # Separator
+    separator_parts = ["-" * w for w in widths]
+    separator = "-+-".join(separator_parts)
+    lines.append(_color(separator, Colors.DIM, no_color))
+
+    # Rows
+    for row in rows:
+        row_parts = []
+        for i, val in enumerate(row):
+            if i < len(widths):
+                row_parts.append(str(val).ljust(widths[i]))
+        lines.append(" | ".join(row_parts))
+
+    # Footer
+    lines.append(_color(separator, Colors.DIM, no_color))
+    lines.append(
+        _color(f"{result.row_count} rows ({result.execution_time_ms:.2f}ms)", Colors.DIM, no_color)
+    )
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# JSON Formatter
+# =============================================================================
+
+
+def format_json(result: QueryResult, pretty: bool = True) -> str:
+    """Format query result as JSON.
+
+    Args:
+        result: The query result to format.
+        pretty: If True, format with indentation.
+
+    Returns:
+        JSON string.
+    """
+    data = result.to_dict()
+    if pretty:
+        return json.dumps(data, indent=2)
+    return json.dumps(data)
+
+
+# =============================================================================
+# CSV Formatter
+# =============================================================================
+
+
+def format_csv(result: QueryResult, delimiter: str = ",") -> str:
+    """Format query result as CSV.
+
+    Args:
+        result: The query result to format.
+        delimiter: Field delimiter (default: comma).
+
+    Returns:
+        CSV string.
+    """
+    if result.error:
+        return f"Error: {result.error}"
+
+    lines: list[str] = []
+
+    # Header
+    lines.append(delimiter.join(result.columns))
+
+    # Rows
+    for row in result.rows:
+        row_values = []
+        for val in row:
+            # Escape quotes and wrap in quotes if needed
+            str_val = str(val)
+            if delimiter in str_val or '"' in str_val or "\n" in str_val:
+                str_val = '"' + str_val.replace('"', '""') + '"'
+            row_values.append(str_val)
+        lines.append(delimiter.join(row_values))
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# Tree Formatter
+# =============================================================================
+
+
+def format_tree(result: QueryResult, no_color: bool = False) -> str:
+    """Format query result as tree structure.
+
+    Best for hierarchical data like dependency trees.
+
+    Args:
+        result: The query result to format.
+        no_color: If True, disable ANSI colors.
+
+    Returns:
+        Tree-formatted string.
+    """
+    if result.error:
+        return _color(f"Error: {result.error}", Colors.RED, no_color)
+
+    if not result.rows:
+        return _color("No results found.", Colors.DIM, no_color)
+
+    lines: list[str] = []
+
+    # Simple tree for path results (step, node)
+    if result.columns == ["step", "node"]:
+        for i, row in enumerate(result.rows):
+            is_last = i == len(result.rows) - 1
+            prefix = "    " if is_last else "    "
+            connector = "`-- " if is_last else "|-- "
+            node_name = str(row[1])
+            lines.append(prefix + connector + _color(node_name, Colors.CYAN, no_color))
+        return "\n".join(lines)
+
+    # For other results, show as nested structure
+    # Group by path if available
+    path_idx = None
+    for i, col in enumerate(result.columns):
+        if col in ("path", "file_path"):
+            path_idx = i
+            break
+
+    if path_idx is not None:
+        # Group rows by path
+        groups: dict[str, list[tuple[Any, ...]]] = {}
+        for row in result.rows:
+            path = str(row[path_idx])
+            if path not in groups:
+                groups[path] = []
+            groups[path].append(row)
+
+        for path, group_rows in groups.items():
+            lines.append(_color(path, Colors.BLUE + Colors.BOLD, no_color))
+            for i, row in enumerate(group_rows):
+                is_last = i == len(group_rows) - 1
+                prefix = "  `-- " if is_last else "  |-- "
+                # Show name if available
+                name_idx = result.columns.index("name") if "name" in result.columns else None
+                if name_idx is not None:
+                    lines.append(prefix + _color(str(row[name_idx]), Colors.CYAN, no_color))
+                else:
+                    lines.append(prefix + str(row[0]))
+    else:
+        # Simple list
+        for i, row in enumerate(result.rows):
+            is_last = i == len(result.rows) - 1
+            prefix = "`-- " if is_last else "|-- "
+            lines.append(prefix + _color(str(row[0]), Colors.CYAN, no_color))
+
+    lines.append("")
+    lines.append(
+        _color(f"{result.row_count} items ({result.execution_time_ms:.2f}ms)", Colors.DIM, no_color)
+    )
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# Main Formatter Function
+# =============================================================================
+
+
+def format_result(
+    result: QueryResult,
+    output_format: OutputFormat | str = OutputFormat.TABLE,
+    no_color: bool = False,
+) -> str:
+    """Format query result in the specified format.
+
+    Args:
+        result: The query result to format.
+        output_format: The output format (table, json, csv, tree).
+        no_color: If True, disable ANSI colors.
+
+    Returns:
+        Formatted string.
+    """
+    if isinstance(output_format, str):
+        try:
+            output_format = OutputFormat(output_format.lower())
+        except ValueError:
+            output_format = OutputFormat.TABLE
+
+    if output_format == OutputFormat.TABLE:
+        return format_table(result, no_color)
+    elif output_format == OutputFormat.JSON:
+        return format_json(result)
+    elif output_format == OutputFormat.CSV:
+        return format_csv(result)
+    elif output_format == OutputFormat.TREE:
+        return format_tree(result, no_color)
+    else:
+        return format_table(result, no_color)
+
+
+# =============================================================================
+# Exports
+# =============================================================================
+
+__all__ = [
+    "OutputFormat",
+    "format_result",
+    "format_table",
+    "format_json",
+    "format_csv",
+    "format_tree",
+]

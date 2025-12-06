@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from mu.parser.models import ImportDef, ModuleDef
-from mu.reducer.generator import DynamicDependency, ReducedCodebase, ReducedModule
+from mu.reducer.generator import DynamicDependency, ReducedCodebase
+
+# Re-export for type checking
+__all__ = ["ReducedModule"]
+from mu.reducer.generator import ReducedModule  # noqa: E402, F401
 
 
 class DependencyType(Enum):
@@ -313,7 +317,7 @@ class ImportResolver:
 
         # Try path-based resolution for dotted imports (e.g., "mu.parser.models")
         # Convert dotted module name to file path patterns
-        path_parts = module_name.split(".")
+        module_name.split(".")
         for mod in self.modules:
             # Check if path contains the module parts as directories/file
             # e.g., "mu.parser.models" -> matches "src/mu/parser/models.py"
@@ -545,7 +549,6 @@ class ImportResolver:
         # Check if it looks like an internal import
         # Go modules typically use domain-based paths (e.g., github.com/user/repo)
         # Internal packages might not have domain prefix or use relative paths
-        is_likely_external = "." in root_pkg or "/" in import_path
 
         # Try to find internal module match
         # For Go, module paths are based on directory structure
@@ -765,7 +768,7 @@ class Assembler:
         graph = self.graph.get_internal_graph()
 
         # Build out-degree: how many dependencies each node has
-        out_degree: dict[str, int] = {path: 0 for path in self.graph.nodes}
+        out_degree: dict[str, int] = dict.fromkeys(self.graph.nodes, 0)
         # Build reverse graph: who depends on this node
         reverse_graph: dict[str, list[str]] = {path: [] for path in self.graph.nodes}
 

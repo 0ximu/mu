@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Literal, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from mu.scanner import ScanResult
@@ -146,7 +146,7 @@ def scan(ctx: MUContext, path: Path, output: Path | None, format: str) -> None:
         console.print(output_str)
 
 
-def format_scan_result(result: "ScanResult") -> str:
+def format_scan_result(result: ScanResult) -> str:
     """Format scan result as human-readable text."""
     lines = [
         f"Scanned: {result.root}",
@@ -1105,6 +1105,100 @@ def kernel_query(
     console.print(table)
 
 
+@kernel.command("muql")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.argument("query", required=False)
+@click.option("--interactive", "-i", is_flag=True, help="Start interactive REPL")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json", "csv", "tree"]),
+    default="table",
+    help="Output format",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--explain", is_flag=True, help="Show execution plan without running")
+def kernel_muql(
+    path: Path,
+    query: str | None,
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Execute MUQL queries against the graph database.
+
+    MUQL provides an SQL-like query interface for exploring your codebase.
+
+    \b
+    Examples:
+        # Single query
+        mu kernel muql . "SELECT * FROM functions WHERE complexity > 20"
+
+        # Interactive mode
+        mu kernel muql . -i
+
+        # Show execution plan
+        mu kernel muql . --explain "SELECT * FROM classes LIMIT 10"
+
+        # Output as JSON
+        mu kernel muql . -f json "SELECT name, complexity FROM functions"
+
+    \b
+    Query Types:
+        SELECT - SQL-like queries on nodes
+        SHOW   - Dependency and relationship queries
+        FIND   - Pattern matching queries
+        PATH   - Path finding between nodes
+        ANALYZE - Built-in analysis queries
+
+    \b
+    In interactive mode, use these commands:
+        .help    - Show help
+        .format  - Change output format
+        .explain - Explain query
+        .exit    - Exit REPL
+    """
+    from mu.kernel import MUbase
+    from mu.kernel.muql import MUQLEngine
+    from mu.kernel.muql.repl import run_repl
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        if interactive:
+            # Start REPL
+            run_repl(db, no_color)
+        elif query:
+            # Execute single query
+            engine = MUQLEngine(db)
+
+            if explain:
+                # Show execution plan
+                explanation = engine.explain(query)
+                console.print(explanation)
+            else:
+                # Execute and format
+                output = engine.query(query, output_format, no_color)
+                console.print(output)
+        else:
+            # No query provided and not interactive mode
+            print_error("Either provide a query or use --interactive/-i flag")
+            print_info('Example: mu kernel muql . "SELECT * FROM functions LIMIT 10"')
+            print_info("         mu kernel muql . -i")
+            sys.exit(ExitCode.CONFIG_ERROR)
+    finally:
+        db.close()
+
+
 @kernel.command("deps")
 @click.argument("node_name", type=str)
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -1535,6 +1629,19 @@ def kernel_search(
         )
 
     console.print(table)
+
+
+def _register_doc_commands() -> None:
+    """Register documentation commands (lazy import to avoid E402)."""
+    from mu.commands.llm_spec import llm_command
+    from mu.commands.man import man_command
+
+    cli.add_command(man_command, name="man")
+    cli.add_command(llm_command, name="llm")
+
+
+# Register documentation commands
+_register_doc_commands()
 
 
 def main() -> None:

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Iterator
 
 
 class TokenType(Enum):
@@ -53,7 +52,7 @@ class MUDocument:
     modules: list[str] = field(default_factory=list)
 
     @classmethod
-    def parse(cls, source: str) -> "MUDocument":
+    def parse(cls, source: str) -> MUDocument:
         """Parse MU source into a document."""
         doc = cls(source=source)
         doc.lines = source.splitlines()

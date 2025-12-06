@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from mu.assembler import AssembledOutput, DependencyType
-from mu.parser.models import ClassDef, FunctionDef, ModuleDef, ParameterDef
-from mu.reducer.generator import ReducedCodebase, ReducedModule
-
 from mu.diff.models import (
     ChangeType,
     ClassDiff,
     DependencyDiff,
     DiffResult,
-    DiffStats,
     FunctionDiff,
     ModuleDiff,
     ParameterChange,
 )
+from mu.parser.models import ClassDef, FunctionDef, ParameterDef
+from mu.reducer.generator import ReducedModule
 
 
 class SemanticDiffer:

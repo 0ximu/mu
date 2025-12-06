@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from tree_sitter import Node
 
+from mu.parser.base import (
+    count_nodes,
+    find_child_by_type,
+    find_children_by_type,
+    get_node_text,
+)
 from mu.parser.models import (
     ClassDef,
     FunctionDef,
     ImportDef,
     ModuleDef,
     ParameterDef,
-)
-from mu.parser.base import (
-    count_nodes,
-    get_node_text,
-    find_child_by_type,
-    find_children_by_type,
-    find_descendants_by_type,
 )
 
 

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   test:
@@ -60,16 +60,13 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Type checking with mypy
-        run: |
-          mypy src/mu --ignore-missing-imports || true
+        run: mypy src/mu --ignore-missing-imports
 
       - name: Linting with ruff
-        run: |
-          ruff check src/
+        run: ruff check src/
 
       - name: Security scan with bandit
-        run: |
-          bandit -r src/mu -ll || true
+        run: bandit -r src/mu -ll
 
   build:
     runs-on: ubuntu-latest

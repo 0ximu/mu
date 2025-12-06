@@ -18,9 +18,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -202,7 +201,7 @@ class CacheManager:
 
     def _create_manifest(self) -> CacheManifest:
         """Create a new cache manifest."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         manifest = CacheManifest(
             created_at=now,
             last_accessed=now,
@@ -218,7 +217,7 @@ class CacheManager:
         if manifest is None:
             return
 
-        manifest.last_accessed = datetime.now(timezone.utc).isoformat()
+        manifest.last_accessed = datetime.now(UTC).isoformat()
         manifest_path = self.cache_dir / "manifest.json"
         with open(manifest_path, "w") as f:
             json.dump(manifest.to_dict(), f, indent=2)
@@ -286,7 +285,7 @@ class CacheManager:
             file_hash=file_hash,
             mu_output=mu_output,
             language=language,
-            cached_at=datetime.now(timezone.utc).isoformat(),
+            cached_at=datetime.now(UTC).isoformat(),
             source_path=source_path,
         )
 
@@ -383,7 +382,7 @@ class CacheManager:
             summary=summary,
             model=model,
             prompt_version=prompt_version,
-            cached_at=datetime.now(timezone.utc).isoformat(),
+            cached_at=datetime.now(UTC).isoformat(),
         )
 
         try:

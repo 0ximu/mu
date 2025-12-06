@@ -1,0 +1,261 @@
+// MUQL Grammar - MU Query Language
+// A SQL-like query language for exploring codebases stored in MUbase
+
+// Entry point - a query is one of the five main query types
+?start: query
+
+?query: select_query
+      | show_query
+      | find_query
+      | path_query
+      | analyze_query
+
+// =============================================================================
+// SELECT Query - SQL-like queries on nodes table
+// =============================================================================
+
+select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [order_by_clause] [limit_clause]
+
+select_list: STAR
+           | field_list
+
+field_list: field ("," field)*
+
+field: COUNT_KW "(" STAR ")" -> count_star
+     | COUNT_KW "(" IDENTIFIER ")" -> count_field
+     | AVG_KW "(" IDENTIFIER ")" -> avg_field
+     | MAX_KW "(" IDENTIFIER ")" -> max_agg_field
+     | MIN_KW "(" IDENTIFIER ")" -> min_agg_field
+     | SUM_KW "(" IDENTIFIER ")" -> sum_field
+     | IDENTIFIER
+
+node_type: FUNCTIONS_KW -> functions_type
+         | CLASSES_KW -> classes_type
+         | MODULES_KW -> modules_type
+         | NODES_KW -> nodes_type
+
+// WHERE clause with boolean conditions
+where_clause: WHERE_KW condition
+
+?condition: or_condition
+
+or_condition: and_condition (OR_KW and_condition)*
+
+and_condition: comparison (AND_KW comparison)*
+
+comparison: IDENTIFIER comparison_op value -> simple_comparison
+          | IDENTIFIER IN_KW "(" value_list ")" -> in_comparison
+          | IDENTIFIER CONTAINS_KW value -> contains_comparison
+          | IDENTIFIER NOT_KW IN_KW "(" value_list ")" -> not_in_comparison
+          | "(" condition ")" -> grouped_condition
+
+comparison_op: EQ | NEQ | GT | LT | GTE | LTE | LIKE_KW
+
+value: STRING -> string_value
+     | NUMBER -> number_value
+     | TRUE_KW -> true_value
+     | FALSE_KW -> false_value
+     | NULL_KW -> null_value
+
+value_list: value ("," value)*
+
+// ORDER BY clause
+order_by_clause: ORDER_KW BY_KW order_field ("," order_field)*
+
+order_field: IDENTIFIER [order_direction]
+
+order_direction: ASC_KW | DESC_KW
+
+// LIMIT clause
+limit_clause: LIMIT_KW NUMBER
+
+// =============================================================================
+// SHOW Query - Graph traversal queries
+// =============================================================================
+
+show_query: SHOW_KW show_type OF_KW node_ref [depth_clause]
+
+show_type: DEPENDENCIES_KW -> show_dependencies
+         | DEPENDENTS_KW -> show_dependents
+         | CALLERS_KW -> show_callers
+         | CALLEES_KW -> show_callees
+         | INHERITANCE_KW -> show_inheritance
+         | IMPLEMENTATIONS_KW -> show_implementations
+         | CHILDREN_KW -> show_children
+         | PARENTS_KW -> show_parents
+
+node_ref: STRING -> quoted_node_ref
+        | IDENTIFIER -> identifier_node_ref
+        | qualified_name -> qualified_node_ref
+
+qualified_name: IDENTIFIER ("." IDENTIFIER)+
+
+depth_clause: DEPTH_KW NUMBER
+
+// =============================================================================
+// FIND Query - Pattern-based search
+// =============================================================================
+
+find_query: FIND_KW find_node_type find_condition
+
+find_node_type: FUNCTIONS_KW -> find_functions
+              | CLASSES_KW -> find_classes
+              | MODULES_KW -> find_modules
+              | METHODS_KW -> find_methods
+
+find_condition: CALLING_KW node_ref -> find_calling
+              | CALLED_KW BY_KW node_ref -> find_called_by
+              | IMPORTING_KW node_ref -> find_importing
+              | IMPORTED_KW BY_KW node_ref -> find_imported_by
+              | INHERITING_KW node_ref -> find_inheriting
+              | IMPLEMENTING_KW node_ref -> find_implementing
+              | MUTATING_KW node_ref -> find_mutating
+              | WITH_KW DECORATOR_KW STRING -> find_with_decorator
+              | WITH_KW ANNOTATION_KW STRING -> find_with_annotation
+              | MATCHING_KW STRING -> find_matching
+              | SIMILAR_KW TO_KW node_ref -> find_similar_to
+
+// =============================================================================
+// PATH Query - Shortest path between nodes
+// =============================================================================
+
+path_query: PATH_KW FROM_KW node_ref TO_KW node_ref [max_depth_clause] [via_clause]
+
+max_depth_clause: MAX_KW DEPTH_KW NUMBER
+
+via_clause: VIA_KW edge_type
+
+edge_type: CALLS_KW -> edge_calls
+         | IMPORTS_KW -> edge_imports
+         | INHERITS_KW -> edge_inherits
+         | USES_KW -> edge_uses
+         | CONTAINS_EDGE_KW -> edge_contains
+
+// =============================================================================
+// ANALYZE Query - Built-in analysis queries
+// =============================================================================
+
+analyze_query: ANALYZE_KW analysis_type [for_clause]
+
+analysis_type: COUPLING_KW -> analyze_coupling
+             | COHESION_KW -> analyze_cohesion
+             | COMPLEXITY_KW -> analyze_complexity
+             | HOTSPOTS_KW -> analyze_hotspots
+             | CIRCULAR_KW -> analyze_circular
+             | UNUSED_KW -> analyze_unused
+             | IMPACT_KW -> analyze_impact
+
+for_clause: FOR_KW node_ref
+
+// =============================================================================
+// Terminals (Keywords - case insensitive)
+// =============================================================================
+
+// Main keywords
+SELECT_KW: /select/i
+FROM_KW: /from/i
+WHERE_KW: /where/i
+ORDER_KW: /order/i
+BY_KW: /by/i
+LIMIT_KW: /limit/i
+AND_KW: /and/i
+OR_KW: /or/i
+NOT_KW: /not/i
+IN_KW: /in/i
+LIKE_KW: /like/i
+CONTAINS_KW: /contains/i
+
+// Aggregate functions
+COUNT_KW: /count/i
+AVG_KW: /avg/i
+MAX_KW: /max/i
+MIN_KW: /min/i
+SUM_KW: /sum/i
+
+// Sort order
+ASC_KW: /asc/i
+DESC_KW: /desc/i
+
+// Node types
+FUNCTIONS_KW: /functions/i
+CLASSES_KW: /classes/i
+MODULES_KW: /modules/i
+NODES_KW: /nodes/i
+METHODS_KW: /methods/i
+
+// SHOW keywords
+SHOW_KW: /show/i
+OF_KW: /of/i
+DEPTH_KW: /depth/i
+DEPENDENCIES_KW: /dependencies/i
+DEPENDENTS_KW: /dependents/i
+CALLERS_KW: /callers/i
+CALLEES_KW: /callees/i
+INHERITANCE_KW: /inheritance/i
+IMPLEMENTATIONS_KW: /implementations/i
+CHILDREN_KW: /children/i
+PARENTS_KW: /parents/i
+
+// FIND keywords
+FIND_KW: /find/i
+CALLING_KW: /calling/i
+CALLED_KW: /called/i
+IMPORTING_KW: /importing/i
+IMPORTED_KW: /imported/i
+INHERITING_KW: /inheriting/i
+IMPLEMENTING_KW: /implementing/i
+MUTATING_KW: /mutating/i
+WITH_KW: /with/i
+DECORATOR_KW: /decorator/i
+ANNOTATION_KW: /annotation/i
+MATCHING_KW: /matching/i
+SIMILAR_KW: /similar/i
+TO_KW: /to/i
+
+// PATH keywords
+PATH_KW: /path/i
+VIA_KW: /via/i
+CALLS_KW: /calls/i
+IMPORTS_KW: /imports/i
+INHERITS_KW: /inherits/i
+USES_KW: /uses/i
+CONTAINS_EDGE_KW: "contains"i
+
+// ANALYZE keywords
+ANALYZE_KW: /analyze/i
+FOR_KW: /for/i
+COUPLING_KW: /coupling/i
+COHESION_KW: /cohesion/i
+COMPLEXITY_KW: /complexity/i
+HOTSPOTS_KW: /hotspots/i
+CIRCULAR_KW: /circular/i
+UNUSED_KW: /unused/i
+IMPACT_KW: /impact/i
+
+// Boolean/null literals
+TRUE_KW: /true/i
+FALSE_KW: /false/i
+NULL_KW: /null/i
+
+// Comparison operators
+EQ: "="
+NEQ: "!=" | "<>"
+GT: ">"
+LT: "<"
+GTE: ">="
+LTE: "<="
+STAR: "*"
+
+// Identifiers and literals
+// IDENTIFIER must come after keywords for proper priority
+STRING: /"[^"]*"/ | /'[^']*'/
+NUMBER: /\d+/
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
+
+// Whitespace and comments
+%import common.WS
+%ignore WS
+
+// Single-line comments
+COMMENT: /--[^\n]*/
+%ignore COMMENT

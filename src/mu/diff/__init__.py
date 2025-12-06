@@ -7,17 +7,17 @@ Compares MU output between git branches/commits to show:
 - Dependency graph changes
 """
 
+from mu.diff.differ import SemanticDiffer
+from mu.diff.formatters import format_diff, format_diff_json, format_diff_markdown
+from mu.diff.git_utils import GitWorktreeManager
 from mu.diff.models import (
-    DiffResult,
-    ModuleDiff,
-    FunctionDiff,
+    ChangeType,
     ClassDiff,
     DependencyDiff,
-    ChangeType,
+    DiffResult,
+    FunctionDiff,
+    ModuleDiff,
 )
-from mu.diff.differ import SemanticDiffer
-from mu.diff.git_utils import GitWorktreeManager
-from mu.diff.formatters import format_diff, format_diff_json, format_diff_markdown
 
 __all__ = [
     "DiffResult",

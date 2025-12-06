@@ -283,6 +283,64 @@ device = "auto"  # auto, cpu, cuda, mps
 | `OPENAI_API_KEY` | OpenAI API key |
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 
+### `mu kernel muql`
+
+Execute MUQL queries against a MUbase database.
+
+```bash
+mu kernel muql <path> [query] [options]
+```
+
+**Arguments:**
+- `path`: Path to directory containing `.mubase` file
+- `query`: MUQL query to execute (optional if using `-i`)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-f, --format` | `table` | Output format: `table`, `json`, `csv` |
+| `-i, --interactive` | false | Launch interactive REPL |
+| `--explain` | false | Show execution plan |
+| `--db` | `.mubase` | Path to database file |
+
+**Examples:**
+```bash
+# Execute a single query
+mu kernel muql . "SELECT * FROM functions WHERE complexity > 20"
+
+# JSON output
+mu kernel muql . -f json "SELECT name, complexity FROM classes"
+
+# Interactive REPL mode
+mu kernel muql . -i
+
+# Show execution plan
+mu kernel muql . --explain "SHOW dependencies OF MUbase DEPTH 2"
+```
+
+**MUQL Query Types:**
+
+| Type | Description | Example |
+|------|-------------|---------|
+| SELECT | Query nodes with filters | `SELECT * FROM functions WHERE complexity > 20` |
+| SHOW | Explore relationships | `SHOW dependencies OF MUbase DEPTH 2` |
+| FIND | Pattern-based search | `FIND functions MATCHING "test_%"` |
+| PATH | Find paths between nodes | `PATH FROM cli TO parser MAX DEPTH 5` |
+| ANALYZE | Built-in analysis | `ANALYZE complexity` |
+
+**REPL Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `.help` | Show help |
+| `.exit` | Exit REPL |
+| `.format <fmt>` | Set output format |
+| `.explain` | Toggle explain mode |
+| `.history` | Show query history |
+| `.clear` | Clear screen |
+
+---
+
 ## Exit Codes
 
 | Code | Meaning |
