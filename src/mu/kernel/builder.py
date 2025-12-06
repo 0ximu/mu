@@ -125,25 +125,29 @@ class GraphBuilder:
         self._nodes.append(class_node)
 
         # Module CONTAINS Class
-        self._edges.append(Edge(
-            id=f"edge:{module_node_id}:contains:{class_node_id}",
-            source_id=module_node_id,
-            target_id=class_node_id,
-            type=EdgeType.CONTAINS,
-        ))
+        self._edges.append(
+            Edge(
+                id=f"edge:{module_node_id}:contains:{class_node_id}",
+                source_id=module_node_id,
+                target_id=class_node_id,
+                type=EdgeType.CONTAINS,
+            )
+        )
 
         # INHERITS edges for base classes
         for base in cls.bases:
             # Create edge to base class
             # Target ID is a placeholder - we try to resolve it but may not find it
             base_target_id = self._resolve_base_class(base, module)
-            self._edges.append(Edge(
-                id=f"edge:{class_node_id}:inherits:{base}",
-                source_id=class_node_id,
-                target_id=base_target_id,
-                type=EdgeType.INHERITS,
-                properties={"base_name": base},
-            ))
+            self._edges.append(
+                Edge(
+                    id=f"edge:{class_node_id}:inherits:{base}",
+                    source_id=class_node_id,
+                    target_id=base_target_id,
+                    type=EdgeType.INHERITS,
+                    properties={"base_name": base},
+                )
+            )
 
         # Process methods
         for method in cls.methods:
@@ -191,12 +195,14 @@ class GraphBuilder:
         self._nodes.append(func_node)
 
         # Parent CONTAINS Function
-        self._edges.append(Edge(
-            id=f"edge:{parent_node_id}:contains:{func_node_id}",
-            source_id=parent_node_id,
-            target_id=func_node_id,
-            type=EdgeType.CONTAINS,
-        ))
+        self._edges.append(
+            Edge(
+                id=f"edge:{parent_node_id}:contains:{func_node_id}",
+                source_id=parent_node_id,
+                target_id=func_node_id,
+                type=EdgeType.CONTAINS,
+            )
+        )
 
     def _process_imports(self, module: ModuleDef, module_node_id: str) -> None:
         """Create IMPORTS edges for internal module dependencies.
@@ -219,16 +225,18 @@ class GraphBuilder:
                 edge_id = f"edge:{module_node_id}:imports:{target_node_id}"
                 # Avoid duplicate edges
                 if not any(e.id == edge_id for e in self._edges):
-                    self._edges.append(Edge(
-                        id=edge_id,
-                        source_id=module_node_id,
-                        target_id=target_node_id,
-                        type=EdgeType.IMPORTS,
-                        properties={
-                            "names": imp.names,
-                            "alias": imp.alias,
-                        },
-                    ))
+                    self._edges.append(
+                        Edge(
+                            id=edge_id,
+                            source_id=module_node_id,
+                            target_id=target_node_id,
+                            type=EdgeType.IMPORTS,
+                            properties={
+                                "names": imp.names,
+                                "alias": imp.alias,
+                            },
+                        )
+                    )
             else:
                 # External import - track in properties
                 package = imp.module.split(".")[0].split("/")[0]
@@ -273,7 +281,9 @@ class GraphBuilder:
 
             # Check path-based matching
             import_as_path = import_path.replace(".", "/")
-            if path.endswith(f"{import_as_path}.py") or path.endswith(f"{import_as_path}/__init__.py"):
+            if path.endswith(f"{import_as_path}.py") or path.endswith(
+                f"{import_as_path}/__init__.py"
+            ):
                 return node_id
 
         # Handle relative imports

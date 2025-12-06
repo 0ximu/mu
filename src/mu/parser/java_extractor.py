@@ -152,7 +152,7 @@ class JavaExtractor:
 
         return cls if cls.name else None
 
-    def _extract_modifiers(self, node: Node, source: bytes, cls_or_func) -> None:
+    def _extract_modifiers(self, node: Node, source: bytes, cls_or_func: ClassDef | FunctionDef) -> None:
         """Extract modifiers (public, private, static, etc.) and annotations."""
         for child in node.children:
             if child.type in ("public", "private", "protected", "static",

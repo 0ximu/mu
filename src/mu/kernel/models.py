@@ -29,7 +29,9 @@ class Node:
     properties: dict[str, Any] = field(default_factory=dict)
     complexity: int = 0
 
-    def to_tuple(self) -> tuple[str, str, str, str | None, str | None, int | None, int | None, str, int]:
+    def to_tuple(
+        self,
+    ) -> tuple[str, str, str, str | None, str | None, int | None, int | None, str, int]:
         """Convert to tuple for DuckDB insertion."""
         return (
             self.id,

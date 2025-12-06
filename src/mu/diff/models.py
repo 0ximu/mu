@@ -246,7 +246,7 @@ class DiffResult:
     @property
     def has_changes(self) -> bool:
         """Check if there are any changes."""
-        return len(self.module_diffs) > 0 or (
+        return len(self.module_diffs) > 0 or bool(
             self.dependency_diff.added_external
             or self.dependency_diff.removed_external
             or self.dependency_diff.added_internal

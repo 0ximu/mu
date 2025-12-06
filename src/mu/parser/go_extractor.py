@@ -75,9 +75,9 @@ class GoExtractor:
                         imports.append(imp)
         else:
             # Single import
-            spec = find_child_by_type(node, "import_spec")
-            if spec:
-                imp = self._extract_import_spec(spec, source)
+            spec_node = find_child_by_type(node, "import_spec")
+            if spec_node:
+                imp = self._extract_import_spec(spec_node, source)
                 if imp:
                     imports.append(imp)
 
@@ -305,9 +305,9 @@ class GoExtractor:
                         types.append(type_def)
         else:
             # Single type spec
-            spec = find_child_by_type(node, "type_spec")
-            if spec:
-                type_def = self._extract_type_spec(spec, source)
+            spec_node = find_child_by_type(node, "type_spec")
+            if spec_node:
+                type_def = self._extract_type_spec(spec_node, source)
                 if type_def:
                     types.append(type_def)
 

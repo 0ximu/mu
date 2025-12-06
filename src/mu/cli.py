@@ -4,17 +4,19 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Literal, cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mu.scanner import ScanResult
 
 import click
 from rich.table import Table
 
 from mu import __version__
 from mu.config import MUConfig, get_default_config_toml
-from mu.errors import ConfigError, ExitCode
+from mu.errors import ExitCode
 from mu.logging import (
     console,
-    err_console,
     print_error,
     print_info,
     print_success,
@@ -22,25 +24,23 @@ from mu.logging import (
     setup_logging,
 )
 
+VerbosityLevel = Literal["quiet", "normal", "verbose"]
+
 
 class MUContext:
     """Shared context for CLI commands."""
 
     def __init__(self) -> None:
         self.config: MUConfig | None = None
-        self.verbosity: str = "normal"
+        self.verbosity: VerbosityLevel = "normal"
 
 
 pass_context = click.make_pass_decorator(MUContext, ensure=True)
 
 
 @click.group()
-@click.option(
-    "-v", "--verbose", is_flag=True, help="Enable verbose output"
-)
-@click.option(
-    "-q", "--quiet", is_flag=True, help="Suppress non-error output"
-)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
+@click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output")
 @click.option(
     "--config",
     type=click.Path(exists=True, path_type=Path),
@@ -48,7 +48,7 @@ pass_context = click.make_pass_decorator(MUContext, ensure=True)
 )
 @click.version_option(version=__version__, prog_name="mu")
 @pass_context
-def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Optional[Path]) -> None:
+def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Path | None) -> None:
     """MU - Machine Understanding: Semantic compression for AI-native development.
 
     Translate codebases into token-efficient representations optimized for LLM comprehension.
@@ -73,9 +73,7 @@ def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Optional[Path]) -> N
 
 
 @cli.command()
-@click.option(
-    "--force", "-f", is_flag=True, help="Overwrite existing .murc.toml"
-)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing .murc.toml")
 @pass_context
 def init(ctx: MUContext, force: bool) -> None:
     """Initialize a new .murc.toml configuration file.
@@ -107,18 +105,20 @@ def init(ctx: MUContext, force: bool) -> None:
 @cli.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file for manifest (default: stdout)",
 )
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["json", "text"]),
     default="text",
     help="Output format",
 )
 @pass_context
-def scan(ctx: MUContext, path: Path, output: Optional[Path], format: str) -> None:
+def scan(ctx: MUContext, path: Path, output: Path | None, format: str) -> None:
     """Analyze codebase structure and output manifest.
 
     Walks the filesystem, identifies modules, languages, and structure.
@@ -133,6 +133,7 @@ def scan(ctx: MUContext, path: Path, output: Optional[Path], format: str) -> Non
 
     if format == "json":
         import json
+
         output_str = json.dumps(result.to_dict(), indent=2)
     else:
         # Text format summary
@@ -145,7 +146,7 @@ def scan(ctx: MUContext, path: Path, output: Optional[Path], format: str) -> Non
         console.print(output_str)
 
 
-def format_scan_result(result) -> str:
+def format_scan_result(result: "ScanResult") -> str:
     """Format scan result as human-readable text."""
     lines = [
         f"Scanned: {result.root}",
@@ -167,51 +168,39 @@ def format_scan_result(result) -> str:
 @cli.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (default: stdout)",
 )
-@click.option(
-    "--llm", is_flag=True, help="Enable LLM-enhanced summarization"
-)
-@click.option(
-    "--local", is_flag=True, help="Local-only mode (no external API calls)"
-)
+@click.option("--llm", is_flag=True, help="Enable LLM-enhanced summarization")
+@click.option("--local", is_flag=True, help="Local-only mode (no external API calls)")
 @click.option(
     "--llm-provider",
     type=click.Choice(["anthropic", "openai", "ollama", "openrouter"]),
     help="Override LLM provider",
 )
+@click.option("--llm-model", help="Override LLM model")
+@click.option("--no-redact", is_flag=True, help="Disable secret redaction (use with caution)")
+@click.option("--shell-safe", is_flag=True, help="Escape sigils for shell piping")
 @click.option(
-    "--llm-model", help="Override LLM model"
-)
-@click.option(
-    "--no-redact", is_flag=True, help="Disable secret redaction (use with caution)"
-)
-@click.option(
-    "--shell-safe", is_flag=True, help="Escape sigils for shell piping"
-)
-@click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["mu", "json", "markdown"]),
     default="mu",
     help="Output format",
 )
-@click.option(
-    "--yes", "-y", is_flag=True, help="Skip confirmation prompts"
-)
-@click.option(
-    "--no-cache", is_flag=True, help="Disable caching (process all files fresh)"
-)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--no-cache", is_flag=True, help="Disable caching (process all files fresh)")
 @pass_context
 def compress(
     ctx: MUContext,
     path: Path,
-    output: Optional[Path],
+    output: Path | None,
     llm: bool,
     local: bool,
-    llm_provider: Optional[str],
-    llm_model: Optional[str],
+    llm_provider: str | None,
+    llm_model: str | None,
     no_redact: bool,
     shell_safe: bool,
     format: str,
@@ -237,7 +226,7 @@ def compress(
         if local and llm_provider != "ollama":
             print_warning(f"Ignoring --llm-provider={llm_provider} in local mode")
         elif not local:
-            ctx.config.llm.provider = llm_provider
+            ctx.config.llm.provider = cast(Literal["anthropic", "openai", "ollama", "openrouter"], llm_provider)
     if llm_model:
         ctx.config.llm.model = llm_model
     if no_redact:
@@ -248,22 +237,24 @@ def compress(
         ctx.config.output.shell_safe = True
     if no_cache:
         ctx.config.cache.enabled = False
-    ctx.config.output.format = format
+    ctx.config.output.format = cast(Literal["mu", "json", "markdown"], format)
 
     # Local-only mode validation
     if local:
         print_info("Local-only mode: using Ollama, no data sent externally")
 
     import asyncio
-    from mu.cache import CacheManager
-    from mu.scanner import scan_codebase
-    from mu.parser import parse_file
-    from mu.reducer import reduce_codebase, MUGenerator
-    from mu.reducer.rules import TransformationRules
-    from mu.logging import create_progress
+
     from mu.assembler import assemble
     from mu.assembler.exporters import export_json, export_markdown, export_mu
-    from mu.security import SecretScanner, load_custom_patterns, DEFAULT_PATTERNS
+    from mu.cache import CacheManager
+    from mu.logging import create_progress
+    from mu.parser import parse_file
+    from mu.parser.models import ModuleDef
+    from mu.reducer import reduce_codebase
+    from mu.reducer.rules import TransformationRules
+    from mu.scanner import scan_codebase
+    from mu.security import DEFAULT_PATTERNS, SecretScanner, load_custom_patterns
 
     # Initialize cache manager
     cache_manager = CacheManager(ctx.config.cache, path.resolve())
@@ -279,8 +270,8 @@ def compress(
     print_info(f"Found {scan_result.stats.total_files} files")
 
     # Step 2: Parse files
-    parsed_modules = []
-    failed_files = []
+    parsed_modules: list[ModuleDef] = []
+    failed_files: list[tuple[str, str | None]] = []
 
     with create_progress() as progress:
         task = progress.add_task("Parsing files...", total=len(scan_result.files))
@@ -289,7 +280,7 @@ def compress(
             file_path = path / file_info.path
             result = parse_file(file_path, file_info.language)
 
-            if result.success:
+            if result.success and result.module is not None:
                 parsed_modules.append(result.module)
             else:
                 failed_files.append((file_info.path, result.error))
@@ -320,19 +311,19 @@ def compress(
             # Scan top-level functions
             for func in module.functions:
                 if func.body_source:
-                    result = secret_scanner.scan(func.body_source, redact=True)
-                    if result.has_secrets:
-                        func.body_source = result.redacted_source
-                        total_secrets_found += result.total_secrets_found
+                    secret_result = secret_scanner.scan(func.body_source, redact=True)
+                    if secret_result.has_secrets:
+                        func.body_source = secret_result.redacted_source
+                        total_secrets_found += secret_result.total_secrets_found
 
             # Scan class methods
             for cls in module.classes:
                 for method in cls.methods:
                     if method.body_source:
-                        result = secret_scanner.scan(method.body_source, redact=True)
-                        if result.has_secrets:
-                            method.body_source = result.redacted_source
-                            total_secrets_found += result.total_secrets_found
+                        secret_result = secret_scanner.scan(method.body_source, redact=True)
+                        if secret_result.has_secrets:
+                            method.body_source = secret_result.redacted_source
+                            total_secrets_found += secret_result.total_secrets_found
 
         if total_secrets_found > 0:
             print_info(f"Redacted {total_secrets_found} potential secrets")
@@ -358,47 +349,54 @@ def compress(
 
     # Report stats
     stats = reduced.stats
-    print_info(f"Reduced to {stats['total_classes']} classes, "
-               f"{stats['total_functions']} functions, "
-               f"{stats['total_methods']} methods")
+    print_info(
+        f"Reduced to {stats['total_classes']} classes, "
+        f"{stats['total_functions']} functions, "
+        f"{stats['total_methods']} methods"
+    )
 
-    if stats.get('needs_llm_summary', 0) > 0:
+    if stats.get("needs_llm_summary", 0) > 0:
         print_info(f"  {stats['needs_llm_summary']} functions flagged for LLM summarization")
 
     # Step 4: LLM summarization (if enabled)
-    if ctx.config.llm.enabled and stats.get('needs_llm_summary', 0) > 0:
+    if ctx.config.llm.enabled and stats.get("needs_llm_summary", 0) > 0:
         from mu.llm import (
             LLMPool,
-            SummarizationRequest,
-            estimate_cost,
             LLMProvider,
+            SummarizationRequest,
+            SummarizationResult,
+            estimate_cost,
         )
 
         # Collect functions needing summarization
         requests: list[SummarizationRequest] = []
-        for module in reduced.modules:
+        for reduced_module in reduced.modules:
             # Top-level functions
-            for func in module.functions:
-                if func.name in module.needs_llm and func.body_source:
-                    requests.append(SummarizationRequest(
-                        function_name=func.name,
-                        body_source=func.body_source,
-                        language=module.language,
-                        context=module.name,
-                        file_path=module.path,
-                    ))
+            for func in reduced_module.functions:
+                if func.name in reduced_module.needs_llm and func.body_source:
+                    requests.append(
+                        SummarizationRequest(
+                            function_name=func.name,
+                            body_source=func.body_source,
+                            language=reduced_module.language,
+                            context=reduced_module.name,
+                            file_path=reduced_module.path,
+                        )
+                    )
             # Class methods
-            for cls in module.classes:
+            for cls in reduced_module.classes:
                 for method in cls.methods:
                     key = f"{cls.name}.{method.name}"
-                    if key in module.needs_llm and method.body_source:
-                        requests.append(SummarizationRequest(
-                            function_name=key,
-                            body_source=method.body_source,
-                            language=module.language,
-                            context=f"{module.name}.{cls.name}",
-                            file_path=module.path,
-                        ))
+                    if key in reduced_module.needs_llm and method.body_source:
+                        requests.append(
+                            SummarizationRequest(
+                                function_name=key,
+                                body_source=method.body_source,
+                                language=reduced_module.language,
+                                context=f"{reduced_module.name}.{cls.name}",
+                                file_path=reduced_module.path,
+                            )
+                        )
 
         if requests:
             # Estimate cost
@@ -425,14 +423,14 @@ def compress(
                     cache_base_path=path.resolve(),
                 )
 
-                async def run_summarization():
+                async def run_summarization() -> list[SummarizationResult]:
                     with create_progress() as progress:
                         task = progress.add_task(
                             "Summarizing functions...",
                             total=len(requests),
                         )
 
-                        def on_progress(completed: int, total: int):
+                        def on_progress(completed: int, total: int) -> None:
                             progress.update(task, completed=completed)
 
                         return await pool.summarize_batch(requests, on_progress)
@@ -441,28 +439,32 @@ def compress(
 
                 # Inject summaries back into reduced modules
                 summaries_by_file: dict[str, dict[str, list[str]]] = {}
-                for result in results:
-                    if result.success:
+                for summarize_result in results:
+                    if summarize_result.success:
                         # Find the module this function belongs to
                         for req in requests:
-                            if req.function_name == result.function_name:
+                            if req.function_name == summarize_result.function_name and req.file_path is not None:
                                 if req.file_path not in summaries_by_file:
                                     summaries_by_file[req.file_path] = {}
-                                summaries_by_file[req.file_path][result.function_name] = result.summary
+                                summaries_by_file[req.file_path][summarize_result.function_name] = (
+                                    summarize_result.summary
+                                )
                                 break
 
                 # Apply summaries to modules
-                for module in reduced.modules:
-                    if module.path in summaries_by_file:
-                        module.summaries.update(summaries_by_file[module.path])
+                for reduced_module in reduced.modules:
+                    if reduced_module.path in summaries_by_file:
+                        reduced_module.summaries.update(summaries_by_file[reduced_module.path])
 
                 # Report results
                 successful = sum(1 for r in results if r.success)
                 failed = len(results) - successful
                 cached_hits = sum(1 for r in results if r.cached)
-                print_info(f"Summarized {successful} functions" +
-                          (f" ({failed} failed)" if failed else "") +
-                          (f" ({cached_hits} from cache)" if cached_hits else ""))
+                print_info(
+                    f"Summarized {successful} functions"
+                    + (f" ({failed} failed)" if failed else "")
+                    + (f" ({cached_hits} from cache)" if cached_hits else "")
+                )
                 if pool.stats.total_tokens > 0:
                     print_info(f"  Tokens used: {pool.stats.total_tokens:,}")
 
@@ -474,7 +476,7 @@ def compress(
     assembled = assemble(parsed_modules, reduced, path)
 
     # Report assembly stats
-    internal_deps = assembled.codebase.stats.get('internal_dependencies', 0)
+    internal_deps = assembled.codebase.stats.get("internal_dependencies", 0)
     external_pkgs = len(assembled.external_packages)
     print_info(f"  {internal_deps} internal dependencies, {external_pkgs} external packages")
 
@@ -500,7 +502,8 @@ def compress(
 @cli.command()
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["terminal", "html", "markdown"]),
     default="terminal",
     help="Output format",
@@ -512,11 +515,14 @@ def compress(
     help="Color theme for terminal/HTML output",
 )
 @click.option(
-    "--line-numbers", "-n", is_flag=True,
+    "--line-numbers",
+    "-n",
+    is_flag=True,
     help="Show line numbers",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (for html/markdown formats)",
 )
@@ -527,7 +533,7 @@ def view(
     format: str,
     theme: str,
     line_numbers: bool,
-    output: Optional[Path],
+    output: Path | None,
 ) -> None:
     """Render MU file in human-readable format.
 
@@ -559,24 +565,28 @@ def view(
 @click.argument("base_ref")
 @click.argument("target_ref")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (default: stdout)",
 )
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["terminal", "json", "markdown"]),
     default="terminal",
     help="Output format",
 )
 @click.option(
-    "--path", "-p",
+    "--path",
+    "-p",
     type=click.Path(exists=True, path_type=Path),
     default=Path("."),
     help="Path to compare (default: current directory)",
 )
 @click.option(
-    "--no-color", is_flag=True,
+    "--no-color",
+    is_flag=True,
     help="Disable colored output",
 )
 @pass_context
@@ -584,7 +594,7 @@ def diff(
     ctx: MUContext,
     base_ref: str,
     target_ref: str,
-    output: Optional[Path],
+    output: Path | None,
     format: str,
     path: Path,
     no_color: bool,
@@ -601,20 +611,19 @@ def diff(
         mu diff v1.0.0 v2.0.0           # Compare tagged releases
         mu diff main HEAD -f json       # Output as JSON
     """
+    from mu.assembler import AssembledOutput, assemble
     from mu.diff import (
+        SemanticDiffer,
         format_diff,
         format_diff_json,
-        GitWorktreeManager,
-        SemanticDiffer,
     )
     from mu.diff.formatters import format_diff_markdown
-    from mu.diff.git_utils import compare_refs, GitError
-    from mu.scanner import scan_codebase
+    from mu.diff.git_utils import GitError, compare_refs
     from mu.parser import parse_file
+    from mu.parser.models import ModuleDef
     from mu.reducer import reduce_codebase
     from mu.reducer.rules import TransformationRules
-    from mu.assembler import assemble
-    from mu.logging import create_progress
+    from mu.scanner import scan_codebase
 
     if ctx.config is None:
         ctx.config = MUConfig()
@@ -622,7 +631,12 @@ def diff(
     print_info(f"Comparing {base_ref} → {target_ref}...")
 
     try:
-        with compare_refs(path, base_ref, target_ref) as (base_path, target_path, base_git_ref, target_git_ref):
+        with compare_refs(path, base_ref, target_ref) as (
+            base_path,
+            target_path,
+            base_git_ref,
+            target_git_ref,
+        ):
             # Shared transformation rules
             rules = TransformationRules(
                 strip_stdlib_imports=True,
@@ -635,28 +649,29 @@ def diff(
                 include_type_annotations=True,
             )
 
-            def process_version(version_path: Path, label: str):
+            def process_version(version_path: Path, label: str) -> tuple[AssembledOutput | None, list[ModuleDef]]:
                 """Process a version of the codebase through the MU pipeline."""
+                assert ctx.config is not None
                 # Scan
-                scan_result = scan_codebase(version_path, ctx.config)
-                if scan_result.stats.total_files == 0:
+                version_scan_result = scan_codebase(version_path, ctx.config)
+                if version_scan_result.stats.total_files == 0:
                     return None, []
 
                 # Parse
-                parsed_modules = []
-                for file_info in scan_result.files:
+                version_modules: list[ModuleDef] = []
+                for file_info in version_scan_result.files:
                     file_path = version_path / file_info.path
-                    result = parse_file(file_path, file_info.language)
-                    if result.success:
-                        parsed_modules.append(result.module)
+                    parse_result = parse_file(file_path, file_info.language)
+                    if parse_result.success and parse_result.module is not None:
+                        version_modules.append(parse_result.module)
 
                 # Reduce
-                reduced = reduce_codebase(parsed_modules, version_path, rules)
+                reduced = reduce_codebase(version_modules, version_path, rules)
 
                 # Assemble
-                assembled = assemble(parsed_modules, reduced, version_path)
+                assembled = assemble(version_modules, reduced, version_path)
 
-                return assembled, parsed_modules
+                return assembled, version_modules
 
             # Process both versions
             print_info(f"  Processing {base_ref}...")
@@ -706,12 +721,8 @@ def cache() -> None:
 
 
 @cache.command("clear")
-@click.option(
-    "--llm-only", is_flag=True, help="Only clear LLM response cache"
-)
-@click.option(
-    "--files-only", is_flag=True, help="Only clear file result cache"
-)
+@click.option("--llm-only", is_flag=True, help="Only clear LLM response cache")
+@click.option("--files-only", is_flag=True, help="Only clear file result cache")
 @pass_context
 def cache_clear(ctx: MUContext, llm_only: bool, files_only: bool) -> None:
     """Clear all cached data."""
@@ -741,19 +752,20 @@ def cache_clear(ctx: MUContext, llm_only: bool, files_only: bool) -> None:
     else:
         # Full clear
         cleared = cache_manager.clear()
-        print_success(f"Cleared cache: {cleared['file_entries']} file entries, "
-                      f"{cleared['llm_entries']} LLM entries")
+        print_success(
+            f"Cleared cache: {cleared['file_entries']} file entries, "
+            f"{cleared['llm_entries']} LLM entries"
+        )
         cache_manager.close()
 
 
 @cache.command("stats")
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @pass_context
 def cache_stats(ctx: MUContext, as_json: bool) -> None:
     """Show cache statistics."""
     import json as json_module
+
     from mu.cache import CacheManager
 
     if ctx.config is None:
@@ -830,9 +842,7 @@ def kernel() -> None:
 
 @kernel.command("init")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option(
-    "--force", "-f", is_flag=True, help="Overwrite existing .mubase file"
-)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing .mubase file")
 def kernel_init(path: Path, force: bool) -> None:
     """Initialize a .mubase graph database.
 
@@ -866,12 +876,13 @@ def kernel_init(path: Path, force: bool) -> None:
 @kernel.command("build")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output .mubase file (default: {path}/.mubase)",
 )
 @pass_context
-def kernel_build(ctx: MUContext, path: Path, output: Optional[Path]) -> None:
+def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
     """Build graph database from codebase.
 
     Scans the directory, parses all supported files, and builds a
@@ -938,9 +949,7 @@ def kernel_build(ctx: MUContext, path: Path, output: Optional[Path]) -> None:
 
 @kernel.command("stats")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_stats(path: Path, as_json: bool) -> None:
     """Show graph database statistics."""
     import json as json_module
@@ -993,34 +1002,37 @@ def kernel_stats(path: Path, as_json: bool) -> None:
 @kernel.command("query")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--type", "-t", "node_type",
+    "--type",
+    "-t",
+    "node_type",
     type=click.Choice(["module", "class", "function", "external"]),
     help="Filter by node type",
 )
 @click.option(
-    "--complexity", "-c",
+    "--complexity",
+    "-c",
     type=int,
     help="Minimum complexity threshold",
 )
 @click.option(
-    "--name", "-n",
+    "--name",
+    "-n",
     type=str,
     help="Filter by name (supports % wildcard)",
 )
 @click.option(
-    "--limit", "-l",
+    "--limit",
+    "-l",
     type=int,
     default=20,
     help="Maximum results to show",
 )
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_query(
     path: Path,
-    node_type: Optional[str],
-    complexity: Optional[int],
-    name: Optional[str],
+    node_type: str | None,
+    complexity: int | None,
+    name: str | None,
     limit: int,
     as_json: bool,
 ) -> None:
@@ -1097,17 +1109,14 @@ def kernel_query(
 @click.argument("node_name", type=str)
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--depth", "-d",
+    "--depth",
+    "-d",
     type=int,
     default=1,
     help="Depth of dependency traversal",
 )
-@click.option(
-    "--reverse", "-r", is_flag=True, help="Show dependents instead of dependencies"
-)
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--reverse", "-r", is_flag=True, help="Show dependents instead of dependencies")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_deps(
     node_name: str,
     path: Path,
@@ -1150,7 +1159,9 @@ def kernel_deps(
     # Use the first match
     target_node = matching_nodes[0]
     if len(matching_nodes) > 1:
-        print_info(f"Multiple matches found, using: {target_node.qualified_name or target_node.name}")
+        print_info(
+            f"Multiple matches found, using: {target_node.qualified_name or target_node.name}"
+        )
 
     # Get dependencies or dependents
     if reverse:
@@ -1172,7 +1183,9 @@ def kernel_deps(
         console.print(json_module.dumps(result, indent=2))
         return
 
-    print_info(f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):")
+    print_info(
+        f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):"
+    )
 
     if not related:
         print_info("  (none)")
@@ -1183,6 +1196,345 @@ def kernel_deps(
         type_str = f"[{node.type.value}]"
         name_str = node.qualified_name or node.name
         print_info(f"{prefix}{type_str} {name_str}")
+
+
+@kernel.command("embed")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--provider",
+    "-p",
+    type=click.Choice(["openai", "local"]),
+    help="Embedding provider to use (default: from config)",
+)
+@click.option(
+    "--model",
+    "-m",
+    type=str,
+    help="Embedding model to use",
+)
+@click.option(
+    "--batch-size",
+    "-b",
+    type=int,
+    default=100,
+    help="Batch size for embedding generation",
+)
+@click.option(
+    "--local",
+    is_flag=True,
+    help="Force local embeddings (sentence-transformers)",
+)
+@click.option(
+    "--type",
+    "-t",
+    "node_types",
+    type=click.Choice(["module", "class", "function"]),
+    multiple=True,
+    help="Node types to embed (default: all)",
+)
+@pass_context
+def kernel_embed(
+    ctx: MUContext,
+    path: Path,
+    provider: str | None,
+    model: str | None,
+    batch_size: int,
+    local: bool,
+    node_types: tuple[str, ...],
+) -> None:
+    """Generate embeddings for codebase nodes.
+
+    Creates vector embeddings for code graph nodes to enable semantic search.
+    Requires a .mubase file - run 'mu kernel build' first.
+
+    \b
+    Examples:
+        mu kernel embed .                    # Embed all nodes with OpenAI
+        mu kernel embed . --local            # Use local sentence-transformers
+        mu kernel embed . --type function    # Only embed functions
+        mu kernel embed . --provider openai --model text-embedding-3-large
+    """
+    import asyncio
+
+    from mu.kernel import MUbase, NodeType
+    from mu.kernel.embeddings import EmbeddingService
+    from mu.kernel.embeddings.models import NodeEmbedding
+    from mu.logging import create_progress
+
+    if ctx.config is None:
+        ctx.config = MUConfig()
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel build' first to create the graph database")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Determine provider
+    embed_provider = provider
+    if local:
+        embed_provider = "local"
+    elif embed_provider is None:
+        embed_provider = ctx.config.embeddings.provider
+
+    # Check for API key if using OpenAI
+    if embed_provider == "openai":
+        import os
+
+        api_key_env = ctx.config.embeddings.openai.api_key_env
+        if not os.environ.get(api_key_env):
+            print_error(f"OpenAI API key not found in environment variable {api_key_env}")
+            print_info("Set the environment variable or use --local for local embeddings")
+            sys.exit(ExitCode.CONFIG_ERROR)
+
+    print_info(f"Using {embed_provider} embedding provider")
+
+    # Open database
+    db = MUbase(mubase_path)
+
+    # Get nodes to embed
+    nodes = []
+    if node_types:
+        for nt in node_types:
+            nodes.extend(db.get_nodes(NodeType(nt)))
+    else:
+        # Get all non-external nodes
+        for node_type in [NodeType.MODULE, NodeType.CLASS, NodeType.FUNCTION]:
+            nodes.extend(db.get_nodes(node_type))
+
+    if not nodes:
+        print_warning("No nodes found to embed")
+        db.close()
+        return
+
+    print_info(f"Found {len(nodes)} nodes to embed")
+
+    # Create embedding service
+    service = EmbeddingService(
+        config=ctx.config.embeddings,
+        provider=embed_provider,
+        model=model,
+    )
+
+    async def run_embedding() -> list[NodeEmbedding]:
+        with create_progress() as progress:
+            task = progress.add_task(
+                "Generating embeddings...",
+                total=len(nodes),
+            )
+
+            def on_progress(completed: int, total: int) -> None:
+                progress.update(task, completed=completed)
+
+            embeddings = await service.embed_nodes(
+                nodes,
+                batch_size=batch_size,
+                on_progress=on_progress,
+            )
+
+            return embeddings
+
+    embeddings = asyncio.run(run_embedding())
+
+    # Store embeddings
+    print_info("Storing embeddings...")
+    db.add_embeddings_batch(embeddings)
+
+    # Report results
+    stats = service.stats
+    print_success(f"Generated {stats.successful} embeddings")
+    if stats.failed > 0:
+        print_warning(f"  {stats.failed} failed")
+
+    # Show embedding stats
+    embed_stats = db.embedding_stats()
+    print_info(f"  Coverage: {embed_stats['coverage_percent']:.1f}%")
+
+    db.close()
+
+    # Cleanup
+    asyncio.run(service.close())
+
+
+@kernel.command("search")
+@click.argument("query", type=str)
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--limit",
+    "-l",
+    type=int,
+    default=10,
+    help="Maximum number of results",
+)
+@click.option(
+    "--type",
+    "-t",
+    "node_type",
+    type=click.Choice(["module", "class", "function"]),
+    help="Filter by node type",
+)
+@click.option(
+    "--embedding",
+    "-e",
+    type=click.Choice(["code", "docstring", "name"]),
+    default="code",
+    help="Which embedding to search",
+)
+@click.option(
+    "--provider",
+    "-p",
+    type=click.Choice(["openai", "local"]),
+    help="Provider for query embedding (default: from config)",
+)
+@click.option(
+    "--local",
+    is_flag=True,
+    help="Force local embeddings for query",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    help="Output as JSON",
+)
+@pass_context
+def kernel_search(
+    ctx: MUContext,
+    query: str,
+    path: Path,
+    limit: int,
+    node_type: str | None,
+    embedding: str,
+    provider: str | None,
+    local: bool,
+    as_json: bool,
+) -> None:
+    """Semantic search for code nodes.
+
+    Search the codebase using natural language queries. Finds nodes
+    semantically similar to the query, even if they don't contain
+    the exact words.
+
+    \b
+    Examples:
+        mu kernel search "authentication logic"
+        mu kernel search "database connection" --type function
+        mu kernel search "error handling" --limit 20 --json
+    """
+    import asyncio
+    import json as json_module
+
+    from mu.kernel import MUbase, NodeType
+    from mu.kernel.embeddings import EmbeddingService
+
+    if ctx.config is None:
+        ctx.config = MUConfig()
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel build' and 'mu kernel embed' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Determine provider
+    embed_provider = provider
+    if local:
+        embed_provider = "local"
+    elif embed_provider is None:
+        embed_provider = ctx.config.embeddings.provider
+
+    # Check for API key if using OpenAI
+    if embed_provider == "openai":
+        import os
+
+        api_key_env = ctx.config.embeddings.openai.api_key_env
+        if not os.environ.get(api_key_env):
+            print_error("OpenAI API key not found")
+            print_info(f"Set {api_key_env} or use --local for local embeddings")
+            sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Open database
+    db = MUbase(mubase_path)
+
+    # Check if embeddings exist
+    embed_stats = db.embedding_stats()
+    if embed_stats["nodes_with_embeddings"] == 0:
+        print_error("No embeddings found in database")
+        print_info("Run 'mu kernel embed' first to generate embeddings")
+        db.close()
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Create embedding service for query
+    service = EmbeddingService(
+        config=ctx.config.embeddings,
+        provider=embed_provider,
+    )
+
+    # Embed the query
+    async def get_query_embedding() -> list[float] | None:
+        return await service.embed_query(query)
+
+    print_info(f"Searching for: {query}")
+    query_embedding = asyncio.run(get_query_embedding())
+
+    if query_embedding is None:
+        print_error("Failed to generate query embedding")
+        db.close()
+        asyncio.run(service.close())
+        sys.exit(ExitCode.FATAL_ERROR)
+
+    # Perform vector search
+    nt = NodeType(node_type) if node_type else None
+    results = db.vector_search(
+        query_embedding=query_embedding,
+        embedding_type=embedding,
+        limit=limit,
+        node_type=nt,
+    )
+
+    db.close()
+    asyncio.run(service.close())
+
+    if not results:
+        print_info("No results found")
+        return
+
+    if as_json:
+        output = {
+            "query": query,
+            "results": [
+                {
+                    "node": node.to_dict(),
+                    "similarity": round(score, 4),
+                }
+                for node, score in results
+            ],
+        }
+        console.print(json_module.dumps(output, indent=2))
+        return
+
+    # Display results as table
+    table = Table(title=f"Search Results for: {query}")
+    table.add_column("Score", style="yellow", width=8)
+    table.add_column("Type", style="cyan", width=10)
+    table.add_column("Name", style="green")
+    table.add_column("File", style="dim")
+
+    for node, score in results:
+        file_display = node.file_path or ""
+        if len(file_display) > 35:
+            file_display = "..." + file_display[-32:]
+
+        table.add_row(
+            f"{score:.3f}",
+            node.type.value,
+            node.name,
+            file_display,
+        )
+
+    console.print(table)
 
 
 def main() -> None:

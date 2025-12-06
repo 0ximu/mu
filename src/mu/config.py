@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -159,6 +159,57 @@ class CacheConfig(BaseModel):
     )
 
 
+class OpenAIEmbeddingsConfig(BaseModel):
+    """OpenAI embeddings configuration."""
+
+    api_key_env: str = Field(
+        default="OPENAI_API_KEY",
+        description="Environment variable containing OpenAI API key",
+    )
+    model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model to use",
+    )
+
+
+class LocalEmbeddingsConfig(BaseModel):
+    """Local embeddings configuration."""
+
+    model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Sentence-transformers model to use",
+    )
+    device: Literal["auto", "cpu", "cuda", "mps"] = Field(
+        default="auto",
+        description="Device for local inference",
+    )
+
+
+class EmbeddingsConfig(BaseModel):
+    """Embeddings configuration."""
+
+    provider: Literal["openai", "local"] = Field(
+        default="openai",
+        description="Embedding provider to use",
+    )
+    batch_size: int = Field(
+        default=100,
+        description="Batch size for embedding generation",
+    )
+    cache_embeddings: bool = Field(
+        default=True,
+        description="Cache generated embeddings",
+    )
+    openai: OpenAIEmbeddingsConfig = Field(
+        default_factory=OpenAIEmbeddingsConfig,
+        description="OpenAI-specific settings",
+    )
+    local: LocalEmbeddingsConfig = Field(
+        default_factory=LocalEmbeddingsConfig,
+        description="Local model settings",
+    )
+
+
 class MUConfig(BaseSettings):
     """Main MU configuration."""
 
@@ -176,6 +227,7 @@ class MUConfig(BaseSettings):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
+    embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
 
     @classmethod
     def load(cls, config_path: Path | None = None) -> MUConfig:
@@ -188,16 +240,18 @@ class MUConfig(BaseSettings):
         4. .murc.toml in home directory
         5. Built-in defaults
         """
-        config_data: dict = {}
+        config_data: dict[str, Any] = {}
 
         # Check config file locations
         locations = []
         if config_path:
             locations.append(config_path)
-        locations.extend([
-            Path.cwd() / ".murc.toml",
-            Path.home() / ".murc.toml",
-        ])
+        locations.extend(
+            [
+                Path.cwd() / ".murc.toml",
+                Path.home() / ".murc.toml",
+            ]
+        )
 
         for loc in locations:
             if loc.exists():
@@ -210,7 +264,7 @@ class MUConfig(BaseSettings):
 
 def get_default_config_toml() -> str:
     """Generate default .murc.toml content."""
-    return '''# MU Configuration
+    return """# MU Configuration
 # https://github.com/dominaite/mu
 
 [mu]
@@ -269,4 +323,17 @@ shell_safe = false
 enabled = true
 directory = ".mu-cache"
 ttl_hours = 168  # 1 week
-'''
+
+[embeddings]
+provider = "openai"  # openai | local
+batch_size = 100
+cache_embeddings = true
+
+[embeddings.openai]
+api_key_env = "OPENAI_API_KEY"
+model = "text-embedding-3-small"
+
+[embeddings.local]
+model = "all-MiniLM-L6-v2"
+device = "auto"  # auto | cpu | cuda | mps
+"""

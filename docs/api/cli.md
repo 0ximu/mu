@@ -139,6 +139,76 @@ mu diff main HEAD
 mu diff HEAD
 ```
 
+### `mu kernel embed`
+
+Generate vector embeddings for semantic code search.
+
+```bash
+mu kernel embed [path] [options]
+```
+
+**Arguments:**
+- `path`: Directory to embed (default: current directory)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--provider, -p` | `openai` | Embedding provider: `openai`, `local` |
+| `--model` | varies | Embedding model to use |
+| `--batch-size` | `100` | Number of nodes to embed per batch |
+| `--local` | false | Force local embeddings (sentence-transformers) |
+
+**Examples:**
+```bash
+# Generate embeddings with OpenAI
+mu kernel embed ./src
+
+# Use local embeddings (no API key required)
+mu kernel embed ./src --local
+
+# Custom batch size for large codebases
+mu kernel embed ./src --batch-size 50
+```
+
+**Environment Variables:**
+- `OPENAI_API_KEY`: Required for OpenAI embeddings
+
+### `mu kernel search`
+
+Semantic search for code using vector embeddings.
+
+```bash
+mu kernel search <query> [path] [options]
+```
+
+**Arguments:**
+- `query`: Natural language search query
+- `path`: Directory containing .mubase file (default: current directory)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit, -l` | `10` | Maximum results to return |
+| `--type, -t` | all | Filter by node type: `function`, `class`, `module` |
+| `--json` | false | Output results as JSON |
+| `--provider, -p` | `openai` | Embedding provider for query |
+| `--local` | false | Use local embeddings for query |
+
+**Examples:**
+```bash
+# Search for authentication logic
+mu kernel search "user authentication and login"
+
+# Find only functions, limit to 5 results
+mu kernel search "error handling" --type function --limit 5
+
+# JSON output for scripting
+mu kernel search "database connection" --json
+
+# Use local embeddings
+mu kernel search "api endpoint" --local
+```
+
 ### `mu cache`
 
 Manage the MU cache.
@@ -187,6 +257,20 @@ format = "mu"
 [llm]
 provider = "anthropic"
 model = "claude-3-haiku-20240307"
+
+[embeddings]
+provider = "openai"              # or "local"
+model = "text-embedding-3-small" # or "all-MiniLM-L6-v2" for local
+batch_size = 100
+cache_embeddings = true
+
+[embeddings.openai]
+api_key_env = "OPENAI_API_KEY"
+dimensions = 1536
+
+[embeddings.local]
+model = "sentence-transformers/all-MiniLM-L6-v2"
+device = "auto"  # auto, cpu, cuda, mps
 ```
 
 ### Environment Variables
