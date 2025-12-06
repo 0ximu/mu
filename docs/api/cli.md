@@ -173,6 +173,63 @@ mu kernel embed ./src --batch-size 50
 **Environment Variables:**
 - `OPENAI_API_KEY`: Required for OpenAI embeddings
 
+### `mu kernel context`
+
+Extract optimal context for answering a question about the code.
+
+```bash
+mu kernel context <question> [path] [options]
+```
+
+**Arguments:**
+- `question`: Natural language question about the code
+- `path`: Directory containing .mubase file (default: current directory)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--max-tokens, -t` | `8000` | Maximum tokens in output |
+| `--format, -f` | `mu` | Output format: `mu`, `json` |
+| `--verbose, -v` | false | Show extraction statistics |
+| `--exclude-tests` | false | Filter out test files |
+| `--scores` | false | Include relevance annotations |
+| `--depth` | `1` | Graph expansion depth |
+| `--copy` | false | Copy output to clipboard |
+
+**Examples:**
+```bash
+# Basic context extraction
+mu kernel context "How does authentication work?"
+
+# With token limit
+mu kernel context "database queries" --max-tokens 4000
+
+# JSON output with scores
+mu kernel context "user validation" --format json --scores
+
+# Verbose mode shows extraction stats
+mu kernel context "error handling" --verbose
+
+# Exclude test files
+mu kernel context "API endpoints" --exclude-tests
+
+# Copy to clipboard for LLM prompt
+mu kernel context "parser logic" --copy
+```
+
+**Output Example:**
+```
+! auth.service
+  Authentication service module
+  $ AuthService < BaseService
+    # login(email: str, password: str) -> Result[User]
+      Authenticate user with credentials
+      @validate, @log_call
+    # logout(user_id: UUID) -> None
+    # refresh_token(token: str) -> Token
+  @ UserRepository, TokenService, CacheService
+```
+
 ### `mu kernel search`
 
 Semantic search for code using vector embeddings.

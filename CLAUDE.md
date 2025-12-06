@@ -5,14 +5,17 @@ This file provides quick-reference guidance for Claude Code. For detailed docume
 ## Documentation Structure
 
 ```
-.claude/CLAUDE.md              # Project-wide standards, pre-PR checklist
-src/mu/parser/CLAUDE.md        # Multi-language AST extraction
-src/mu/llm/CLAUDE.md           # LLM provider integration
-src/mu/assembler/CLAUDE.md     # Import resolution, dependency graph
-src/mu/reducer/CLAUDE.md       # Transformation rules, compression
-src/mu/diff/CLAUDE.md          # Semantic diff computation
-src/mu/security/CLAUDE.md      # Secret detection and redaction
-tests/CLAUDE.md                # Testing standards and patterns
+.claude/CLAUDE.md                     # Project-wide standards, pre-PR checklist
+src/mu/parser/CLAUDE.md               # Multi-language AST extraction
+src/mu/llm/CLAUDE.md                  # LLM provider integration
+src/mu/assembler/CLAUDE.md            # Import resolution, dependency graph
+src/mu/reducer/CLAUDE.md              # Transformation rules, compression
+src/mu/diff/CLAUDE.md                 # Semantic diff computation
+src/mu/security/CLAUDE.md             # Secret detection and redaction
+src/mu/kernel/CLAUDE.md               # Graph database for code analysis
+src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
+src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
+tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
 ## Project Overview
@@ -49,6 +52,7 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`ReducedModule`**: Post-compression with `needs_llm` markers
 - **`ModuleGraph`**: Dependency graph with resolved imports
 - **`DiffResult`**: Semantic changes between versions
+- **`ContextResult`**: Smart context extraction result with MU output
 
 ## Supported Languages
 

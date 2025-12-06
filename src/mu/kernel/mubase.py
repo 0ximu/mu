@@ -733,6 +733,121 @@ class MUbase:
             "dimensions": dimensions,
         }
 
+    # =========================================================================
+    # Smart Context Methods
+    # =========================================================================
+
+    def get_context_for_question(
+        self,
+        question: str,
+        max_tokens: int = 8000,
+        **kwargs: Any,
+    ) -> Any:
+        """Extract optimal context for answering a question.
+
+        Uses smart context extraction to identify the most relevant code
+        entities for a given natural language question, fitting within
+        a token budget.
+
+        Args:
+            question: Natural language question about the code.
+            max_tokens: Maximum tokens in output (default: 8000).
+            **kwargs: Additional ExtractionConfig options:
+                - include_imports: bool (default: True)
+                - include_parent: bool (default: True)
+                - expand_depth: int (default: 1)
+                - entity_weight: float (default: 1.0)
+                - vector_weight: float (default: 0.7)
+                - proximity_weight: float (default: 0.3)
+                - min_relevance: float (default: 0.1)
+                - exclude_tests: bool (default: False)
+
+        Returns:
+            ContextResult with MU format context, selected nodes,
+            token count, relevance scores, and extraction stats.
+
+        Example:
+            >>> db = MUbase(".mubase")
+            >>> result = db.get_context_for_question(
+            ...     "How does authentication work?",
+            ...     max_tokens=4000,
+            ...     exclude_tests=True,
+            ... )
+            >>> print(result.mu_text)
+            >>> print(f"Tokens: {result.token_count}")
+        """
+        from mu.kernel.context import ExtractionConfig, SmartContextExtractor
+
+        config = ExtractionConfig(max_tokens=max_tokens, **kwargs)
+        extractor = SmartContextExtractor(self, config)
+        return extractor.extract(question)
+
+    def has_embeddings(self) -> bool:
+        """Check if the database has any embeddings.
+
+        Returns:
+            True if embeddings exist, False otherwise.
+        """
+        try:
+            self._ensure_embeddings_schema()
+            result = self.conn.execute(
+                "SELECT COUNT(*) FROM embeddings LIMIT 1"
+            ).fetchone()
+            return result is not None and result[0] > 0
+        except Exception:
+            return False
+
+    def find_nodes_by_suffix(
+        self,
+        suffix: str,
+        node_type: NodeType | None = None,
+    ) -> list[Node]:
+        """Find nodes whose name ends with the given suffix.
+
+        Useful for fuzzy matching when the full qualified name is not known.
+
+        Args:
+            suffix: The suffix to match (e.g., "Service", "login")
+            node_type: Optional filter by node type
+
+        Returns:
+            List of matching nodes
+        """
+        return self.find_by_name(f"%{suffix}", node_type)
+
+    def get_neighbors(
+        self,
+        node_id: str,
+        direction: str = "both",
+    ) -> list[Node]:
+        """Get neighboring nodes in the graph.
+
+        Args:
+            node_id: The node to find neighbors for
+            direction: "outgoing" (dependencies), "incoming" (dependents),
+                      or "both" (default)
+
+        Returns:
+            List of neighboring nodes
+        """
+        neighbors: list[Node] = []
+
+        if direction in ("both", "outgoing"):
+            neighbors.extend(self.get_dependencies(node_id, depth=1))
+
+        if direction in ("both", "incoming"):
+            neighbors.extend(self.get_dependents(node_id, depth=1))
+
+        # Deduplicate
+        seen: set[str] = set()
+        unique: list[Node] = []
+        for node in neighbors:
+            if node.id not in seen:
+                seen.add(node.id)
+                unique.append(node)
+
+        return unique
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()

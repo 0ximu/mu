@@ -2,7 +2,7 @@
 
 The kernel provides a queryable graph database (.mubase) for storing
 and analyzing codebase structure, including vector embeddings for
-semantic search.
+semantic search and smart context extraction.
 
 Example:
     >>> from mu.kernel import MUbase, NodeType, EdgeType
@@ -22,10 +22,21 @@ Example:
     >>> service = EmbeddingService()
     >>> results = db.vector_search(query_embedding, limit=10)
     >>>
+    >>> # Smart context extraction
+    >>> result = db.get_context_for_question("How does auth work?", max_tokens=4000)
+    >>> print(result.mu_text)
+    >>>
     >>> db.close()
 """
 
 from mu.kernel.builder import GraphBuilder
+
+# Re-export key context classes for convenience
+from mu.kernel.context import (
+    ContextResult,
+    ExtractionConfig,
+    SmartContextExtractor,
+)
 
 # Re-export key embeddings classes for convenience
 from mu.kernel.embeddings import (
@@ -55,4 +66,8 @@ __all__ = [
     "EmbeddingService",
     "NodeEmbedding",
     "EmbeddingStats",
+    # Context (convenience re-exports)
+    "ContextResult",
+    "ExtractionConfig",
+    "SmartContextExtractor",
 ]
