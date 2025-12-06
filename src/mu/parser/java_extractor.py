@@ -137,12 +137,19 @@ class JavaExtractor:
             elif child.type == "super_interfaces":
                 # implements clause
                 for iface in child.children:
-                    if iface.type in ("type_identifier", "generic_type",
-                                     "scoped_type_identifier", "type_list"):
+                    if iface.type in (
+                        "type_identifier",
+                        "generic_type",
+                        "scoped_type_identifier",
+                        "type_list",
+                    ):
                         if iface.type == "type_list":
                             for t in iface.children:
-                                if t.type in ("type_identifier", "generic_type",
-                                             "scoped_type_identifier"):
+                                if t.type in (
+                                    "type_identifier",
+                                    "generic_type",
+                                    "scoped_type_identifier",
+                                ):
                                     cls.bases.append(get_node_text(t, source))
                         else:
                             cls.bases.append(get_node_text(iface, source))
@@ -151,12 +158,25 @@ class JavaExtractor:
 
         return cls if cls.name else None
 
-    def _extract_modifiers(self, node: Node, source: bytes, cls_or_func: ClassDef | FunctionDef) -> None:
+    def _extract_modifiers(
+        self, node: Node, source: bytes, cls_or_func: ClassDef | FunctionDef
+    ) -> None:
         """Extract modifiers (public, private, static, etc.) and annotations."""
         for child in node.children:
-            if child.type in ("public", "private", "protected", "static",
-                             "final", "abstract", "synchronized", "native",
-                             "transient", "volatile", "default", "strictfp"):
+            if child.type in (
+                "public",
+                "private",
+                "protected",
+                "static",
+                "final",
+                "abstract",
+                "synchronized",
+                "native",
+                "transient",
+                "volatile",
+                "default",
+                "strictfp",
+            ):
                 cls_or_func.decorators.append(child.type)
                 if child.type == "static" and isinstance(cls_or_func, FunctionDef):
                     cls_or_func.is_static = True
@@ -182,20 +202,24 @@ class JavaExtractor:
                 inner = self._extract_class(child, source)
                 if inner:
                     inner.decorators.append("inner")
-                    cls.methods.append(FunctionDef(
-                        name=f"class:{inner.name}",
-                        is_method=False,
-                        start_line=inner.start_line,
-                        end_line=inner.end_line,
-                    ))
+                    cls.methods.append(
+                        FunctionDef(
+                            name=f"class:{inner.name}",
+                            is_method=False,
+                            start_line=inner.start_line,
+                            end_line=inner.end_line,
+                        )
+                    )
             elif child.type == "static_initializer":
-                cls.methods.append(FunctionDef(
-                    name="<clinit>",
-                    is_method=True,
-                    is_static=True,
-                    start_line=child.start_point[0] + 1,
-                    end_line=child.end_point[0] + 1,
-                ))
+                cls.methods.append(
+                    FunctionDef(
+                        name="<clinit>",
+                        is_method=True,
+                        is_static=True,
+                        start_line=child.start_point[0] + 1,
+                        end_line=child.end_point[0] + 1,
+                    )
+                )
 
     def _extract_field(self, node: Node, source: bytes, cls: ClassDef) -> None:
         """Extract field declaration."""
@@ -205,8 +229,15 @@ class JavaExtractor:
         for child in node.children:
             if child.type == "modifiers":
                 for mod in child.children:
-                    if mod.type in ("public", "private", "protected", "static",
-                                   "final", "transient", "volatile"):
+                    if mod.type in (
+                        "public",
+                        "private",
+                        "protected",
+                        "static",
+                        "final",
+                        "transient",
+                        "volatile",
+                    ):
                         modifiers.append(mod.type)
             elif child.type == "variable_declarator":
                 for vc in child.children:
@@ -243,9 +274,16 @@ class JavaExtractor:
                             method.is_async = True
             elif child.type == "type_parameters":
                 method.decorators.append(f"generic:{get_node_text(child, source)}")
-            elif child.type in ("type_identifier", "generic_type", "void_type",
-                               "integral_type", "floating_point_type", "boolean_type",
-                               "scoped_type_identifier", "array_type"):
+            elif child.type in (
+                "type_identifier",
+                "generic_type",
+                "void_type",
+                "integral_type",
+                "floating_point_type",
+                "boolean_type",
+                "scoped_type_identifier",
+                "array_type",
+            ):
                 method.return_type = get_node_text(child, source)
             elif child.type == "identifier":
                 method.name = get_node_text(child, source)
@@ -331,9 +369,15 @@ class JavaExtractor:
                         is_final = True
                     elif mod.type in ("marker_annotation", "annotation"):
                         annotations.append(get_node_text(mod, source))
-            elif child.type in ("type_identifier", "generic_type", "integral_type",
-                               "floating_point_type", "boolean_type", "array_type",
-                               "scoped_type_identifier"):
+            elif child.type in (
+                "type_identifier",
+                "generic_type",
+                "integral_type",
+                "floating_point_type",
+                "boolean_type",
+                "array_type",
+                "scoped_type_identifier",
+            ):
                 type_annotation = get_node_text(child, source)
             elif child.type == "identifier":
                 name = get_node_text(child, source)
@@ -353,8 +397,14 @@ class JavaExtractor:
         type_annotation = None
 
         for child in node.children:
-            if child.type in ("type_identifier", "generic_type", "integral_type",
-                             "floating_point_type", "boolean_type", "scoped_type_identifier"):
+            if child.type in (
+                "type_identifier",
+                "generic_type",
+                "integral_type",
+                "floating_point_type",
+                "boolean_type",
+                "scoped_type_identifier",
+            ):
                 type_annotation = get_node_text(child, source) + "..."
             elif child.type == "variable_declarator":
                 for vc in child.children:
@@ -386,12 +436,19 @@ class JavaExtractor:
                 iface.decorators.append(f"generic:{get_node_text(child, source)}")
             elif child.type == "extends_interfaces":
                 for ext in child.children:
-                    if ext.type in ("type_identifier", "generic_type",
-                                   "scoped_type_identifier", "type_list"):
+                    if ext.type in (
+                        "type_identifier",
+                        "generic_type",
+                        "scoped_type_identifier",
+                        "type_list",
+                    ):
                         if ext.type == "type_list":
                             for t in ext.children:
-                                if t.type in ("type_identifier", "generic_type",
-                                             "scoped_type_identifier"):
+                                if t.type in (
+                                    "type_identifier",
+                                    "generic_type",
+                                    "scoped_type_identifier",
+                                ):
                                     iface.bases.append(get_node_text(t, source))
                         else:
                             iface.bases.append(get_node_text(ext, source))
@@ -432,8 +489,12 @@ class JavaExtractor:
             elif child.type == "super_interfaces":
                 # implements clause
                 for iface in child.children:
-                    if iface.type in ("type_identifier", "generic_type",
-                                     "scoped_type_identifier", "type_list"):
+                    if iface.type in (
+                        "type_identifier",
+                        "generic_type",
+                        "scoped_type_identifier",
+                        "type_list",
+                    ):
                         if iface.type == "type_list":
                             for t in iface.children:
                                 if t.type in ("type_identifier", "generic_type"):
@@ -488,8 +549,12 @@ class JavaExtractor:
                     record.attributes.append(param.name)
             elif child.type == "super_interfaces":
                 for iface in child.children:
-                    if iface.type in ("type_identifier", "generic_type",
-                                     "scoped_type_identifier", "type_list"):
+                    if iface.type in (
+                        "type_identifier",
+                        "generic_type",
+                        "scoped_type_identifier",
+                        "type_list",
+                    ):
                         if iface.type == "type_list":
                             for t in iface.children:
                                 if t.type in ("type_identifier", "generic_type"):

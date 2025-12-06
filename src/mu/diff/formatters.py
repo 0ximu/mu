@@ -156,44 +156,64 @@ def _format_module_diff(diff: ModuleDiff, no_color: bool = False) -> list[str]:
     # For added/removed modules, just show counts
     if diff.change_type == ChangeType.ADDED:
         if diff.added_functions:
-            lines.append(f"{indent}{_color(f'+{len(diff.added_functions)} functions', Colors.GREEN, no_color)}")
+            lines.append(
+                f"{indent}{_color(f'+{len(diff.added_functions)} functions', Colors.GREEN, no_color)}"
+            )
         if diff.added_classes:
-            lines.append(f"{indent}{_color(f'+{len(diff.added_classes)} classes', Colors.GREEN, no_color)}")
+            lines.append(
+                f"{indent}{_color(f'+{len(diff.added_classes)} classes', Colors.GREEN, no_color)}"
+            )
         return lines
 
     if diff.change_type == ChangeType.REMOVED:
         if diff.removed_functions:
-            lines.append(f"{indent}{_color(f'-{len(diff.removed_functions)} functions', Colors.RED, no_color)}")
+            lines.append(
+                f"{indent}{_color(f'-{len(diff.removed_functions)} functions', Colors.RED, no_color)}"
+            )
         if diff.removed_classes:
-            lines.append(f"{indent}{_color(f'-{len(diff.removed_classes)} classes', Colors.RED, no_color)}")
+            lines.append(
+                f"{indent}{_color(f'-{len(diff.removed_classes)} classes', Colors.RED, no_color)}"
+            )
         return lines
 
     # For modified modules, show details
     # Functions
     for name in diff.added_functions:
-        lines.append(f"{indent}{_color('+', Colors.GREEN, no_color)} {_color(f'fn {name}', Colors.GREEN, no_color)}")
+        lines.append(
+            f"{indent}{_color('+', Colors.GREEN, no_color)} {_color(f'fn {name}', Colors.GREEN, no_color)}"
+        )
 
     for name in diff.removed_functions:
-        lines.append(f"{indent}{_color('-', Colors.RED, no_color)} {_color(f'fn {name}', Colors.RED, no_color)}")
+        lines.append(
+            f"{indent}{_color('-', Colors.RED, no_color)} {_color(f'fn {name}', Colors.RED, no_color)}"
+        )
 
     for func_diff in diff.modified_functions:
         lines.extend(_format_function_diff(func_diff, indent, no_color))
 
     # Classes
     for name in diff.added_classes:
-        lines.append(f"{indent}{_color('+', Colors.GREEN, no_color)} {_color(f'class {name}', Colors.GREEN, no_color)}")
+        lines.append(
+            f"{indent}{_color('+', Colors.GREEN, no_color)} {_color(f'class {name}', Colors.GREEN, no_color)}"
+        )
 
     for name in diff.removed_classes:
-        lines.append(f"{indent}{_color('-', Colors.RED, no_color)} {_color(f'class {name}', Colors.RED, no_color)}")
+        lines.append(
+            f"{indent}{_color('-', Colors.RED, no_color)} {_color(f'class {name}', Colors.RED, no_color)}"
+        )
 
     for class_diff in diff.modified_classes:
         lines.extend(_format_class_diff(class_diff, indent, no_color))
 
     # Import changes (condensed)
     if diff.added_imports:
-        lines.append(f"{indent}{_color(f'+{len(diff.added_imports)} imports', Colors.DIM + Colors.GREEN, no_color)}")
+        lines.append(
+            f"{indent}{_color(f'+{len(diff.added_imports)} imports', Colors.DIM + Colors.GREEN, no_color)}"
+        )
     if diff.removed_imports:
-        lines.append(f"{indent}{_color(f'-{len(diff.removed_imports)} imports', Colors.DIM + Colors.RED, no_color)}")
+        lines.append(
+            f"{indent}{_color(f'-{len(diff.removed_imports)} imports', Colors.DIM + Colors.RED, no_color)}"
+        )
 
     return lines
 
@@ -204,7 +224,9 @@ def _format_function_diff(diff: FunctionDiff, indent: str, no_color: bool = Fals
 
     # Function name with modification indicator
     name = diff.full_name
-    lines.append(f"{indent}{_color('~', Colors.YELLOW, no_color)} {_color(f'fn {name}', Colors.YELLOW, no_color)}")
+    lines.append(
+        f"{indent}{_color('~', Colors.YELLOW, no_color)} {_color(f'fn {name}', Colors.YELLOW, no_color)}"
+    )
 
     detail_indent = indent + "  "
 
@@ -212,7 +234,9 @@ def _format_function_diff(diff: FunctionDiff, indent: str, no_color: bool = Fals
     if diff.old_return_type != diff.new_return_type:
         old = diff.old_return_type or "None"
         new = diff.new_return_type or "None"
-        lines.append(f"{detail_indent}return: {_color(old, Colors.RED, no_color)} → {_color(new, Colors.GREEN, no_color)}")
+        lines.append(
+            f"{detail_indent}return: {_color(old, Colors.RED, no_color)} → {_color(new, Colors.GREEN, no_color)}"
+        )
 
     if diff.async_changed:
         lines.append(f"{detail_indent}async: changed")
@@ -224,14 +248,20 @@ def _format_function_diff(diff: FunctionDiff, indent: str, no_color: bool = Fals
     for param in diff.parameter_changes:
         if param.change_type == ChangeType.ADDED:
             type_info = f": {param.new_type}" if param.new_type else ""
-            lines.append(f"{detail_indent}{_color('+', Colors.GREEN, no_color)} param {param.name}{type_info}")
+            lines.append(
+                f"{detail_indent}{_color('+', Colors.GREEN, no_color)} param {param.name}{type_info}"
+            )
         elif param.change_type == ChangeType.REMOVED:
             type_info = f": {param.old_type}" if param.old_type else ""
-            lines.append(f"{detail_indent}{_color('-', Colors.RED, no_color)} param {param.name}{type_info}")
+            lines.append(
+                f"{detail_indent}{_color('-', Colors.RED, no_color)} param {param.name}{type_info}"
+            )
         elif param.change_type == ChangeType.MODIFIED:
             old = param.old_type or "untyped"
             new = param.new_type or "untyped"
-            lines.append(f"{detail_indent}{_color('~', Colors.YELLOW, no_color)} param {param.name}: {old} → {new}")
+            lines.append(
+                f"{detail_indent}{_color('~', Colors.YELLOW, no_color)} param {param.name}: {old} → {new}"
+            )
 
     return lines
 
@@ -240,7 +270,9 @@ def _format_class_diff(diff: ClassDiff, indent: str, no_color: bool = False) -> 
     """Format a class diff."""
     lines: list[str] = []
 
-    lines.append(f"{indent}{_color('~', Colors.YELLOW, no_color)} {_color(f'class {diff.name}', Colors.YELLOW, no_color)}")
+    lines.append(
+        f"{indent}{_color('~', Colors.YELLOW, no_color)} {_color(f'class {diff.name}', Colors.YELLOW, no_color)}"
+    )
 
     detail_indent = indent + "  "
 
@@ -248,7 +280,9 @@ def _format_class_diff(diff: ClassDiff, indent: str, no_color: bool = False) -> 
     if diff.has_inheritance_change:
         old = ", ".join(diff.old_bases) or "(none)"
         new = ", ".join(diff.new_bases) or "(none)"
-        lines.append(f"{detail_indent}bases: {_color(old, Colors.RED, no_color)} → {_color(new, Colors.GREEN, no_color)}")
+        lines.append(
+            f"{detail_indent}bases: {_color(old, Colors.RED, no_color)} → {_color(new, Colors.GREEN, no_color)}"
+        )
 
     # Method changes
     for name in diff.added_methods:
@@ -259,13 +293,19 @@ def _format_class_diff(diff: ClassDiff, indent: str, no_color: bool = False) -> 
 
     for method_diff in diff.modified_methods:
         # Simplified: just show method name as modified
-        lines.append(f"{detail_indent}{_color('~', Colors.YELLOW, no_color)} method {method_diff.name}")
+        lines.append(
+            f"{detail_indent}{_color('~', Colors.YELLOW, no_color)} method {method_diff.name}"
+        )
 
     # Attribute changes
     if diff.added_attributes:
-        lines.append(f"{detail_indent}{_color(f'+{len(diff.added_attributes)} attrs', Colors.DIM + Colors.GREEN, no_color)}")
+        lines.append(
+            f"{detail_indent}{_color(f'+{len(diff.added_attributes)} attrs', Colors.DIM + Colors.GREEN, no_color)}"
+        )
     if diff.removed_attributes:
-        lines.append(f"{detail_indent}{_color(f'-{len(diff.removed_attributes)} attrs', Colors.DIM + Colors.RED, no_color)}")
+        lines.append(
+            f"{detail_indent}{_color(f'-{len(diff.removed_attributes)} attrs', Colors.DIM + Colors.RED, no_color)}"
+        )
 
     return lines
 
@@ -312,9 +352,15 @@ def format_diff_markdown(result: DiffResult) -> str:
     lines.append("")
     lines.append("| Category | Added | Removed | Modified |")
     lines.append("|----------|-------|---------|----------|")
-    lines.append(f"| Modules | {stats.modules_added} | {stats.modules_removed} | {stats.modules_modified} |")
-    lines.append(f"| Functions | {stats.functions_added} | {stats.functions_removed} | {stats.functions_modified} |")
-    lines.append(f"| Classes | {stats.classes_added} | {stats.classes_removed} | {stats.classes_modified} |")
+    lines.append(
+        f"| Modules | {stats.modules_added} | {stats.modules_removed} | {stats.modules_modified} |"
+    )
+    lines.append(
+        f"| Functions | {stats.functions_added} | {stats.functions_removed} | {stats.functions_modified} |"
+    )
+    lines.append(
+        f"| Classes | {stats.classes_added} | {stats.classes_removed} | {stats.classes_modified} |"
+    )
     lines.append("")
 
     # Module changes
@@ -323,7 +369,9 @@ def format_diff_markdown(result: DiffResult) -> str:
         lines.append("")
 
         for diff in result.module_diffs:
-            emoji = {"added": "🟢", "removed": "🔴", "modified": "🟡"}.get(diff.change_type.value, "")
+            emoji = {"added": "🟢", "removed": "🔴", "modified": "🟡"}.get(
+                diff.change_type.value, ""
+            )
             lines.append(f"### {emoji} `{diff.path}`")
             lines.append("")
 
@@ -340,17 +388,29 @@ def format_diff_markdown(result: DiffResult) -> str:
             else:
                 # Modified
                 if diff.added_functions:
-                    lines.append(f"- **Added functions:** {', '.join(f'`{f}`' for f in diff.added_functions)}")
+                    lines.append(
+                        f"- **Added functions:** {', '.join(f'`{f}`' for f in diff.added_functions)}"
+                    )
                 if diff.removed_functions:
-                    lines.append(f"- **Removed functions:** {', '.join(f'`{f}`' for f in diff.removed_functions)}")
+                    lines.append(
+                        f"- **Removed functions:** {', '.join(f'`{f}`' for f in diff.removed_functions)}"
+                    )
                 if diff.modified_functions:
-                    lines.append(f"- **Modified functions:** {', '.join(f'`{f.full_name}`' for f in diff.modified_functions)}")
+                    lines.append(
+                        f"- **Modified functions:** {', '.join(f'`{f.full_name}`' for f in diff.modified_functions)}"
+                    )
                 if diff.added_classes:
-                    lines.append(f"- **Added classes:** {', '.join(f'`{c}`' for c in diff.added_classes)}")
+                    lines.append(
+                        f"- **Added classes:** {', '.join(f'`{c}`' for c in diff.added_classes)}"
+                    )
                 if diff.removed_classes:
-                    lines.append(f"- **Removed classes:** {', '.join(f'`{c}`' for c in diff.removed_classes)}")
+                    lines.append(
+                        f"- **Removed classes:** {', '.join(f'`{c}`' for c in diff.removed_classes)}"
+                    )
                 if diff.modified_classes:
-                    lines.append(f"- **Modified classes:** {', '.join(f'`{c.name}`' for c in diff.modified_classes)}")
+                    lines.append(
+                        f"- **Modified classes:** {', '.join(f'`{c.name}`' for c in diff.modified_classes)}"
+                    )
 
             lines.append("")
 

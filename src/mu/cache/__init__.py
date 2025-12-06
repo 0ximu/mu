@@ -40,12 +40,14 @@ class CacheManifest:
     created_at: str = ""
     last_accessed: str = ""
     ttl_hours: int = 168
-    stats: dict[str, int] = field(default_factory=lambda: {
-        "file_entries": 0,
-        "llm_entries": 0,
-        "hits": 0,
-        "misses": 0,
-    })
+    stats: dict[str, int] = field(
+        default_factory=lambda: {
+            "file_entries": 0,
+            "llm_entries": 0,
+            "hits": 0,
+            "misses": 0,
+        }
+    )
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
@@ -65,12 +67,15 @@ class CacheManifest:
             created_at=data.get("created_at", ""),
             last_accessed=data.get("last_accessed", ""),
             ttl_hours=data.get("ttl_hours", 168),
-            stats=data.get("stats", {
-                "file_entries": 0,
-                "llm_entries": 0,
-                "hits": 0,
-                "misses": 0,
-            }),
+            stats=data.get(
+                "stats",
+                {
+                    "file_entries": 0,
+                    "llm_entries": 0,
+                    "hits": 0,
+                    "misses": 0,
+                },
+            ),
         )
 
 
@@ -225,9 +230,7 @@ class CacheManager:
     def _update_stats(self, stat_key: str, increment: int = 1) -> None:
         """Update manifest statistics."""
         if self._manifest:
-            self._manifest.stats[stat_key] = (
-                self._manifest.stats.get(stat_key, 0) + increment
-            )
+            self._manifest.stats[stat_key] = self._manifest.stats.get(stat_key, 0) + increment
 
     # -------------------------------------------------------------------------
     # File Cache Operations

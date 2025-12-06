@@ -22,10 +22,11 @@ from mu.reducer.generator import ReducedModule  # noqa: E402, F401
 
 class DependencyType(Enum):
     """Type of dependency relationship."""
+
     INTERNAL = "internal"  # Within the scanned codebase
     EXTERNAL = "external"  # Third-party package
-    STDLIB = "stdlib"      # Standard library
-    DYNAMIC = "dynamic"    # Runtime/dynamic import (pattern detected but not resolvable)
+    STDLIB = "stdlib"  # Standard library
+    DYNAMIC = "dynamic"  # Runtime/dynamic import (pattern detected but not resolvable)
 
 
 @dataclass
@@ -42,9 +43,9 @@ class ResolvedImport:
 class DynamicImportInfo:
     """Information about a dynamic import."""
 
-    pattern: str | None = None    # The pattern/expression (e.g., "f'plugins.{name}'")
-    source: str | None = None     # Detection method (e.g., "importlib", "import()")
-    line: int = 0                 # Source line number
+    pattern: str | None = None  # The pattern/expression (e.g., "f'plugins.{name}'")
+    source: str | None = None  # Detection method (e.g., "importlib", "import()")
+    line: int = 0  # Source line number
     resolved_path: str | None = None  # If resolvable, the target path
 
     def to_dict(self) -> dict[str, Any]:
@@ -64,14 +65,14 @@ class DynamicImportInfo:
 class ModuleNode:
     """A node in the module dependency graph."""
 
-    name: str                    # Module name (e.g., "mu.parser.models")
-    path: str                    # File path relative to root
+    name: str  # Module name (e.g., "mu.parser.models")
+    path: str  # File path relative to root
     language: str
-    internal_deps: list[str] = field(default_factory=list)   # Other modules in codebase
-    external_deps: list[str] = field(default_factory=list)   # Third-party packages
-    stdlib_deps: list[str] = field(default_factory=list)     # Standard library modules
+    internal_deps: list[str] = field(default_factory=list)  # Other modules in codebase
+    external_deps: list[str] = field(default_factory=list)  # Third-party packages
+    stdlib_deps: list[str] = field(default_factory=list)  # Standard library modules
     dynamic_deps: list[DynamicImportInfo] = field(default_factory=list)  # Dynamic/runtime imports
-    exports: list[str] = field(default_factory=list)         # Symbols this module exports
+    exports: list[str] = field(default_factory=list)  # Symbols this module exports
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -123,67 +124,238 @@ class ModuleGraph:
     def to_dict(self) -> dict[str, Any]:
         return {
             "nodes": {k: v.to_dict() for k, v in self.nodes.items()},
-            "edges": [
-                {"from": f, "to": t, "type": d.value}
-                for f, t, d in self.edges
-            ],
+            "edges": [{"from": f, "to": t, "type": d.value} for f, t, d in self.edges],
         }
 
 
 # Go standard library packages (common subset)
 GO_STDLIB = {
-    "archive", "bufio", "builtin", "bytes", "compress", "container", "context",
-    "crypto", "database", "debug", "embed", "encoding", "errors", "expvar",
-    "flag", "fmt", "go", "hash", "html", "image", "index", "io", "log", "maps",
-    "math", "mime", "net", "os", "path", "plugin", "reflect", "regexp", "runtime",
-    "slices", "sort", "strconv", "strings", "sync", "syscall", "testing", "text",
-    "time", "unicode", "unsafe",
+    "archive",
+    "bufio",
+    "builtin",
+    "bytes",
+    "compress",
+    "container",
+    "context",
+    "crypto",
+    "database",
+    "debug",
+    "embed",
+    "encoding",
+    "errors",
+    "expvar",
+    "flag",
+    "fmt",
+    "go",
+    "hash",
+    "html",
+    "image",
+    "index",
+    "io",
+    "log",
+    "maps",
+    "math",
+    "mime",
+    "net",
+    "os",
+    "path",
+    "plugin",
+    "reflect",
+    "regexp",
+    "runtime",
+    "slices",
+    "sort",
+    "strconv",
+    "strings",
+    "sync",
+    "syscall",
+    "testing",
+    "text",
+    "time",
+    "unicode",
+    "unsafe",
 }
 
 # Rust standard library crates
 RUST_STDLIB = {
-    "std", "core", "alloc", "collections", "proc_macro",
+    "std",
+    "core",
+    "alloc",
+    "collections",
+    "proc_macro",
     # Common std modules that might be imported directly
-    "std.io", "std.fs", "std.env", "std.path", "std.net", "std.sync",
-    "std.thread", "std.time", "std.collections", "std.fmt", "std.str",
-    "std.vec", "std.string", "std.boxed", "std.rc", "std.cell",
-    "std.mem", "std.ptr", "std.slice", "std.iter", "std.ops",
-    "std.cmp", "std.hash", "std.default", "std.marker", "std.convert",
-    "std.borrow", "std.clone", "std.any", "std.error", "std.panic",
-    "std.process", "std.ffi", "std.os",
+    "std.io",
+    "std.fs",
+    "std.env",
+    "std.path",
+    "std.net",
+    "std.sync",
+    "std.thread",
+    "std.time",
+    "std.collections",
+    "std.fmt",
+    "std.str",
+    "std.vec",
+    "std.string",
+    "std.boxed",
+    "std.rc",
+    "std.cell",
+    "std.mem",
+    "std.ptr",
+    "std.slice",
+    "std.iter",
+    "std.ops",
+    "std.cmp",
+    "std.hash",
+    "std.default",
+    "std.marker",
+    "std.convert",
+    "std.borrow",
+    "std.clone",
+    "std.any",
+    "std.error",
+    "std.panic",
+    "std.process",
+    "std.ffi",
+    "std.os",
     # Core modules
-    "core.fmt", "core.ops", "core.cmp", "core.iter", "core.option",
-    "core.result", "core.slice", "core.str", "core.mem", "core.ptr",
+    "core.fmt",
+    "core.ops",
+    "core.cmp",
+    "core.iter",
+    "core.option",
+    "core.result",
+    "core.slice",
+    "core.str",
+    "core.mem",
+    "core.ptr",
     # Alloc modules
-    "alloc.vec", "alloc.string", "alloc.boxed", "alloc.rc", "alloc.sync",
+    "alloc.vec",
+    "alloc.string",
+    "alloc.boxed",
+    "alloc.rc",
+    "alloc.sync",
 }
 
 # Java standard library packages
 JAVA_STDLIB = {
-    "java.lang", "java.util", "java.io", "java.nio", "java.net",
-    "java.sql", "java.math", "java.text", "java.time", "java.security",
-    "java.awt", "java.beans", "java.rmi", "java.applet",
-    "javax.swing", "javax.sql", "javax.xml", "javax.crypto",
-    "javax.net", "javax.naming", "javax.management", "javax.annotation",
+    "java.lang",
+    "java.util",
+    "java.io",
+    "java.nio",
+    "java.net",
+    "java.sql",
+    "java.math",
+    "java.text",
+    "java.time",
+    "java.security",
+    "java.awt",
+    "java.beans",
+    "java.rmi",
+    "java.applet",
+    "javax.swing",
+    "javax.sql",
+    "javax.xml",
+    "javax.crypto",
+    "javax.net",
+    "javax.naming",
+    "javax.management",
+    "javax.annotation",
     # Common package roots
-    "java", "javax", "sun", "com.sun", "org.w3c", "org.xml",
+    "java",
+    "javax",
+    "sun",
+    "com.sun",
+    "org.w3c",
+    "org.xml",
 }
 
 # Python standard library modules (common subset for MVP)
 PYTHON_STDLIB = {
-    "abc", "argparse", "ast", "asyncio", "base64", "bisect", "builtins",
-    "calendar", "collections", "concurrent", "contextlib", "copy", "csv",
-    "dataclasses", "datetime", "decimal", "difflib", "email", "enum",
-    "errno", "exceptions", "fnmatch", "fractions", "functools", "gc",
-    "getopt", "glob", "gzip", "hashlib", "heapq", "hmac", "html", "http",
-    "importlib", "inspect", "io", "ipaddress", "itertools", "json",
-    "keyword", "linecache", "locale", "logging", "lzma", "math", "mimetypes",
-    "multiprocessing", "numbers", "operator", "os", "pathlib", "pickle",
-    "platform", "pprint", "queue", "random", "re", "secrets", "shutil",
-    "signal", "socket", "sqlite3", "ssl", "statistics", "string", "struct",
-    "subprocess", "sys", "tempfile", "textwrap", "threading", "time",
-    "timeit", "traceback", "types", "typing", "unittest", "urllib", "uuid",
-    "warnings", "weakref", "xml", "zipfile", "zlib",
+    "abc",
+    "argparse",
+    "ast",
+    "asyncio",
+    "base64",
+    "bisect",
+    "builtins",
+    "calendar",
+    "collections",
+    "concurrent",
+    "contextlib",
+    "copy",
+    "csv",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "difflib",
+    "email",
+    "enum",
+    "errno",
+    "exceptions",
+    "fnmatch",
+    "fractions",
+    "functools",
+    "gc",
+    "getopt",
+    "glob",
+    "gzip",
+    "hashlib",
+    "heapq",
+    "hmac",
+    "html",
+    "http",
+    "importlib",
+    "inspect",
+    "io",
+    "ipaddress",
+    "itertools",
+    "json",
+    "keyword",
+    "linecache",
+    "locale",
+    "logging",
+    "lzma",
+    "math",
+    "mimetypes",
+    "multiprocessing",
+    "numbers",
+    "operator",
+    "os",
+    "pathlib",
+    "pickle",
+    "platform",
+    "pprint",
+    "queue",
+    "random",
+    "re",
+    "secrets",
+    "shutil",
+    "signal",
+    "socket",
+    "sqlite3",
+    "ssl",
+    "statistics",
+    "string",
+    "struct",
+    "subprocess",
+    "sys",
+    "tempfile",
+    "textwrap",
+    "threading",
+    "time",
+    "timeit",
+    "traceback",
+    "types",
+    "typing",
+    "unittest",
+    "urllib",
+    "uuid",
+    "warnings",
+    "weakref",
+    "xml",
+    "zipfile",
+    "zlib",
     # typing_extensions is commonly used but not stdlib
     "__future__",
 }
@@ -351,8 +523,7 @@ class ImportResolver:
 
             # Also check if importing a package (module_name matches directory)
             if module_name == file_stem or any(
-                pn.endswith("." + module_name) or pn == module_name
-                for pn in possible_names
+                pn.endswith("." + module_name) or pn == module_name for pn in possible_names
             ):
                 continue  # Already checked above
 
@@ -361,10 +532,12 @@ class ImportResolver:
         module_path_suffix = module_name.replace(".", "/")
         for mod in self.modules:
             # Check both .py files and __init__.py in packages
-            if mod.path.endswith(f"/{module_path_suffix}.py") or \
-               mod.path.endswith(f"/{module_path_suffix}/__init__.py") or \
-               mod.path == f"{module_path_suffix}.py" or \
-               mod.path == f"{module_path_suffix}/__init__.py":
+            if (
+                mod.path.endswith(f"/{module_path_suffix}.py")
+                or mod.path.endswith(f"/{module_path_suffix}/__init__.py")
+                or mod.path == f"{module_path_suffix}.py"
+                or mod.path == f"{module_path_suffix}/__init__.py"
+            ):
                 return ResolvedImport(
                     original=imp,
                     resolved_path=mod.path,
@@ -441,7 +614,7 @@ class ImportResolver:
         # Check if it matches any internal module path
         for mod in self.modules:
             # Normalize paths for comparison
-            mod_path_no_ext = re.sub(r'\.(ts|tsx|js|jsx|mjs)$', '', mod.path)
+            mod_path_no_ext = re.sub(r"\.(ts|tsx|js|jsx|mjs)$", "", mod.path)
             if module_path == mod_path_no_ext or mod.path.startswith(module_path + "/"):
                 return ResolvedImport(
                     original=imp,
@@ -451,7 +624,26 @@ class ImportResolver:
                 )
 
         # Node built-ins
-        if module_path in {"fs", "path", "os", "http", "https", "crypto", "util", "events", "stream", "buffer", "child_process", "cluster", "dns", "net", "readline", "tls", "url", "zlib"}:
+        if module_path in {
+            "fs",
+            "path",
+            "os",
+            "http",
+            "https",
+            "crypto",
+            "util",
+            "events",
+            "stream",
+            "buffer",
+            "child_process",
+            "cluster",
+            "dns",
+            "net",
+            "readline",
+            "tls",
+            "url",
+            "zlib",
+        }:
             return ResolvedImport(
                 original=imp,
                 dep_type=DependencyType.STDLIB,
@@ -846,20 +1038,20 @@ class Assembler:
                     if dyn_info.resolved_path and dyn_info.resolved_path in self.graph.nodes:
                         resolved_target = self.graph.nodes[dyn_info.resolved_path].name
 
-                    dynamic_deps.append(DynamicDependency(
-                        module_name=module.name,
-                        pattern=dyn_info.pattern,
-                        source=dyn_info.source,
-                        line=dyn_info.line,
-                        resolved_target=resolved_target,
-                    ))
+                    dynamic_deps.append(
+                        DynamicDependency(
+                            module_name=module.name,
+                            pattern=dyn_info.pattern,
+                            source=dyn_info.source,
+                            line=dyn_info.line,
+                            resolved_target=resolved_target,
+                        )
+                    )
 
         reduced.dynamic_dependencies = dynamic_deps
 
         # Add graph stats
-        reduced.stats["internal_dependencies"] = sum(
-            len(deps) for deps in resolved_graph.values()
-        )
+        reduced.stats["internal_dependencies"] = sum(len(deps) for deps in resolved_graph.values())
         reduced.stats["external_packages"] = len(reduced.external_packages)
         reduced.stats["dynamic_imports"] = len(dynamic_deps)
 

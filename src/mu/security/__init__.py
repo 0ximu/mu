@@ -81,7 +81,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="AWS Secret Access Key",
     ),
-
     # GCP
     SecretPattern(
         name="gcp_api_key",
@@ -96,7 +95,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         description="GCP Service Account JSON",
         confidence=0.9,
     ),
-
     # Azure
     SecretPattern(
         name="azure_storage_key",
@@ -110,7 +108,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.CONNECTION_STRING,
         description="Azure Storage Connection String",
     ),
-
     # Stripe
     SecretPattern(
         name="stripe_secret_key",
@@ -131,7 +128,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="Stripe Restricted Key (Live)",
     ),
-
     # GitHub
     SecretPattern(
         name="github_pat",
@@ -157,7 +153,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.TOKEN,
         description="GitHub Refresh Token",
     ),
-
     # GitLab
     SecretPattern(
         name="gitlab_pat",
@@ -165,7 +160,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.TOKEN,
         description="GitLab Personal Access Token",
     ),
-
     # Slack
     SecretPattern(
         name="slack_token",
@@ -179,7 +173,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.TOKEN,
         description="Slack Webhook URL",
     ),
-
     # Twilio
     SecretPattern(
         name="twilio_api_key",
@@ -187,7 +180,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="Twilio API Key",
     ),
-
     # SendGrid
     SecretPattern(
         name="sendgrid_api_key",
@@ -195,7 +187,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="SendGrid API Key",
     ),
-
     # OpenAI
     SecretPattern(
         name="openai_api_key",
@@ -209,7 +200,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="OpenAI API Key (Project)",
     ),
-
     # Anthropic
     SecretPattern(
         name="anthropic_api_key",
@@ -217,7 +207,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="Anthropic API Key",
     ),
-
     # Private Keys
     SecretPattern(
         name="rsa_private_key",
@@ -255,7 +244,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.PRIVATE_KEY,
         description="Encrypted Private Key Header",
     ),
-
     # JWT tokens
     SecretPattern(
         name="jwt_token",
@@ -264,7 +252,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         description="JSON Web Token (JWT)",
         confidence=0.85,  # JWTs can appear in legitimate test code
     ),
-
     # Database connection strings
     SecretPattern(
         name="postgres_connection",
@@ -290,7 +277,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.CONNECTION_STRING,
         description="Redis Connection String with Password",
     ),
-
     # Generic password patterns (variable assignments)
     SecretPattern(
         name="password_assignment",
@@ -299,7 +285,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         description="Password/Secret Assignment",
         confidence=0.7,  # Higher false positive rate
     ),
-
     # Heroku
     SecretPattern(
         name="heroku_api_key",
@@ -307,7 +292,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="Heroku API Key",
     ),
-
     # NPM
     SecretPattern(
         name="npm_token",
@@ -315,7 +299,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.TOKEN,
         description="NPM Auth Token",
     ),
-
     # Firebase
     SecretPattern(
         name="firebase_api_key",
@@ -323,7 +306,6 @@ DEFAULT_PATTERNS: list[SecretPattern] = [
         category=SecretCategory.API_KEY,
         description="Firebase API Key",
     ),
-
     # Generic high-entropy secrets (hex strings that look like secrets)
     SecretPattern(
         name="generic_secret_hex",
@@ -415,9 +397,7 @@ class SecretScanner:
             secrets.append(secret)
 
             if redact:
-                redacted_source = (
-                    redacted_source[:start] + replacement + redacted_source[end:]
-                )
+                redacted_source = redacted_source[:start] + replacement + redacted_source[end:]
 
         # Reverse to get chronological order
         secrets.reverse()

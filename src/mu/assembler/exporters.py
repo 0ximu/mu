@@ -56,12 +56,10 @@ def export_json(
     # Full graph details if requested
     if include_full_graph:
         data["module_graph"]["nodes"] = {
-            path: node.to_dict()
-            for path, node in output.graph.nodes.items()
+            path: node.to_dict() for path, node in output.graph.nodes.items()
         }
         data["module_graph"]["edges"] = [
-            {"from": f, "to": t, "type": d.value}
-            for f, t, d in output.graph.edges
+            {"from": f, "to": t, "type": d.value} for f, t, d in output.graph.edges
         ]
 
     # Modules

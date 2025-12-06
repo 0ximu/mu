@@ -201,10 +201,12 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
             dir_path = current_dir / dirname
             reason = should_ignore(dir_path, ignore_patterns, root)
             if reason:
-                result.skipped.append(SkippedItem(
-                    path=str(dir_path.relative_to(root)),
-                    reason=reason,
-                ))
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(dir_path.relative_to(root)),
+                        reason=reason,
+                    )
+                )
             else:
                 filtered_dirs.append(dirname)
         dirnames[:] = filtered_dirs
@@ -220,20 +222,24 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
             # Check ignore patterns
             reason = should_ignore(file_path, ignore_patterns, root)
             if reason:
-                result.skipped.append(SkippedItem(
-                    path=str(file_path.relative_to(root)),
-                    reason=reason,
-                ))
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason=reason,
+                    )
+                )
                 continue
 
             # Check file size
             try:
                 size = file_path.stat().st_size
                 if size > max_size:
-                    result.skipped.append(SkippedItem(
-                        path=str(file_path.relative_to(root)),
-                        reason="file_too_large",
-                    ))
+                    result.skipped.append(
+                        SkippedItem(
+                            path=str(file_path.relative_to(root)),
+                            reason="file_too_large",
+                        )
+                    )
                     continue
             except OSError:
                 continue
@@ -241,18 +247,27 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
             # Detect language
             language = detect_language(file_path)
             if language is None:
-                result.skipped.append(SkippedItem(
-                    path=str(file_path.relative_to(root)),
-                    reason="unknown_extension",
-                ))
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason="unknown_extension",
+                    )
+                )
                 continue
 
             # Check if language is supported (for non-config files)
-            if language not in SUPPORTED_LANGUAGES and language not in {"yaml", "json", "toml", "markdown"}:
-                result.skipped.append(SkippedItem(
-                    path=str(file_path.relative_to(root)),
-                    reason="unsupported_language",
-                ))
+            if language not in SUPPORTED_LANGUAGES and language not in {
+                "yaml",
+                "json",
+                "toml",
+                "markdown",
+            }:
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason="unsupported_language",
+                    )
+                )
                 continue
 
             # Gather file info

@@ -88,12 +88,14 @@ class RustExtractor:
             if child.type == "scoped_identifier":
                 # Simple use: use std::io;
                 path = get_node_text(child, source).replace("::", ".")
-                imports.append(ImportDef(
-                    module=path,
-                    names=[],
-                    alias=None,
-                    is_from=False,
-                ))
+                imports.append(
+                    ImportDef(
+                        module=path,
+                        names=[],
+                        alias=None,
+                        is_from=False,
+                    )
+                )
             elif child.type == "scoped_use_list":
                 # Use with list: use std::io::{Read, Write};
                 imports.extend(self._extract_scoped_use_list(child, source))
@@ -104,32 +106,38 @@ class RustExtractor:
                 if path_node and alias_node:
                     path = get_node_text(path_node, source).replace("::", ".")
                     alias = get_node_text(alias_node, source)
-                    imports.append(ImportDef(
-                        module=path,
-                        names=[],
-                        alias=alias,
-                        is_from=False,
-                    ))
+                    imports.append(
+                        ImportDef(
+                            module=path,
+                            names=[],
+                            alias=alias,
+                            is_from=False,
+                        )
+                    )
             elif child.type == "use_wildcard":
                 # Glob import: use std::io::*;
                 path_node = find_child_by_type(child, "scoped_identifier")
                 if path_node:
                     path = get_node_text(path_node, source).replace("::", ".")
-                    imports.append(ImportDef(
-                        module=path,
-                        names=["*"],
-                        alias=None,
-                        is_from=True,
-                    ))
+                    imports.append(
+                        ImportDef(
+                            module=path,
+                            names=["*"],
+                            alias=None,
+                            is_from=True,
+                        )
+                    )
             elif child.type == "identifier":
                 # Simple identifier use: use crate;
                 name = get_node_text(child, source)
-                imports.append(ImportDef(
-                    module=name,
-                    names=[],
-                    alias=None,
-                    is_from=False,
-                ))
+                imports.append(
+                    ImportDef(
+                        module=name,
+                        names=[],
+                        alias=None,
+                        is_from=False,
+                    )
+                )
 
         return imports
 
@@ -155,20 +163,24 @@ class RustExtractor:
                     elif list_child.type == "scoped_identifier":
                         # Nested path in use list
                         nested_path = get_node_text(list_child, source).replace("::", ".")
-                        imports.append(ImportDef(
-                            module=f"{base_path}.{nested_path}" if base_path else nested_path,
-                            names=[],
-                            alias=None,
-                            is_from=False,
-                        ))
+                        imports.append(
+                            ImportDef(
+                                module=f"{base_path}.{nested_path}" if base_path else nested_path,
+                                names=[],
+                                alias=None,
+                                is_from=False,
+                            )
+                        )
 
         if names:
-            imports.append(ImportDef(
-                module=base_path,
-                names=names,
-                alias=None,
-                is_from=True,
-            ))
+            imports.append(
+                ImportDef(
+                    module=base_path,
+                    names=names,
+                    alias=None,
+                    is_from=True,
+                )
+            )
 
         return imports
 
@@ -201,9 +213,17 @@ class RustExtractor:
                 func.decorators.append(f"generic:{get_node_text(child, source)}")
             elif child.type == "parameters":
                 func.parameters = self._extract_parameters(child, source)
-            elif child.type in ("type_identifier", "primitive_type", "generic_type",
-                               "reference_type", "pointer_type", "array_type",
-                               "tuple_type", "unit_type", "scoped_type_identifier"):
+            elif child.type in (
+                "type_identifier",
+                "primitive_type",
+                "generic_type",
+                "reference_type",
+                "pointer_type",
+                "array_type",
+                "tuple_type",
+                "unit_type",
+                "scoped_type_identifier",
+            ):
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
                 func.body_complexity = count_nodes(child)
@@ -227,10 +247,12 @@ class RustExtractor:
             elif child.type == "self_parameter":
                 # self, &self, &mut self
                 self_text = get_node_text(child, source)
-                params.append(ParameterDef(
-                    name="self",
-                    type_annotation=self_text,
-                ))
+                params.append(
+                    ParameterDef(
+                        name="self",
+                        type_annotation=self_text,
+                    )
+                )
 
         return params
 
@@ -245,9 +267,17 @@ class RustExtractor:
                 name = get_node_text(child, source)
             elif child.type == "mutable_specifier":
                 is_mutable = True
-            elif child.type in ("type_identifier", "primitive_type", "generic_type",
-                               "reference_type", "pointer_type", "array_type",
-                               "tuple_type", "scoped_type_identifier", "function_type"):
+            elif child.type in (
+                "type_identifier",
+                "primitive_type",
+                "generic_type",
+                "reference_type",
+                "pointer_type",
+                "array_type",
+                "tuple_type",
+                "scoped_type_identifier",
+                "function_type",
+            ):
                 type_annotation = get_node_text(child, source)
 
         if not name:
@@ -281,8 +311,12 @@ class RustExtractor:
                 # Tuple struct: struct Point(i32, i32);
                 struct.decorators.append("tuple_struct")
                 for i, field_child in enumerate(child.children):
-                    if field_child.type in ("type_identifier", "primitive_type",
-                                           "generic_type", "reference_type"):
+                    if field_child.type in (
+                        "type_identifier",
+                        "primitive_type",
+                        "generic_type",
+                        "reference_type",
+                    ):
                         struct.attributes.append(f"_{i}")
             elif child.type == "where_clause":
                 struct.decorators.append(f"where:{get_node_text(child, source)}")
@@ -393,8 +427,13 @@ class RustExtractor:
                 func.decorators.append(f"generic:{get_node_text(child, source)}")
             elif child.type == "parameters":
                 func.parameters = self._extract_parameters(child, source)
-            elif child.type in ("type_identifier", "primitive_type", "generic_type",
-                               "reference_type", "scoped_type_identifier"):
+            elif child.type in (
+                "type_identifier",
+                "primitive_type",
+                "generic_type",
+                "reference_type",
+                "scoped_type_identifier",
+            ):
                 func.return_type = get_node_text(child, source)
 
         return func if func.name else None

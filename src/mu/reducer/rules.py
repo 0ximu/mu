@@ -22,25 +22,71 @@ class TransformationRules:
     keep_external_deps: bool = True
 
     # What to include in stdlib (common across languages)
-    stdlib_prefixes: list[str] = field(default_factory=lambda: [
-        # Python stdlib
-        "os", "sys", "re", "json", "typing", "collections", "itertools",
-        "functools", "pathlib", "datetime", "logging", "unittest", "dataclasses",
-        "abc", "enum", "copy", "io", "string", "textwrap", "math", "random",
-        "hashlib", "hmac", "secrets", "contextlib", "warnings", "traceback",
-        # TypeScript/Node built-ins
-        "fs", "path", "util", "events", "stream", "http", "https", "url",
-        "crypto", "buffer", "process", "child_process", "os", "assert",
-        # C# System namespaces
-        "System", "Microsoft",
-    ])
+    stdlib_prefixes: list[str] = field(
+        default_factory=lambda: [
+            # Python stdlib
+            "os",
+            "sys",
+            "re",
+            "json",
+            "typing",
+            "collections",
+            "itertools",
+            "functools",
+            "pathlib",
+            "datetime",
+            "logging",
+            "unittest",
+            "dataclasses",
+            "abc",
+            "enum",
+            "copy",
+            "io",
+            "string",
+            "textwrap",
+            "math",
+            "random",
+            "hashlib",
+            "hmac",
+            "secrets",
+            "contextlib",
+            "warnings",
+            "traceback",
+            # TypeScript/Node built-ins
+            "fs",
+            "path",
+            "util",
+            "events",
+            "stream",
+            "http",
+            "https",
+            "url",
+            "crypto",
+            "buffer",
+            "process",
+            "child_process",
+            "os",
+            "assert",
+            # C# System namespaces
+            "System",
+            "Microsoft",
+        ]
+    )
 
     # Method filtering
     strip_dunder_methods: bool = True  # __str__, __repr__, etc.
-    keep_dunder_methods: list[str] = field(default_factory=lambda: [
-        "__init__", "__call__", "__enter__", "__exit__",
-        "__aenter__", "__aexit__", "__iter__", "__next__",
-    ])
+    keep_dunder_methods: list[str] = field(
+        default_factory=lambda: [
+            "__init__",
+            "__call__",
+            "__enter__",
+            "__exit__",
+            "__aenter__",
+            "__aexit__",
+            "__iter__",
+            "__next__",
+        ]
+    )
     strip_property_getters: bool = True  # Simple property accessors
     strip_empty_methods: bool = True
 
@@ -87,8 +133,9 @@ class TransformationRules:
     def _is_stdlib(self, module: str) -> bool:
         """Check if module is part of standard library."""
         base = module.split(".")[0]
-        return any(base == prefix or base.startswith(prefix + ".")
-                   for prefix in self.stdlib_prefixes)
+        return any(
+            base == prefix or base.startswith(prefix + ".") for prefix in self.stdlib_prefixes
+        )
 
     def should_strip_method(self, method: FunctionDef) -> bool:
         """Determine if a method should be stripped."""
@@ -115,7 +162,9 @@ class TransformationRules:
             return True
         return False
 
-    def filter_parameters(self, params: list[ParameterDef], is_method: bool = False) -> list[ParameterDef]:
+    def filter_parameters(
+        self, params: list[ParameterDef], is_method: bool = False
+    ) -> list[ParameterDef]:
         """Filter parameters based on rules."""
         result = []
         for param in params:

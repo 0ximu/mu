@@ -182,11 +182,9 @@ class LLMPool:
                 # Get token usage
                 tokens_used = 0
                 if hasattr(response, "usage") and response.usage:
-                    tokens_used = (
-                        getattr(response.usage, "total_tokens", 0)
-                        or getattr(response.usage, "prompt_tokens", 0)
-                        + getattr(response.usage, "completion_tokens", 0)
-                    )
+                    tokens_used = getattr(response.usage, "total_tokens", 0) or getattr(
+                        response.usage, "prompt_tokens", 0
+                    ) + getattr(response.usage, "completion_tokens", 0)
 
                 result = SummarizationResult(
                     function_name=request.function_name,
@@ -225,7 +223,9 @@ class LLMPool:
             except Exception as e:
                 last_error = str(e)
                 if attempt < self.config.max_retries:
-                    logger.warning(f"Error: {e}, retrying ({attempt + 1}/{self.config.max_retries})")
+                    logger.warning(
+                        f"Error: {e}, retrying ({attempt + 1}/{self.config.max_retries})"
+                    )
 
         # All retries exhausted
         return SummarizationResult(
@@ -269,10 +269,7 @@ class LLMPool:
                     progress_callback(completed, len(requests))
 
         # Run all tasks
-        tasks = [
-            process_one(i, req)
-            for i, req in enumerate(requests)
-        ]
+        tasks = [process_one(i, req) for i, req in enumerate(requests)]
         await asyncio.gather(*tasks)
 
         return [r for r in results if r is not None]

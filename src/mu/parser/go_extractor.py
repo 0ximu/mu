@@ -138,9 +138,17 @@ class GoExtractor:
             elif child.type == "type_identifier":
                 # Simple return type
                 func.return_type = get_node_text(child, source)
-            elif child.type in ("pointer_type", "slice_type", "array_type",
-                               "map_type", "channel_type", "qualified_type",
-                               "interface_type", "struct_type", "function_type"):
+            elif child.type in (
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "qualified_type",
+                "interface_type",
+                "struct_type",
+                "function_type",
+            ):
                 # Complex return type
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
@@ -187,9 +195,17 @@ class GoExtractor:
             elif child.type == "type_identifier":
                 # Simple return type
                 func.return_type = get_node_text(child, source)
-            elif child.type in ("pointer_type", "slice_type", "array_type",
-                               "map_type", "channel_type", "qualified_type",
-                               "interface_type", "struct_type", "function_type"):
+            elif child.type in (
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "qualified_type",
+                "interface_type",
+                "struct_type",
+                "function_type",
+            ):
                 # Complex return type
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
@@ -242,10 +258,18 @@ class GoExtractor:
         for child in node.children:
             if child.type == "identifier":
                 names.append(get_node_text(child, source))
-            elif child.type in ("type_identifier", "pointer_type", "slice_type",
-                               "array_type", "map_type", "channel_type",
-                               "function_type", "interface_type", "struct_type",
-                               "qualified_type"):
+            elif child.type in (
+                "type_identifier",
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "function_type",
+                "interface_type",
+                "struct_type",
+                "qualified_type",
+            ):
                 type_str = get_node_text(child, source)
 
         # If no names but we have a type, it's an unnamed parameter
@@ -265,11 +289,21 @@ class GoExtractor:
         for child in node.children:
             if child.type == "identifier":
                 name = get_node_text(child, source)
-            elif child.type in ("type_identifier", "pointer_type", "slice_type",
-                               "array_type", "interface_type", "qualified_type"):
+            elif child.type in (
+                "type_identifier",
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "interface_type",
+                "qualified_type",
+            ):
                 type_str = "..." + get_node_text(child, source)
 
-        return ParameterDef(name=name, type_annotation=type_str, is_variadic=True) if type_str else None
+        return (
+            ParameterDef(name=name, type_annotation=type_str, is_variadic=True)
+            if type_str
+            else None
+        )
 
     def _extract_result_type(self, node: Node, source: bytes) -> str:
         """Extract return type from result node."""
@@ -281,10 +315,18 @@ class GoExtractor:
 
         # Single return type
         for child in node.children:
-            if child.type in ("type_identifier", "pointer_type", "slice_type",
-                             "array_type", "map_type", "channel_type",
-                             "function_type", "interface_type", "struct_type",
-                             "qualified_type"):
+            if child.type in (
+                "type_identifier",
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "function_type",
+                "interface_type",
+                "struct_type",
+                "qualified_type",
+            ):
                 return get_node_text(child, source)
 
         return get_node_text(node, source)
@@ -328,9 +370,16 @@ class GoExtractor:
             elif child.type == "interface_type":
                 class_def.decorators.append("interface")
                 self._extract_interface_methods(child, source, class_def)
-            elif child.type in ("type_identifier", "pointer_type", "slice_type",
-                               "array_type", "map_type", "channel_type",
-                               "function_type", "qualified_type"):
+            elif child.type in (
+                "type_identifier",
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "function_type",
+                "qualified_type",
+            ):
                 # Type alias
                 class_def.decorators.append("alias")
                 class_def.bases.append(get_node_text(child, source))
@@ -428,9 +477,17 @@ class GoExtractor:
             elif child.type == "type_identifier":
                 # Simple return type
                 func.return_type = get_node_text(child, source)
-            elif child.type in ("pointer_type", "slice_type", "array_type",
-                               "map_type", "channel_type", "qualified_type",
-                               "interface_type", "struct_type", "function_type"):
+            elif child.type in (
+                "pointer_type",
+                "slice_type",
+                "array_type",
+                "map_type",
+                "channel_type",
+                "qualified_type",
+                "interface_type",
+                "struct_type",
+                "function_type",
+            ):
                 # Complex return type
                 func.return_type = get_node_text(child, source)
 

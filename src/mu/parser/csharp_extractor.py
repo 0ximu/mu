@@ -186,7 +186,14 @@ class CSharpExtractor:
         for child in node.children:
             if child.type == "identifier":
                 func_def.name = get_node_text(child, source)
-            elif child.type in ("predefined_type", "identifier", "qualified_name", "generic_name", "nullable_type", "array_type"):
+            elif child.type in (
+                "predefined_type",
+                "identifier",
+                "qualified_name",
+                "generic_name",
+                "nullable_type",
+                "array_type",
+            ):
                 # Return type comes before method name
                 if not func_def.name:
                     func_def.return_type = get_node_text(child, source)
@@ -263,7 +270,13 @@ class CSharpExtractor:
         for child in node.children:
             if child.type == "identifier":
                 name = get_node_text(child, source)
-            elif child.type in ("predefined_type", "qualified_name", "generic_name", "nullable_type", "array_type"):
+            elif child.type in (
+                "predefined_type",
+                "qualified_name",
+                "generic_name",
+                "nullable_type",
+                "array_type",
+            ):
                 type_annotation = get_node_text(child, source)
             elif child.type == "equals_value_clause":
                 # Default value

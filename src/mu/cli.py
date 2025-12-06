@@ -2308,7 +2308,9 @@ def kernel_export(
         # Output
         if output:
             output.write_text(result.output)
-            print_success(f"Exported {result.node_count} nodes, {result.edge_count} edges to {output}")
+            print_success(
+                f"Exported {result.node_count} nodes, {result.edge_count} edges to {output}"
+            )
         else:
             console.print(result.output)
 
