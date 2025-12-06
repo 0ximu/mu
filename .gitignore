@@ -52,6 +52,8 @@ dmypy.json
 .mu-cache/
 *.mu
 .mubase
+.mubase.wal
+.mu.pid
 
 # OS
 .DS_Store
