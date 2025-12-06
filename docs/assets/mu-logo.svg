@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 150">
+  <defs>
+    <!-- Gradient for 3D effect -->
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF3333"/>
+      <stop offset="50%" style="stop-color:#CC0000"/>
+      <stop offset="100%" style="stop-color:#990000"/>
+    </linearGradient>
+    <linearGradient id="darkRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#990000"/>
+      <stop offset="100%" style="stop-color:#660000"/>
+    </linearGradient>
+    <linearGradient id="lightRed" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FF6666"/>
+      <stop offset="100%" style="stop-color:#CC0000"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background fragments/particles -->
+  <rect x="45" y="25" width="8" height="8" fill="#FF3333" opacity="0.6" transform="rotate(15 49 29)"/>
+  <rect x="175" y="20" width="6" height="6" fill="#CC0000" opacity="0.5" transform="rotate(-10 178 23)"/>
+  <rect x="320" y="30" width="10" height="10" fill="#FF3333" opacity="0.4" transform="rotate(25 325 35)"/>
+  <rect x="355" y="85" width="7" height="7" fill="#990000" opacity="0.5" transform="rotate(-20 358 88)"/>
+  <rect x="30" y="100" width="5" height="5" fill="#CC0000" opacity="0.6" transform="rotate(30 32 102)"/>
+  <rect x="190" y="115" width="8" height="8" fill="#FF3333" opacity="0.4" transform="rotate(-15 194 119)"/>
+
+  <!-- Letter M - 3D Back faces (shadows) -->
+  <polygon points="70,115 70,35 95,35 120,75 145,35 170,35 170,115 145,115 145,70 120,105 95,70 95,115"
+           fill="url(#darkRed)" transform="translate(8, 8)"/>
+
+  <!-- Letter M - Main face with fragments -->
+  <polygon points="70,115 70,35 95,35 120,75 145,35 170,35 170,115 145,115 145,70 120,105 95,70 95,115"
+           fill="url(#redGrad)"/>
+
+  <!-- M - Fragmented pieces breaking off -->
+  <rect x="58" y="32" width="15" height="12" fill="url(#lightRed)" transform="rotate(-8 65 38)"/>
+  <rect x="165" y="28" width="18" height="10" fill="url(#redGrad)" transform="rotate(5 174 33)"/>
+  <rect x="68" y="108" width="12" height="14" fill="url(#darkRed)" transform="rotate(-3 74 115)"/>
+
+  <!-- M - Highlight edges for 3D effect -->
+  <path d="M70,35 L95,35 L120,75 L145,35 L170,35"
+        stroke="#FF6666" stroke-width="2" fill="none"/>
+  <path d="M70,35 L70,50" stroke="#FF6666" stroke-width="2"/>
+
+  <!-- M - Fracture lines -->
+  <path d="M85,55 L92,70" stroke="#660000" stroke-width="1.5" opacity="0.7"/>
+  <path d="M148,55 L155,72" stroke="#660000" stroke-width="1.5" opacity="0.7"/>
+  <path d="M110,85 L130,85" stroke="#660000" stroke-width="1" opacity="0.5"/>
+
+  <!-- Letter U - 3D Back face (shadow) -->
+  <path d="M210,35 L210,85 Q210,115 240,115 L260,115 Q290,115 290,85 L290,35 L265,35 L265,85 Q265,95 250,95 L250,95 Q235,95 235,85 L235,35 Z"
+        fill="url(#darkRed)" transform="translate(8, 8)"/>
+
+  <!-- Letter U - Main face -->
+  <path d="M210,35 L210,85 Q210,115 240,115 L260,115 Q290,115 290,85 L290,35 L265,35 L265,85 Q265,95 250,95 L250,95 Q235,95 235,85 L235,35 Z"
+        fill="url(#redGrad)"/>
+
+  <!-- U - Fragmented pieces breaking off -->
+  <rect x="200" y="30" width="16" height="11" fill="url(#lightRed)" transform="rotate(-6 208 35)"/>
+  <rect x="283" y="28" width="20" height="12" fill="url(#redGrad)" transform="rotate(8 293 34)"/>
+  <rect x="235" y="110" width="14" height="10" fill="url(#darkRed)" transform="rotate(4 242 115)"/>
+  <rect x="288" y="75" width="10" height="15" fill="url(#lightRed)" transform="rotate(12 293 82)"/>
+
+  <!-- U - Highlight edges -->
+  <path d="M210,35 L235,35 L235,85" stroke="#FF6666" stroke-width="2" fill="none"/>
+  <path d="M265,35 L290,35" stroke="#FF6666" stroke-width="2" fill="none"/>
+
+  <!-- U - Fracture lines -->
+  <path d="M220,50 L228,68" stroke="#660000" stroke-width="1.5" opacity="0.7"/>
+  <path d="M272,52 L280,65" stroke="#660000" stroke-width="1.5" opacity="0.7"/>
+  <path d="M242,100 L258,100" stroke="#660000" stroke-width="1" opacity="0.5"/>
+
+  <!-- Floating debris particles -->
+  <rect x="185" y="55" width="4" height="4" fill="#FF3333" opacity="0.7" transform="rotate(45 187 57)"/>
+  <rect x="305" y="45" width="5" height="5" fill="#CC0000" opacity="0.6" transform="rotate(30 307 47)"/>
+  <rect x="55" y="75" width="4" height="4" fill="#FF3333" opacity="0.5" transform="rotate(-20 57 77)"/>
+  <rect x="175" y="95" width="3" height="3" fill="#990000" opacity="0.6" transform="rotate(60 176 96)"/>
+  <rect x="300" y="100" width="6" height="6" fill="#FF3333" opacity="0.4" transform="rotate(-35 303 103)"/>
+
+  <!-- Speed lines / motion blur effect -->
+  <line x1="40" y1="70" x2="55" y2="70" stroke="#CC0000" stroke-width="2" opacity="0.3"/>
+  <line x1="35" y1="80" x2="50" y2="80" stroke="#CC0000" stroke-width="1.5" opacity="0.25"/>
+  <line x1="305" y1="65" x2="325" y2="65" stroke="#CC0000" stroke-width="2" opacity="0.3"/>
+  <line x1="310" y1="75" x2="330" y2="75" stroke="#CC0000" stroke-width="1.5" opacity="0.25"/>
+</svg>

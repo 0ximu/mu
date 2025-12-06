@@ -814,6 +814,377 @@ def cache_expire(ctx: MUContext) -> None:
         print_info("No entries to expire")
 
 
+# =============================================================================
+# Kernel Commands - Graph database operations
+# =============================================================================
+
+
+@cli.group()
+def kernel() -> None:
+    """MU Kernel commands (graph database).
+
+    Build and query a graph representation of your codebase stored in .mubase.
+    """
+    pass
+
+
+@kernel.command("init")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--force", "-f", is_flag=True, help="Overwrite existing .mubase file"
+)
+def kernel_init(path: Path, force: bool) -> None:
+    """Initialize a .mubase graph database.
+
+    Creates an empty .mubase file in the specified directory.
+    Use 'mu kernel build' to populate it with your codebase.
+    """
+    from mu.kernel import MUbase
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if mubase_path.exists() and not force:
+        print_warning(f"Database already exists: {mubase_path}")
+        print_info("Use --force to overwrite")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    if mubase_path.exists():
+        mubase_path.unlink()
+
+    try:
+        db = MUbase(mubase_path)
+        db.close()
+        print_success(f"Created {mubase_path}")
+        print_info("\nNext steps:")
+        print_info("  1. Run 'mu kernel build .' to populate the graph")
+        print_info("  2. Run 'mu kernel stats' to see graph statistics")
+    except Exception as e:
+        print_error(f"Failed to create database: {e}")
+        sys.exit(ExitCode.FATAL_ERROR)
+
+
+@kernel.command("build")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--output", "-o",
+    type=click.Path(path_type=Path),
+    help="Output .mubase file (default: {path}/.mubase)",
+)
+@pass_context
+def kernel_build(ctx: MUContext, path: Path, output: Optional[Path]) -> None:
+    """Build graph database from codebase.
+
+    Scans the directory, parses all supported files, and builds a
+    queryable graph of modules, classes, functions, and their relationships.
+    """
+    from mu.kernel import MUbase
+    from mu.parser.base import parse_file
+    from mu.scanner import scan_codebase
+
+    if ctx.config is None:
+        ctx.config = MUConfig()
+
+    root_path = path.resolve()
+    mubase_path = output or (root_path / ".mubase")
+
+    # Scan codebase
+    print_info(f"Scanning {root_path}...")
+    scan_result = scan_codebase(root_path, ctx.config)
+
+    if not scan_result.files:
+        print_warning("No supported files found")
+        return
+
+    print_info(f"Found {len(scan_result.files)} files")
+
+    # Parse all files
+    print_info("Parsing files...")
+    modules = []
+    errors = 0
+
+    for file_info in scan_result.files:
+        parsed = parse_file(Path(root_path / file_info.path), file_info.language)
+        if parsed.success and parsed.module:
+            modules.append(parsed.module)
+        elif parsed.error:
+            errors += 1
+            if ctx.verbosity == "verbose":
+                print_warning(f"  Parse error in {file_info.path}: {parsed.error}")
+
+    if errors > 0:
+        print_warning(f"  {errors} files had parse errors")
+
+    if not modules:
+        print_warning("No modules parsed successfully")
+        return
+
+    print_info(f"Parsed {len(modules)} modules")
+
+    # Build graph
+    print_info("Building graph...")
+    db = MUbase(mubase_path)
+    db.build(modules, root_path)
+    stats = db.stats()
+    db.close()
+
+    print_success(f"Built graph: {stats['nodes']} nodes, {stats['edges']} edges")
+    print_info(f"Database: {mubase_path}")
+
+    # Show breakdown
+    if ctx.verbosity != "quiet":
+        for node_type, count in stats.get("nodes_by_type", {}).items():
+            print_info(f"  {node_type}: {count}")
+
+
+@kernel.command("stats")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--json", "as_json", is_flag=True, help="Output as JSON"
+)
+def kernel_stats(path: Path, as_json: bool) -> None:
+    """Show graph database statistics."""
+    import json as json_module
+
+    from mu.kernel import MUbase
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+    stats = db.stats()
+    db.close()
+
+    if as_json:
+        console.print(json_module.dumps(stats, indent=2, default=str))
+        return
+
+    table = Table(title="MU Kernel Statistics")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Value", style="green")
+
+    table.add_row("Total Nodes", str(stats["nodes"]))
+    table.add_row("Total Edges", str(stats["edges"]))
+    table.add_row("", "")
+
+    # Nodes by type
+    for node_type, count in stats.get("nodes_by_type", {}).items():
+        table.add_row(f"  {node_type.title()}", str(count))
+
+    table.add_row("", "")
+
+    # Edges by type
+    for edge_type, count in stats.get("edges_by_type", {}).items():
+        table.add_row(f"  {edge_type.title()} edges", str(count))
+
+    table.add_row("", "")
+    table.add_row("File Size", f"{stats.get('file_size_kb', 0):.1f} KB")
+    table.add_row("Version", stats.get("version", "unknown"))
+
+    if stats.get("built_at"):
+        table.add_row("Built At", str(stats["built_at"]))
+
+    console.print(table)
+
+
+@kernel.command("query")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--type", "-t", "node_type",
+    type=click.Choice(["module", "class", "function", "external"]),
+    help="Filter by node type",
+)
+@click.option(
+    "--complexity", "-c",
+    type=int,
+    help="Minimum complexity threshold",
+)
+@click.option(
+    "--name", "-n",
+    type=str,
+    help="Filter by name (supports % wildcard)",
+)
+@click.option(
+    "--limit", "-l",
+    type=int,
+    default=20,
+    help="Maximum results to show",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Output as JSON"
+)
+def kernel_query(
+    path: Path,
+    node_type: Optional[str],
+    complexity: Optional[int],
+    name: Optional[str],
+    limit: int,
+    as_json: bool,
+) -> None:
+    """Query the graph database.
+
+    Examples:
+
+        mu kernel query --type function --complexity 20
+
+        mu kernel query --name "test_%"
+
+        mu kernel query --type class --json
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase, NodeType
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    # Build query based on options
+    nodes = []
+
+    if complexity:
+        nodes = db.find_by_complexity(complexity)
+    elif name:
+        nt = NodeType(node_type) if node_type else None
+        nodes = db.find_by_name(name, nt)
+    elif node_type:
+        nodes = db.get_nodes(NodeType(node_type))
+    else:
+        nodes = db.get_nodes()
+
+    db.close()
+
+    # Apply limit
+    nodes = nodes[:limit]
+
+    if as_json:
+        console.print(json_module.dumps([n.to_dict() for n in nodes], indent=2))
+        return
+
+    if not nodes:
+        print_info("No nodes found matching criteria")
+        return
+
+    table = Table(title=f"Query Results ({len(nodes)} nodes)")
+    table.add_column("Type", style="cyan", width=10)
+    table.add_column("Name", style="green")
+    table.add_column("File", style="dim")
+    table.add_column("Complexity", style="yellow", justify="right")
+
+    for node in nodes:
+        file_display = node.file_path or ""
+        if len(file_display) > 40:
+            file_display = "..." + file_display[-37:]
+
+        table.add_row(
+            node.type.value,
+            node.name,
+            file_display,
+            str(node.complexity) if node.complexity else "",
+        )
+
+    console.print(table)
+
+
+@kernel.command("deps")
+@click.argument("node_name", type=str)
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--depth", "-d",
+    type=int,
+    default=1,
+    help="Depth of dependency traversal",
+)
+@click.option(
+    "--reverse", "-r", is_flag=True, help="Show dependents instead of dependencies"
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Output as JSON"
+)
+def kernel_deps(
+    node_name: str,
+    path: Path,
+    depth: int,
+    reverse: bool,
+    as_json: bool,
+) -> None:
+    """Show dependencies or dependents of a node.
+
+    NODE_NAME can be a function, class, or module name.
+
+    Examples:
+
+        mu kernel deps MUbase
+
+        mu kernel deps cli.py --depth 2
+
+        mu kernel deps GraphBuilder --reverse
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    # Find the node by name
+    matching_nodes = db.find_by_name(f"%{node_name}%")
+
+    if not matching_nodes:
+        print_error(f"No node found matching '{node_name}'")
+        db.close()
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Use the first match
+    target_node = matching_nodes[0]
+    if len(matching_nodes) > 1:
+        print_info(f"Multiple matches found, using: {target_node.qualified_name or target_node.name}")
+
+    # Get dependencies or dependents
+    if reverse:
+        related = db.get_dependents(target_node.id, depth=depth)
+        relation_type = "Dependents"
+    else:
+        related = db.get_dependencies(target_node.id, depth=depth)
+        relation_type = "Dependencies"
+
+    db.close()
+
+    if as_json:
+        result = {
+            "node": target_node.to_dict(),
+            "relation": "dependents" if reverse else "dependencies",
+            "depth": depth,
+            "related": [n.to_dict() for n in related],
+        }
+        console.print(json_module.dumps(result, indent=2))
+        return
+
+    print_info(f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):")
+
+    if not related:
+        print_info("  (none)")
+        return
+
+    for node in related:
+        prefix = "  "
+        type_str = f"[{node.type.value}]"
+        name_str = node.qualified_name or node.name
+        print_info(f"{prefix}{type_str} {name_str}")
+
+
 def main() -> None:
     """Entry point for the CLI."""
     cli()

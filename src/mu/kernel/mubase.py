@@ -462,8 +462,11 @@ class MUbase:
         Returns:
             Dictionary with node/edge counts and other stats
         """
-        node_count = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-        edge_count = self.conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+        node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
+        node_count = node_result[0] if node_result else 0
+
+        edge_result = self.conn.execute("SELECT COUNT(*) FROM edges").fetchone()
+        edge_count = edge_result[0] if edge_result else 0
 
         by_type: dict[str, int] = {}
         for row in self.conn.execute(

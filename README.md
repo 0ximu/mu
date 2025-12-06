@@ -1,6 +1,12 @@
-# MU - Machine Understanding
+<p align="center">
+  <img src="docs/assets/mu-logo.svg" alt="MU Logo" width="400"/>
+</p>
 
-**Semantic compression for AI-native development.**
+<h1 align="center">Machine Understanding</h1>
+
+<p align="center">
+  <strong>Semantic compression for AI-native development.</strong>
+</p>
 
 MU translates codebases into token-efficient representations optimized for LLM comprehension. Feed your entire codebase to an AI in seconds, not hours.
 
