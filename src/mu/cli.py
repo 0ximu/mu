@@ -35,12 +35,8 @@ pass_context = click.make_pass_decorator(MUContext, ensure=True)
 
 
 @click.group()
-@click.option(
-    "-v", "--verbose", is_flag=True, help="Enable verbose output"
-)
-@click.option(
-    "-q", "--quiet", is_flag=True, help="Suppress non-error output"
-)
+@click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
+@click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output")
 @click.option(
     "--config",
     type=click.Path(exists=True, path_type=Path),
@@ -73,9 +69,7 @@ def cli(ctx: MUContext, verbose: bool, quiet: bool, config: Optional[Path]) -> N
 
 
 @cli.command()
-@click.option(
-    "--force", "-f", is_flag=True, help="Overwrite existing .murc.toml"
-)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing .murc.toml")
 @pass_context
 def init(ctx: MUContext, force: bool) -> None:
     """Initialize a new .murc.toml configuration file.
@@ -107,12 +101,14 @@ def init(ctx: MUContext, force: bool) -> None:
 @cli.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file for manifest (default: stdout)",
 )
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["json", "text"]),
     default="text",
     help="Output format",
@@ -133,6 +129,7 @@ def scan(ctx: MUContext, path: Path, output: Optional[Path], format: str) -> Non
 
     if format == "json":
         import json
+
         output_str = json.dumps(result.to_dict(), indent=2)
     else:
         # Text format summary
@@ -167,42 +164,30 @@ def format_scan_result(result) -> str:
 @cli.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (default: stdout)",
 )
-@click.option(
-    "--llm", is_flag=True, help="Enable LLM-enhanced summarization"
-)
-@click.option(
-    "--local", is_flag=True, help="Local-only mode (no external API calls)"
-)
+@click.option("--llm", is_flag=True, help="Enable LLM-enhanced summarization")
+@click.option("--local", is_flag=True, help="Local-only mode (no external API calls)")
 @click.option(
     "--llm-provider",
     type=click.Choice(["anthropic", "openai", "ollama", "openrouter"]),
     help="Override LLM provider",
 )
+@click.option("--llm-model", help="Override LLM model")
+@click.option("--no-redact", is_flag=True, help="Disable secret redaction (use with caution)")
+@click.option("--shell-safe", is_flag=True, help="Escape sigils for shell piping")
 @click.option(
-    "--llm-model", help="Override LLM model"
-)
-@click.option(
-    "--no-redact", is_flag=True, help="Disable secret redaction (use with caution)"
-)
-@click.option(
-    "--shell-safe", is_flag=True, help="Escape sigils for shell piping"
-)
-@click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["mu", "json", "markdown"]),
     default="mu",
     help="Output format",
 )
-@click.option(
-    "--yes", "-y", is_flag=True, help="Skip confirmation prompts"
-)
-@click.option(
-    "--no-cache", is_flag=True, help="Disable caching (process all files fresh)"
-)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
+@click.option("--no-cache", is_flag=True, help="Disable caching (process all files fresh)")
 @pass_context
 def compress(
     ctx: MUContext,
@@ -358,15 +343,17 @@ def compress(
 
     # Report stats
     stats = reduced.stats
-    print_info(f"Reduced to {stats['total_classes']} classes, "
-               f"{stats['total_functions']} functions, "
-               f"{stats['total_methods']} methods")
+    print_info(
+        f"Reduced to {stats['total_classes']} classes, "
+        f"{stats['total_functions']} functions, "
+        f"{stats['total_methods']} methods"
+    )
 
-    if stats.get('needs_llm_summary', 0) > 0:
+    if stats.get("needs_llm_summary", 0) > 0:
         print_info(f"  {stats['needs_llm_summary']} functions flagged for LLM summarization")
 
     # Step 4: LLM summarization (if enabled)
-    if ctx.config.llm.enabled and stats.get('needs_llm_summary', 0) > 0:
+    if ctx.config.llm.enabled and stats.get("needs_llm_summary", 0) > 0:
         from mu.llm import (
             LLMPool,
             SummarizationRequest,
@@ -380,25 +367,29 @@ def compress(
             # Top-level functions
             for func in module.functions:
                 if func.name in module.needs_llm and func.body_source:
-                    requests.append(SummarizationRequest(
-                        function_name=func.name,
-                        body_source=func.body_source,
-                        language=module.language,
-                        context=module.name,
-                        file_path=module.path,
-                    ))
+                    requests.append(
+                        SummarizationRequest(
+                            function_name=func.name,
+                            body_source=func.body_source,
+                            language=module.language,
+                            context=module.name,
+                            file_path=module.path,
+                        )
+                    )
             # Class methods
             for cls in module.classes:
                 for method in cls.methods:
                     key = f"{cls.name}.{method.name}"
                     if key in module.needs_llm and method.body_source:
-                        requests.append(SummarizationRequest(
-                            function_name=key,
-                            body_source=method.body_source,
-                            language=module.language,
-                            context=f"{module.name}.{cls.name}",
-                            file_path=module.path,
-                        ))
+                        requests.append(
+                            SummarizationRequest(
+                                function_name=key,
+                                body_source=method.body_source,
+                                language=module.language,
+                                context=f"{module.name}.{cls.name}",
+                                file_path=module.path,
+                            )
+                        )
 
         if requests:
             # Estimate cost
@@ -448,7 +439,9 @@ def compress(
                             if req.function_name == result.function_name:
                                 if req.file_path not in summaries_by_file:
                                     summaries_by_file[req.file_path] = {}
-                                summaries_by_file[req.file_path][result.function_name] = result.summary
+                                summaries_by_file[req.file_path][result.function_name] = (
+                                    result.summary
+                                )
                                 break
 
                 # Apply summaries to modules
@@ -460,9 +453,11 @@ def compress(
                 successful = sum(1 for r in results if r.success)
                 failed = len(results) - successful
                 cached_hits = sum(1 for r in results if r.cached)
-                print_info(f"Summarized {successful} functions" +
-                          (f" ({failed} failed)" if failed else "") +
-                          (f" ({cached_hits} from cache)" if cached_hits else ""))
+                print_info(
+                    f"Summarized {successful} functions"
+                    + (f" ({failed} failed)" if failed else "")
+                    + (f" ({cached_hits} from cache)" if cached_hits else "")
+                )
                 if pool.stats.total_tokens > 0:
                     print_info(f"  Tokens used: {pool.stats.total_tokens:,}")
 
@@ -474,7 +469,7 @@ def compress(
     assembled = assemble(parsed_modules, reduced, path)
 
     # Report assembly stats
-    internal_deps = assembled.codebase.stats.get('internal_dependencies', 0)
+    internal_deps = assembled.codebase.stats.get("internal_dependencies", 0)
     external_pkgs = len(assembled.external_packages)
     print_info(f"  {internal_deps} internal dependencies, {external_pkgs} external packages")
 
@@ -500,7 +495,8 @@ def compress(
 @cli.command()
 @click.argument("file", type=click.Path(exists=True, path_type=Path))
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["terminal", "html", "markdown"]),
     default="terminal",
     help="Output format",
@@ -512,11 +508,14 @@ def compress(
     help="Color theme for terminal/HTML output",
 )
 @click.option(
-    "--line-numbers", "-n", is_flag=True,
+    "--line-numbers",
+    "-n",
+    is_flag=True,
     help="Show line numbers",
 )
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (for html/markdown formats)",
 )
@@ -559,24 +558,28 @@ def view(
 @click.argument("base_ref")
 @click.argument("target_ref")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output file (default: stdout)",
 )
 @click.option(
-    "--format", "-f",
+    "--format",
+    "-f",
     type=click.Choice(["terminal", "json", "markdown"]),
     default="terminal",
     help="Output format",
 )
 @click.option(
-    "--path", "-p",
+    "--path",
+    "-p",
     type=click.Path(exists=True, path_type=Path),
     default=Path("."),
     help="Path to compare (default: current directory)",
 )
 @click.option(
-    "--no-color", is_flag=True,
+    "--no-color",
+    is_flag=True,
     help="Disable colored output",
 )
 @pass_context
@@ -622,7 +625,12 @@ def diff(
     print_info(f"Comparing {base_ref} → {target_ref}...")
 
     try:
-        with compare_refs(path, base_ref, target_ref) as (base_path, target_path, base_git_ref, target_git_ref):
+        with compare_refs(path, base_ref, target_ref) as (
+            base_path,
+            target_path,
+            base_git_ref,
+            target_git_ref,
+        ):
             # Shared transformation rules
             rules = TransformationRules(
                 strip_stdlib_imports=True,
@@ -706,12 +714,8 @@ def cache() -> None:
 
 
 @cache.command("clear")
-@click.option(
-    "--llm-only", is_flag=True, help="Only clear LLM response cache"
-)
-@click.option(
-    "--files-only", is_flag=True, help="Only clear file result cache"
-)
+@click.option("--llm-only", is_flag=True, help="Only clear LLM response cache")
+@click.option("--files-only", is_flag=True, help="Only clear file result cache")
 @pass_context
 def cache_clear(ctx: MUContext, llm_only: bool, files_only: bool) -> None:
     """Clear all cached data."""
@@ -741,15 +745,15 @@ def cache_clear(ctx: MUContext, llm_only: bool, files_only: bool) -> None:
     else:
         # Full clear
         cleared = cache_manager.clear()
-        print_success(f"Cleared cache: {cleared['file_entries']} file entries, "
-                      f"{cleared['llm_entries']} LLM entries")
+        print_success(
+            f"Cleared cache: {cleared['file_entries']} file entries, "
+            f"{cleared['llm_entries']} LLM entries"
+        )
         cache_manager.close()
 
 
 @cache.command("stats")
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @pass_context
 def cache_stats(ctx: MUContext, as_json: bool) -> None:
     """Show cache statistics."""
@@ -830,9 +834,7 @@ def kernel() -> None:
 
 @kernel.command("init")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option(
-    "--force", "-f", is_flag=True, help="Overwrite existing .mubase file"
-)
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing .mubase file")
 def kernel_init(path: Path, force: bool) -> None:
     """Initialize a .mubase graph database.
 
@@ -866,7 +868,8 @@ def kernel_init(path: Path, force: bool) -> None:
 @kernel.command("build")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--output", "-o",
+    "--output",
+    "-o",
     type=click.Path(path_type=Path),
     help="Output .mubase file (default: {path}/.mubase)",
 )
@@ -938,9 +941,7 @@ def kernel_build(ctx: MUContext, path: Path, output: Optional[Path]) -> None:
 
 @kernel.command("stats")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_stats(path: Path, as_json: bool) -> None:
     """Show graph database statistics."""
     import json as json_module
@@ -993,29 +994,32 @@ def kernel_stats(path: Path, as_json: bool) -> None:
 @kernel.command("query")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--type", "-t", "node_type",
+    "--type",
+    "-t",
+    "node_type",
     type=click.Choice(["module", "class", "function", "external"]),
     help="Filter by node type",
 )
 @click.option(
-    "--complexity", "-c",
+    "--complexity",
+    "-c",
     type=int,
     help="Minimum complexity threshold",
 )
 @click.option(
-    "--name", "-n",
+    "--name",
+    "-n",
     type=str,
     help="Filter by name (supports % wildcard)",
 )
 @click.option(
-    "--limit", "-l",
+    "--limit",
+    "-l",
     type=int,
     default=20,
     help="Maximum results to show",
 )
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_query(
     path: Path,
     node_type: Optional[str],
@@ -1093,21 +1097,112 @@ def kernel_query(
     console.print(table)
 
 
+@kernel.command("muql")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.argument("query", required=False)
+@click.option("--interactive", "-i", is_flag=True, help="Start interactive REPL")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json", "csv", "tree"]),
+    default="table",
+    help="Output format",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--explain", is_flag=True, help="Show execution plan without running")
+def kernel_muql(
+    path: Path,
+    query: Optional[str],
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Execute MUQL queries against the graph database.
+
+    MUQL provides an SQL-like query interface for exploring your codebase.
+
+    \b
+    Examples:
+        # Single query
+        mu kernel muql . "SELECT * FROM functions WHERE complexity > 20"
+
+        # Interactive mode
+        mu kernel muql . -i
+
+        # Show execution plan
+        mu kernel muql . --explain "SELECT * FROM classes LIMIT 10"
+
+        # Output as JSON
+        mu kernel muql . -f json "SELECT name, complexity FROM functions"
+
+    \b
+    Query Types:
+        SELECT - SQL-like queries on nodes
+        SHOW   - Dependency and relationship queries
+        FIND   - Pattern matching queries
+        PATH   - Path finding between nodes
+        ANALYZE - Built-in analysis queries
+
+    \b
+    In interactive mode, use these commands:
+        .help    - Show help
+        .format  - Change output format
+        .explain - Explain query
+        .exit    - Exit REPL
+    """
+    from mu.kernel import MUbase
+    from mu.kernel.muql import MUQLEngine
+    from mu.kernel.muql.repl import run_repl
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        if interactive:
+            # Start REPL
+            run_repl(db, no_color)
+        elif query:
+            # Execute single query
+            engine = MUQLEngine(db)
+
+            if explain:
+                # Show execution plan
+                explanation = engine.explain(query)
+                console.print(explanation)
+            else:
+                # Execute and format
+                output = engine.query(query, output_format, no_color)
+                console.print(output)
+        else:
+            # No query provided and not interactive mode
+            print_error("Either provide a query or use --interactive/-i flag")
+            print_info('Example: mu kernel muql . "SELECT * FROM functions LIMIT 10"')
+            print_info("         mu kernel muql . -i")
+            sys.exit(ExitCode.CONFIG_ERROR)
+    finally:
+        db.close()
+
+
 @kernel.command("deps")
 @click.argument("node_name", type=str)
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
-    "--depth", "-d",
+    "--depth",
+    "-d",
     type=int,
     default=1,
     help="Depth of dependency traversal",
 )
-@click.option(
-    "--reverse", "-r", is_flag=True, help="Show dependents instead of dependencies"
-)
-@click.option(
-    "--json", "as_json", is_flag=True, help="Output as JSON"
-)
+@click.option("--reverse", "-r", is_flag=True, help="Show dependents instead of dependencies")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def kernel_deps(
     node_name: str,
     path: Path,
@@ -1150,7 +1245,9 @@ def kernel_deps(
     # Use the first match
     target_node = matching_nodes[0]
     if len(matching_nodes) > 1:
-        print_info(f"Multiple matches found, using: {target_node.qualified_name or target_node.name}")
+        print_info(
+            f"Multiple matches found, using: {target_node.qualified_name or target_node.name}"
+        )
 
     # Get dependencies or dependents
     if reverse:
@@ -1172,7 +1269,9 @@ def kernel_deps(
         console.print(json_module.dumps(result, indent=2))
         return
 
-    print_info(f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):")
+    print_info(
+        f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):"
+    )
 
     if not related:
         print_info("  (none)")
@@ -1183,6 +1282,19 @@ def kernel_deps(
         type_str = f"[{node.type.value}]"
         name_str = node.qualified_name or node.name
         print_info(f"{prefix}{type_str} {name_str}")
+
+
+def _register_doc_commands() -> None:
+    """Register documentation commands (lazy import to avoid E402)."""
+    from mu.commands.llm_spec import llm_command
+    from mu.commands.man import man_command
+
+    cli.add_command(man_command, name="man")
+    cli.add_command(llm_command, name="llm")
+
+
+# Register documentation commands
+_register_doc_commands()
 
 
 def main() -> None:
