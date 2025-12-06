@@ -2565,6 +2565,231 @@ def daemon_run(
         print_info("\nShutting down...")
 
 
+# =============================================================================
+# Contracts Commands - Architecture verification
+# =============================================================================
+
+
+@cli.group()
+def contracts() -> None:
+    """MU Contracts - Architecture verification.
+
+    Define and verify architectural rules against the codebase graph.
+    Rules are defined in YAML files (.mu-contracts.yml).
+
+    \\b
+    Examples:
+        mu contracts init .           # Create template file
+        mu contracts verify .         # Verify contracts
+        mu contracts verify . --format json
+    """
+    pass
+
+
+@contracts.command("verify")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option(
+    "--contract-file",
+    "-c",
+    type=click.Path(exists=True, path_type=Path),
+    help="Contract file (default: .mu-contracts.yml)",
+)
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["text", "json", "junit"]),
+    default="text",
+    help="Output format",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--fail-fast", is_flag=True, help="Stop on first error")
+@click.option("--only", "only_pattern", type=str, help="Only run contracts matching pattern")
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    help="Output file (default: stdout)",
+)
+def contracts_verify(
+    path: Path,
+    contract_file: Path | None,
+    output_format: str,
+    no_color: bool,
+    fail_fast: bool,
+    only_pattern: str | None,
+    output: Path | None,
+) -> None:
+    """Verify architectural contracts against codebase.
+
+    Loads contracts from .mu-contracts.yml (or specified file) and
+    verifies them against the MUbase graph database.
+
+    \\b
+    Examples:
+        mu contracts verify .
+        mu contracts verify . --format junit > report.xml
+        mu contracts verify . --only "No circular*"
+    """
+    from fnmatch import fnmatch
+
+    from mu.contracts.parser import ContractParseError, parse_contracts_file
+    from mu.contracts.reporter import ContractReporter
+    from mu.contracts.verifier import ContractVerifier
+    from mu.kernel import MUbase
+
+    # Find .mubase
+    mubase_path = path.resolve() / ".mubase"
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel build' first to create the graph database")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Find contract file
+    if contract_file is None:
+        contract_file = path.resolve() / ".mu-contracts.yml"
+
+    if not contract_file.exists():
+        print_error(f"Contract file not found: {contract_file}")
+        print_info("Run 'mu contracts init' to create a template")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Parse contracts
+    try:
+        contracts_data = parse_contracts_file(contract_file)
+    except ContractParseError as e:
+        print_error(f"Failed to parse contracts: {e}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    print_info(f"Loaded {len(contracts_data.contracts)} contracts from {contract_file.name}")
+
+    # Filter by --only pattern
+    if only_pattern:
+        contracts_data.contracts = [
+            c for c in contracts_data.contracts if fnmatch(c.name, only_pattern)
+        ]
+        print_info(f"Filtered to {len(contracts_data.contracts)} contracts matching '{only_pattern}'")
+
+    if not contracts_data.contracts:
+        print_warning("No contracts to verify")
+        return
+
+    # Verify
+    db = MUbase(mubase_path)
+    try:
+        verifier = ContractVerifier(db)
+        result = verifier.verify(contracts_data, fail_fast=fail_fast)
+    finally:
+        db.close()
+
+    # Report
+    reporter = ContractReporter()
+    if output_format == "json":
+        output_str = reporter.report_json(result)
+    elif output_format == "junit":
+        output_str = reporter.report_junit(result)
+    else:
+        output_str = reporter.report_text(result, no_color=no_color)
+
+    # Output
+    if output:
+        output.write_text(output_str)
+        print_success(f"Report written to {output}")
+    else:
+        console.print(output_str)
+
+    # Exit code
+    if not result.passed:
+        sys.exit(ExitCode.CONTRACT_VIOLATION)
+
+
+@contracts.command("init")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing file")
+def contracts_init(path: Path, force: bool) -> None:
+    """Create a template .mu-contracts.yml file.
+
+    Creates a contract file with example rules that you can customize.
+
+    \\b
+    Example:
+        mu contracts init
+        mu contracts init . --force
+    """
+    contract_path = path.resolve() / ".mu-contracts.yml"
+
+    if contract_path.exists() and not force:
+        print_warning(f"Contract file already exists: {contract_path}")
+        print_info("Use --force to overwrite")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    template = '''# MU Contracts - Architecture Rules
+# Documentation: https://github.com/0ximu/mu/docs/contracts.md
+
+version: "1.0"
+name: "Architecture Contracts"
+
+settings:
+  fail_on_warning: false
+  exclude_tests: true
+  exclude_patterns:
+    - "**/test_*.py"
+    - "**/__mocks__/**"
+
+contracts:
+  # Circular dependency detection
+  - name: "No circular dependencies"
+    description: "Prevent circular module dependencies"
+    severity: error
+    rule:
+      type: analyze
+      analysis: circular
+    expect: empty
+
+  # Complexity limits
+  - name: "Function complexity limit"
+    description: "No function should exceed complexity 500"
+    severity: warning
+    rule:
+      type: query
+      muql: |
+        SELECT name, file_path, complexity
+        FROM functions
+        WHERE complexity > 500
+    expect: empty
+
+  # Example dependency rule (customize for your project)
+  # - name: "Services don't import controllers"
+  #   description: "Services should be UI-agnostic"
+  #   severity: error
+  #   rule:
+  #     type: dependency
+  #     from: "src/services/**"
+  #     to: "src/controllers/**"
+  #   expect: empty
+
+  # Example pattern rule (customize for your project)
+  # - name: "All services are injectable"
+  #   description: "Service classes must have @injectable decorator"
+  #   severity: warning
+  #   rule:
+  #     type: pattern
+  #     match: "src/services/**/*.py"
+  #     node_type: class
+  #     name_pattern: "*Service"
+  #     must_have:
+  #       decorator: "@injectable"
+  #   expect: empty
+'''
+
+    contract_path.write_text(template)
+    print_success(f"Created {contract_path}")
+    print_info("\nNext steps:")
+    print_info("  1. Edit .mu-contracts.yml to add your rules")
+    print_info("  2. Run 'mu kernel build' to create the graph (if not done)")
+    print_info("  3. Run 'mu contracts verify' to check contracts")
+
+
 def _register_doc_commands() -> None:
     """Register documentation commands (lazy import to avoid E402)."""
     from mu.commands.llm_spec import llm_command
