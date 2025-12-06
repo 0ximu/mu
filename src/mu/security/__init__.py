@@ -29,9 +29,9 @@ class SecretPattern:
     category: SecretCategory
     description: str
     confidence: float = 1.0  # 0.0-1.0, how confident the match is a real secret
-    _compiled: re.Pattern | None = field(default=None, repr=False, compare=False)
+    _compiled: re.Pattern[str] | None = field(default=None, repr=False, compare=False)
 
-    def compile(self) -> re.Pattern:
+    def compile(self) -> re.Pattern[str]:
         """Compile and cache the regex pattern."""
         if self._compiled is None:
             self._compiled = re.compile(self.pattern, re.MULTILINE | re.IGNORECASE)
@@ -375,7 +375,7 @@ class SecretScanner:
         redacted_source = source if redact else source
 
         # Track all matches to handle overlapping patterns
-        all_matches: list[tuple[int, int, SecretPattern, re.Match]] = []
+        all_matches: list[tuple[int, int, SecretPattern, re.Match[str]]] = []
 
         for pattern in self.patterns:
             if pattern.confidence < self.min_confidence:
@@ -389,7 +389,7 @@ class SecretScanner:
         all_matches.sort(key=lambda x: (x[0], -(x[1] - x[0])))
 
         # Remove overlapping matches (keep longer ones)
-        filtered_matches: list[tuple[int, int, SecretPattern, re.Match]] = []
+        filtered_matches: list[tuple[int, int, SecretPattern, re.Match[str]]] = []
         last_end = -1
         for start, end, pattern, match in all_matches:
             if start >= last_end:

@@ -89,17 +89,17 @@ class SemanticDiffer:
         for path in sorted(common_paths):
             base_module = base_modules[path]
             target_module = target_modules[path]
-            diff = self._diff_modules(base_module, target_module)
+            module_diff = self._diff_modules(base_module, target_module)
 
-            if diff is not None:
-                result.module_diffs.append(diff)
+            if module_diff is not None:
+                result.module_diffs.append(module_diff)
                 result.stats.modules_modified += 1
-                result.stats.functions_added += len(diff.added_functions)
-                result.stats.functions_removed += len(diff.removed_functions)
-                result.stats.functions_modified += len(diff.modified_functions)
-                result.stats.classes_added += len(diff.added_classes)
-                result.stats.classes_removed += len(diff.removed_classes)
-                result.stats.classes_modified += len(diff.modified_classes)
+                result.stats.functions_added += len(module_diff.added_functions)
+                result.stats.functions_removed += len(module_diff.removed_functions)
+                result.stats.functions_modified += len(module_diff.modified_functions)
+                result.stats.classes_added += len(module_diff.added_classes)
+                result.stats.classes_removed += len(module_diff.removed_classes)
+                result.stats.classes_modified += len(module_diff.modified_classes)
 
         # Diff dependencies
         result.dependency_diff = self._diff_dependencies()
