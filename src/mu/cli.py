@@ -651,7 +651,8 @@ def diff(
                 parsed_modules = []
                 for file_info in scan_result.files:
                     file_path = version_path / file_info.path
-                    result = parse_file(file_path, file_info.language)
+                    # Use relative path for display so diff can match modules across worktrees
+                    result = parse_file(file_path, file_info.language, display_path=file_info.path)
                     if result.success:
                         parsed_modules.append(result.module)
 

@@ -108,18 +108,25 @@ def _get_extractor(lang: str) -> LanguageExtractor:
     return _extractors[lang]
 
 
-def parse_file(file_path: Path, language: str) -> ParsedFile:
+def parse_file(
+    file_path: Path,
+    language: str,
+    display_path: str | None = None,
+) -> ParsedFile:
     """Parse a source file and extract AST information.
 
     Args:
         file_path: Path to the source file
         language: Programming language (python, typescript, javascript, csharp)
+        display_path: Optional path to use in output (for worktree comparisons)
 
     Returns:
         ParsedFile with extracted module information or error
     """
     logger = get_logger()
-    result = ParsedFile(path=str(file_path), language=language)
+    # Use display_path if provided (e.g., relative path for diff comparisons)
+    stored_path = display_path if display_path is not None else str(file_path)
+    result = ParsedFile(path=stored_path, language=language)
 
     try:
         # Read file content
@@ -142,7 +149,7 @@ def parse_file(file_path: Path, language: str) -> ParsedFile:
         # Extract AST information
         try:
             extractor = _get_extractor(language)
-            result.module = extractor.extract(tree.root_node, source, str(file_path))
+            result.module = extractor.extract(tree.root_node, source, stored_path)
         except UnsupportedLanguageError:
             result.error = f"No extractor for language: {language}"
             return result
