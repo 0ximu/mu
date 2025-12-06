@@ -7,7 +7,7 @@ arguments:
 
 # /flow - Complete Development Workflow
 
-Run the full development workflow: Plan → Code → Test → Review
+Run the full development workflow: Plan → Code → Test → Review → Docs → Ship
 
 ## Phase 1: Planner Agent (Business Discovery)
 
@@ -94,6 +94,30 @@ Run the full development workflow: Plan → Code → Test → Review
 
 **Output**: Updated documentation files
 
+## Phase 6: Ship (Commit & PR)
+
+**Objective**: Commit changes and create draft PR to dev branch
+
+1. Review changes:
+   - `git status` - verify all changes
+   - `git diff` - review modifications
+
+2. Commit with descriptive message:
+   - Use conventional commit format
+   - Include `[skip ci]` for draft PRs
+
+3. Push and create draft PR:
+   ```bash
+   git push -u origin HEAD
+   gh pr create --draft --base dev --title "feat: {Feature Name}" --body "..."
+   ```
+
+4. Add PR comment with summary
+
+5. Sign off with Banana Agent Protocol 🍌
+
+**Output**: Draft PR ready for review
+
 ## MU Standards Enforced
 
 | Standard | Enforcement |
@@ -139,6 +163,13 @@ Phase 5: Documentation
 → Updated docs/api/cli.md (new command)
 → Created docs/adr/0004-rust-parser-support.md
 → Updated docs/guides/getting-started.md
+
+Phase 6: Ship
+→ Committed: "feat: add Rust parser support"
+→ Pushed to origin/feature/rust-parser
+→ Created draft PR #42 → dev
+→ Added PR comment with summary
+→ 🍌 Signed off by Baron Von Bananington
 ```
 
 ## Workflow Diagram
@@ -156,8 +187,15 @@ Feature Card
     ↓
 /docs (Documentation) → Updated docs, ADRs
     ↓
-/ship (Commit + Draft PR)
+/ship (Commit + Draft PR → dev)
 ```
+
+## Branch Strategy
+
+- **dev**: Default branch, all PRs target here
+- **feature/***: Feature branches created by planner
+- **fix/***: Bug fix branches
+- **main**: Production releases only (protected)
 
 ## Documentation Structure
 

@@ -67,7 +67,7 @@ def export_json(
     # Modules
     data["modules"] = []
     for module in output.codebase.modules:
-        mod_data = {
+        mod_data: dict[str, Any] = {
             "name": module.name,
             "path": module.path,
             "language": module.language,

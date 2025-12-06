@@ -75,9 +75,29 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
 """
 
+# Embeddings table schema - separate to allow optional loading
+EMBEDDINGS_SCHEMA_SQL = """
+-- Embeddings table: vector embeddings for nodes
+CREATE TABLE IF NOT EXISTS embeddings (
+    node_id VARCHAR PRIMARY KEY,
+    code_embedding FLOAT[],
+    docstring_embedding FLOAT[],
+    name_embedding FLOAT[],
+    model_name VARCHAR NOT NULL,
+    model_version VARCHAR NOT NULL,
+    dimensions INTEGER NOT NULL,
+    created_at VARCHAR NOT NULL
+);
+
+-- Index for efficient joins with nodes table
+CREATE INDEX IF NOT EXISTS idx_embeddings_node_id ON embeddings(node_id);
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model_name, model_version);
+"""
+
 
 __all__ = [
     "NodeType",
     "EdgeType",
     "SCHEMA_SQL",
+    "EMBEDDINGS_SCHEMA_SQL",
 ]

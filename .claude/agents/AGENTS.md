@@ -125,7 +125,18 @@ result = llm.summarize(item)  # synchronous
 /plan -> /code -> /test -> /review -> /docs -> /ship
    |        |        |         |         |        |
 Planner  Coder   Tester   Reviewer    Docs    Ship
+   |                                              |
+   └── Creates feature branch from dev            └── Draft PR → dev
 ```
+
+## Branch Strategy
+
+| Branch | Purpose |
+|--------|---------|
+| `dev` | Default branch, all PRs target here |
+| `feature/*` | Feature development (created by planner) |
+| `fix/*` | Bug fixes |
+| `main` | Production releases only (protected) |
 
 ## Agent Responsibilities
 

@@ -74,7 +74,7 @@ class ModuleNode:
     exports: list[str] = field(default_factory=list)         # Symbols this module exports
 
     def to_dict(self) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "name": self.name,
             "path": self.path,
             "language": self.language,
@@ -335,7 +335,7 @@ class ImportResolver:
             # Build possible module paths from file path
             # e.g., src/mu/parser/models.py -> ["models", "parser.models", "mu.parser.models"]
             possible_names = []
-            current_parts = []
+            current_parts: list[str] = []
             for part in reversed(mod_path_parts[:-1]):  # Exclude filename
                 current_parts.insert(0, part)
                 possible_names.append(".".join(current_parts + [file_stem]))
@@ -471,7 +471,7 @@ class ImportResolver:
         target = (from_dir / module_path).as_posix()
 
         # Clean up the path (handle .. and .)
-        parts = []
+        parts: list[str] = []
         for part in target.split("/"):
             if part == "..":
                 if parts:
@@ -763,6 +763,7 @@ class Assembler:
         """
         if not self.graph:
             self.build_graph()
+        assert self.graph is not None
 
         graph = self.graph.get_internal_graph()
 
@@ -811,6 +812,7 @@ class Assembler:
         """
         if not self.graph:
             self.build_graph()
+        assert self.graph is not None
 
         # Update dependency graph with resolved paths
         resolved_graph: dict[str, list[str]] = {}

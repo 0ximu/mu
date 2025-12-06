@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mu.parser.models import FunctionDef, ImportDef
+from mu.parser.models import FunctionDef, ImportDef, ParameterDef
 
 
 @dataclass
@@ -115,7 +115,7 @@ class TransformationRules:
             return True
         return False
 
-    def filter_parameters(self, params: list, is_method: bool = False) -> list:
+    def filter_parameters(self, params: list[ParameterDef], is_method: bool = False) -> list[ParameterDef]:
         """Filter parameters based on rules."""
         result = []
         for param in params:

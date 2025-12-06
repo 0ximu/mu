@@ -105,7 +105,7 @@ class ImportDef:
     line_number: int = 0  # Source line for reference
 
     def to_dict(self) -> dict[str, Any]:
-        result = {
+        result: dict[str, Any] = {
             "module": self.module,
             "names": self.names,
             "alias": self.alias,

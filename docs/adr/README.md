@@ -13,6 +13,7 @@ An ADR is a document that captures an important architectural decision made alon
 | [0001](0001-use-tree-sitter-for-parsing.md) | Use Tree-sitter for AST Parsing | Accepted | 2025-01 |
 | [0002](0002-sigil-based-output-format.md) | Sigil-based MU Output Format | Accepted | 2025-01 |
 | [0003](0003-litellm-for-llm-integration.md) | Use LiteLLM for Multi-Provider LLM | Accepted | 2025-01 |
+| [0004](0004-vector-embeddings-for-semantic-search.md) | Vector Embeddings for Semantic Search | Accepted | 2025-12 |
 
 ## ADR Template
 

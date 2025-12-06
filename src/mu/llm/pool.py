@@ -107,12 +107,12 @@ class LLMPool:
 
         # Fallback to memory cache
         if cache_key in self._memory_cache:
-            cached = self._memory_cache[cache_key]
+            memory_cached = self._memory_cache[cache_key]
             return SummarizationResult(
-                function_name=cached.function_name,
-                summary=cached.summary,
+                function_name=memory_cached.function_name,
+                summary=memory_cached.summary,
                 tokens_used=0,
-                model=cached.model,
+                model=memory_cached.model,
                 cached=True,
             )
 
