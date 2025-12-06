@@ -9,12 +9,14 @@
       | find_query
       | path_query
       | analyze_query
+      | history_query
+      | blame_query
 
 // =============================================================================
 // SELECT Query - SQL-like queries on nodes table
 // =============================================================================
 
-select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [order_by_clause] [limit_clause]
+select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [temporal_clause] [order_by_clause] [limit_clause]
 
 select_list: STAR
            | field_list
@@ -148,6 +150,27 @@ analysis_type: COUPLING_KW -> analyze_coupling
 for_clause: FOR_KW node_ref
 
 // =============================================================================
+// TEMPORAL Queries - Time-travel and history queries
+// =============================================================================
+
+// Temporal clauses for SELECT queries
+temporal_clause: at_clause
+               | between_clause
+
+at_clause: AT_KW commit_ref
+
+between_clause: BETWEEN_KW commit_ref AND_KW commit_ref
+
+commit_ref: STRING -> quoted_commit_ref
+          | IDENTIFIER -> identifier_commit_ref
+
+// HISTORY query - show changes over time
+history_query: HISTORY_KW OF_KW node_ref [limit_clause]
+
+// BLAME query - show who changed what
+blame_query: BLAME_KW node_ref
+
+// =============================================================================
 // Terminals (Keywords - case insensitive)
 // =============================================================================
 
@@ -231,6 +254,13 @@ HOTSPOTS_KW: /hotspots/i
 CIRCULAR_KW: /circular/i
 UNUSED_KW: /unused/i
 IMPACT_KW: /impact/i
+
+// Temporal keywords
+AT_KW: /at/i
+BETWEEN_KW: /between/i
+HISTORY_KW: /history/i
+BLAME_KW: /blame/i
+FIRST_KW: /first/i
 
 // Boolean/null literals
 TRUE_KW: /true/i

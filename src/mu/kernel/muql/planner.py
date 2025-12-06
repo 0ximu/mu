@@ -13,12 +13,14 @@ from typing import Any
 from mu.kernel.muql.ast import (
     AnalysisType,
     AnalyzeQuery,
+    BlameQuery,
     Comparison,
     ComparisonOperator,
     Condition,
     EdgeTypeFilter,
     FindConditionType,
     FindQuery,
+    HistoryQuery,
     NodeTypeFilter,
     PathQuery,
     Query,
@@ -50,6 +52,7 @@ class PlanType(Enum):
     SQL = "sql"  # Execute SQL against DuckDB
     GRAPH = "graph"  # Graph traversal using MUbase methods
     ANALYSIS = "analysis"  # Built-in analysis functions
+    TEMPORAL = "temporal"  # Temporal queries (history, blame, at)
 
 
 @dataclass
@@ -108,7 +111,33 @@ class AnalysisPlan:
         }
 
 
-ExecutionPlan = SQLPlan | GraphPlan | AnalysisPlan
+@dataclass
+class TemporalPlan:
+    """An execution plan for temporal queries (history, blame, at)."""
+
+    plan_type: PlanType = field(default=PlanType.TEMPORAL, init=False)
+    operation: str = ""  # history, blame, at, between
+    target_node: str = ""
+    commit: str | None = None
+    commit2: str | None = None  # For BETWEEN queries
+    limit: int | None = None
+    inner_sql: str | None = None  # For AT queries with inner SELECT
+    parameters: list[Any] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "plan_type": self.plan_type.value,
+            "operation": self.operation,
+            "target_node": self.target_node,
+            "commit": self.commit,
+            "commit2": self.commit2,
+            "limit": self.limit,
+            "inner_sql": self.inner_sql,
+            "parameters": self.parameters,
+        }
+
+
+ExecutionPlan = SQLPlan | GraphPlan | AnalysisPlan | TemporalPlan
 
 
 # =============================================================================
@@ -126,7 +155,7 @@ class QueryPlanner:
             query: The parsed MUQL query.
 
         Returns:
-            An execution plan (SQLPlan, GraphPlan, or AnalysisPlan).
+            An execution plan (SQLPlan, GraphPlan, AnalysisPlan, or TemporalPlan).
         """
         if isinstance(query, SelectQuery):
             return self._plan_select(query)
@@ -138,6 +167,10 @@ class QueryPlanner:
             return self._plan_path(query)
         elif isinstance(query, AnalyzeQuery):
             return self._plan_analyze(query)
+        elif isinstance(query, HistoryQuery):
+            return self._plan_history(query)
+        elif isinstance(query, BlameQuery):
+            return self._plan_blame(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -145,8 +178,12 @@ class QueryPlanner:
     # SELECT Query Planning
     # -------------------------------------------------------------------------
 
-    def _plan_select(self, query: SelectQuery) -> SQLPlan:
-        """Generate SQL for a SELECT query."""
+    def _plan_select(self, query: SelectQuery) -> SQLPlan | TemporalPlan:
+        """Generate SQL for a SELECT query, or temporal plan if AT/BETWEEN is used."""
+        # If temporal clause is present, use temporal plan
+        if query.temporal:
+            return self._plan_select_temporal(query)
+
         sql_parts: list[str] = []
         params: list[Any] = []
         columns: list[str] = []
@@ -184,6 +221,57 @@ class QueryPlanner:
             parameters=params,
             columns=columns,
         )
+
+    def _plan_select_temporal(self, query: SelectQuery) -> TemporalPlan:
+        """Generate temporal plan for SELECT with AT/BETWEEN."""
+        if not query.temporal:
+            raise ValueError("No temporal clause in query")
+
+        # Build the base SQL without temporal
+        sql_parts: list[str] = []
+        params: list[Any] = []
+        columns: list[str] = []
+
+        select_clause = self._build_select_clause(query.fields, columns)
+        sql_parts.append(f"SELECT {select_clause}")
+
+        table = self._node_type_to_table(query.node_type)
+        sql_parts.append(f"FROM {table}")
+
+        if query.where:
+            where_sql, where_params = self._build_where_clause(query.where)
+            if where_sql:
+                sql_parts.append(f"WHERE {where_sql}")
+                params.extend(where_params)
+
+        if query.order_by:
+            order_parts = []
+            for order_field in query.order_by:
+                direction = "DESC" if order_field.order == SortOrder.DESC else "ASC"
+                order_parts.append(f"{order_field.name} {direction}")
+            sql_parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+        if query.limit is not None:
+            capped_limit = min(query.limit, MAX_LIMIT)
+            sql_parts.append(f"LIMIT {capped_limit}")
+
+        inner_sql = "\n".join(sql_parts)
+
+        if query.temporal.clause_type == "at":
+            return TemporalPlan(
+                operation="at",
+                commit=query.temporal.commit1,
+                inner_sql=inner_sql,
+                parameters=params,
+            )
+        else:  # between
+            return TemporalPlan(
+                operation="between",
+                commit=query.temporal.commit1,
+                commit2=query.temporal.commit2,
+                inner_sql=inner_sql,
+                parameters=params,
+            )
 
     def _build_select_clause(self, fields: list[SelectField], columns: list[str]) -> str:
         """Build the SELECT clause from field list."""
@@ -436,6 +524,29 @@ ORDER BY name
             target_node=target,
         )
 
+    # -------------------------------------------------------------------------
+    # TEMPORAL Query Planning
+    # -------------------------------------------------------------------------
+
+    def _plan_history(self, query: HistoryQuery) -> TemporalPlan:
+        """Generate plan for HISTORY query."""
+        limit = query.limit
+        if limit is not None:
+            limit = min(limit, MAX_LIMIT)
+
+        return TemporalPlan(
+            operation="history",
+            target_node=query.target.name,
+            limit=limit,
+        )
+
+    def _plan_blame(self, query: BlameQuery) -> TemporalPlan:
+        """Generate plan for BLAME query."""
+        return TemporalPlan(
+            operation="blame",
+            target_node=query.target.name,
+        )
+
 
 # =============================================================================
 # Convenience Functions
@@ -465,6 +576,7 @@ __all__ = [
     "SQLPlan",
     "GraphPlan",
     "AnalysisPlan",
+    "TemporalPlan",
     "ExecutionPlan",
     # Planner
     "QueryPlanner",

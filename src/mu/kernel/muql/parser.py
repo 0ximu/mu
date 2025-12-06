@@ -15,6 +15,7 @@ from mu.kernel.muql.ast import (
     AggregateFunction,
     AnalysisType,
     AnalyzeQuery,
+    BlameQuery,
     Comparison,
     ComparisonOperator,
     Condition,
@@ -22,6 +23,7 @@ from mu.kernel.muql.ast import (
     FindCondition,
     FindConditionType,
     FindQuery,
+    HistoryQuery,
     NodeRef,
     NodeTypeFilter,
     OrderByField,
@@ -32,6 +34,7 @@ from mu.kernel.muql.ast import (
     ShowQuery,
     ShowType,
     SortOrder,
+    TemporalClause,
     Value,
 )
 
@@ -259,11 +262,12 @@ class MUQLTransformer(Transformer[Token, Any]):
     # -------------------------------------------------------------------------
 
     def select_query(self, items: list[Any]) -> SelectQuery:
-        # Items: [SELECT_KW, select_list, FROM_KW, node_type, where?, order_by?, limit?]
+        # Items: [SELECT_KW, select_list, FROM_KW, node_type, where?, temporal?, order_by?, limit?]
         # Filter out keyword tokens and None values
         fields: list[SelectField] = []
         node_type: NodeTypeFilter = NodeTypeFilter.NODES
         where: Condition | None = None
+        temporal: TemporalClause | None = None
         order_by: list[OrderByField] = []
         limit: int | None = None
 
@@ -284,6 +288,8 @@ class MUQLTransformer(Transformer[Token, Any]):
                 node_type = item
             elif isinstance(item, Condition):
                 where = item
+            elif isinstance(item, TemporalClause):
+                temporal = item
             elif isinstance(item, int):
                 limit = item
 
@@ -291,6 +297,7 @@ class MUQLTransformer(Transformer[Token, Any]):
             fields=fields,
             node_type=node_type,
             where=where,
+            temporal=temporal,
             order_by=order_by,
             limit=limit,
         )
@@ -620,6 +627,99 @@ class MUQLTransformer(Transformer[Token, Any]):
 
         return AnalyzeQuery(analysis_type=analysis_type, target=target)
 
+    # -------------------------------------------------------------------------
+    # TEMPORAL Queries
+    # -------------------------------------------------------------------------
+
+    def quoted_commit_ref(self, items: list[Token]) -> str:
+        """Extract commit reference from quoted string."""
+        raw = str(items[0])
+        return raw[1:-1]  # Remove quotes
+
+    def identifier_commit_ref(self, items: list[Token]) -> str:
+        """Extract commit reference from identifier."""
+        return str(items[0])
+
+    def commit_ref(self, items: list[str]) -> str:
+        """Pass through commit reference."""
+        return items[0]
+
+    def at_clause(self, items: list[Any]) -> TemporalClause:
+        """Transform AT clause to TemporalClause."""
+        # items: [AT_KW, commit_ref_string]
+        # commit_ref transformer returns a plain str, AT_KW is a Token
+        # Token is a subclass of str, so we need to check Token type first
+        commit = ""
+        for item in items:
+            if isinstance(item, Token):
+                # Skip keyword tokens
+                if item.type == "AT_KW":
+                    continue
+                # Non-keyword token, use as commit ref
+                commit = str(item)
+                break
+            elif isinstance(item, str):
+                # Plain string from commit_ref transformer
+                commit = item
+                break
+        return TemporalClause(clause_type="at", commit1=commit)
+
+    def between_clause(self, items: list[Any]) -> TemporalClause:
+        """Transform BETWEEN clause to TemporalClause."""
+        # items: [BETWEEN_KW, commit_ref_string, AND_KW, commit_ref_string]
+        # Token is a subclass of str, so we need to filter out keyword tokens
+        commits: list[str] = []
+        for item in items:
+            if isinstance(item, Token):
+                # Skip keyword tokens (BETWEEN_KW, AND_KW)
+                if item.type in ("BETWEEN_KW", "AND_KW"):
+                    continue
+                # Non-keyword token, use as commit ref
+                commits.append(str(item))
+            elif isinstance(item, str):
+                # Plain string from commit_ref transformer
+                commits.append(item)
+        commit1 = commits[0] if len(commits) > 0 else ""
+        commit2 = commits[1] if len(commits) > 1 else ""
+        return TemporalClause(clause_type="between", commit1=commit1, commit2=commit2)
+
+    def temporal_clause(self, items: list[TemporalClause]) -> TemporalClause:
+        """Pass through temporal clause."""
+        return items[0]
+
+    def history_query(self, items: list[Any]) -> HistoryQuery:
+        """Transform HISTORY query."""
+        # Items: [HISTORY_KW, OF_KW, node_ref, limit_clause?]
+        target: NodeRef = NodeRef(name="")
+        limit: int | None = None
+
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, NodeRef):
+                target = item
+            elif isinstance(item, int):
+                limit = item
+
+        return HistoryQuery(target=target, limit=limit)
+
+    def blame_query(self, items: list[Any]) -> BlameQuery:
+        """Transform BLAME query."""
+        # Items: [BLAME_KW, node_ref]
+        target: NodeRef = NodeRef(name="")
+
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, NodeRef):
+                target = item
+
+        return BlameQuery(target=target)
+
 
 # =============================================================================
 # Parser Class
@@ -660,7 +760,18 @@ class MUQLParser:
         try:
             tree = self._lark.parse(query)
             result = self._transformer.transform(tree)
-            if not isinstance(result, (SelectQuery, ShowQuery, FindQuery, PathQuery, AnalyzeQuery)):
+            if not isinstance(
+                result,
+                (
+                    SelectQuery,
+                    ShowQuery,
+                    FindQuery,
+                    PathQuery,
+                    AnalyzeQuery,
+                    HistoryQuery,
+                    BlameQuery,
+                ),
+            ):
                 raise MUQLSyntaxError(f"Unexpected parse result: {type(result)}")
             return result
         except UnexpectedCharacters as e:

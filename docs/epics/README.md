@@ -4,36 +4,39 @@ This directory contains the sharded PRD for the MU Divine Edition. Each epic rep
 
 ## Current State
 
-**Completed**: MU Kernel (Phase 0)
+**Completed**: MU Kernel (Phase 0) + Epics 1-3
 - Graph schema with DuckDB storage
 - Node/Edge models and serialization
 - GraphBuilder converting ModuleDef to graph
 - MUbase class with CRUD and recursive queries
-- CLI commands: `mu kernel init/build/stats/query/deps`
-- 30 tests passing
+- Vector embeddings with semantic search
+- MUQL query language with REPL
+- Smart context extraction for questions
+- CLI commands: `mu kernel init/build/stats/query/deps/embed/search/muql/context`
+- 200+ tests passing
 
 ## Epic Overview
 
 | # | Epic | Priority | Complexity | Dependencies | Status |
 |---|------|----------|------------|--------------|--------|
-| 1 | [Vector Layer](01-vector-layer.md) | P1 | Medium | Kernel | Ready |
-| 2 | [MUQL Parser](02-muql-parser.md) | P1 | High | Kernel | Ready |
-| 3 | [Smart Context](03-smart-context.md) | P1 | Medium-High | Vector Layer | Blocked |
+| 1 | [Vector Layer](01-vector-layer.md) | P1 | Medium | Kernel | **Done** |
+| 2 | [MUQL Parser](02-muql-parser.md) | P1 | High | Kernel | **Done** |
+| 3 | [Smart Context](03-smart-context.md) | P1 | Medium-High | Vector Layer | **Done** |
 | 4 | [Temporal Layer](04-temporal-layer.md) | P2 | High | Kernel | Ready |
 | 5 | [Export Formats](05-export-formats.md) | P2 | Medium | Kernel | Ready |
-| 6 | [Daemon Mode](06-daemon-mode.md) | P3 | High | Kernel, Export | Blocked |
-| 7 | [MU Contracts](07-mu-contracts.md) | P3 | Medium | MUQL | Blocked |
+| 6 | [Daemon Mode](06-daemon-mode.md) | P3 | High | Kernel, Export | Ready |
+| 7 | [MU Contracts](07-mu-contracts.md) | P3 | Medium | MUQL | Ready |
 | 8 | [Visualization](08-visualization.md) | P4 | High | Export, Daemon | Blocked |
 | 9 | [IDE Integration](09-ide-integration.md) | P4 | High | Daemon, Smart Context | Blocked |
 
 ## Recommended Execution Order
 
-### Sprint 1: Core Query Capabilities
+### Sprint 1: Core Query Capabilities (DONE)
 1. **Epic 1: Vector Layer** - Enables semantic search
 2. **Epic 2: MUQL Parser** - Query language for graph
 
 ### Sprint 2: Intelligence & History
-3. **Epic 3: Smart Context** - AI context extraction
+3. **Epic 3: Smart Context** - AI context extraction (DONE)
 4. **Epic 4: Temporal Layer** - Git-linked history
 
 ### Sprint 3: Integration & Output

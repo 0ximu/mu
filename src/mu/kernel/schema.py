@@ -9,6 +9,15 @@ from __future__ import annotations
 from enum import Enum
 
 
+class ChangeType(Enum):
+    """Type of change in temporal history."""
+
+    ADDED = "added"
+    MODIFIED = "modified"
+    UNCHANGED = "unchanged"
+    REMOVED = "removed"
+
+
 class NodeType(Enum):
     """Types of nodes in the code graph."""
 
@@ -94,10 +103,68 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_node_id ON embeddings(node_id);
 CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model_name, model_version);
 """
 
+# Temporal schema - separate to allow lazy loading
+TEMPORAL_SCHEMA_SQL = """
+-- Snapshots table: point-in-time captures of the graph state
+CREATE TABLE IF NOT EXISTS snapshots (
+    id VARCHAR PRIMARY KEY,
+    commit_hash VARCHAR NOT NULL UNIQUE,
+    commit_message VARCHAR,
+    commit_author VARCHAR,
+    commit_date VARCHAR,
+    parent_id VARCHAR,
+    node_count INTEGER NOT NULL DEFAULT 0,
+    edge_count INTEGER NOT NULL DEFAULT 0,
+    nodes_added INTEGER DEFAULT 0,
+    nodes_removed INTEGER DEFAULT 0,
+    nodes_modified INTEGER DEFAULT 0,
+    edges_added INTEGER DEFAULT 0,
+    edges_removed INTEGER DEFAULT 0,
+    created_at VARCHAR NOT NULL
+);
+
+-- Node history table: track changes to nodes across snapshots
+CREATE TABLE IF NOT EXISTS node_history (
+    id VARCHAR PRIMARY KEY,
+    snapshot_id VARCHAR NOT NULL,
+    node_id VARCHAR NOT NULL,
+    change_type VARCHAR NOT NULL,
+    body_hash VARCHAR,
+    properties JSON,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
+);
+
+-- Edge history table: track changes to edges across snapshots
+CREATE TABLE IF NOT EXISTS edge_history (
+    id VARCHAR PRIMARY KEY,
+    snapshot_id VARCHAR NOT NULL,
+    edge_id VARCHAR NOT NULL,
+    change_type VARCHAR NOT NULL,
+    source_id VARCHAR NOT NULL,
+    target_id VARCHAR NOT NULL,
+    edge_type VARCHAR NOT NULL,
+    properties JSON,
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id)
+);
+
+-- Indexes for temporal queries
+CREATE INDEX IF NOT EXISTS idx_snapshots_commit ON snapshots(commit_hash);
+CREATE INDEX IF NOT EXISTS idx_snapshots_date ON snapshots(commit_date);
+CREATE INDEX IF NOT EXISTS idx_snapshots_parent ON snapshots(parent_id);
+CREATE INDEX IF NOT EXISTS idx_node_history_snapshot ON node_history(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_node_history_node ON node_history(node_id);
+CREATE INDEX IF NOT EXISTS idx_node_history_change ON node_history(change_type);
+CREATE INDEX IF NOT EXISTS idx_edge_history_snapshot ON edge_history(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_edge_history_edge ON edge_history(edge_id);
+CREATE INDEX IF NOT EXISTS idx_edge_history_change ON edge_history(change_type);
+"""
+
 
 __all__ = [
+    "ChangeType",
     "NodeType",
     "EdgeType",
     "SCHEMA_SQL",
     "EMBEDDINGS_SCHEMA_SQL",
+    "TEMPORAL_SCHEMA_SQL",
 ]
