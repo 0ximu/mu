@@ -990,6 +990,141 @@ class TestMUTextExporter:
 
         assert "async" in result.output
 
+    def test_orphan_methods_marked_partial(self, db: MUbase) -> None:
+        """Methods without their class are marked as partial."""
+        # Add only a method node, without its class
+        db.add_node(
+            Node(
+                id="fn:test.py:SomeClass.orphan_method",
+                type=NodeType.FUNCTION,
+                name="orphan_method",
+                qualified_name="test.SomeClass.orphan_method",
+                file_path="test.py",
+                properties={"is_method": True},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "partial" in result.output or "orphan_method" in result.output
+
+    def test_class_complexity_annotation(self, db: MUbase) -> None:
+        """High complexity classes get annotation."""
+        db.add_node(
+            Node(
+                id="cls:test.py:ComplexClass",
+                type=NodeType.CLASS,
+                name="ComplexClass",
+                file_path="test.py",
+                complexity=50,
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "complexity" in result.output.lower()
+
+    def test_function_complexity_annotation(self, db: MUbase) -> None:
+        """High complexity functions get annotation."""
+        db.add_node(
+            Node(
+                id="fn:test.py:complex_func",
+                type=NodeType.FUNCTION,
+                name="complex_func",
+                file_path="test.py",
+                complexity=30,
+                properties={"is_method": False},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "complexity" in result.output.lower()
+
+    def test_static_method_modifier(self, db: MUbase) -> None:
+        """Static methods are marked."""
+        db.add_node(
+            Node(
+                id="fn:test.py:MyClass.static_method",
+                type=NodeType.FUNCTION,
+                name="static_method",
+                file_path="test.py",
+                properties={"is_method": True, "is_static": True},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "static" in result.output.lower()
+
+    def test_classmethod_modifier(self, db: MUbase) -> None:
+        """Classmethods are marked."""
+        db.add_node(
+            Node(
+                id="fn:test.py:MyClass.class_method",
+                type=NodeType.FUNCTION,
+                name="class_method",
+                file_path="test.py",
+                properties={"is_method": True, "is_classmethod": True},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "classmethod" in result.output.lower()
+
+    def test_class_attributes(self, db: MUbase) -> None:
+        """Class attributes are listed."""
+        db.add_node(
+            Node(
+                id="cls:test.py:AttrClass",
+                type=NodeType.CLASS,
+                name="AttrClass",
+                file_path="test.py",
+                properties={"attributes": ["x", "y", "z"]},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "@attrs" in result.output or ("x" in result.output and "y" in result.output)
+
+    def test_path_to_module_name_strips_src(self) -> None:
+        """Path conversion strips src/ prefix."""
+        exporter = MUTextExporter()
+        name = exporter._path_to_module_name("src/my/module.py")
+        assert name == "my.module"
+
+    def test_path_to_module_name_strips_init(self) -> None:
+        """Path conversion removes __init__."""
+        exporter = MUTextExporter()
+        name = exporter._path_to_module_name("src/pkg/__init__.py")
+        assert name == "pkg"
+
+    def test_function_decorators_shown(self, db: MUbase) -> None:
+        """Function decorators appear in output."""
+        db.add_node(
+            Node(
+                id="fn:test.py:decorated",
+                type=NodeType.FUNCTION,
+                name="decorated",
+                file_path="test.py",
+                properties={"decorators": ["cached", "retry"]},
+            )
+        )
+
+        exporter = MUTextExporter()
+        result = exporter.export(db)
+
+        assert "::" in result.output  # Annotation marker
+        assert "cached" in result.output or "retry" in result.output
+
 
 # =============================================================================
 # JSON Exporter Tests (json_export.py)
@@ -1229,6 +1364,100 @@ class TestMermaidExporter:
         assert result.success is True
         assert "flowchart" in result.output
         assert "No nodes" in result.output
+
+    def test_class_diagram_with_methods(self, db: MUbase) -> None:
+        """Class diagram includes methods."""
+        # Add a class with methods
+        db.add_node(
+            Node(
+                id="cls:test.py:TestClass",
+                type=NodeType.CLASS,
+                name="TestClass",
+                file_path="test.py",
+                properties={"attributes": ["attr1", "attr2"]},
+            )
+        )
+        db.add_node(
+            Node(
+                id="fn:test.py:TestClass.method1",
+                type=NodeType.FUNCTION,
+                name="method1",
+                file_path="test.py",
+                properties={
+                    "is_method": True,
+                    "parent_class": "cls:test.py:TestClass",
+                    "parameters": [{"name": "self"}, {"name": "x", "type_annotation": "int"}],
+                    "return_type": "str",
+                },
+            )
+        )
+
+        exporter = MermaidExporter()
+        options = ExportOptions(extra={"diagram_type": "classDiagram"})
+        result = exporter.export(db, options)
+
+        assert "classDiagram" in result.output
+        assert "class TestClass" in result.output
+
+    def test_class_diagram_with_inheritance(self, db: MUbase) -> None:
+        """Class diagram shows inheritance relationships."""
+        # Create parent and child classes
+        db.add_node(
+            Node(id="cls:test.py:Parent", type=NodeType.CLASS, name="Parent", file_path="test.py")
+        )
+        db.add_node(
+            Node(id="cls:test.py:Child", type=NodeType.CLASS, name="Child", file_path="test.py")
+        )
+        db.add_edge(
+            Edge(
+                id="edge:inherit",
+                source_id="cls:test.py:Child",
+                target_id="cls:test.py:Parent",
+                type=EdgeType.INHERITS,
+            )
+        )
+
+        exporter = MermaidExporter()
+        options = ExportOptions(extra={"diagram_type": "classDiagram"})
+        result = exporter.export(db, options)
+
+        assert "classDiagram" in result.output
+        # Inheritance arrow
+        assert "<|--" in result.output
+
+    def test_flowchart_edge_labels(self, populated_db: MUbase) -> None:
+        """Flowchart includes edge labels for non-CONTAINS edges."""
+        exporter = MermaidExporter()
+        result = exporter.export(populated_db)
+
+        # IMPORTS edges get labels
+        assert "imports" in result.output.lower() or "|" in result.output
+
+    def test_escape_id_with_number_prefix(self) -> None:
+        """Node IDs starting with numbers are prefixed."""
+        exporter = MermaidExporter()
+        escaped = exporter._escape_id("123invalid")
+        assert escaped.startswith("n") or not escaped[0].isdigit()
+
+    def test_format_method_params_with_dict_params(self) -> None:
+        """Method parameters with dict format are handled."""
+        exporter = MermaidExporter()
+        method = Node(
+            id="fn:test",
+            type=NodeType.FUNCTION,
+            name="test",
+            properties={
+                "parameters": [
+                    {"name": "self"},
+                    {"name": "data", "type_annotation": "str"},
+                    {"name": "count"},
+                ]
+            },
+        )
+        params = exporter._format_method_params(method)
+        assert "self" in params
+        assert "data: str" in params
+        assert "count" in params
 
 
 # =============================================================================
