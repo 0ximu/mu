@@ -472,8 +472,9 @@ class TestMUbase:
         assert stats["edges_by_type"]["contains"] == 2
         db.close()
 
-    def test_context_manager(self, db_path: Path) -> None:
+    def test_context_manager(self, tmp_path: Path) -> None:
         """MUbase works as context manager."""
+        db_path = tmp_path / "ctx.mubase"
         with MUbase(db_path) as db:
             db.add_node(Node(id="test", type=NodeType.MODULE, name="test"))
             stats = db.stats()
@@ -511,10 +512,11 @@ class TestBuildIntegration:
             ),
         ]
 
-    def test_build_creates_complete_graph(self, modules: list[ModuleDef]) -> None:
+    def test_build_creates_complete_graph(
+        self, modules: list[ModuleDef], tmp_path: Path
+    ) -> None:
         """build() creates all expected nodes and edges."""
-        with tempfile.NamedTemporaryFile(suffix=".mubase", delete=False) as f:
-            db_path = Path(f.name)
+        db_path = tmp_path / "build.mubase"
 
         with MUbase(db_path) as db:
             db.build(modules, Path("src"))
@@ -526,10 +528,11 @@ class TestBuildIntegration:
             # 2 CONTAINS edges (module -> function) + potential IMPORTS
             assert stats["edges"] >= 2
 
-    def test_build_preserves_complexity(self, modules: list[ModuleDef]) -> None:
+    def test_build_preserves_complexity(
+        self, modules: list[ModuleDef], tmp_path: Path
+    ) -> None:
         """build() preserves function complexity."""
-        with tempfile.NamedTemporaryFile(suffix=".mubase", delete=False) as f:
-            db_path = Path(f.name)
+        db_path = tmp_path / "complexity.mubase"
 
         with MUbase(db_path) as db:
             db.build(modules, Path("src"))

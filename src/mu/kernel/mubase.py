@@ -120,9 +120,11 @@ class MUbase:
 
     def add_edge(self, edge: Edge) -> None:
         """Add or update an edge in the graph."""
+        # Delete existing edge with same ID first, then insert
+        self.conn.execute("DELETE FROM edges WHERE id = ?", [edge.id])
         self.conn.execute(
             """
-            INSERT OR REPLACE INTO edges
+            INSERT INTO edges
             (id, source_id, target_id, type, properties)
             VALUES (?, ?, ?, ?, ?)
             """,
@@ -233,7 +235,7 @@ class MUbase:
         type_filter = ""
         if edge_types:
             types = ", ".join(f"'{t.value}'" for t in edge_types)
-            type_filter = f"AND type IN ({types})"
+            type_filter = f"AND e.type IN ({types})"
 
         if depth == 1:
             rows = self.conn.execute(
@@ -287,7 +289,7 @@ class MUbase:
         type_filter = ""
         if edge_types:
             types = ", ".join(f"'{t.value}'" for t in edge_types)
-            type_filter = f"AND type IN ({types})"
+            type_filter = f"AND e.type IN ({types})"
 
         if depth == 1:
             rows = self.conn.execute(

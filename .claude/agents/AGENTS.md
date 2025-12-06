@@ -116,23 +116,48 @@ result = llm.summarize(item)  # synchronous
 - `mypy src/mu` passes
 - `pytest` passes all tests
 - No circular imports
+- Documentation updated (if applicable)
+- ADR created (for architectural decisions)
 
 ## Agent Workflow
 
 ```
-/plan -> /code -> /test -> /review
-   |        |        |         |
-Planner  Coder   Tester   Reviewer
+/plan -> /code -> /test -> /review -> /docs -> /ship
+   |        |        |         |         |        |
+Planner  Coder   Tester   Reviewer    Docs    Ship
 ```
 
 ## Agent Responsibilities
 
 | Agent | Role | Focus |
 |-------|------|-------|
-| Planner | Business Discovery | Pattern analysis, task breakdown |
-| Coder | Implementation | Following patterns, quality code |
+| Planner | Business Discovery | Pattern analysis, task breakdown, branch creation |
+| Coder | Implementation | Following patterns, quality code, doc updates |
 | Tester | QA Engineer | Test coverage, edge cases |
-| Reviewer | Code Review | Security, performance, architecture |
+| Reviewer | Code Review | Security, performance, architecture, draft PR |
+| Docs | Documentation | ADRs, API docs, guides |
+| Ship | Deployment | Commit, push, PR comment |
+
+## Documentation Requirements
+
+Documentation MUST be updated when:
+- Adding new CLI commands → `docs/api/cli.md`
+- Adding new Python APIs → `docs/api/python.md`
+- Making architectural decisions → Create ADR in `docs/adr/`
+- Security-related changes → Update `docs/security/`
+- Configuration changes → `docs/guides/configuration.md`
+- Breaking changes → CHANGELOG + migration guide
+
+### Documentation Structure
+
+```
+docs/
+├── adr/              # Architecture Decision Records
+├── security/         # Security policy, threat model
+├── api/              # CLI and Python API reference
+├── guides/           # User and developer guides
+└── assets/           # Images, diagrams
+```
 
 ## Anti-Patterns
 
@@ -144,6 +169,7 @@ Planner  Coder   Tester   Reviewer
 
 ## Documentation References
 
+### Internal (CLAUDE.md files)
 - `CLAUDE.md` - Root project instructions
 - `src/mu/parser/CLAUDE.md` - Parser subsystem
 - `src/mu/llm/CLAUDE.md` - LLM integration
@@ -152,3 +178,11 @@ Planner  Coder   Tester   Reviewer
 - `src/mu/diff/CLAUDE.md` - Semantic diff
 - `src/mu/security/CLAUDE.md` - Secret detection
 - `tests/CLAUDE.md` - Testing standards
+
+### Official Documentation (docs/)
+- `docs/README.md` - Documentation overview
+- `docs/adr/` - Architecture Decision Records
+- `docs/security/` - Security policy and threat model
+- `docs/api/cli.md` - CLI reference
+- `docs/api/python.md` - Python API reference
+- `docs/guides/` - User and developer guides

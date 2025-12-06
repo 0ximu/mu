@@ -71,6 +71,29 @@ Run the full development workflow: Plan → Code → Test → Review
 
 **Output**: Structured code review
 
+## Phase 5: Documentation (Docs Update)
+
+**Objective**: Keep documentation in sync with implementation
+
+1. Identify documentation impact:
+   - New CLI commands → `docs/api/cli.md`
+   - New Python APIs → `docs/api/python.md`
+   - Architectural decisions → `docs/adr/XXXX-*.md`
+   - Security changes → `docs/security/`
+   - Config changes → `docs/guides/configuration.md`
+
+2. Update affected documentation:
+   - Follow existing doc patterns
+   - Include code examples
+   - Update any referenced version numbers
+
+3. Create ADR if applicable:
+   - Use template from `docs/adr/README.md`
+   - Add to ADR index table
+   - Link related issues/PRs
+
+**Output**: Updated documentation files
+
 ## MU Standards Enforced
 
 | Standard | Enforcement |
@@ -82,6 +105,8 @@ Run the full development workflow: Plan → Code → Test → Review
 | Type hints | mypy passes |
 | Style | ruff passes |
 | Coverage | 80% line, 65% branch |
+| Documentation | Updated for changes |
+| ADRs | Created for arch decisions |
 
 ## Example Execution
 
@@ -109,6 +134,11 @@ Phase 4: Reviewer
 → Performance: PASS
 → Architecture: PASS
 → Recommendation: APPROVE
+
+Phase 5: Documentation
+→ Updated docs/api/cli.md (new command)
+→ Created docs/adr/0004-rust-parser-support.md
+→ Updated docs/guides/getting-started.md
 ```
 
 ## Workflow Diagram
@@ -116,7 +146,7 @@ Phase 4: Reviewer
 ```
 Feature Card
     ↓
-/plan (Planner) → {feature}.tasks.md
+/plan (Planner) → {feature}.tasks.md + Branch creation
     ↓
 /code (Coder) → Implementation + Updated tasks
     ↓
@@ -124,5 +154,18 @@ Feature Card
     ↓
 /review (Reviewer) → Code review report
     ↓
-/ship (Commit + PR)
+/docs (Documentation) → Updated docs, ADRs
+    ↓
+/ship (Commit + Draft PR)
+```
+
+## Documentation Structure
+
+```
+docs/
+├── adr/              # Architecture Decision Records
+├── security/         # Security policy, threat model
+├── api/              # CLI and Python API reference
+├── guides/           # User and developer guides
+└── assets/           # Images, diagrams
 ```

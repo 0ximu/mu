@@ -146,6 +146,28 @@ content = path.read_text()  # May fail
 content = path.read_text(errors="replace")
 ```
 
+## Documentation Requirements
+
+Update documentation when implementation changes affect:
+
+| Change Type | Documentation Action |
+|-------------|---------------------|
+| New CLI command | Update `docs/api/cli.md` |
+| New Python API | Update `docs/api/python.md` |
+| Architectural decision | Create ADR in `docs/adr/` |
+| Security-related change | Update `docs/security/` |
+| New configuration option | Update `docs/guides/configuration.md` |
+| Breaking change | Update CHANGELOG and migration guide |
+
+### ADR Template Location
+`docs/adr/README.md` contains the template for new Architecture Decision Records.
+
+### When to Create an ADR
+- Choosing between technologies
+- Defining new data formats
+- Establishing patterns used across codebase
+- Decisions that are hard to reverse
+
 ## Quality Checks
 
 Before marking task complete:
@@ -160,6 +182,7 @@ Before marking task complete:
 - [ ] No synchronous LLM calls
 - [ ] Encoding errors handled
 - [ ] Tests written for new code
+- [ ] Documentation updated (if applicable)
 
 ## Output Template
 

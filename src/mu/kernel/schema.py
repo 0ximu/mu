@@ -56,8 +56,7 @@ CREATE TABLE IF NOT EXISTS edges (
     source_id VARCHAR NOT NULL,
     target_id VARCHAR NOT NULL,
     type VARCHAR NOT NULL,
-    properties JSON,
-    UNIQUE(source_id, target_id, type)
+    properties JSON
 );
 
 -- Metadata table: version, build info
