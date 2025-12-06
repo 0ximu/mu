@@ -14,6 +14,7 @@ class ExitCode(IntEnum):
     PARTIAL_SUCCESS = 2  # Some files skipped
     FATAL_ERROR = 3  # Unexpected crash
     GIT_ERROR = 4  # Git operation failed
+    CONTRACT_VIOLATION = 5  # Architecture contract violated
 
 
 class MUError(Exception):
