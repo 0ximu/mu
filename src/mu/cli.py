@@ -278,7 +278,8 @@ def compress(
 
     # Step 2: Parse files
     parsed_modules: list[ModuleDef] = []
-    failed_files: list[tuple[str, str | None]] = []
+    skipped_files: dict[str, list[str]] = {}  # language -> [paths]
+    failed_files: list[tuple[str, str]] = []  # (path, error)
 
     with create_progress() as progress:
         task = progress.add_task("Parsing files...", total=len(scan_result.files))
@@ -289,14 +290,29 @@ def compress(
 
             if result.success and result.module is not None:
                 parsed_modules.append(result.module)
+            elif result.error and "Unsupported language" in result.error:
+                # Non-code files (markdown, json, etc.) - group by language
+                lang = file_info.language
+                if lang not in skipped_files:
+                    skipped_files[lang] = []
+                skipped_files[lang].append(file_info.path)
             else:
-                failed_files.append((file_info.path, result.error))
+                # Actual parse error
+                failed_files.append((file_info.path, result.error or "Unknown error"))
 
             progress.advance(task)
 
     print_info(f"Parsed {len(parsed_modules)} files successfully")
+    if skipped_files:
+        total_skipped = sum(len(paths) for paths in skipped_files.values())
+        langs = ", ".join(f"{lang} ({len(paths)})" for lang, paths in sorted(skipped_files.items()))
+        print_info(f"Skipped {total_skipped} non-code files: {langs}")
     if failed_files:
-        print_warning(f"Failed to parse {len(failed_files)} files")
+        print_warning(f"Failed to parse {len(failed_files)} files:")
+        for filepath, error in failed_files[:5]:  # Show first 5 errors
+            print_warning(f"  {filepath}: {error}")
+        if len(failed_files) > 5:
+            print_warning(f"  ... and {len(failed_files) - 5} more")
 
     # Step 2.5: Secret scanning and redaction (if enabled)
     total_secrets_found = 0

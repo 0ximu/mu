@@ -19,10 +19,10 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".pyw": "python",
     ".pyi": "python",
     ".js": "javascript",
-    ".jsx": "javascript",
+    ".jsx": "jsx",
     ".mjs": "javascript",
     ".ts": "typescript",
-    ".tsx": "typescript",
+    ".tsx": "tsx",
     ".cs": "csharp",
     ".go": "go",
     ".rs": "rust",
@@ -49,7 +49,7 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
 }
 
 # Supported languages for MU transformation
-SUPPORTED_LANGUAGES = {"python", "typescript", "javascript", "csharp", "go", "rust", "java"}
+SUPPORTED_LANGUAGES = {"python", "typescript", "tsx", "javascript", "jsx", "csharp", "go", "rust", "java"}
 
 
 @dataclass
