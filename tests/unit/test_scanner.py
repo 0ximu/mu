@@ -21,7 +21,8 @@ class TestLanguageDetection:
         [
             ("main.py", "python"),
             ("app.ts", "typescript"),
-            ("component.tsx", "typescript"),
+            ("component.tsx", "tsx"),
+            ("component.jsx", "jsx"),
             ("service.cs", "csharp"),
             ("index.js", "javascript"),
             ("config.yaml", "yaml"),

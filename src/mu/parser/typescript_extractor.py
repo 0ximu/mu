@@ -27,7 +27,15 @@ class TypeScriptExtractor:
     def extract(self, root: Node, source: bytes, file_path: str) -> ModuleDef:
         """Extract module definition from TypeScript/JavaScript AST."""
         path = Path(file_path)
-        language = "typescript" if path.suffix in (".ts", ".tsx") else "javascript"
+        suffix = path.suffix.lower()
+        if suffix == ".tsx":
+            language = "tsx"
+        elif suffix == ".ts":
+            language = "typescript"
+        elif suffix == ".jsx":
+            language = "jsx"
+        else:
+            language = "javascript"
 
         module = ModuleDef(
             name=path.stem,
