@@ -16,6 +16,7 @@ src/mu/kernel/CLAUDE.md               # Graph database for code analysis
 src/mu/kernel/temporal/CLAUDE.md      # Git-linked snapshots and time-travel
 src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
 src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
+src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
@@ -42,6 +43,13 @@ mu diff <base> <head>          # Semantic diff
 mu kernel snapshot <path>      # Create snapshot at HEAD
 mu kernel history <node>       # Show node history
 mu kernel blame <node>         # Show blame info
+
+# Kernel/Export
+mu kernel export <path> --format mu       # Export as MU text
+mu kernel export <path> --format json     # Export as JSON
+mu kernel export <path> --format mermaid  # Export as Mermaid diagram
+mu kernel export <path> --format d2       # Export as D2 diagram
+mu kernel export <path> --format cytoscape # Export for Cytoscape.js
 ```
 
 ## Pipeline
@@ -60,6 +68,7 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`DiffResult`**: Semantic changes between versions
 - **`ContextResult`**: Smart context extraction result with MU output
 - **`Snapshot`**: Point-in-time graph state linked to git commit
+- **`ExportResult`**: Multi-format export output with error handling
 
 ## Supported Languages
 
