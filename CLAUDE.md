@@ -13,6 +13,7 @@ src/mu/reducer/CLAUDE.md              # Transformation rules, compression
 src/mu/diff/CLAUDE.md                 # Semantic diff computation
 src/mu/security/CLAUDE.md             # Secret detection and redaction
 src/mu/kernel/CLAUDE.md               # Graph database for code analysis
+src/mu/kernel/temporal/CLAUDE.md      # Git-linked snapshots and time-travel
 src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
 src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 tests/CLAUDE.md                       # Testing standards and patterns
@@ -36,6 +37,11 @@ mu scan <path>                 # Analyze structure
 mu compress <path>             # Generate MU output
 mu compress <path> --llm       # With LLM summarization
 mu diff <base> <head>          # Semantic diff
+
+# Kernel/Temporal
+mu kernel snapshot <path>      # Create snapshot at HEAD
+mu kernel history <node>       # Show node history
+mu kernel blame <node>         # Show blame info
 ```
 
 ## Pipeline
@@ -53,6 +59,7 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`ModuleGraph`**: Dependency graph with resolved imports
 - **`DiffResult`**: Semantic changes between versions
 - **`ContextResult`**: Smart context extraction result with MU output
+- **`Snapshot`**: Point-in-time graph state linked to git commit
 
 ## Supported Languages
 

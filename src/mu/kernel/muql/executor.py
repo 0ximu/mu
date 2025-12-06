@@ -14,6 +14,7 @@ from mu.kernel.muql.planner import (
     ExecutionPlan,
     GraphPlan,
     SQLPlan,
+    TemporalPlan,
 )
 from mu.kernel.schema import EdgeType
 
@@ -90,6 +91,8 @@ class QueryExecutor:
                 result = self._execute_graph(plan)
             elif isinstance(plan, AnalysisPlan):
                 result = self._execute_analysis(plan)
+            elif isinstance(plan, TemporalPlan):
+                result = self._execute_temporal(plan)
             else:
                 result = QueryResult(error=f"Unknown plan type: {type(plan)}")
         except Exception as e:
@@ -512,6 +515,161 @@ class QueryExecutor:
             )
         except Exception as e:
             return QueryResult(error=f"Impact analysis error: {e}")
+
+    # -------------------------------------------------------------------------
+    # Temporal Execution
+    # -------------------------------------------------------------------------
+
+    def _execute_temporal(self, plan: TemporalPlan) -> QueryResult:
+        """Execute temporal query plans (HISTORY, BLAME, AT queries)."""
+
+        operation = plan.operation
+        target = plan.target_node
+        commit = plan.commit
+        limit = plan.limit or 100
+
+        try:
+            if operation == "history":
+                return self._execute_history(target, limit)
+            elif operation == "blame":
+                return self._execute_blame(target)
+            elif operation == "at":
+                return self._execute_at(commit or "", plan.inner_sql or "", plan.parameters)
+            elif operation == "between":
+                commit2 = plan.commit2 or ""
+                return self._execute_between(commit or "", commit2)
+            else:
+                return self._not_implemented(f"temporal operation: {operation}")
+        except Exception as e:
+            return QueryResult(error=f"Temporal execution error: {e}")
+
+    def _execute_history(self, target: str, limit: int) -> QueryResult:
+        """Execute HISTORY query for a node."""
+        from mu.kernel.temporal import HistoryTracker
+
+        tracker = HistoryTracker(self._db)
+
+        # Find the node by name
+        nodes = self._db.find_by_name(target)
+        if not nodes:
+            nodes = self._db.find_by_name(f"%{target}%")
+        if not nodes:
+            return QueryResult(error=f"Node not found: {target}")
+
+        node = nodes[0]
+        changes = tracker.history(node.id, limit=limit)
+
+        rows = []
+        for change in changes:
+            rows.append(
+                (
+                    change.commit_hash or "",
+                    change.change_type.value,
+                    change.commit_message or "",
+                    change.commit_author or "",
+                    change.commit_date.isoformat() if change.commit_date else "",
+                )
+            )
+
+        return QueryResult(
+            columns=["commit", "change_type", "message", "author", "date"],
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    def _execute_blame(self, target: str) -> QueryResult:
+        """Execute BLAME query for a node."""
+        from mu.kernel.temporal import HistoryTracker
+
+        tracker = HistoryTracker(self._db)
+
+        # Find the node by name
+        nodes = self._db.find_by_name(target)
+        if not nodes:
+            nodes = self._db.find_by_name(f"%{target}%")
+        if not nodes:
+            return QueryResult(error=f"Node not found: {target}")
+
+        node = nodes[0]
+        blame_info = tracker.blame(node.id)
+
+        if not blame_info:
+            return QueryResult(
+                columns=["property", "commit", "author", "date"],
+                rows=[],
+                row_count=0,
+            )
+
+        rows = []
+        for prop_name, change in blame_info.items():
+            rows.append(
+                (
+                    prop_name,
+                    change.commit_hash or "",
+                    change.commit_author or "",
+                    change.commit_date.isoformat() if change.commit_date else "",
+                )
+            )
+
+        return QueryResult(
+            columns=["property", "commit", "author", "date"],
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    def _execute_at(
+        self,
+        commit: str,
+        inner_sql: str,
+        parameters: list[Any] | None,
+    ) -> QueryResult:
+        """Execute query AT a specific commit."""
+        from mu.kernel.temporal import MUbaseSnapshot, SnapshotManager
+
+        manager = SnapshotManager(self._db)
+        snapshot = manager.get_snapshot(commit)
+
+        if not snapshot:
+            return QueryResult(error=f"No snapshot exists for commit: {commit}")
+
+        # Create temporal view
+        temporal_view = MUbaseSnapshot(self._db, snapshot)
+
+        # Execute the inner query against the snapshot
+        # For now, return snapshot stats - full query rewriting would need more work
+        stats = temporal_view.stats()
+
+        rows = [(k, str(v)) for k, v in stats.items()]
+
+        return QueryResult(
+            columns=["stat", "value"],
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    def _execute_between(self, commit1: str, commit2: str) -> QueryResult:
+        """Execute diff query BETWEEN two commits."""
+        from mu.kernel.temporal import SnapshotManager, TemporalDiffer
+
+        manager = SnapshotManager(self._db)
+        differ = TemporalDiffer(manager)
+
+        try:
+            diff = differ.diff(commit1, commit2)
+        except ValueError as e:
+            return QueryResult(error=str(e))
+
+        # Return summary of changes
+        stats = diff.stats
+        rows = []
+        for stat_name, value in stats.items():
+            rows.append((stat_name, value))
+
+        return QueryResult(
+            columns=["change_type", "count"],
+            rows=rows,
+            row_count=len(rows),
+        )
 
 
 # =============================================================================

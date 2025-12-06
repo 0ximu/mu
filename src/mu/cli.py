@@ -226,7 +226,9 @@ def compress(
         if local and llm_provider != "ollama":
             print_warning(f"Ignoring --llm-provider={llm_provider} in local mode")
         elif not local:
-            ctx.config.llm.provider = cast(Literal["anthropic", "openai", "ollama", "openrouter"], llm_provider)
+            ctx.config.llm.provider = cast(
+                Literal["anthropic", "openai", "ollama", "openrouter"], llm_provider
+            )
     if llm_model:
         ctx.config.llm.model = llm_model
     if no_redact:
@@ -443,7 +445,10 @@ def compress(
                     if summarize_result.success:
                         # Find the module this function belongs to
                         for req in requests:
-                            if req.function_name == summarize_result.function_name and req.file_path is not None:
+                            if (
+                                req.function_name == summarize_result.function_name
+                                and req.file_path is not None
+                            ):
                                 if req.file_path not in summaries_by_file:
                                     summaries_by_file[req.file_path] = {}
                                 summaries_by_file[req.file_path][summarize_result.function_name] = (
@@ -649,7 +654,9 @@ def diff(
                 include_type_annotations=True,
             )
 
-            def process_version(version_path: Path, label: str) -> tuple[AssembledOutput | None, list[ModuleDef]]:
+            def process_version(
+                version_path: Path, label: str
+            ) -> tuple[AssembledOutput | None, list[ModuleDef]]:
                 """Process a version of the codebase through the MU pipeline."""
                 assert ctx.config is not None
                 # Scan
@@ -1798,6 +1805,343 @@ def kernel_context(
         console.print(output_str)
         if not verbose:
             print_info(f"\n({result.token_count} tokens, {len(result.nodes)} nodes)")
+
+
+# =============================================================================
+# Temporal Commands - Time-travel and history queries
+# =============================================================================
+
+
+@kernel.command("snapshot")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--commit", "-c", type=str, help="Git commit to snapshot (default: HEAD)")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing snapshot")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def kernel_snapshot(path: Path, commit: str | None, force: bool, as_json: bool) -> None:
+    """Create a temporal snapshot of the current graph state.
+
+    Links the current state of the code graph to a git commit,
+    enabling time-travel queries and history tracking.
+
+    \\b
+    Examples:
+        mu kernel snapshot .                 # Snapshot at HEAD
+        mu kernel snapshot . --commit abc123 # Snapshot at specific commit
+        mu kernel snapshot . --force         # Overwrite existing
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+    from mu.kernel.temporal import SnapshotManager
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel build' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        manager = SnapshotManager(db, path.resolve())
+        snapshot = manager.create_snapshot(commit, force=force)
+
+        if as_json:
+            console.print(json_module.dumps(snapshot.to_dict(), indent=2, default=str))
+        else:
+            print_success(f"Created snapshot: {snapshot.short_hash}")
+            print_info(f"  Commit: {snapshot.commit_hash}")
+            if snapshot.commit_message:
+                print_info(f"  Message: {snapshot.commit_message[:60]}...")
+            print_info(f"  Nodes: {snapshot.node_count}")
+            print_info(f"  Edges: {snapshot.edge_count}")
+            if snapshot.parent_id:
+                print_info(
+                    f"  Changes: +{snapshot.nodes_added} -{snapshot.nodes_removed} ~{snapshot.nodes_modified}"
+                )
+    except ValueError as e:
+        print_error(str(e))
+        sys.exit(ExitCode.CONFIG_ERROR)
+    finally:
+        db.close()
+
+
+@kernel.command("snapshots")
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--limit", "-l", type=int, default=20, help="Maximum snapshots to show")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def kernel_snapshots(path: Path, limit: int, as_json: bool) -> None:
+    """List all temporal snapshots.
+
+    \\b
+    Examples:
+        mu kernel snapshots .
+        mu kernel snapshots . --limit 50
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+    from mu.kernel.temporal import SnapshotManager
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        manager = SnapshotManager(db, path.resolve())
+        snapshots = manager.list_snapshots(limit)
+
+        if not snapshots:
+            print_info("No snapshots found. Run 'mu kernel snapshot' to create one.")
+            return
+
+        if as_json:
+            console.print(
+                json_module.dumps([s.to_dict() for s in snapshots], indent=2, default=str)
+            )
+        else:
+            table = Table(title=f"Temporal Snapshots ({len(snapshots)})")
+            table.add_column("Commit", style="cyan", width=10)
+            table.add_column("Date", style="dim")
+            table.add_column("Message", style="green")
+            table.add_column("Nodes", justify="right")
+            table.add_column("Changes", style="yellow")
+
+            for snap in snapshots:
+                date_str = snap.commit_date.strftime("%Y-%m-%d %H:%M") if snap.commit_date else ""
+                message = (snap.commit_message or "")[:40]
+                changes = f"+{snap.nodes_added} -{snap.nodes_removed} ~{snap.nodes_modified}"
+
+                table.add_row(
+                    snap.short_hash,
+                    date_str,
+                    message,
+                    str(snap.node_count),
+                    changes,
+                )
+
+            console.print(table)
+    finally:
+        db.close()
+
+
+@kernel.command("history")
+@click.argument("node_name", type=str)
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--limit", "-l", type=int, default=20, help="Maximum changes to show")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def kernel_history(node_name: str, path: Path, limit: int, as_json: bool) -> None:
+    """Show change history for a node.
+
+    \\b
+    Examples:
+        mu kernel history MUbase .
+        mu kernel history "cli.py" . --limit 50
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+    from mu.kernel.temporal import HistoryTracker
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        # Find the node
+        nodes = db.find_by_name(node_name)
+        if not nodes:
+            nodes = db.find_by_name(f"%{node_name}%")
+        if not nodes:
+            print_error(f"Node not found: {node_name}")
+            return
+
+        node = nodes[0]
+        tracker = HistoryTracker(db)
+        changes = tracker.history(node.id, limit=limit)
+
+        if not changes:
+            print_info(f"No history found for {node.name}")
+            print_info("Create snapshots with 'mu kernel snapshot' to track history")
+            return
+
+        if as_json:
+            console.print(json_module.dumps([c.to_dict() for c in changes], indent=2, default=str))
+        else:
+            table = Table(title=f"History of {node.name}")
+            table.add_column("Commit", style="cyan", width=10)
+            table.add_column("Change", style="yellow", width=10)
+            table.add_column("Author", style="dim")
+            table.add_column("Date")
+            table.add_column("Message", style="green")
+
+            for change in changes:
+                date_str = change.commit_date.strftime("%Y-%m-%d") if change.commit_date else ""
+                message = (change.commit_message or "")[:30]
+
+                table.add_row(
+                    (change.commit_hash or "")[:8],
+                    change.change_type.value,
+                    change.commit_author or "",
+                    date_str,
+                    message,
+                )
+
+            console.print(table)
+    finally:
+        db.close()
+
+
+@kernel.command("blame")
+@click.argument("node_name", type=str)
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def kernel_blame(node_name: str, path: Path, as_json: bool) -> None:
+    """Show who last modified each aspect of a node.
+
+    Similar to git blame, shows attribution for node properties.
+
+    \\b
+    Examples:
+        mu kernel blame MUbase .
+        mu kernel blame "cli.py" . --json
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+    from mu.kernel.temporal import HistoryTracker
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        # Find the node
+        nodes = db.find_by_name(node_name)
+        if not nodes:
+            nodes = db.find_by_name(f"%{node_name}%")
+        if not nodes:
+            print_error(f"Node not found: {node_name}")
+            return
+
+        node = nodes[0]
+        tracker = HistoryTracker(db)
+        blame_info = tracker.blame(node.id)
+
+        if not blame_info:
+            print_info(f"No blame info found for {node.name}")
+            return
+
+        if as_json:
+            output = {prop: change.to_dict() for prop, change in blame_info.items()}
+            console.print(json_module.dumps(output, indent=2, default=str))
+        else:
+            table = Table(title=f"Blame for {node.name}")
+            table.add_column("Property", style="cyan")
+            table.add_column("Commit", style="yellow", width=10)
+            table.add_column("Author", style="green")
+            table.add_column("Date", style="dim")
+
+            for prop_name, change in blame_info.items():
+                date_str = change.commit_date.strftime("%Y-%m-%d") if change.commit_date else ""
+
+                table.add_row(
+                    prop_name,
+                    (change.commit_hash or "")[:8],
+                    change.commit_author or "",
+                    date_str,
+                )
+
+            console.print(table)
+    finally:
+        db.close()
+
+
+@kernel.command("diff")
+@click.argument("from_commit", type=str)
+@click.argument("to_commit", type=str)
+@click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def kernel_diff(from_commit: str, to_commit: str, path: Path, as_json: bool) -> None:
+    """Show semantic diff between two snapshots.
+
+    \\b
+    Examples:
+        mu kernel diff abc123 def456 .
+        mu kernel diff HEAD~5 HEAD . --json
+    """
+    import json as json_module
+
+    from mu.kernel import MUbase
+    from mu.kernel.temporal import SnapshotManager, TemporalDiffer
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        manager = SnapshotManager(db, path.resolve())
+        differ = TemporalDiffer(manager)
+
+        try:
+            diff = differ.diff(from_commit, to_commit)
+        except ValueError as e:
+            print_error(str(e))
+            return
+
+        if as_json:
+            console.print(json_module.dumps(diff.to_dict(), indent=2, default=str))
+        else:
+            print_info(
+                f"Changes from {diff.from_snapshot.short_hash} to {diff.to_snapshot.short_hash}"
+            )
+            print_info("")
+
+            stats = diff.stats
+            print_info(
+                f"Summary: +{stats['nodes_added']} added, -{stats['nodes_removed']} removed, ~{stats['nodes_modified']} modified"
+            )
+            print_info("")
+
+            if diff.nodes_added:
+                print_success(f"Added Nodes ({len(diff.nodes_added)}):")
+                for node_diff in diff.nodes_added[:10]:
+                    print_info(f"  + [{node_diff.node_type}] {node_diff.name}")
+                if len(diff.nodes_added) > 10:
+                    print_info(f"  ... and {len(diff.nodes_added) - 10} more")
+
+            if diff.nodes_removed:
+                print_warning(f"Removed Nodes ({len(diff.nodes_removed)}):")
+                for node_diff in diff.nodes_removed[:10]:
+                    print_info(f"  - [{node_diff.node_type}] {node_diff.name}")
+                if len(diff.nodes_removed) > 10:
+                    print_info(f"  ... and {len(diff.nodes_removed) - 10} more")
+
+            if diff.nodes_modified:
+                print_info(f"Modified Nodes ({len(diff.nodes_modified)}):")
+                for node_diff in diff.nodes_modified[:10]:
+                    print_info(f"  ~ [{node_diff.node_type}] {node_diff.name}")
+                if len(diff.nodes_modified) > 10:
+                    print_info(f"  ... and {len(diff.nodes_modified) - 10} more")
+    finally:
+        db.close()
 
 
 def _register_doc_commands() -> None:

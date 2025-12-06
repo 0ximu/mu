@@ -23,6 +23,8 @@ class QueryType(Enum):
     FIND = "find"
     PATH = "path"
     ANALYZE = "analyze"
+    HISTORY = "history"
+    BLAME = "blame"
 
 
 class NodeTypeFilter(Enum):
@@ -235,6 +237,27 @@ class NodeRef:
 
 
 @dataclass
+class TemporalClause:
+    """Temporal modifier for queries (AT or BETWEEN).
+
+    Examples:
+        AT "abc123"
+        BETWEEN "abc123" AND "def456"
+    """
+
+    clause_type: str  # "at" or "between"
+    commit1: str
+    commit2: str | None = None  # Only for BETWEEN
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "clause_type": self.clause_type,
+            "commit1": self.commit1,
+            "commit2": self.commit2,
+        }
+
+
+@dataclass
 class SelectQuery:
     """A SELECT query.
 
@@ -242,12 +265,14 @@ class SelectQuery:
         SELECT * FROM functions
         SELECT name, complexity FROM functions WHERE complexity > 20
         SELECT COUNT(*) FROM classes
+        SELECT * FROM functions AT "abc123"
     """
 
     query_type: QueryType = field(default=QueryType.SELECT, init=False)
     fields: list[SelectField] = field(default_factory=list)
     node_type: NodeTypeFilter = NodeTypeFilter.NODES
     where: Condition | None = None
+    temporal: TemporalClause | None = None
     order_by: list[OrderByField] = field(default_factory=list)
     limit: int | None = None
 
@@ -257,6 +282,7 @@ class SelectQuery:
             "fields": [f.to_dict() for f in self.fields],
             "node_type": self.node_type.value,
             "where": self.where.to_dict() if self.where else None,
+            "temporal": self.temporal.to_dict() if self.temporal else None,
             "order_by": [o.to_dict() for o in self.order_by],
             "limit": self.limit,
         }
@@ -371,11 +397,51 @@ class AnalyzeQuery:
         }
 
 
+@dataclass
+class HistoryQuery:
+    """A HISTORY query for viewing node change history.
+
+    Examples:
+        HISTORY OF MUbase
+        HISTORY OF "cli.py" LIMIT 10
+    """
+
+    query_type: QueryType = field(default=QueryType.HISTORY, init=False)
+    target: NodeRef = field(default_factory=lambda: NodeRef(""))
+    limit: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query_type": self.query_type.value,
+            "target": self.target.to_dict(),
+            "limit": self.limit,
+        }
+
+
+@dataclass
+class BlameQuery:
+    """A BLAME query for showing who changed what.
+
+    Examples:
+        BLAME MUbase
+        BLAME "cli.py"
+    """
+
+    query_type: QueryType = field(default=QueryType.BLAME, init=False)
+    target: NodeRef = field(default_factory=lambda: NodeRef(""))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query_type": self.query_type.value,
+            "target": self.target.to_dict(),
+        }
+
+
 # =============================================================================
 # Union Type
 # =============================================================================
 
-Query = SelectQuery | ShowQuery | FindQuery | PathQuery | AnalyzeQuery
+Query = SelectQuery | ShowQuery | FindQuery | PathQuery | AnalyzeQuery | HistoryQuery | BlameQuery
 
 
 # =============================================================================
@@ -403,6 +469,8 @@ __all__ = [
     "OrderByField",
     # Node reference
     "NodeRef",
+    # Temporal types
+    "TemporalClause",
     # Query types
     "SelectQuery",
     "ShowQuery",
@@ -410,6 +478,8 @@ __all__ = [
     "FindQuery",
     "PathQuery",
     "AnalyzeQuery",
+    "HistoryQuery",
+    "BlameQuery",
     # Union type
     "Query",
 ]
