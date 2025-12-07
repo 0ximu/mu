@@ -3,26 +3,38 @@
 
 Build with: pyinstaller mu.spec
 
-This creates a single-file executable containing the MU CLI and all dependencies,
-including tree-sitter language bindings for multi-language code analysis.
+This creates a one-folder distribution containing the MU CLI and all dependencies.
+The one-folder mode provides instant startup (~0.1s) vs single-file (~4s) because
+it doesn't need to extract on every run.
+
+Installation:
+    sudo mv dist/mu /usr/local/lib/mu_app
+    sudo ln -s /usr/local/lib/mu_app/mu /usr/local/bin/mu
 """
 
 import sys
 from pathlib import Path
+from PyInstaller.utils.hooks import collect_all
 
 # Get the source root
 src_root = Path("src").resolve()
 
 block_cipher = None
 
+# Collect all tiktoken data files, binaries, and hidden imports
+# tiktoken requires vocabulary files (e.g., cl100k_base.tiktoken) at runtime
+tik_datas, tik_binaries, tik_hiddenimports = collect_all('tiktoken')
+
 a = Analysis(
     ["src/mu/cli.py"],
     pathex=[str(src_root)],
-    binaries=[],
+    binaries=tik_binaries,
     datas=[
         # Include MUQL grammar file (required for Lark parser at runtime)
         ("src/mu/kernel/muql/grammar.lark", "mu/kernel/muql"),
-    ],
+        # Include mu.data package (man pages, LLM spec files)
+        ("src/mu/data", "mu/data"),
+    ] + tik_datas,
     hiddenimports=[
         # MU internal modules
         "mu",
@@ -68,6 +80,8 @@ a = Analysis(
         "duckdb",
         "lark",
         "tiktoken",
+        "tiktoken_ext",
+        "tiktoken_ext.openai_public",
         "litellm",
         "yaml",
         "dotenv",
@@ -81,7 +95,7 @@ a = Analysis(
         "anyio",
         "sniffio",
         "h11",
-    ],
+    ] + tik_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -108,13 +122,11 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# One-folder mode: EXE only contains scripts, COLLECT gathers everything
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
+    exclude_binaries=True,  # Binaries go in COLLECT, not EXE
     name="mu",
     debug=False,
     bootloader_ignore_signals=False,
@@ -128,4 +140,16 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+# COLLECT gathers all components into a single directory
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="mu",
 )
