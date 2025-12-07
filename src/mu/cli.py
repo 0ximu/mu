@@ -55,6 +55,7 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "daemon": ("mu.commands.daemon", "daemon"),
     "mcp": ("mu.commands.mcp", "mcp"),
     "contracts": ("mu.commands.contracts", "contracts"),
+    "agent": ("mu.agent.cli", "agent"),
 }
 
 
