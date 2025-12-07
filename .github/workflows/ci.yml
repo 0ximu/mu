@@ -45,12 +45,14 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v --tb=short
+          # Note: test_rust_core.py will be skipped if Rust core not compiled
+          # See .github/workflows/rust-core.yml for Rust-specific CI
+          pytest tests/ -v --tb=short --ignore=tests/unit/test_rust_core.py
 
       - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
-          pytest tests/ --cov=src/mu --cov-report=xml --cov-report=term-missing
+          pytest tests/ --cov=src/mu --cov-report=xml --cov-report=term-missing --ignore=tests/unit/test_rust_core.py
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'

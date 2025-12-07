@@ -53,6 +53,7 @@ from mu.kernel.export import (
     ExportResult,
     get_default_manager,
 )
+from mu.kernel.graph import GraphManager, GraphStats
 from mu.kernel.models import Edge, Node
 from mu.kernel.mubase import MUbase
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
@@ -85,4 +86,7 @@ __all__ = [
     "ExportResult",
     "ExportManager",
     "get_default_manager",
+    # Graph reasoning (petgraph)
+    "GraphManager",
+    "GraphStats",
 ]
