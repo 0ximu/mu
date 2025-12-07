@@ -142,6 +142,36 @@ class CachedLLMResult:
         )
 
 
+@dataclass
+class CachedCodebaseResult:
+    """Cached compress output for entire codebase."""
+
+    codebase_hash: str
+    output: str
+    format: str  # "mu", "json", "markdown"
+    cached_at: str
+    file_count: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "codebase_hash": self.codebase_hash,
+            "output": self.output,
+            "format": self.format,
+            "cached_at": self.cached_at,
+            "file_count": self.file_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CachedCodebaseResult:
+        return cls(
+            codebase_hash=data["codebase_hash"],
+            output=data["output"],
+            format=data["format"],
+            cached_at=data["cached_at"],
+            file_count=data["file_count"],
+        )
+
+
 class CacheManager:
     """Manages persistent caching for MU operations.
 
@@ -302,6 +332,96 @@ class CacheManager:
             logger.debug(f"Cached file result: {file_hash[:12]}...")
         except Exception as e:
             logger.warning(f"Error writing file cache: {e}")
+
+    # -------------------------------------------------------------------------
+    # Codebase Cache Operations (for compress output)
+    # -------------------------------------------------------------------------
+
+    @staticmethod
+    def compute_codebase_hash(file_hashes: list[str]) -> str:
+        """Compute combined hash from all file hashes.
+
+        Creates a single hash representing the entire codebase state.
+        Any file change = new combined hash = cache miss.
+
+        Args:
+            file_hashes: List of SHA-256 hashes from scanner (one per file)
+
+        Returns:
+            16-character hex hash
+        """
+        combined = "|".join(sorted(file_hashes))
+        return hashlib.sha256(combined.encode()).hexdigest()[:16]
+
+    def get_codebase_result(
+        self,
+        codebase_hash: str,
+        output_format: str,
+    ) -> CachedCodebaseResult | None:
+        """Get cached codebase compress result.
+
+        Args:
+            codebase_hash: Hash from compute_codebase_hash()
+            output_format: Output format ("mu", "json", "markdown")
+
+        Returns:
+            Cached result if found and not expired, None otherwise
+        """
+        if not self.enabled:
+            return None
+
+        self._ensure_initialized()
+        assert self._file_cache is not None
+
+        key = f"codebase:{output_format}:{codebase_hash}"
+        try:
+            data = self._file_cache.get(key)
+            if data is not None:
+                self._update_stats("hits")
+                logger.debug(f"Codebase cache hit: {key}")
+                return CachedCodebaseResult.from_dict(data)
+        except Exception as e:
+            logger.warning(f"Error reading codebase cache: {e}")
+
+        self._update_stats("misses")
+        return None
+
+    def set_codebase_result(
+        self,
+        codebase_hash: str,
+        output: str,
+        output_format: str,
+        file_count: int,
+    ) -> None:
+        """Cache codebase compress result.
+
+        Args:
+            codebase_hash: Hash from compute_codebase_hash()
+            output: The generated compress output
+            output_format: Output format ("mu", "json", "markdown")
+            file_count: Number of files processed
+        """
+        if not self.enabled:
+            return
+
+        self._ensure_initialized()
+        assert self._file_cache is not None
+
+        key = f"codebase:{output_format}:{codebase_hash}"
+        result = CachedCodebaseResult(
+            codebase_hash=codebase_hash,
+            output=output,
+            format=output_format,
+            cached_at=datetime.now(UTC).isoformat(),
+            file_count=file_count,
+        )
+
+        try:
+            self._file_cache.set(key, result.to_dict(), expire=self.ttl_seconds)
+            self._update_stats("file_entries")
+            logger.debug(f"Cached codebase result: {key}")
+        except Exception as e:
+            logger.warning(f"Error writing codebase cache: {e}")
 
     # -------------------------------------------------------------------------
     # LLM Cache Operations

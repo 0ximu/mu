@@ -137,10 +137,42 @@ class QueryExecutor:
     # Graph Execution
     # -------------------------------------------------------------------------
 
+    def _resolve_node_id(self, target: str) -> str:
+        """Resolve a node name/reference to a full node ID.
+
+        The target could be:
+        - A full node ID: mod:src/cli.py, cls:src/kernel/mubase.py:MUbase
+        - A simple name: MUbase, TransactionService
+        - A qualified name: kernel.mubase.MUbase
+
+        Returns the full node ID if found, otherwise returns the original target.
+        """
+        # If target already looks like a full node ID, return it
+        if target.startswith(("mod:", "cls:", "fn:")):
+            return target
+
+        # Try to find by exact name match
+        nodes = self._db.find_by_name(target)
+        if nodes:
+            return nodes[0].id
+
+        # Try pattern match
+        nodes = self._db.find_by_name(f"%{target}%")
+        if nodes:
+            # Prefer exact name matches
+            for node in nodes:
+                if node.name == target:
+                    return node.id
+            # Fall back to first match
+            return nodes[0].id
+
+        # Return original target if no match found
+        return target
+
     def _execute_graph(self, plan: GraphPlan) -> QueryResult:
         """Execute graph traversal plan using MUbase methods."""
         operation = plan.operation
-        target = plan.target_node
+        target = self._resolve_node_id(plan.target_node)
         depth = plan.depth
 
         try:

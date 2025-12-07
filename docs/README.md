@@ -7,25 +7,46 @@ This directory contains all project documentation for MU (Machine Understanding)
 ```
 docs/
 ├── README.md              # This file
+├── architecture.md        # System architecture overview
+├── architecture.tasks.md  # Implementation tracking
+├── project_context.md     # AI agent development patterns
 ├── adr/                   # Architecture Decision Records
 │   ├── README.md          # ADR index and template
-│   ├── 0001-*.md          # Individual ADRs
-│   └── ...
+│   ├── 0001-use-tree-sitter-for-parsing.md
+│   ├── 0002-sigil-based-output-format.md
+│   ├── 0003-litellm-for-llm-integration.md
+│   └── 0004-vector-embeddings-for-semantic-search.md
 ├── security/              # Security documentation
 │   ├── README.md          # Security overview
 │   ├── SECURITY.md        # Security policy
 │   └── threat-model.md    # Threat modeling
-├── guides/                # User and developer guides
-│   ├── getting-started.md # Quick start guide
-│   ├── configuration.md   # Configuration reference
-│   └── contributing.md    # Contributor guide
+├── guides/                # User guides
+│   └── getting-started.md # Quick start guide
 ├── api/                   # API documentation
 │   ├── README.md          # API overview
 │   ├── cli.md             # CLI reference
 │   └── python.md          # Python API reference
+├── epics/                 # Feature development epics
+│   ├── README.md          # Epic roadmap and status
+│   ├── 01-vector-layer.md # Vector embeddings (Done)
+│   ├── 02-muql-parser.md  # MUQL query language (Done)
+│   ├── 03-smart-context.md # Context extraction (Done)
+│   ├── 04-temporal-layer.md # Time-travel features (Ready)
+│   ├── 05-export-formats.md # Multi-format export (Ready)
+│   ├── 06-daemon-mode.md  # Real-time daemon (Ready)
+│   ├── 07-mu-contracts.md # Architecture contracts (Ready)
+│   ├── 08-visualization.md # Graph visualization (Planned)
+│   └── 09-ide-integration.md # IDE extensions (Planned)
+├── future-improvements/   # Future feature ideas
+│   ├── README.md
+│   ├── muql-natural-language.md
+│   └── mu-conductor-architecture.md
+├── archive/               # Historical documentation
 └── assets/                # Images, diagrams, logos
-    └── mu-logo.svg
+    └── intro.gif
 ```
+
+> **Note**: The contributor guide is at [CONTRIBUTING.md](../CONTRIBUTING.md) in the project root.
 
 ## Documentation Standards
 

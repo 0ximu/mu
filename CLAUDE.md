@@ -18,6 +18,7 @@ src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
 src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
 src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
+src/mu/mcp/CLAUDE.md                  # MCP server for AI assistants
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
@@ -35,37 +36,63 @@ mypy src/mu                    # Type check
 ruff check src/ && ruff format src/  # Lint + format
 
 # CLI
+mu init                        # Create .murc.toml config
 mu scan <path>                 # Analyze structure
 mu compress <path>             # Generate MU output
 mu compress <path> --llm       # With LLM summarization
+mu view <file.mu>              # Render with syntax highlighting
 mu diff <base> <head>          # Semantic diff
 
+# MUQL Queries
+mu query "SELECT..."           # Execute MUQL query
+mu q "SELECT..."               # Short alias
+mu kernel muql -i              # Interactive REPL
+
 # Kernel/Temporal
-mu kernel snapshot <path>      # Create snapshot at HEAD
+mu kernel init .               # Initialize .mubase
+mu kernel build .              # Build graph from codebase
+mu kernel stats                # Show graph statistics
+mu kernel snapshot             # Create snapshot at HEAD
 mu kernel history <node>       # Show node history
 mu kernel blame <node>         # Show blame info
 
 # Kernel/Export
-mu kernel export <path> --format mu       # Export as MU text
-mu kernel export <path> --format json     # Export as JSON
-mu kernel export <path> --format mermaid  # Export as Mermaid diagram
-mu kernel export <path> --format d2       # Export as D2 diagram
-mu kernel export <path> --format cytoscape # Export for Cytoscape.js
+mu kernel export --format mu       # Export as MU text
+mu kernel export --format json     # Export as JSON
+mu kernel export --format mermaid  # Export as Mermaid diagram
+mu kernel export --format d2       # Export as D2 diagram
+mu kernel export --format cytoscape # Export for Cytoscape.js
+
+# Semantic Search & Context
+mu kernel embed .              # Generate embeddings
+mu kernel search "query"       # Natural language search
+mu kernel context "question"   # Smart context extraction
 
 # Daemon (real-time updates)
-mu daemon start .                    # Start daemon in background
-mu daemon status                     # Check daemon status
-mu daemon stop                       # Stop running daemon
-mu daemon run .                      # Run in foreground (debugging)
+mu daemon start .              # Start daemon in background
+mu daemon status               # Check daemon status
+mu daemon stop                 # Stop running daemon
+mu daemon run .                # Run in foreground (debugging)
 
-# MUQL Queries (agent-proofing)
-mu query "SELECT..."                 # Execute MUQL query (alias for mu kernel muql)
-mu q "SELECT..."                     # Short alias
+# Cache Management
+mu cache stats                 # Show cache statistics
+mu cache clear                 # Clear all cached data
+mu cache expire                # Remove expired entries
 
 # CLI Introspection (agent-proofing)
-mu describe                          # Output CLI interface description
-mu describe --format json            # JSON format for tooling
-mu describe --format markdown        # Markdown format for documentation
+mu describe                    # Output CLI interface description
+mu describe --format json      # JSON format for tooling
+mu describe --format markdown  # Markdown format for documentation
+
+# MCP Server (AI assistant integration)
+mu mcp serve                   # Start MCP server (stdio for Claude Code)
+mu mcp serve --http            # Start with HTTP transport
+mu mcp tools                   # List available MCP tools
+mu mcp test                    # Test MCP tools
+
+# Architecture Contracts
+mu contracts init              # Create .mu-contracts.yml template
+mu contracts verify            # Verify architectural rules
 ```
 
 ## Pipeline
@@ -92,6 +119,7 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 
 - **`client.py`**: Daemon communication client for programmatic MU integration
 - **`describe.py`**: CLI introspection and self-description (mu/json/markdown formats)
+- **`mcp/`**: MCP server exposing MU tools for Claude Code and other AI assistants
 
 ## Supported Languages
 

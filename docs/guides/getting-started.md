@@ -149,8 +149,87 @@ $User < BaseModel
 | `<` | Inherits from |
 | `->` | Returns |
 
+## Advanced Features
+
+### Build a Graph Database
+
+For complex queries and semantic search, build a MUbase:
+
+```bash
+# Initialize and build graph database
+mu kernel init .
+mu kernel build .
+
+# Query with MUQL
+mu q "SELECT name, complexity FROM functions ORDER BY complexity DESC"
+
+# Interactive REPL
+mu kernel muql -i
+```
+
+### Semantic Search
+
+Find code by meaning, not just text:
+
+```bash
+# Generate embeddings (requires OpenAI API key or use --local)
+mu kernel embed .
+
+# Search with natural language
+mu kernel search "authentication logic"
+mu kernel search "error handling" --type function
+```
+
+### Smart Context for Questions
+
+Extract relevant code context for any question:
+
+```bash
+mu kernel context "How does user authentication work?"
+mu kernel context "What happens when a payment fails?" --max-tokens 4000
+```
+
+### Real-Time Daemon
+
+Keep your graph database updated as you code:
+
+```bash
+# Start daemon (watches for file changes)
+mu daemon start .
+
+# Check status
+mu daemon status
+
+# Query via HTTP API
+curl http://localhost:8765/status
+```
+
+### Export Diagrams
+
+Generate architecture diagrams:
+
+```bash
+# Mermaid diagram
+mu kernel export --format mermaid --output arch.md
+
+# D2 diagram
+mu kernel export --format d2 --output arch.d2
+```
+
+### MCP Server for Claude Code
+
+Integrate MU directly with Claude Code:
+
+```bash
+# Start MCP server
+mu mcp serve
+
+# Or configure in ~/.claude/mcp_servers.json:
+# { "mu": { "command": "mu", "args": ["mcp", "serve"] } }
+```
+
 ## Next Steps
 
 - [CLI Reference](../api/cli.md) - Complete command documentation
-- [Configuration](configuration.md) - All configuration options
 - [Security](../security/README.md) - Secret detection and privacy
+- [Architecture](../architecture.md) - System design overview

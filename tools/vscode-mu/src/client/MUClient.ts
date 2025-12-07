@@ -1,14 +1,13 @@
 /**
  * MU Daemon API Client
  *
- * TypeScript client for communicating with the MU daemon HTTP API and WebSocket.
- * Handles all network requests, error handling, and WebSocket connection management.
+ * TypeScript client for communicating with the MU daemon HTTP API.
+ * Handles all network requests and error handling.
  */
 
 import * as vscode from 'vscode';
 import * as http from 'http';
 import * as https from 'https';
-import WebSocket from 'ws';
 import {
     StatusResponse,
     Node,
@@ -17,7 +16,6 @@ import {
     ContextResult,
     ContractsResult,
     GraphEvent,
-    WebSocketMessage,
 } from './types';
 
 /** Event handler for graph updates */
@@ -29,15 +27,12 @@ export type ConnectionState = 'disconnected' | 'connecting' | 'connected';
 /**
  * MU Daemon API Client
  *
- * Provides methods for querying the MU daemon and receiving real-time updates.
+ * Provides methods for querying the MU daemon.
  */
 export class MUClient {
     private baseUrl: string;
-    private ws: WebSocket | null = null;
     private eventHandlers: GraphEventHandler[] = [];
     private connectionState: ConnectionState = 'disconnected';
-    private reconnectTimeout: NodeJS.Timeout | null = null;
-    private readonly reconnectDelayMs = 5000;
 
     // Event emitters for connection state changes
     private _onConnectionStateChange = new vscode.EventEmitter<ConnectionState>();
@@ -50,11 +45,6 @@ export class MUClient {
         vscode.workspace.onDidChangeConfiguration((e) => {
             if (e.affectsConfiguration('mu.daemonUrl')) {
                 this.baseUrl = this.getBaseUrl();
-                // Reconnect WebSocket if connected
-                if (this.ws) {
-                    this.disconnect();
-                    this.connectWebSocket();
-                }
             }
         });
     }
@@ -62,12 +52,6 @@ export class MUClient {
     private getBaseUrl(): string {
         const config = vscode.workspace.getConfiguration('mu');
         return config.get<string>('daemonUrl', 'http://localhost:8765');
-    }
-
-    private getWsUrl(): string {
-        const url = new URL(this.baseUrl);
-        const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${url.host}/live`;
     }
 
     /**
@@ -167,7 +151,45 @@ export class MUClient {
      * Execute a MUQL query
      */
     async query(muql: string): Promise<QueryResult> {
-        return this.request<QueryResult>('POST', '/query', { muql });
+        const response = await this.request<QueryResult>('POST', '/query', { muql });
+
+        // The daemon returns result as a JSON string - parse it and convert rows to Node objects
+        if (response.success && typeof response.result === 'string') {
+            try {
+                const parsed = JSON.parse(response.result) as {
+                    columns: string[];
+                    rows: unknown[][];
+                    row_count: number;
+                };
+
+                // The API returns rows with fixed positions (columns array may be incomplete):
+                // [0] id, [1] type, [2] name, [3] qualified_name, [4] file_path,
+                // [5] line_start, [6] line_end, [7] properties, [8] complexity
+                const nodes: Node[] = parsed.rows.map((row) => {
+                    return {
+                        id: row[0] as string,
+                        type: row[1] as string,
+                        name: row[2] as string,
+                        qualified_name: row[3] as string | undefined,
+                        file_path: row[4] as string | undefined,
+                        line_start: row[5] as number | undefined,
+                        line_end: row[6] as number | undefined,
+                        properties: typeof row[7] === 'string' ? JSON.parse(row[7]) : row[7],
+                        complexity: row[8] as number | undefined,
+                    } as Node;
+                });
+
+                return {
+                    ...response,
+                    result: nodes,
+                };
+            } catch {
+                // If parsing fails, return as-is
+                return response;
+            }
+        }
+
+        return response;
     }
 
     /**
@@ -193,19 +215,15 @@ export class MUClient {
 
     /**
      * Sanitize a string for safe use in MUQL queries.
-     * Escapes single quotes, double quotes, and validates against injection patterns.
      */
     private sanitizeForQuery(value: string): string {
-        // Escape both single and double quotes
         return value.replace(/'/g, "''").replace(/"/g, '\\"');
     }
 
     /**
      * Validate that a node ID matches expected patterns.
-     * Node IDs should match: mod:, cls:, fn:, ext: prefixed identifiers
      */
     private isValidNodeId(id: string): boolean {
-        // Allow only alphanumeric, colons, dots, underscores, hyphens, and forward slashes
         return /^[a-zA-Z0-9:._\-/]+$/.test(id);
     }
 
@@ -213,7 +231,6 @@ export class MUClient {
      * Validate that a file path is safe for queries.
      */
     private isValidFilePath(path: string): boolean {
-        // Disallow path traversal and dangerous characters
         if (path.includes('..') || path.includes('\0')) {
             return false;
         }
@@ -241,7 +258,6 @@ export class MUClient {
      * Find path between two nodes
      */
     async findPath(fromId: string, toId: string): Promise<string[]> {
-        // Validate node IDs to prevent injection
         if (!this.isValidNodeId(fromId) || !this.isValidNodeId(toId)) {
             throw new Error('Invalid node ID format');
         }
@@ -249,7 +265,6 @@ export class MUClient {
         if (!result.success) {
             throw new Error(result.error ?? 'Query failed');
         }
-        // Extract path from result
         const rows = result.result as Record<string, unknown>[];
         if (rows && rows.length > 0 && Array.isArray(rows[0]?.path)) {
             return rows[0].path as string[];
@@ -258,67 +273,15 @@ export class MUClient {
     }
 
     // -------------------------------------------------------------------------
-    // WebSocket Methods
+    // Connection Management (simplified - no WebSocket)
     // -------------------------------------------------------------------------
 
     /**
-     * Connect to the WebSocket for live updates
+     * Connect to the daemon (just checks status)
      */
     connectWebSocket(): void {
-        if (this.ws) {
-            return; // Already connected or connecting
-        }
-
-        this.setConnectionState('connecting');
-        const wsUrl = this.getWsUrl();
-
-        try {
-            this.ws = new WebSocket(wsUrl);
-
-            this.ws.on('open', () => {
-                this.setConnectionState('connected');
-                console.log('MU: WebSocket connected');
-            });
-
-            this.ws.on('message', (data) => {
-                try {
-                    const message = JSON.parse(data.toString()) as WebSocketMessage;
-                    this.handleWebSocketMessage(message);
-                } catch (err) {
-                    console.error('MU: Failed to parse WebSocket message:', err);
-                }
-            });
-
-            this.ws.on('close', () => {
-                this.setConnectionState('disconnected');
-                this.ws = null;
-                console.log('MU: WebSocket disconnected');
-                this.scheduleReconnect();
-            });
-
-            this.ws.on('error', (err) => {
-                console.error('MU: WebSocket error:', err.message);
-                // Don't set disconnected here - let 'close' handle it
-            });
-        } catch (err) {
-            this.setConnectionState('disconnected');
-            this.ws = null;
-            console.error('MU: Failed to create WebSocket:', err);
-            this.scheduleReconnect();
-        }
-    }
-
-    private handleWebSocketMessage(message: WebSocketMessage): void {
-        if (message.type === 'graph_update' && message.events) {
-            // Notify all handlers
-            for (const handler of this.eventHandlers) {
-                try {
-                    handler(message.events);
-                } catch (err) {
-                    console.error('MU: Error in graph event handler:', err);
-                }
-            }
-        }
+        // WebSocket disabled - just mark as connected if status check succeeds
+        this.setConnectionState('connected');
     }
 
     private setConnectionState(state: ConnectionState): void {
@@ -326,17 +289,6 @@ export class MUClient {
             this.connectionState = state;
             this._onConnectionStateChange.fire(state);
         }
-    }
-
-    private scheduleReconnect(): void {
-        if (this.reconnectTimeout) {
-            return; // Already scheduled
-        }
-
-        this.reconnectTimeout = setTimeout(() => {
-            this.reconnectTimeout = null;
-            this.connectWebSocket();
-        }, this.reconnectDelayMs);
     }
 
     /**
@@ -360,19 +312,9 @@ export class MUClient {
     }
 
     /**
-     * Disconnect WebSocket and clean up
+     * Disconnect and clean up
      */
     disconnect(): void {
-        if (this.reconnectTimeout) {
-            clearTimeout(this.reconnectTimeout);
-            this.reconnectTimeout = null;
-        }
-
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
-
         this.setConnectionState('disconnected');
     }
 

@@ -7,6 +7,7 @@ This directory contains all tests for the MU project, organized by test type.
 ```
 tests/
 ├── unit/                    # Unit tests for individual modules
+│   ├── test_cli_commands.py # CLI command registration and help tests
 │   ├── test_parser.py      # Multi-language parser tests
 │   ├── test_assembler.py   # Import resolution tests
 │   ├── test_reducer.py     # Transformation rule tests
@@ -16,7 +17,12 @@ tests/
 │   ├── test_viewer.py      # Rendering tests
 │   ├── test_cache.py       # Cache behavior tests
 │   ├── test_scanner.py     # File discovery tests
+│   ├── test_client.py      # Daemon client tests
+│   ├── test_describe.py    # CLI introspection tests
+│   ├── test_muql_parser.py # MUQL query parser tests
 │   └── test_config.py      # Configuration tests
+├── daemon/                  # Daemon integration tests
+│   └── test_contracts_endpoint.py  # Contracts API tests
 └── conftest.py             # Shared fixtures
 ```
 

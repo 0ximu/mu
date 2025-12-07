@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     get_node_text,
 )
 from mu.parser.models import (
@@ -298,7 +298,7 @@ class JavaExtractor:
                 if exceptions:
                     method.decorators.append(f"throws:{','.join(exceptions)}")
             elif child.type == "block":
-                method.body_complexity = count_nodes(child)
+                method.body_complexity = calculate_cyclomatic_complexity(child, "java", source)
                 method.body_source = get_node_text(child, source)
 
         return method if method.name else None
@@ -330,7 +330,7 @@ class JavaExtractor:
                 if exceptions:
                     ctor.decorators.append(f"throws:{','.join(exceptions)}")
             elif child.type == "constructor_body":
-                ctor.body_complexity = count_nodes(child)
+                ctor.body_complexity = calculate_cyclomatic_complexity(child, "java", source)
                 ctor.body_source = get_node_text(child, source)
 
         return ctor if ctor.name else None

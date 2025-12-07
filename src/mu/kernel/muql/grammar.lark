@@ -6,11 +6,22 @@
 
 ?query: select_query
       | show_query
+      | show_tables_query
+      | show_columns_query
       | find_query
       | path_query
       | analyze_query
       | history_query
       | blame_query
+      | describe_query
+
+// =============================================================================
+// SHOW TABLES/COLUMNS Query - SQL-compatible aliases for DESCRIBE
+// =============================================================================
+
+show_tables_query: SHOW_KW TABLES_KW
+
+show_columns_query: SHOW_KW COLUMNS_KW FROM_KW node_type
 
 // =============================================================================
 // SELECT Query - SQL-like queries on nodes table
@@ -171,6 +182,16 @@ history_query: HISTORY_KW OF_KW node_ref [limit_clause]
 blame_query: BLAME_KW node_ref
 
 // =============================================================================
+// DESCRIBE Query - Schema introspection
+// =============================================================================
+
+describe_query: DESCRIBE_KW describe_target
+
+describe_target: TABLES_KW -> describe_tables
+               | COLUMNS_KW FROM_KW node_type -> describe_columns
+               | node_type -> describe_node_type
+
+// =============================================================================
 // Terminals (Keywords - case insensitive)
 // =============================================================================
 
@@ -266,6 +287,11 @@ FIRST_KW: /first/i
 TRUE_KW: /true/i
 FALSE_KW: /false/i
 NULL_KW: /null/i
+
+// DESCRIBE keywords
+DESCRIBE_KW: /describe/i
+TABLES_KW: /tables/i
+COLUMNS_KW: /columns/i
 
 // Comparison operators
 EQ: "="

@@ -180,6 +180,7 @@ def man_command(
     # Render with pager
     # Set LESS env var to handle ANSI codes properly (fixes PyInstaller binary)
     import os
+
     os.environ.setdefault("LESS", "-R")
     with console.pager(styles=True):
         console.print(Markdown(content))

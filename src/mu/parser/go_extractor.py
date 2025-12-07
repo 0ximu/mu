@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     find_child_by_type,
     get_node_text,
 )
@@ -152,7 +152,7 @@ class GoExtractor:
                 # Complex return type
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
-                func.body_complexity = count_nodes(child)
+                func.body_complexity = calculate_cyclomatic_complexity(child, "go", source)
                 func.body_source = get_node_text(child, source)
 
         # Check if this is an exported function (starts with uppercase)
@@ -209,7 +209,7 @@ class GoExtractor:
                 # Complex return type
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
-                func.body_complexity = count_nodes(child)
+                func.body_complexity = calculate_cyclomatic_complexity(child, "go", source)
                 func.body_source = get_node_text(child, source)
 
         # Check if exported

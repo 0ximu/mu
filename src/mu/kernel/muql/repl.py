@@ -35,6 +35,8 @@ Commands:
 Query Examples:
   SELECT * FROM functions WHERE complexity > 20
   SELECT COUNT(*) FROM classes
+  SHOW TABLES                            -- List available tables
+  SHOW COLUMNS FROM functions            -- Show columns for a table
   SHOW dependencies OF MUbase DEPTH 2
   FIND functions MATCHING "test_%"
   PATH FROM cli TO parser MAX DEPTH 5

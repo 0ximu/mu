@@ -6,10 +6,58 @@ Provides formatting in table, JSON, CSV, and tree formats.
 from __future__ import annotations
 
 import json
+import shutil
 from enum import Enum
 from typing import Any
 
 from mu.kernel.muql.executor import QueryResult
+
+# =============================================================================
+# Path Truncation Helpers
+# =============================================================================
+
+
+def _truncate_path(path: str, max_segments: int = 3) -> str:
+    """Truncate path to show only last N segments.
+
+    Args:
+        path: The file path to truncate.
+        max_segments: Maximum number of path segments to show.
+
+    Returns:
+        Truncated path with "..." prefix if shortened.
+
+    Examples:
+        >>> _truncate_path("/very/long/path/to/file.py", 3)
+        ".../path/to/file.py"
+        >>> _truncate_path("short/path.py", 3)
+        "short/path.py"
+    """
+    # Normalize backslashes to forward slashes
+    normalized = path.replace("\\", "/")
+    parts = normalized.split("/")
+
+    if len(parts) <= max_segments:
+        return path
+
+    return ".../" + "/".join(parts[-max_segments:])
+
+
+def _get_terminal_width() -> int:
+    """Get terminal width, default to 120 if unavailable."""
+    return shutil.get_terminal_size((120, 24)).columns
+
+
+def _is_path_column(col_name: str) -> bool:
+    """Check if column contains paths.
+
+    Args:
+        col_name: The column name to check.
+
+    Returns:
+        True if the column likely contains file paths.
+    """
+    return col_name.lower() in ("path", "file_path", "source_path", "module_path")
 
 
 class OutputFormat(Enum):
@@ -57,12 +105,17 @@ def _color(text: str, color: str, no_color: bool = False) -> str:
 # =============================================================================
 
 
-def format_table(result: QueryResult, no_color: bool = False) -> str:
+def format_table(
+    result: QueryResult,
+    no_color: bool = False,
+    truncate_paths: bool = True,
+) -> str:
     """Format query result as ASCII table.
 
     Args:
         result: The query result to format.
         no_color: If True, disable ANSI colors.
+        truncate_paths: If True, truncate file paths to last 3 segments.
 
     Returns:
         Formatted table string.
@@ -74,7 +127,17 @@ def format_table(result: QueryResult, no_color: bool = False) -> str:
         return _color("No results found.", Colors.DIM, no_color)
 
     columns = result.columns
-    rows = result.rows
+
+    # Convert rows to mutable lists for potential truncation
+    rows: list[list[Any]] = [list(row) for row in result.rows]
+
+    # Apply path truncation if enabled
+    if truncate_paths:
+        path_indices = [i for i, col in enumerate(columns) if _is_path_column(col)]
+        for row in rows:
+            for idx in path_indices:
+                if idx < len(row) and isinstance(row[idx], str) and row[idx]:
+                    row[idx] = _truncate_path(row[idx])
 
     # Calculate column widths
     widths = [len(col) for col in columns]
@@ -260,6 +323,7 @@ def format_result(
     result: QueryResult,
     output_format: OutputFormat | str = OutputFormat.TABLE,
     no_color: bool = False,
+    truncate_paths: bool = True,
 ) -> str | dict[str, Any]:
     """Format query result in the specified format.
 
@@ -267,6 +331,7 @@ def format_result(
         result: The query result to format.
         output_format: The output format (table, json, csv, tree, dict).
         no_color: If True, disable ANSI colors.
+        truncate_paths: If True, truncate file paths to last 3 segments (table format only).
 
     Returns:
         Formatted string, or dict if output_format is DICT.
@@ -278,7 +343,7 @@ def format_result(
             output_format = OutputFormat.TABLE
 
     if output_format == OutputFormat.TABLE:
-        return format_table(result, no_color)
+        return format_table(result, no_color, truncate_paths)
     elif output_format == OutputFormat.JSON:
         return format_json(result)
     elif output_format == OutputFormat.CSV:
@@ -288,7 +353,7 @@ def format_result(
     elif output_format == OutputFormat.DICT:
         return result.to_dict()
     else:
-        return format_table(result, no_color)
+        return format_table(result, no_color, truncate_paths)
 
 
 # =============================================================================

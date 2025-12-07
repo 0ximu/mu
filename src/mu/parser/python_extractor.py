@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     find_child_by_type,
     get_node_text,
 )
@@ -225,7 +225,7 @@ class PythonExtractor:
             elif child.type == "type":
                 func_def.return_type = get_node_text(child, source)
             elif child.type == "block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(child, "python", source)
                 # Store the full function body source for LLM summarization
                 func_def.body_source = get_node_text(child, source)
                 # Check for docstring

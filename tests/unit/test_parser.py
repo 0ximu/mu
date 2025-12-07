@@ -1407,3 +1407,261 @@ async function loadModules(type) {
             assert result.success
             dynamic_imports = [i for i in result.module.imports if i.is_dynamic]
             assert len(dynamic_imports) == 3
+
+
+class TestCyclomaticComplexity:
+    """Test cyclomatic complexity calculation across all languages."""
+
+    def test_python_simple_if(self):
+        """Test Python: simple if statement has complexity 2."""
+        code = '''
+def check(x):
+    if x:
+        pass
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 2  # base 1 + if 1
+
+    def test_python_if_and_condition(self):
+        """Test Python: if with 'and' has complexity 3."""
+        code = '''
+def check(x, y):
+    if x and y:
+        pass
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + if 1 + and 1
+
+    def test_python_for_loop(self):
+        """Test Python: for loop has complexity 2."""
+        code = '''
+def iterate(items):
+    for item in items:
+        pass
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 2  # base 1 + for 1
+
+    def test_python_nested_if(self):
+        """Test Python: nested if has complexity 3."""
+        code = '''
+def check(x, y):
+    if x:
+        if y:
+            pass
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + if 1 + if 1
+
+    def test_python_comprehension_with_if(self):
+        """Test Python: list comprehension with filter has complexity 3."""
+        code = '''
+def filter_items(items):
+    return [x for x in items if x > 0]
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            # base 1 + for_in_clause 1 + if_clause 1
+            assert func.body_complexity == 3
+
+    def test_python_try_except(self):
+        """Test Python: try/except adds complexity per except clause."""
+        code = '''
+def risky():
+    try:
+        pass
+    except ValueError:
+        pass
+    except TypeError:
+        pass
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + except 1 + except 1
+
+    def test_typescript_if_ternary(self):
+        """Test TypeScript: if + ternary has complexity 3."""
+        code = '''
+function check(x: boolean, y: boolean): number {
+    if (x) {
+        return y ? 1 : 0;
+    }
+    return -1;
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "typescript")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + if 1 + ternary 1
+
+    def test_typescript_logical_operators(self):
+        """Test TypeScript: && and || count as decision points."""
+        code = '''
+function validate(a: boolean, b: boolean, c: boolean): boolean {
+    return a && b || c;
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ts", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "typescript")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + && 1 + || 1
+
+    def test_go_if_for(self):
+        """Test Go: if + for has complexity 3."""
+        code = '''
+package main
+
+func process(items []int) int {
+    sum := 0
+    if len(items) > 0 {
+        for _, item := range items {
+            sum += item
+        }
+    }
+    return sum
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".go", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "go")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 3  # base 1 + if 1 + for 1
+
+    def test_java_switch_cases(self):
+        """Test Java: switch with cases adds complexity per case."""
+        code = '''
+public class Calc {
+    public int eval(int op, int a, int b) {
+        switch (op) {
+            case 1:
+                return a + b;
+            case 2:
+                return a - b;
+        }
+        return 0;
+    }
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".java", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "java")
+
+            assert result.success
+            cls = result.module.classes[0]
+            method = next(m for m in cls.methods if m.name == "eval")
+            # base 1 + case 1 + case 1
+            assert method.body_complexity == 3
+
+    def test_rust_match_arms(self):
+        """Test Rust: match expression adds complexity per arm."""
+        code = '''
+fn classify(n: i32) -> &'static str {
+    match n {
+        0 => "zero",
+        1 => "one",
+        _ => "other",
+    }
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".rs", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "rust")
+
+            assert result.success
+            func = result.module.functions[0]
+            # base 1 + match 1 + arm 1 + arm 1 + arm 1 = 5
+            assert func.body_complexity == 5
+
+    def test_csharp_null_coalescing(self):
+        """Test C#: ?? operator counts as decision point."""
+        code = '''
+public class Helper {
+    public string GetName(string? name) {
+        return name ?? "default";
+    }
+}
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "csharp")
+
+            assert result.success
+            cls = result.module.classes[0]
+            method = next(m for m in cls.methods if m.name == "GetName")
+            assert method.body_complexity == 2  # base 1 + ?? 1
+
+    def test_simple_function_baseline(self):
+        """Test that a function with no decision points has complexity 1."""
+        code = '''
+def simple():
+    return 42
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(code)
+            f.flush()
+
+            result = parse_file(Path(f.name), "python")
+
+            assert result.success
+            func = result.module.functions[0]
+            assert func.body_complexity == 1  # just base complexity

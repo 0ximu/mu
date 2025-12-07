@@ -630,6 +630,87 @@ class TestAnalyzeParser:
         assert query.target.name == "MUbase"
 
 
+class TestShowTablesColumnsParser:
+    """Tests for SHOW TABLES/COLUMNS query parsing (SQL-compatible aliases)."""
+
+    def test_show_tables(self) -> None:
+        """Parse SHOW TABLES (alias for DESCRIBE tables)."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("SHOW TABLES")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.TABLES
+
+    def test_show_tables_lowercase(self) -> None:
+        """Parse show tables in lowercase."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("show tables")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.TABLES
+
+    def test_show_tables_mixed_case(self) -> None:
+        """Parse Show Tables in mixed case."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("Show Tables")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.TABLES
+
+    def test_show_columns_from_functions(self) -> None:
+        """Parse SHOW COLUMNS FROM functions."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("SHOW COLUMNS FROM functions")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.COLUMNS
+        assert query.node_type == NodeTypeFilter.FUNCTIONS
+
+    def test_show_columns_from_classes(self) -> None:
+        """Parse SHOW COLUMNS FROM classes."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("SHOW COLUMNS FROM classes")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.COLUMNS
+        assert query.node_type == NodeTypeFilter.CLASSES
+
+    def test_show_columns_from_modules(self) -> None:
+        """Parse SHOW COLUMNS FROM modules."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("SHOW COLUMNS FROM modules")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.COLUMNS
+        assert query.node_type == NodeTypeFilter.MODULES
+
+    def test_show_columns_from_nodes(self) -> None:
+        """Parse SHOW COLUMNS FROM nodes."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("SHOW COLUMNS FROM nodes")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.COLUMNS
+        assert query.node_type == NodeTypeFilter.NODES
+
+    def test_show_columns_lowercase(self) -> None:
+        """Parse show columns from in lowercase."""
+        from mu.kernel.muql.ast import DescribeQuery, DescribeTarget
+
+        query = parse("show columns from functions")
+
+        assert isinstance(query, DescribeQuery)
+        assert query.target == DescribeTarget.COLUMNS
+        assert query.node_type == NodeTypeFilter.FUNCTIONS
+
+
 class TestCaseInsensitivity:
     """Tests for case-insensitive keyword parsing."""
 
