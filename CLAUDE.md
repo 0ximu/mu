@@ -30,66 +30,69 @@ MU (Machine Understanding) is a semantic compression tool that translates codeba
 ## Quick Commands
 
 ```bash
-# Development
-pip install -e ".[dev]"        # Install
-pytest                          # Test
-mypy src/mu                    # Type check
-ruff check src/ && ruff format src/  # Lint + format
+# Development (uv handles virtualenv automatically)
+uv sync                                    # Install dependencies
+uv run pytest                              # Run tests
+uv run mypy src/mu                         # Type check
+uv run ruff check src/ && uv run ruff format src/  # Lint + format
 
-# CLI
-mu init                        # Create .murc.toml config
-mu scan <path>                 # Analyze structure
-mu compress <path>             # Generate MU output
-mu compress <path> --llm       # With LLM summarization
-mu view <file.mu>              # Render with syntax highlighting
-mu diff <base> <head>          # Semantic diff
+# Alternative: pip (requires manual venv activation)
+# pip install -e ".[dev]"
+
+# CLI (use uv run for all mu commands)
+uv run mu init                 # Create .murc.toml config
+uv run mu scan <path>          # Analyze structure
+uv run mu compress <path>      # Generate MU output
+uv run mu compress <path> --llm # With LLM summarization
+uv run mu view <file.mu>       # Render with syntax highlighting
+uv run mu diff <base> <head>   # Semantic diff
 
 # MUQL Queries
-mu query "SELECT..."           # Execute MUQL query
-mu q "SELECT..."               # Short alias
-mu kernel muql -i              # Interactive REPL
+uv run mu query "SELECT..."    # Execute MUQL query
+uv run mu q "SELECT..."        # Short alias
+uv run mu kernel muql -i       # Interactive REPL
 
 # Kernel/Temporal
-mu kernel init .               # Initialize .mubase
-mu kernel build .              # Build graph from codebase
-mu kernel stats                # Show graph statistics
-mu kernel snapshot             # Create snapshot at HEAD
-mu kernel history <node>       # Show node history
-mu kernel blame <node>         # Show blame info
+uv run mu kernel init .        # Initialize .mubase
+uv run mu kernel build .       # Build graph from codebase
+uv run mu kernel stats         # Show graph statistics
+uv run mu kernel snapshot      # Create snapshot at HEAD
+uv run mu kernel history <node> # Show node history
+uv run mu kernel blame <node>  # Show blame info
 
 # Kernel/Export
-mu kernel export --format mu       # Export as MU text
-mu kernel export --format json     # Export as JSON
-mu kernel export --format mermaid  # Export as Mermaid diagram
-mu kernel export --format d2       # Export as D2 diagram
-mu kernel export --format cytoscape # Export for Cytoscape.js
+uv run mu kernel export --format mu       # Export as MU text
+uv run mu kernel export --format json     # Export as JSON
+uv run mu kernel export --format mermaid  # Export as Mermaid diagram
+uv run mu kernel export --format d2       # Export as D2 diagram
+uv run mu kernel export --format cytoscape # Export for Cytoscape.js
 
 # Semantic Search & Context
-mu kernel embed .              # Generate embeddings
-mu kernel search "query"       # Natural language search
-mu kernel context "question"   # Smart context extraction
+uv run mu kernel embed .       # Generate embeddings
+uv run mu kernel search "query" # Natural language search
+uv run mu kernel context "question" # Smart context extraction
 
 # Daemon (real-time updates)
-mu daemon start .              # Start daemon in background
-mu daemon status               # Check daemon status
-mu daemon stop                 # Stop running daemon
-mu daemon run .                # Run in foreground (debugging)
+uv run mu daemon start .       # Start daemon in background
+uv run mu daemon status        # Check daemon status
+uv run mu daemon stop          # Stop running daemon
+uv run mu daemon run .         # Run in foreground (debugging)
 
 # Cache Management
-mu cache stats                 # Show cache statistics
-mu cache clear                 # Clear all cached data
-mu cache expire                # Remove expired entries
+uv run mu cache stats          # Show cache statistics
+uv run mu cache clear          # Clear all cached data
+uv run mu cache expire         # Remove expired entries
 
 # CLI Introspection (agent-proofing)
-mu describe                    # Output CLI interface description
-mu describe --format json      # JSON format for tooling
-mu describe --format markdown  # Markdown format for documentation
+uv run mu describe             # Output CLI interface description
+uv run mu describe --format json # JSON format for tooling
+uv run mu describe --format markdown # Markdown format for documentation
 
 # MCP Server (AI assistant integration)
-mu mcp serve                   # Start MCP server (stdio for Claude Code)
-mu mcp serve --http            # Start with HTTP transport
-mu mcp tools                   # List available MCP tools
-mu mcp test                    # Test MCP tools
+uv run mu mcp serve            # Start MCP server (stdio for Claude Code)
+uv run mu mcp serve --http     # Start with HTTP transport
+uv run mu mcp tools            # List available MCP tools
+uv run mu mcp test             # Test MCP tools
 
 # MCP Bootstrap Flow (for agents)
 # 1. mu_status() → get next_action
@@ -99,16 +102,16 @@ mu mcp test                    # Test MCP tools
 # 5. mu_semantic_diff("main", "HEAD") → PR review
 
 # Architecture Contracts
-mu contracts init              # Create .mu-contracts.yml template
-mu contracts verify            # Verify architectural rules
+uv run mu contracts init       # Create .mu-contracts.yml template
+uv run mu contracts verify     # Verify architectural rules
 
 # MU Agent (code structure specialist)
-mu agent ask "question"        # Ask about codebase structure
-mu agent interactive           # Start interactive session
-mu agent query "MUQL"          # Direct MUQL query (bypass LLM)
-mu agent deps NODE             # Show dependencies
-mu agent impact NODE           # Show impact analysis
-mu agent cycles                # Detect circular dependencies
+uv run mu agent ask "question" # Ask about codebase structure
+uv run mu agent interactive    # Start interactive session
+uv run mu agent query "MUQL"   # Direct MUQL query (bypass LLM)
+uv run mu agent deps NODE      # Show dependencies
+uv run mu agent impact NODE    # Show impact analysis
+uv run mu agent cycles         # Detect circular dependencies
 ```
 
 ## Pipeline

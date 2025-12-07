@@ -20,8 +20,8 @@ def agent() -> None:
     Ask questions about your codebase structure, dependencies,
     and architecture using natural language.
 
-    The agent uses a cheap model (Haiku) to minimize costs while
-    querying the .mubase graph database for structural information.
+    The agent uses a cheap model (gpt-5-nano by default) to minimize costs
+    while querying the .mubase graph database for structural information.
     """
     pass
 
@@ -31,8 +31,8 @@ def agent() -> None:
 @click.option(
     "--model",
     "-m",
-    default="claude-3-5-haiku-latest",
-    help="Model to use (default: claude-3-5-haiku-latest)",
+    default="gpt-5-nano-2025-08-07",
+    help="Model to use (default: gpt-5-nano-2025-08-07)",
 )
 @click.option(
     "--json",
@@ -88,8 +88,8 @@ def ask(question: str, model: str, as_json: bool, max_tokens: int) -> None:
 @click.option(
     "--model",
     "-m",
-    default="claude-3-5-haiku-latest",
-    help="Model to use (default: claude-3-5-haiku-latest)",
+    default="gpt-5-nano-2025-08-07",
+    help="Model to use (default: gpt-5-nano-2025-08-07)",
 )
 @click.option(
     "--max-tokens",

@@ -42,50 +42,52 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 
 ## Essential Commands
 
+**IMPORTANT**: Always use `uv run` prefix for all commands. This ensures the correct virtualenv is used automatically.
+
 ```bash
-# Development
-pip install -e ".[dev]"    # Install with dev dependencies
-pytest                      # Run all tests
-pytest -v -k "test_name"   # Run specific test
-mypy src/mu                # Type checking
-ruff check src/            # Linting
-ruff format src/           # Format code
+# Development (uv handles virtualenv automatically)
+uv sync                         # Install dependencies
+uv run pytest                   # Run all tests
+uv run pytest -v -k "test_name" # Run specific test
+uv run mypy src/mu              # Type checking
+uv run ruff check src/          # Linting
+uv run ruff format src/         # Format code
 
 # CLI usage
-mu init                     # Create .murc.toml config
-mu scan <path>              # Analyze codebase structure
-mu compress <path>          # Generate MU output
-mu compress <path> --llm    # With LLM summarization
-mu view <file.mu>           # Render with syntax highlighting
-mu diff <base> <head>       # Semantic diff between git refs
+uv run mu init                  # Create .murc.toml config
+uv run mu scan <path>           # Analyze codebase structure
+uv run mu compress <path>       # Generate MU output
+uv run mu compress <path> --llm # With LLM summarization
+uv run mu view <file.mu>        # Render with syntax highlighting
+uv run mu diff <base> <head>    # Semantic diff between git refs
 
 # MUQL Queries
-mu query <muql>             # Execute MUQL query (alias: mu q)
-mu kernel muql -i           # Interactive MUQL REPL
+uv run mu query <muql>          # Execute MUQL query (alias: mu q)
+uv run mu kernel muql -i        # Interactive MUQL REPL
 
 # Graph Database
-mu kernel init .            # Initialize .mubase
-mu kernel build .           # Build graph from codebase
-mu kernel stats             # Graph statistics
+uv run mu kernel init .         # Initialize .mubase
+uv run mu kernel build .        # Build graph from codebase
+uv run mu kernel stats          # Graph statistics
 
 # Semantic Search
-mu kernel embed .           # Generate embeddings
-mu kernel search "query"    # Natural language search
-mu kernel context "question" # Smart context extraction
+uv run mu kernel embed .        # Generate embeddings
+uv run mu kernel search "query" # Natural language search
+uv run mu kernel context "question" # Smart context extraction
 
 # Cache Management
-mu cache stats              # Cache statistics
-mu cache clear              # Clear cached data
+uv run mu cache stats           # Cache statistics
+uv run mu cache clear           # Clear cached data
 
 # Agent-Proofing
-mu describe                 # CLI self-description for AI agents
-mu mcp serve                # Start MCP server for Claude Code
-mu contracts verify         # Verify architecture contracts
+uv run mu describe              # CLI self-description for AI agents
+uv run mu mcp serve             # Start MCP server for Claude Code
+uv run mu contracts verify      # Verify architecture contracts
 
 # Daemon Mode
-mu daemon start .           # Start daemon in background
-mu daemon status            # Check daemon status
-mu daemon stop              # Stop daemon
+uv run mu daemon start .        # Start daemon in background
+uv run mu daemon status         # Check daemon status
+uv run mu daemon stop           # Stop daemon
 ```
 
 ## Core Modules Reference

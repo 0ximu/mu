@@ -18,7 +18,7 @@ class AgentConfig:
         daemon_url: URL of the MU daemon.
     """
 
-    model: str = "claude-3-5-haiku-latest"
+    model: str = "gpt-5-nano-2025-08-07"  # Cheapest & fastest, supports tool use
     max_tokens: int = 4096
     temperature: float = 0.0
     mubase_path: str | None = None

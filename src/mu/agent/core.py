@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from mu.agent.memory import ConversationMemory
 from mu.agent.models import AgentConfig, AgentResponse, GraphSummary
 from mu.agent.prompt import format_system_prompt
-from mu.agent.tools import TOOL_DEFINITIONS, execute_tool, format_tool_result
+from mu.agent.providers import LLMProvider, get_provider
+from mu.agent.tools import execute_tool, format_tool_result
 from mu.client import DaemonClient, DaemonError
 
 
@@ -16,12 +16,16 @@ class MUAgent:
     """MU Agent - Code structure specialist.
 
     Answers questions about codebases by querying .mubase graph database.
-    Designed to run on cheap models (Haiku) to minimize token costs.
+    Supports multiple LLM providers (OpenAI, Anthropic) for flexibility.
 
     Example:
         >>> agent = MUAgent()
         >>> response = agent.ask("How does authentication work?")
         >>> print(response.content)
+
+        # Use OpenAI instead
+        >>> config = AgentConfig(model="gpt-4o-mini")
+        >>> agent = MUAgent(config)
 
         # Follow-up questions maintain context
         >>> response = agent.ask("What depends on it?")
@@ -44,7 +48,7 @@ class MUAgent:
         self.memory = ConversationMemory()
         self._graph_summary: GraphSummary | None = None
         self._mu_client: DaemonClient | None = None
-        self._anthropic_client: Any = None
+        self._provider: LLMProvider | None = None
 
     def ask(self, question: str) -> AgentResponse:
         """Ask a question about the codebase.
@@ -62,12 +66,13 @@ class MUAgent:
         # Add to conversation memory
         self.memory.add_user_message(question)
 
-        # Get Anthropic client
-        client = self._get_anthropic_client()
-        if client is None:
+        # Get LLM provider
+        try:
+            provider = self._get_provider()
+        except ValueError as e:
             return AgentResponse(
                 content="",
-                error="ANTHROPIC_API_KEY not set. Please set the environment variable.",
+                error=str(e),
             )
 
         # Build system prompt with graph summary
@@ -78,18 +83,17 @@ class MUAgent:
 
         try:
             # Call LLM with tools
-            response = client.messages.create(
-                model=self.config.model,
+            response = provider.chat(
+                messages=messages,
+                system=system_prompt,
+                tools=provider.tool_definitions,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
-                system=system_prompt,
-                messages=messages,
-                tools=TOOL_DEFINITIONS,
             )
 
             # Process response (handle tool calls)
             content, tool_calls_made, tokens_used = self._process_response(
-                response, messages, system_prompt
+                provider, response, messages, system_prompt
             )
 
             # Add to memory
@@ -223,19 +227,11 @@ class MUAgent:
             self._mu_client = DaemonClient(base_url=self.config.daemon_url)
         return self._mu_client
 
-    def _get_anthropic_client(self) -> Any:
-        """Get or create the Anthropic client."""
-        if self._anthropic_client is None:
-            api_key = os.environ.get("ANTHROPIC_API_KEY")
-            if not api_key:
-                return None
-            try:
-                import anthropic  # type: ignore[import-not-found]
-
-                self._anthropic_client = anthropic.Anthropic(api_key=api_key)
-            except ImportError:
-                return None
-        return self._anthropic_client
+    def _get_provider(self) -> LLMProvider:
+        """Get or create the LLM provider."""
+        if self._provider is None:
+            self._provider = get_provider(self.config.model)
+        return self._provider
 
     def _get_graph_summary(self) -> GraphSummary:
         """Get high-level summary of the graph from daemon."""
@@ -271,6 +267,7 @@ class MUAgent:
 
     def _process_response(
         self,
+        provider: LLMProvider,
         response: Any,
         messages: list[dict[str, Any]],
         system_prompt: str,
@@ -278,6 +275,7 @@ class MUAgent:
         """Process LLM response, executing tool calls as needed.
 
         Args:
+            provider: The LLM provider.
             response: The initial LLM response.
             messages: Current conversation messages.
             system_prompt: The system prompt used.
@@ -285,65 +283,91 @@ class MUAgent:
         Returns:
             Tuple of (final_content, tool_calls_made, total_tokens).
         """
+        from mu.agent.providers import LLMResponse
+
         tool_calls_made = 0
-        total_tokens = 0
+        total_tokens = response.input_tokens + response.output_tokens
 
-        # Track tokens from initial response
-        if hasattr(response, "usage"):
-            total_tokens += response.usage.input_tokens + response.usage.output_tokens
-
-        client = self._get_anthropic_client()
         mu_client = self._get_mu_client()
 
-        # Handle tool use loop (max 10 iterations to prevent infinite loops)
-        max_iterations = 10
+        # Handle tool use loop - enforce single-tool strategy
+        # The model should answer after 1 tool call, but allow 1 retry if empty
+        max_iterations = 1
         iteration = 0
 
         while response.stop_reason == "tool_use" and iteration < max_iterations:
             iteration += 1
+
+            # Execute tool calls
             tool_results = []
+            for tc in response.tool_calls:
+                tool_calls_made += 1
+                result = execute_tool(tc["name"], tc["args"], mu_client)
+                formatted_result = format_tool_result(result)
+                tool_results.append(
+                    provider.format_tool_result(tc["id"], formatted_result)
+                )
 
-            for content in response.content:
-                if content.type == "tool_use":
-                    tool_calls_made += 1
-                    # Execute the tool
-                    result = execute_tool(content.name, content.input, mu_client)
-                    formatted_result = format_tool_result(result)
+            # Build continuation messages
+            # For OpenAI, we need to include the assistant message with tool_calls
+            assistant_msg = self._build_assistant_message(provider, response)
+            continuation_messages = messages + [assistant_msg]
 
-                    tool_results.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": content.id,
-                            "content": formatted_result,
-                        }
-                    )
+            # Add tool results - format differs by provider
+            from mu.agent.providers import OpenAIProvider
 
-            # Continue conversation with tool results
-            response = client.messages.create(
-                model=self.config.model,
+            if isinstance(provider, OpenAIProvider):
+                # OpenAI: each tool result is a separate message
+                continuation_messages.extend(tool_results)
+            else:
+                # Anthropic: tool results go in a user message
+                continuation_messages.append({"role": "user", "content": tool_results})
+
+            # Continue conversation
+            response = provider.chat(
+                messages=continuation_messages,
+                system=system_prompt,
+                tools=provider.tool_definitions,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
-                system=system_prompt,
-                messages=messages
-                + [
-                    {"role": "assistant", "content": response.content},
-                    {"role": "user", "content": tool_results},
-                ],
-                tools=TOOL_DEFINITIONS,
             )
 
-            # Track tokens
-            if hasattr(response, "usage"):
-                total_tokens += response.usage.input_tokens + response.usage.output_tokens
+            total_tokens += response.input_tokens + response.output_tokens
 
-        # Extract text response
-        content_parts = []
-        for content in response.content:
-            if hasattr(content, "text"):
-                content_parts.append(content.text)
+        return response.content, tool_calls_made, total_tokens
 
-        final_content = "".join(content_parts)
-        return final_content, tool_calls_made, total_tokens
+    def _build_assistant_message(
+        self,
+        provider: LLMProvider,
+        response: Any,
+    ) -> dict[str, Any]:
+        """Build assistant message for continuation."""
+        from mu.agent.providers import AnthropicProvider, OpenAIProvider
+
+        if isinstance(provider, OpenAIProvider):
+            # OpenAI needs the tool_calls in the message
+            import json
+
+            msg: dict[str, Any] = {
+                "role": "assistant",
+                "content": response.content or None,
+            }
+            if response.tool_calls:
+                msg["tool_calls"] = [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["args"]),
+                        },
+                    }
+                    for tc in response.tool_calls
+                ]
+            return msg
+        else:
+            # Anthropic - use raw content blocks (tool_use blocks)
+            return {"role": "assistant", "content": response.raw_content}
 
     def close(self) -> None:
         """Close all client connections."""
