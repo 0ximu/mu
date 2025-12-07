@@ -410,10 +410,8 @@ fn extract_default_parameter(node: &Node, source: &str) -> ParameterDef {
     for (i, child) in children.iter().enumerate() {
         if child.kind() == "identifier" && name.is_empty() {
             name = get_node_text(child, source).to_string();
-        } else if child.kind() == "=" {
-            if i + 1 < children.len() {
-                default = Some(get_node_text(&children[i + 1], source).to_string());
-            }
+        } else if child.kind() == "=" && i + 1 < children.len() {
+            default = Some(get_node_text(&children[i + 1], source).to_string());
         }
     }
 

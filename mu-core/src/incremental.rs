@@ -365,9 +365,7 @@ impl IncrementalParser {
 
     /// Check if the current tree has syntax errors.
     fn has_errors(&self) -> bool {
-        self.tree
-            .as_ref()
-            .map_or(true, |t| t.root_node().has_error())
+        self.tree.as_ref().is_none_or(|t| t.root_node().has_error())
     }
 
     /// Get the number of lines in the source.

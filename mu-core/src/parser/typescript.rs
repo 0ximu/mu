@@ -517,13 +517,10 @@ fn extract_dynamic_imports(root: &Node, source: &str) -> Vec<ImportDef> {
 }
 
 fn find_dynamic_imports_recursive(node: &Node, source: &str, results: &mut Vec<ImportDef>) {
-    match node.kind() {
-        "call_expression" => {
-            if let Some(import) = check_dynamic_import(node, source) {
-                results.push(import);
-            }
+    if node.kind() == "call_expression" {
+        if let Some(import) = check_dynamic_import(node, source) {
+            results.push(import);
         }
-        _ => {}
     }
 
     let mut cursor = node.walk();

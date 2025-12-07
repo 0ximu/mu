@@ -14,6 +14,7 @@ pub fn get_node_text<'a>(node: &Node, source: &'a str) -> &'a str {
 }
 
 /// Find the first child of a specific type.
+#[allow(clippy::manual_find)]
 pub fn find_child_by_type<'a>(node: &Node<'a>, type_name: &str) -> Option<Node<'a>> {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {

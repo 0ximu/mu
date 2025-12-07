@@ -621,9 +621,11 @@ mod tests {
 
     #[test]
     fn test_diff_summary_text() {
-        let mut summary = DiffSummary::default();
-        summary.functions_added = 2;
-        summary.classes_modified = 1;
+        let summary = DiffSummary {
+            functions_added: 2,
+            classes_modified: 1,
+            ..Default::default()
+        };
 
         let text = summary.text();
         assert!(text.contains("functions: 2 added"));

@@ -23,6 +23,10 @@
 //! mu_output = _core.export_mu(modules, config)
 //! ```
 
+// Allow clippy lints that conflict with PyO3 patterns
+#![allow(clippy::useless_conversion)] // PyO3's ? operator patterns
+#![allow(clippy::too_many_arguments)] // PyO3 constructors often need many args
+
 use pyo3::prelude::*;
 
 pub mod differ;
@@ -53,9 +57,9 @@ fn parse_files(
     py: Python<'_>,
     file_infos: Vec<FileInfo>,
     num_threads: Option<usize>,
-) -> PyResult<Vec<ParseResult>> {
+) -> Vec<ParseResult> {
     // Release GIL for parallel execution
-    Ok(py.allow_threads(|| parser::parse_files_parallel(file_infos, num_threads)))
+    py.allow_threads(|| parser::parse_files_parallel(file_infos, num_threads))
 }
 
 /// Parse a single file from source.
@@ -71,8 +75,8 @@ fn parse_files(
 /// ParseResult with the parsed ModuleDef or error.
 #[pyfunction]
 #[pyo3(signature = (source, file_path, language))]
-fn parse_file(source: &str, file_path: &str, language: &str) -> PyResult<ParseResult> {
-    Ok(parser::parse_source(source, file_path, language))
+fn parse_file(source: &str, file_path: &str, language: &str) -> ParseResult {
+    parser::parse_source(source, file_path, language)
 }
 
 /// Calculate cyclomatic complexity for a code snippet.
@@ -86,8 +90,8 @@ fn parse_file(source: &str, file_path: &str, language: &str) -> PyResult<ParseRe
 ///
 /// Complexity score (minimum 1).
 #[pyfunction]
-fn calculate_complexity(source: &str, language: &str) -> PyResult<u32> {
-    Ok(reducer::complexity::calculate(source, language))
+fn calculate_complexity(source: &str, language: &str) -> u32 {
+    reducer::complexity::calculate(source, language)
 }
 
 /// Find secrets in text.
@@ -100,8 +104,8 @@ fn calculate_complexity(source: &str, language: &str) -> PyResult<u32> {
 ///
 /// List of SecretMatch objects.
 #[pyfunction]
-fn find_secrets(text: &str) -> PyResult<Vec<SecretMatch>> {
-    Ok(security::patterns::find_secrets(text)
+fn find_secrets(text: &str) -> Vec<SecretMatch> {
+    security::patterns::find_secrets(text)
         .into_iter()
         .map(|(name, start, end)| {
             let (line, column) = security::redact::position_to_line_col(text, start);
@@ -113,7 +117,7 @@ fn find_secrets(text: &str) -> PyResult<Vec<SecretMatch>> {
                 column,
             }
         })
-        .collect())
+        .collect()
 }
 
 /// Redact secrets from source code.
@@ -126,8 +130,8 @@ fn find_secrets(text: &str) -> PyResult<Vec<SecretMatch>> {
 ///
 /// Text with secrets replaced by [REDACTED].
 #[pyfunction]
-fn redact_secrets(text: &str) -> PyResult<String> {
-    Ok(security::redact::redact(text))
+fn redact_secrets(text: &str) -> String {
+    security::redact::redact(text)
 }
 
 /// Export module to MU format.
@@ -140,8 +144,8 @@ fn redact_secrets(text: &str) -> PyResult<String> {
 ///
 /// MU format string.
 #[pyfunction]
-fn export_mu(module: &ModuleDef) -> PyResult<String> {
-    Ok(exporter::mu_format::export(module))
+fn export_mu(module: &ModuleDef) -> String {
+    exporter::mu_format::export(module)
 }
 
 /// Export module to JSON format.
@@ -175,8 +179,8 @@ fn export_json(module: &ModuleDef, pretty: bool) -> PyResult<String> {
 ///
 /// Markdown string.
 #[pyfunction]
-fn export_markdown(module: &ModuleDef) -> PyResult<String> {
-    Ok(exporter::markdown::export(module))
+fn export_markdown(module: &ModuleDef) -> String {
+    exporter::markdown::export(module)
 }
 
 /// Get the version of mu-core.

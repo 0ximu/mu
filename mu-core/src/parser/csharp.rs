@@ -148,7 +148,7 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
             "type_parameter_list" => {
                 // Generic parameters
                 let generics = get_node_text(&child, source);
-                class_def.name.push_str(&generics);
+                class_def.name.push_str(generics);
             }
             "base_list" => {
                 extract_base_list(&child, source, &mut class_def.bases);

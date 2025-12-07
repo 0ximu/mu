@@ -90,6 +90,8 @@ a = Analysis(
         "mu.commands.mcp.serve",
         "mu.commands.mcp.test",
         "mu.commands.mcp.tools",
+        # Graph reasoning commands
+        "mu.commands.graph",
         # Parser extractors (correct paths - no 'extractors' subpackage)
         "mu.parser",
         "mu.parser.base",
