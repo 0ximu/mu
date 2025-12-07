@@ -123,10 +123,14 @@ def _execute_muql(
     """Shared MUQL execution logic for query commands.
 
     Used by `mu query`, `mu q`, and `mu kernel muql` commands.
+
+    Thin Client Architecture (ADR-002):
+    - If daemon is running, forward query via HTTP (no DB lock)
+    - If daemon is not running, fall back to local MUbase access
     """
-    from mu.kernel import MUbase
-    from mu.kernel.muql import MUQLEngine
-    from mu.kernel.muql.repl import run_repl
+    from mu.client import DaemonClient, DaemonError
+    from mu.kernel.muql.executor import QueryResult
+    from mu.kernel.muql.formatter import format_result
 
     mubase_path = path.resolve() / ".mubase"
 
@@ -134,6 +138,57 @@ def _execute_muql(
         print_error(f"No .mubase found at {mubase_path}")
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
+
+    # For non-query operations (interactive, explain), always use local mode
+    if interactive or explain:
+        _execute_muql_local(mubase_path, query_str, interactive, output_format, no_color, explain)
+        return
+
+    if not query_str:
+        print_error("Either provide a query or use --interactive/-i flag")
+        print_info('Example: mu query "SELECT * FROM functions LIMIT 10"')
+        print_info("         mu query -i")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Try daemon first (Thin Client path - no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            result_dict = client.query(query_str)
+            # Convert daemon response to QueryResult for formatting
+            result = QueryResult(
+                columns=result_dict.get("columns", []),
+                rows=[tuple(row) for row in result_dict.get("rows", [])],
+                row_count=result_dict.get("row_count", 0),
+                error=result_dict.get("error"),
+                execution_time_ms=result_dict.get("execution_time_ms", 0.0),
+            )
+            output = format_result(result, output_format, no_color)
+            console.print(output)
+            return
+        except DaemonError as e:
+            # Log and fall back to local mode
+            print_warning(f"Daemon query failed, falling back to local mode: {e}")
+
+    # Fallback: Local mode (requires lock)
+    _execute_muql_local(mubase_path, query_str, interactive, output_format, no_color, explain)
+
+
+def _execute_muql_local(
+    mubase_path: Path,
+    query_str: str | None,
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Execute MUQL query in local mode (direct MUbase access).
+
+    This path requires exclusive lock on the database.
+    """
+    from mu.kernel import MUbase
+    from mu.kernel.muql import MUQLEngine
+    from mu.kernel.muql.repl import run_repl
 
     db = MUbase(mubase_path)
 
