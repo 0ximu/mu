@@ -107,6 +107,182 @@ def init(ctx: MUContext, force: bool) -> None:
         sys.exit(ExitCode.FATAL_ERROR)
 
 
+# =============================================================================
+# Query Commands - Top-level MUQL access (aliases for mu kernel muql)
+# =============================================================================
+
+
+def _execute_muql(
+    path: Path,
+    query_str: str | None,
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Shared MUQL execution logic for query commands.
+
+    Used by `mu query`, `mu q`, and `mu kernel muql` commands.
+    """
+    from mu.kernel import MUbase
+    from mu.kernel.muql import MUQLEngine
+    from mu.kernel.muql.repl import run_repl
+
+    mubase_path = path.resolve() / ".mubase"
+
+    if not mubase_path.exists():
+        print_error(f"No .mubase found at {mubase_path}")
+        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
+    db = MUbase(mubase_path)
+
+    try:
+        if interactive:
+            # Start REPL
+            run_repl(db, no_color)
+        elif query_str:
+            # Execute single query
+            engine = MUQLEngine(db)
+
+            if explain:
+                # Show execution plan
+                explanation = engine.explain(query_str)
+                console.print(explanation)
+            else:
+                # Execute and format
+                output = engine.query(query_str, output_format, no_color)
+                console.print(output)
+        else:
+            # No query provided and not interactive mode
+            print_error("Either provide a query or use --interactive/-i flag")
+            print_info('Example: mu query "SELECT * FROM functions LIMIT 10"')
+            print_info("         mu query -i")
+            sys.exit(ExitCode.CONFIG_ERROR)
+    finally:
+        db.close()
+
+
+@cli.command("query")
+@click.argument("muql", required=False)
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, path_type=Path),
+    default=".",
+    help="Path to codebase (default: current directory)",
+)
+@click.option("--interactive", "-i", is_flag=True, help="Start interactive REPL")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json", "csv", "tree"]),
+    default="table",
+    help="Output format",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--explain", is_flag=True, help="Show execution plan without running")
+def query_cmd(
+    muql: str | None,
+    path: Path,
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Execute MUQL query against the codebase graph.
+
+    MUQL provides an SQL-like query interface for exploring your codebase.
+    Alias for 'mu kernel muql'.
+
+    \b
+    Examples:
+        mu query "SELECT * FROM functions WHERE complexity > 20"
+        mu query "SHOW dependencies OF MUbase"
+        mu query -i                         # Interactive mode
+        mu query -f json "SELECT * FROM classes"
+    """
+    _execute_muql(path, muql, interactive, output_format, no_color, explain)
+
+
+@cli.command("q")
+@click.argument("muql", required=False)
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, path_type=Path),
+    default=".",
+    help="Path to codebase (default: current directory)",
+)
+@click.option("--interactive", "-i", is_flag=True, help="Start interactive REPL")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json", "csv", "tree"]),
+    default="table",
+    help="Output format",
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--explain", is_flag=True, help="Show execution plan without running")
+def q_cmd(
+    muql: str | None,
+    path: Path,
+    interactive: bool,
+    output_format: str,
+    no_color: bool,
+    explain: bool,
+) -> None:
+    """Execute MUQL query (short alias for 'mu query').
+
+    \b
+    Examples:
+        mu q "SELECT * FROM functions LIMIT 10"
+        mu q -i
+    """
+    _execute_muql(path, muql, interactive, output_format, no_color, explain)
+
+
+@cli.command("describe")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["mu", "json", "markdown"]),
+    default="mu",
+    help="Output format (default: mu)",
+)
+def describe_cmd(output_format: str) -> None:
+    """Output MU representation of CLI interface.
+
+    Generates a machine-readable description of all MU CLI commands,
+    arguments, and options. Useful for AI agents to understand the interface.
+
+    \b
+    Examples:
+        mu describe                # MU format (optimized for LLMs)
+        mu describe --format json  # JSON Schema format
+        mu describe --format markdown  # Human-readable Markdown
+    """
+    from mu.describe import describe_cli, format_json, format_markdown, format_mu
+
+    result = describe_cli()
+
+    if result.error:
+        print_error(result.error)
+        sys.exit(ExitCode.FATAL_ERROR)
+
+    if output_format == "mu":
+        output = format_mu(result)
+    elif output_format == "json":
+        output = format_json(result)
+    else:
+        output = format_markdown(result)
+
+    console.print(output)
+
+
 @cli.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
@@ -1166,6 +1342,7 @@ def kernel_muql(
     """Execute MUQL queries against the graph database.
 
     MUQL provides an SQL-like query interface for exploring your codebase.
+    Also available as 'mu query' or 'mu q' (shorter aliases).
 
     \b
     Examples:
@@ -1196,43 +1373,7 @@ def kernel_muql(
         .explain - Explain query
         .exit    - Exit REPL
     """
-    from mu.kernel import MUbase
-    from mu.kernel.muql import MUQLEngine
-    from mu.kernel.muql.repl import run_repl
-
-    mubase_path = path.resolve() / ".mubase"
-
-    if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
-        print_info("Run 'mu kernel init' and 'mu kernel build' first")
-        sys.exit(ExitCode.CONFIG_ERROR)
-
-    db = MUbase(mubase_path)
-
-    try:
-        if interactive:
-            # Start REPL
-            run_repl(db, no_color)
-        elif query:
-            # Execute single query
-            engine = MUQLEngine(db)
-
-            if explain:
-                # Show execution plan
-                explanation = engine.explain(query)
-                console.print(explanation)
-            else:
-                # Execute and format
-                output = engine.query(query, output_format, no_color)
-                console.print(output)
-        else:
-            # No query provided and not interactive mode
-            print_error("Either provide a query or use --interactive/-i flag")
-            print_info('Example: mu kernel muql . "SELECT * FROM functions LIMIT 10"')
-            print_info("         mu kernel muql . -i")
-            sys.exit(ExitCode.CONFIG_ERROR)
-    finally:
-        db.close()
+    _execute_muql(path, query, interactive, output_format, no_color, explain)
 
 
 @kernel.command("deps")

@@ -57,6 +57,15 @@ mu daemon start .                    # Start daemon in background
 mu daemon status                     # Check daemon status
 mu daemon stop                       # Stop running daemon
 mu daemon run .                      # Run in foreground (debugging)
+
+# MUQL Queries (agent-proofing)
+mu query "SELECT..."                 # Execute MUQL query (alias for mu kernel muql)
+mu q "SELECT..."                     # Short alias
+
+# CLI Introspection (agent-proofing)
+mu describe                          # Output CLI interface description
+mu describe --format json            # JSON format for tooling
+mu describe --format markdown        # Markdown format for documentation
 ```
 
 ## Pipeline
@@ -78,6 +87,11 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`ExportResult`**: Multi-format export output with error handling
 - **`DaemonConfig`**: Daemon server configuration
 - **`GraphEvent`**: Real-time graph change notifications
+
+## Agent-Proofing Modules
+
+- **`client.py`**: Daemon communication client for programmatic MU integration
+- **`describe.py`**: CLI introspection and self-description (mu/json/markdown formats)
 
 ## Supported Languages
 

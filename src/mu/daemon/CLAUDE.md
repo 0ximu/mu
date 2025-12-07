@@ -138,13 +138,28 @@ Get neighboring nodes. Query param: `direction` (outgoing, incoming, both).
 
 ### POST /query
 
-Execute a MUQL query.
+Execute a MUQL query and return results as a JSON object.
 
+**Request body:**
 ```json
 {
   "muql": "FIND CLASS WHERE name LIKE '%Service%'"
 }
 ```
+
+**Response:**
+Returns a proper JSON object (not a string) with query results:
+```json
+{
+  "columns": ["id", "name", "type"],
+  "rows": [
+    ["class:AuthService", "AuthService", "class"],
+    ["class:UserService", "UserService", "class"]
+  ]
+}
+```
+
+**Note:** The endpoint uses `engine.query_dict()` to return proper dict objects instead of double-serialized JSON strings. This ensures IDE integrations and agents receive structured data (`{"columns":...}`) rather than escaped strings (`"{\"columns\":...}"`).
 
 ### POST /context
 
