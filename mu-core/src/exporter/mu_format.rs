@@ -10,6 +10,7 @@ const SIGIL_ENTITY: &str = "$";
 const SIGIL_FUNCTION: &str = "#";
 const SIGIL_METADATA: &str = "@";
 const OP_FLOW: &str = "->";
+#[allow(dead_code)]
 const OP_MUTATION: &str = "=>";
 
 /// Export module to MU format.

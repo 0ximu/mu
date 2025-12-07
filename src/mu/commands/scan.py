@@ -36,12 +36,12 @@ def scan(ctx: MUContext, path: Path, output: Path | None, format: str) -> None:
     """
     from mu.config import MUConfig
     from mu.logging import console, print_success
-    from mu.scanner import scan_codebase
+    from mu.scanner import scan_codebase_auto
 
     if ctx.config is None:
         ctx.config = MUConfig()
 
-    result = scan_codebase(path, ctx.config)
+    result = scan_codebase_auto(path, ctx.config)
 
     if format == "json":
         import json

@@ -77,7 +77,7 @@ def diff(
     from mu.parser.models import ModuleDef
     from mu.reducer import reduce_codebase
     from mu.reducer.rules import TransformationRules
-    from mu.scanner import scan_codebase
+    from mu.scanner import scan_codebase_auto
 
     if ctx.config is None:
         ctx.config = MUConfig()
@@ -109,7 +109,7 @@ def diff(
                 """Process a version of the codebase through the MU pipeline."""
                 assert ctx.config is not None
                 # Scan
-                version_scan_result = scan_codebase(version_path, ctx.config)
+                version_scan_result = scan_codebase_auto(version_path, ctx.config)
                 if version_scan_result.stats.total_files == 0:
                     return None, []
 

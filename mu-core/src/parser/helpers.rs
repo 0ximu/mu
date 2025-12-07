@@ -25,6 +25,7 @@ pub fn find_child_by_type<'a>(node: &Node<'a>, type_name: &str) -> Option<Node<'
 }
 
 /// Find all children of a specific type.
+#[allow(dead_code)]
 pub fn find_children_by_type<'a>(node: &Node<'a>, type_name: &str) -> Vec<Node<'a>> {
     let mut results = Vec::new();
     let mut cursor = node.walk();
@@ -37,11 +38,13 @@ pub fn find_children_by_type<'a>(node: &Node<'a>, type_name: &str) -> Vec<Node<'
 }
 
 /// Find the first child with a specific field name.
+#[allow(dead_code)]
 pub fn get_child_by_field<'a>(node: &Node<'a>, field_name: &str) -> Option<Node<'a>> {
     node.child_by_field_name(field_name)
 }
 
 /// Count the number of nodes in a subtree (for complexity).
+#[allow(dead_code)]
 pub fn count_nodes(node: &Node) -> u32 {
     let mut count = 1u32;
     let mut cursor = node.walk();
@@ -52,6 +55,7 @@ pub fn count_nodes(node: &Node) -> u32 {
 }
 
 /// Extract a docstring from a node (if it's a string literal).
+#[allow(dead_code)]
 pub fn extract_docstring(node: Option<Node>, source: &str) -> Option<String> {
     let node = node?;
     let text = get_node_text(&node, source);
@@ -77,6 +81,7 @@ pub fn extract_docstring(node: Option<Node>, source: &str) -> Option<String> {
 }
 
 /// Check if a node has a child of a specific type.
+#[allow(dead_code)]
 pub fn has_child_of_type(node: &Node, type_name: &str) -> bool {
     find_child_by_type(node, type_name).is_some()
 }

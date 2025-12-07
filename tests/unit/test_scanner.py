@@ -9,6 +9,7 @@ from mu.scanner import (
     detect_language,
     should_ignore,
     scan_codebase,
+    scan_codebase_auto,
     SUPPORTED_LANGUAGES,
 )
 
@@ -140,3 +141,140 @@ class TestScanCodebase:
 
             assert len(result.files) == 1
             assert result.files[0].hash.startswith("sha256:")
+
+
+class TestRustScanner:
+    """Tests for Rust scanner integration."""
+
+    def test_rust_scanner_available(self):
+        """Test that Rust scanner is available."""
+        from mu.scanner import _HAS_RUST_SCANNER, _USE_RUST_SCANNER
+
+        # Rust scanner should be available if mu._core is installed
+        try:
+            from mu import _core
+
+            has_scan = hasattr(_core, "scan_directory")
+            assert _HAS_RUST_SCANNER == has_scan
+        except ImportError:
+            assert not _HAS_RUST_SCANNER
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_directory_basic(self):
+        """Test basic Rust scanner functionality."""
+        from mu import _core
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create test files
+            (Path(tmpdir) / "main.py").write_text("print('hello')\n")
+            (Path(tmpdir) / "utils.ts").write_text("export const x = 1;\n")
+
+            result = _core.scan_directory(str(tmpdir))
+
+            # Should find both files
+            assert len(result.files) >= 2
+            assert result.error_count == 0
+            assert result.duration_ms >= 0
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_with_extension_filter(self):
+        """Test Rust scanner with extension filtering."""
+        from mu import _core
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("print('hello')")
+            (Path(tmpdir) / "utils.ts").write_text("export const x = 1;")
+            (Path(tmpdir) / "readme.md").write_text("# Hello")
+
+            result = _core.scan_directory(str(tmpdir), extensions=["py"])
+
+            # Should only find Python file
+            assert len(result.files) == 1
+            assert result.files[0].language == "python"
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_with_hashes(self):
+        """Test Rust scanner computes file hashes."""
+        from mu import _core
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "test.py").write_text("x = 1")
+
+            result = _core.scan_directory(
+                str(tmpdir), extensions=["py"], compute_hashes=True
+            )
+
+            assert len(result.files) == 1
+            assert result.files[0].hash is not None
+            assert result.files[0].hash.startswith("xxh3:")
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_with_line_count(self):
+        """Test Rust scanner counts lines."""
+        from mu import _core
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "test.py").write_text("line1\nline2\nline3\n")
+
+            result = _core.scan_directory(
+                str(tmpdir), extensions=["py"], count_lines_flag=True
+            )
+
+            assert len(result.files) == 1
+            assert result.files[0].lines == 3
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_respects_gitignore(self):
+        """Test Rust scanner respects .gitignore."""
+        import subprocess
+        from mu import _core
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            # Initialize git repo for .gitignore to be respected
+            subprocess.run(["git", "init"], cwd=tmpdir, capture_output=True)
+            (tmppath / "main.py").write_text("print('hello')")
+            (tmppath / "ignored.py").write_text("print('ignored')")
+            (tmppath / ".gitignore").write_text("ignored.py\n")
+
+            result = _core.scan_directory(str(tmpdir), extensions=["py"])
+
+            paths = [f.path for f in result.files]
+            assert "main.py" in paths
+            assert "ignored.py" not in paths
+
+    @pytest.mark.skipif(
+        not __import__("mu.scanner", fromlist=["_HAS_RUST_SCANNER"])._HAS_RUST_SCANNER,
+        reason="Rust scanner not available",
+    )
+    def test_rust_scan_auto_function(self):
+        """Test scan_codebase_auto uses Rust when available."""
+        from mu.scanner import scan_codebase_auto, _USE_RUST_SCANNER
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "test.py").write_text("x = 1")
+
+            config = MUConfig()
+            result = scan_codebase_auto(Path(tmpdir), config)
+
+            assert result.stats.total_files == 1
+            # Hash format depends on which scanner was used
+            if _USE_RUST_SCANNER:
+                assert result.files[0].hash.startswith("xxh3:")
+            else:
+                assert result.files[0].hash.startswith("sha256:")

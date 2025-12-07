@@ -29,6 +29,7 @@ pub mod exporter;
 pub mod graph;
 pub mod parser;
 pub mod reducer;
+pub mod scanner;
 pub mod security;
 pub mod types;
 
@@ -198,6 +199,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SecretMatch>()?;
     m.add_class::<graph::GraphEngine>()?;
 
+    // Scanner types
+    m.add_class::<scanner::ScannedFile>()?;
+    m.add_class::<scanner::ScanResult>()?;
+
     // Functions
     m.add_function(wrap_pyfunction!(parse_files, m)?)?;
     m.add_function(wrap_pyfunction!(parse_file, m)?)?;
@@ -208,6 +213,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(export_json, m)?)?;
     m.add_function(wrap_pyfunction!(export_markdown, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
+
+    // Scanner function
+    m.add_function(wrap_pyfunction!(scanner::scan_directory, m)?)?;
 
     Ok(())
 }

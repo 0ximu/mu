@@ -132,7 +132,7 @@ static DECISION_OPERATORS: Lazy<HashSet<&str>> =
 pub fn calculate(source: &str, language: &str) -> u32 {
     // This is a simplified version - for full accuracy, we'd need to parse
     // the source and walk the AST. For now, we'll use heuristics.
-    let decision_types = DECISION_POINTS.get(language).cloned().unwrap_or_default();
+    let _decision_types = DECISION_POINTS.get(language).cloned().unwrap_or_default();
     let mut complexity = 1u32;
 
     // Simple keyword counting as fallback

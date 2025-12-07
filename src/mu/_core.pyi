@@ -245,3 +245,65 @@ def version() -> str:
         Version string
     """
     ...
+
+# Scanner types and functions
+
+class ScannedFile:
+    """Information about a scanned file."""
+
+    path: str
+    language: str
+    size_bytes: int
+    hash: str | None
+    lines: int
+
+    def __init__(
+        self,
+        path: str,
+        language: str,
+        size_bytes: int,
+        hash: str | None = None,
+        lines: int = 0,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+
+class ScanResult:
+    """Result of scanning a directory."""
+
+    files: list[ScannedFile]
+    skipped_count: int
+    error_count: int
+    duration_ms: float
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+
+    def __len__(self) -> int: ...
+
+def scan_directory(
+    root_path: str,
+    extensions: list[str] | None = None,
+    ignore_patterns: list[str] | None = None,
+    follow_symlinks: bool = False,
+    compute_hashes: bool = False,
+    count_lines_flag: bool = False,
+) -> ScanResult:
+    """Scan a directory for source files.
+
+    Uses the `ignore` crate for fast, parallel traversal with gitignore support.
+
+    Args:
+        root_path: Root directory to scan
+        extensions: Optional list of file extensions to include (e.g., ["py", "ts"])
+        ignore_patterns: Additional patterns to ignore (beyond .gitignore)
+        follow_symlinks: Whether to follow symbolic links
+        compute_hashes: Whether to compute file hashes (slower but useful for caching)
+        count_lines_flag: Whether to count lines in files
+
+    Returns:
+        ScanResult containing discovered files and statistics.
+    """
+    ...
