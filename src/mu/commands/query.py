@@ -56,7 +56,9 @@ def _execute_muql(
     client = DaemonClient()
     if client.is_running():
         try:
-            result_dict = client.query(query_str)
+            # Pass cwd for multi-project routing
+            cwd = str(path.resolve())
+            result_dict = client.query(query_str, cwd=cwd)
             # Convert daemon response to QueryResult for formatting
             result = QueryResult(
                 columns=result_dict.get("columns", []),

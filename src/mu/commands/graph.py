@@ -4,6 +4,10 @@ These commands expose the Rust-based petgraph algorithms for graph reasoning:
 - mu impact: Find downstream impact ("If I change X, what breaks?")
 - mu ancestors: Find upstream dependencies ("What does X depend on?")
 - mu cycles: Detect circular dependencies
+
+Thin Client Architecture (ADR-002):
+- If daemon is running, forward requests via MCP tools (no DB lock)
+- If daemon is not running, fall back to local MUbase access
 """
 
 from __future__ import annotations
@@ -161,6 +165,39 @@ def impact(
         mu impact "mod:src/kernel/mubase.py" --edge-types imports
         mu impact MUbase -f json
     """
+    from mu.client import DaemonClient, DaemonError
+    from mu.logging import console, print_warning
+    from mu.mcp.server import mu_impact as mcp_impact
+
+    # Try daemon/MCP first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            # Use MCP tool which routes through daemon
+            edge_type_list = list(edge_types) if edge_types else None
+            result = mcp_impact(node, edge_type_list)
+
+            title = f"Impact of {result.node_id} ({result.count} nodes)"
+            output = _format_node_list(result.impacted_nodes, title, output_format, no_color)
+            console.print(output)
+            return
+        except DaemonError as e:
+            print_warning(f"Daemon request failed, falling back to local: {e}")
+        except Exception as e:
+            print_warning(f"MCP tool failed, falling back to local: {e}")
+
+    # Fallback: Local mode (requires lock)
+    _impact_local(node, path, edge_types, output_format, no_color)
+
+
+def _impact_local(
+    node: str,
+    path: Path,
+    edge_types: tuple[str, ...],
+    output_format: str,
+    no_color: bool,
+) -> None:
+    """Execute impact analysis in local mode (direct MUbase access)."""
     from mu.kernel import MUbase
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
@@ -246,6 +283,38 @@ def ancestors(
         mu ancestors "fn:src/auth.py:login" --edge-types calls
         mu ancestors MUbase -f json
     """
+    from mu.client import DaemonClient, DaemonError
+    from mu.logging import console, print_warning
+    from mu.mcp.server import mu_ancestors as mcp_ancestors
+
+    # Try daemon/MCP first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            edge_type_list = list(edge_types) if edge_types else None
+            result = mcp_ancestors(node, edge_type_list)
+
+            title = f"Ancestors of {result.node_id} ({result.count} nodes)"
+            output = _format_node_list(result.ancestor_nodes, title, output_format, no_color)
+            console.print(output)
+            return
+        except DaemonError as e:
+            print_warning(f"Daemon request failed, falling back to local: {e}")
+        except Exception as e:
+            print_warning(f"MCP tool failed, falling back to local: {e}")
+
+    # Fallback: Local mode (requires lock)
+    _ancestors_local(node, path, edge_types, output_format, no_color)
+
+
+def _ancestors_local(
+    node: str,
+    path: Path,
+    edge_types: tuple[str, ...],
+    output_format: str,
+    no_color: bool,
+) -> None:
+    """Execute ancestors analysis in local mode (direct MUbase access)."""
     from mu.kernel import MUbase
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
@@ -327,6 +396,38 @@ def cycles(
         mu cycles -e imports -e calls       # Import and call cycles
         mu cycles -f json                   # JSON output
     """
+    from mu.client import DaemonClient, DaemonError
+    from mu.logging import console, print_info, print_warning
+    from mu.mcp.server import mu_cycles as mcp_cycles
+
+    # Try daemon/MCP first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            edge_type_list = list(edge_types) if edge_types else None
+            result = mcp_cycles(edge_type_list)
+
+            print_info(f"Analyzed graph: {result.total_nodes_in_cycles} nodes in cycles")
+
+            output = _format_cycles(result.cycles, output_format, no_color)
+            console.print(output)
+            return
+        except DaemonError as e:
+            print_warning(f"Daemon request failed, falling back to local: {e}")
+        except Exception as e:
+            print_warning(f"MCP tool failed, falling back to local: {e}")
+
+    # Fallback: Local mode (requires lock)
+    _cycles_local(path, edge_types, output_format, no_color)
+
+
+def _cycles_local(
+    path: Path,
+    edge_types: tuple[str, ...],
+    output_format: str,
+    no_color: bool,
+) -> None:
+    """Execute cycle detection in local mode (direct MUbase access)."""
     from mu.kernel import MUbase
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_info

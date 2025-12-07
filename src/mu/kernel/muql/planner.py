@@ -282,14 +282,27 @@ class QueryPlanner:
 
     def _build_select_clause(self, fields: list[SelectField], columns: list[str]) -> str:
         """Build the SELECT clause from field list."""
+        # Full column list matching the nodes table schema order
+        all_columns = [
+            "id",
+            "type",
+            "name",
+            "qualified_name",
+            "file_path",
+            "line_start",
+            "line_end",
+            "properties",
+            "complexity",
+        ]
+
         if not fields:
-            columns.extend(["id", "name", "type", "path", "complexity"])
+            columns.extend(all_columns)
             return "*"
 
         parts: list[str] = []
         for select_field in fields:
             if select_field.is_star and not select_field.aggregate:
-                columns.extend(["id", "name", "type", "path", "complexity"])
+                columns.extend(all_columns)
                 parts.append("*")
             elif select_field.aggregate:
                 agg = select_field.aggregate.value.upper()
