@@ -20,8 +20,8 @@ a = Analysis(
     pathex=[str(src_root)],
     binaries=[],
     datas=[
-        # Include any data files needed at runtime
-        # Tree-sitter language files are compiled bindings, included via hiddenimports
+        # Include MUQL grammar file (required for Lark parser at runtime)
+        ("src/mu/kernel/muql/grammar.lark", "mu/kernel/muql"),
     ],
     hiddenimports=[
         # MU internal modules
@@ -32,16 +32,24 @@ a = Analysis(
         "mu.logging",
         "mu.client",
         "mu.describe",
-        # Parser extractors
+        # Parser extractors (correct paths - no 'extractors' subpackage)
         "mu.parser",
-        "mu.parser.extractors",
-        "mu.parser.extractors.python_extractor",
-        "mu.parser.extractors.javascript_extractor",
-        "mu.parser.extractors.typescript_extractor",
-        "mu.parser.extractors.go_extractor",
-        "mu.parser.extractors.java_extractor",
-        "mu.parser.extractors.rust_extractor",
-        "mu.parser.extractors.csharp_extractor",
+        "mu.parser.base",
+        "mu.parser.models",
+        "mu.parser.python_extractor",
+        "mu.parser.typescript_extractor",
+        "mu.parser.go_extractor",
+        "mu.parser.java_extractor",
+        "mu.parser.rust_extractor",
+        "mu.parser.csharp_extractor",
+        # Kernel modules
+        "mu.kernel",
+        "mu.kernel.muql",
+        "mu.kernel.muql.parser",
+        "mu.kernel.muql.engine",
+        "mu.kernel.muql.executor",
+        "mu.kernel.muql.planner",
+        "mu.kernel.muql.formatter",
         # Tree-sitter language bindings
         "tree_sitter",
         "tree_sitter_python",
