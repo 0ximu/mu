@@ -1,7 +1,6 @@
 # Python type stubs for mu._core
 # Auto-generated from Rust types
 
-
 class ParameterDef:
     """Function/method parameter definition."""
 
@@ -10,7 +9,6 @@ class ParameterDef:
     default_value: str | None
     is_variadic: bool
     is_keyword: bool
-
 
 class FunctionDef:
     """Function or method definition."""
@@ -30,7 +28,6 @@ class FunctionDef:
     start_line: int
     end_line: int
 
-
 class ClassDef:
     """Class or type definition."""
 
@@ -43,7 +40,6 @@ class ClassDef:
     start_line: int
     end_line: int
 
-
 class ImportDef:
     """Import statement definition."""
 
@@ -55,7 +51,6 @@ class ImportDef:
     dynamic_pattern: str | None
     dynamic_source: str | None
     line_number: int
-
 
 class ModuleDef:
     """Module-level AST definition."""
@@ -74,7 +69,6 @@ class ModuleDef:
         """Convert to dictionary representation."""
         ...
 
-
 class FileInfo:
     """File information for parsing."""
 
@@ -82,13 +76,11 @@ class FileInfo:
     source: str
     language: str
 
-
 class ParseResult:
     """Result of parsing a single file."""
 
     module: ModuleDef | None
     error: str | None
-
 
 class SecretMatch:
     """A detected secret in source code."""
@@ -98,7 +90,6 @@ class SecretMatch:
     end: int
     line: int
     column: int
-
 
 class GraphEngine:
     """High-performance graph engine for code analysis."""
@@ -154,7 +145,6 @@ class GraphEngine:
         """Find neighbors at given depth in given direction."""
         ...
 
-
 def parse_file(source: str, file_path: str, language: str) -> ParseResult:
     """Parse a single source file.
 
@@ -168,10 +158,7 @@ def parse_file(source: str, file_path: str, language: str) -> ParseResult:
     """
     ...
 
-
-def parse_files(
-    file_infos: list[FileInfo], num_threads: int | None = None
-) -> list[ParseResult]:
+def parse_files(file_infos: list[FileInfo], num_threads: int | None = None) -> list[ParseResult]:
     """Parse multiple files in parallel.
 
     Args:
@@ -182,7 +169,6 @@ def parse_files(
         List of ParseResult for each file
     """
     ...
-
 
 def find_secrets(text: str) -> list[SecretMatch]:
     """Find secrets in text.
@@ -195,7 +181,6 @@ def find_secrets(text: str) -> list[SecretMatch]:
     """
     ...
 
-
 def redact_secrets(text: str) -> str:
     """Redact secrets from text.
 
@@ -206,7 +191,6 @@ def redact_secrets(text: str) -> str:
         Text with secrets replaced by [REDACTED]
     """
     ...
-
 
 def calculate_complexity(source: str, language: str) -> int:
     """Calculate cyclomatic complexity for source code.
@@ -220,7 +204,6 @@ def calculate_complexity(source: str, language: str) -> int:
     """
     ...
 
-
 def export_mu(module: ModuleDef) -> str:
     """Export module to MU format.
 
@@ -231,7 +214,6 @@ def export_mu(module: ModuleDef) -> str:
         MU format string
     """
     ...
-
 
 def export_json(module: ModuleDef, pretty: bool = False) -> str:
     """Export module to JSON format.
@@ -245,7 +227,6 @@ def export_json(module: ModuleDef, pretty: bool = False) -> str:
     """
     ...
 
-
 def export_markdown(module: ModuleDef) -> str:
     """Export module to Markdown format.
 
@@ -256,7 +237,6 @@ def export_markdown(module: ModuleDef) -> str:
         Markdown string
     """
     ...
-
 
 def version() -> str:
     """Get the version of the Rust core.

@@ -73,9 +73,7 @@ class GraphManager:
         nodes = [row[0] for row in node_rows]
 
         # Fetch all edges as (source, target, type) tuples
-        edge_rows = self.db.execute(
-            "SELECT source_id, target_id, type FROM edges"
-        ).fetchall()
+        edge_rows = self.db.execute("SELECT source_id, target_id, type FROM edges").fetchall()
         edges = [(row[0], row[1], row[2]) for row in edge_rows]
 
         # Create the Rust GraphEngine
@@ -98,9 +96,7 @@ class GraphManager:
     def _ensure_loaded(self) -> None:
         """Ensure engine is loaded, raise if not."""
         if self._engine is None:
-            raise RuntimeError(
-                "GraphEngine not loaded. Call load() first to hydrate from DuckDB."
-            )
+            raise RuntimeError("GraphEngine not loaded. Call load() first to hydrate from DuckDB.")
 
     # =========================================================================
     # Graph Algorithms
