@@ -19,6 +19,7 @@ from mu.kernel.muql.ast import (
     Comparison,
     ComparisonOperator,
     Condition,
+    CyclesQuery,
     DescribeQuery,
     DescribeTarget,
     EdgeTypeFilter,
@@ -353,6 +354,12 @@ class MUQLTransformer(Transformer[Token, Any]):
     def show_parents(self, items: list[Any]) -> ShowType:
         return ShowType.PARENTS
 
+    def show_impact(self, items: list[Any]) -> ShowType:
+        return ShowType.IMPACT
+
+    def show_ancestors(self, items: list[Any]) -> ShowType:
+        return ShowType.ANCESTORS
+
     def show_type(self, items: list[ShowType]) -> ShowType:
         return items[0]
 
@@ -383,6 +390,57 @@ class MUQLTransformer(Transformer[Token, Any]):
                 depth = item
 
         return ShowQuery(show_type=show_type, target=target, depth=depth)
+
+    # -------------------------------------------------------------------------
+    # FIND CYCLES Query (Graph cycle detection)
+    # -------------------------------------------------------------------------
+
+    def edge_type_string(self, items: list[Token]) -> str:
+        """Extract edge type string, removing quotes."""
+        raw = str(items[0])
+        return raw[1:-1]  # Remove quotes
+
+    def edge_type_value(self, items: list[str]) -> str:
+        """Pass through edge type value."""
+        return items[0]
+
+    def edge_type_list(self, items: list[str]) -> list[str]:
+        """Collect edge type values into list."""
+        return list(items)
+
+    def edge_type_filter(self, items: list[Any]) -> list[str]:
+        """Transform edge type filter to list of edge types.
+
+        Handles both:
+        - WHERE edge_type = 'imports' -> ['imports']
+        - WHERE edge_type IN ('imports', 'calls') -> ['imports', 'calls']
+        """
+        edge_types: list[str] = []
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, str) and not item.startswith(("=", "!", "<", ">")):
+                edge_types.append(item)
+            elif isinstance(item, list):
+                edge_types.extend(item)
+        return edge_types
+
+    def find_cycles_query(self, items: list[Any]) -> CyclesQuery:
+        """Transform FIND CYCLES query."""
+        # Items: [FIND_KW, CYCLES_KW, edge_type_filter?]
+        edge_types: list[str] = []
+
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, list):
+                edge_types = item
+
+        return CyclesQuery(edge_types=edge_types)
 
     # -------------------------------------------------------------------------
     # FIND Query
@@ -846,6 +904,7 @@ class MUQLParser:
                     HistoryQuery,
                     BlameQuery,
                     DescribeQuery,
+                    CyclesQuery,
                 ),
             ):
                 raise MUQLSyntaxError(f"Unexpected parse result: {type(result)}")

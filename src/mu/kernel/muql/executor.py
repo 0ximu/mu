@@ -170,13 +170,24 @@ class QueryExecutor:
         return target
 
     def _execute_graph(self, plan: GraphPlan) -> QueryResult:
-        """Execute graph traversal plan using MUbase methods."""
+        """Execute graph traversal plan using MUbase methods or GraphManager."""
         operation = plan.operation
-        target = self._resolve_node_id(plan.target_node)
+        target = self._resolve_node_id(plan.target_node) if plan.target_node else ""
         depth = plan.depth
 
         try:
-            if operation == "get_dependencies":
+            # petgraph-backed operations (use GraphManager)
+            if operation == "find_cycles":
+                return self._execute_find_cycles(plan)
+
+            elif operation == "get_impact":
+                return self._execute_impact(plan, target)
+
+            elif operation == "get_ancestors":
+                return self._execute_ancestors(plan, target)
+
+            # MUbase-backed operations (SQL/DuckDB)
+            elif operation == "get_dependencies":
                 nodes = self._db.get_dependencies(target, depth=depth)
                 return self._nodes_to_result(nodes, "Dependencies")
 
@@ -217,9 +228,8 @@ class QueryExecutor:
 
             elif operation == "find_path":
                 to_node = plan.extra_args.get("to_node", "")
-                # edge_types filtering not yet implemented in find_path
-                path = self._db.find_path(target, to_node, max_depth=depth)
-                return self._path_to_result(path)
+                # Use GraphManager for path finding if available
+                return self._execute_path(plan, target, to_node, depth)
 
             elif operation.startswith("find_"):
                 # Graph-based FIND queries
@@ -292,6 +302,153 @@ class QueryExecutor:
     def _not_implemented(self, operation: str) -> QueryResult:
         """Return not implemented error."""
         return QueryResult(error=f"Operation not implemented: {operation}")
+
+    # -------------------------------------------------------------------------
+    # GraphManager-backed Operations (petgraph)
+    # -------------------------------------------------------------------------
+
+    def _get_graph_manager(self) -> Any:
+        """Get GraphManager instance, loading from DuckDB if needed.
+
+        Returns:
+            GraphManager with loaded graph data.
+
+        Raises:
+            ImportError: If mu._core is not available.
+        """
+        from mu.kernel.graph import GraphManager
+
+        gm = GraphManager(self._db.conn)
+        gm.load()
+        return gm
+
+    def _execute_find_cycles(self, plan: GraphPlan) -> QueryResult:
+        """Execute FIND CYCLES query using petgraph's Kosaraju algorithm.
+
+        Uses GraphManager.find_cycles() for O(V+E) cycle detection.
+        """
+        try:
+            gm = self._get_graph_manager()
+
+            # Convert edge_types to list or None
+            edge_types = plan.edge_types if plan.edge_types else None
+            cycles = gm.find_cycles(edge_types)
+
+            return self._cycles_to_result(cycles)
+        except ImportError as e:
+            return QueryResult(error=f"Rust core not available: {e}")
+        except Exception as e:
+            return QueryResult(error=f"Cycle detection error: {e}")
+
+    def _execute_impact(self, plan: GraphPlan, target: str) -> QueryResult:
+        """Execute SHOW IMPACT query using petgraph BFS traversal.
+
+        "If I change X, what might break?"
+        Uses GraphManager.impact() for O(V+E) downstream analysis.
+        """
+        try:
+            gm = self._get_graph_manager()
+
+            if not target:
+                return QueryResult(error="SHOW IMPACT requires a target node")
+
+            # Check if node exists
+            if not gm.has_node(target):
+                return QueryResult(error=f"Node not found: {target}")
+
+            edge_types = plan.edge_types if plan.edge_types else None
+            impacted = gm.impact(target, edge_types)
+
+            return self._string_list_to_result(impacted, "Impact Analysis")
+        except ImportError as e:
+            return QueryResult(error=f"Rust core not available: {e}")
+        except Exception as e:
+            return QueryResult(error=f"Impact analysis error: {e}")
+
+    def _execute_ancestors(self, plan: GraphPlan, target: str) -> QueryResult:
+        """Execute SHOW ANCESTORS query using petgraph BFS traversal.
+
+        "What does X depend on?"
+        Uses GraphManager.ancestors() for O(V+E) upstream analysis.
+        """
+        try:
+            gm = self._get_graph_manager()
+
+            if not target:
+                return QueryResult(error="SHOW ANCESTORS requires a target node")
+
+            # Check if node exists
+            if not gm.has_node(target):
+                return QueryResult(error=f"Node not found: {target}")
+
+            edge_types = plan.edge_types if plan.edge_types else None
+            ancestors = gm.ancestors(target, edge_types)
+
+            return self._string_list_to_result(ancestors, "Ancestors")
+        except ImportError as e:
+            return QueryResult(error=f"Rust core not available: {e}")
+        except Exception as e:
+            return QueryResult(error=f"Ancestors analysis error: {e}")
+
+    def _execute_path(
+        self, plan: GraphPlan, from_node: str, to_node: str, max_depth: int
+    ) -> QueryResult:
+        """Execute PATH query using petgraph BFS.
+
+        Uses GraphManager.shortest_path() for O(V+E) path finding.
+        """
+        try:
+            gm = self._get_graph_manager()
+
+            if not from_node or not to_node:
+                return QueryResult(error="PATH requires both FROM and TO nodes")
+
+            edge_types = plan.edge_types if plan.edge_types else None
+            path = gm.shortest_path(from_node, to_node, edge_types)
+
+            return self._path_to_result(path)
+        except ImportError:
+            # Fall back to MUbase implementation
+            path = self._db.find_path(from_node, to_node, max_depth=max_depth)
+            return self._path_to_result(path)
+        except Exception as e:
+            return QueryResult(error=f"Path finding error: {e}")
+
+    def _cycles_to_result(self, cycles: list[list[str]]) -> QueryResult:
+        """Convert list of cycles to QueryResult."""
+        if not cycles:
+            return QueryResult(
+                columns=["cycle_id", "node"],
+                rows=[],
+                row_count=0,
+            )
+
+        rows = []
+        for cycle_id, cycle in enumerate(cycles):
+            for node in cycle:
+                rows.append((cycle_id, node))
+
+        return QueryResult(
+            columns=["cycle_id", "node"],
+            rows=rows,
+            row_count=len(rows),
+        )
+
+    def _string_list_to_result(self, nodes: list[str], label: str = "Results") -> QueryResult:
+        """Convert list of node ID strings to QueryResult."""
+        if not nodes:
+            return QueryResult(
+                columns=["node_id"],
+                rows=[],
+                row_count=0,
+            )
+
+        rows = [(node,) for node in nodes]
+        return QueryResult(
+            columns=["node_id"],
+            rows=rows,
+            row_count=len(rows),
+        )
 
     # -------------------------------------------------------------------------
     # Analysis Execution

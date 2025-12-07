@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    import duckdb
+    from duckdb import DuckDBPyConnection
 
 
 @dataclass
@@ -40,7 +40,7 @@ class GraphManager:
     provides a high-level Python API for graph algorithms.
     """
 
-    def __init__(self, db: duckdb.DuckDBPyConnection) -> None:
+    def __init__(self, db: DuckDBPyConnection) -> None:
         """Initialize GraphManager.
 
         Args:

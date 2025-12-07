@@ -1,71 +1,74 @@
 # Python type stubs for mu._core
 # Auto-generated from Rust types
 
-from typing import List, Optional
-
 
 class ParameterDef:
     """Function/method parameter definition."""
+
     name: str
-    type_annotation: Optional[str]
-    default_value: Optional[str]
+    type_annotation: str | None
+    default_value: str | None
     is_variadic: bool
     is_keyword: bool
 
 
 class FunctionDef:
     """Function or method definition."""
+
     name: str
-    decorators: List[str]
-    parameters: List[ParameterDef]
-    return_type: Optional[str]
+    decorators: list[str]
+    parameters: list[ParameterDef]
+    return_type: str | None
     is_async: bool
     is_static: bool
     is_classmethod: bool
     is_property: bool
     is_method: bool
-    docstring: Optional[str]
+    docstring: str | None
     body_complexity: int
-    body_source: Optional[str]
+    body_source: str | None
     start_line: int
     end_line: int
 
 
 class ClassDef:
     """Class or type definition."""
+
     name: str
-    bases: List[str]
-    decorators: List[str]
-    docstring: Optional[str]
-    methods: List[FunctionDef]
-    attributes: List[str]
+    bases: list[str]
+    decorators: list[str]
+    docstring: str | None
+    methods: list[FunctionDef]
+    attributes: list[str]
     start_line: int
     end_line: int
 
 
 class ImportDef:
     """Import statement definition."""
+
     module: str
-    names: List[str]
-    alias: Optional[str]
+    names: list[str]
+    alias: str | None
     is_from: bool
     is_dynamic: bool
-    dynamic_pattern: Optional[str]
-    dynamic_source: Optional[str]
+    dynamic_pattern: str | None
+    dynamic_source: str | None
     line_number: int
 
 
 class ModuleDef:
     """Module-level AST definition."""
+
     name: str
     path: str
     language: str
-    module_docstring: Optional[str]
-    imports: List[ImportDef]
-    classes: List[ClassDef]
-    functions: List[FunctionDef]
+    module_docstring: str | None
+    imports: list[ImportDef]
+    classes: list[ClassDef]
+    functions: list[FunctionDef]
     total_lines: int
-    error: Optional[str]
+    error: str | None
 
     def to_dict(self) -> dict:
         """Convert to dictionary representation."""
@@ -74,6 +77,7 @@ class ModuleDef:
 
 class FileInfo:
     """File information for parsing."""
+
     path: str
     source: str
     language: str
@@ -81,17 +85,74 @@ class FileInfo:
 
 class ParseResult:
     """Result of parsing a single file."""
-    module: Optional[ModuleDef]
-    error: Optional[str]
+
+    module: ModuleDef | None
+    error: str | None
 
 
 class SecretMatch:
     """A detected secret in source code."""
+
     pattern_name: str
     start: int
     end: int
     line: int
     column: int
+
+
+class GraphEngine:
+    """High-performance graph engine for code analysis."""
+
+    def __init__(self, nodes: list[str], edges: list[tuple[str, str, str]]) -> None:
+        """Initialize the graph engine with nodes and edges."""
+        ...
+
+    def node_count(self) -> int:
+        """Return the number of nodes in the graph."""
+        ...
+
+    def edge_count(self) -> int:
+        """Return the number of edges in the graph."""
+        ...
+
+    def edge_types(self) -> list[str]:
+        """Return unique edge types in the graph."""
+        ...
+
+    def has_node(self, node_id: str) -> bool:
+        """Check if a node exists."""
+        ...
+
+    def find_cycles(self, edge_types: list[str] | None = None) -> list[list[str]]:
+        """Find all cycles (strongly connected components with >1 node)."""
+        ...
+
+    def impact(self, node_id: str, edge_types: list[str] | None = None) -> list[str]:
+        """Find downstream nodes (what might break if this changes)."""
+        ...
+
+    def ancestors(self, node_id: str, edge_types: list[str] | None = None) -> list[str]:
+        """Find upstream nodes (what this depends on)."""
+        ...
+
+    def shortest_path(
+        self,
+        from_id: str,
+        to_id: str,
+        edge_types: list[str] | None = None,
+    ) -> list[str] | None:
+        """Find shortest path between two nodes."""
+        ...
+
+    def neighbors(
+        self,
+        node_id: str,
+        direction: str,
+        depth: int,
+        edge_types: list[str] | None = None,
+    ) -> list[str]:
+        """Find neighbors at given depth in given direction."""
+        ...
 
 
 def parse_file(source: str, file_path: str, language: str) -> ParseResult:
@@ -108,7 +169,9 @@ def parse_file(source: str, file_path: str, language: str) -> ParseResult:
     ...
 
 
-def parse_files(file_infos: List[FileInfo], num_threads: Optional[int] = None) -> List[ParseResult]:
+def parse_files(
+    file_infos: list[FileInfo], num_threads: int | None = None
+) -> list[ParseResult]:
     """Parse multiple files in parallel.
 
     Args:
@@ -121,7 +184,7 @@ def parse_files(file_infos: List[FileInfo], num_threads: Optional[int] = None) -
     ...
 
 
-def find_secrets(text: str) -> List[SecretMatch]:
+def find_secrets(text: str) -> list[SecretMatch]:
     """Find secrets in text.
 
     Args:
@@ -191,5 +254,14 @@ def export_markdown(module: ModuleDef) -> str:
 
     Returns:
         Markdown string
+    """
+    ...
+
+
+def version() -> str:
+    """Get the version of the Rust core.
+
+    Returns:
+        Version string
     """
     ...
