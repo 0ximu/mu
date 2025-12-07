@@ -124,9 +124,7 @@ class ContractsResponse(BaseModel):
     passed: bool = Field(description="Whether all contracts passed")
     error_count: int = Field(description="Number of errors")
     warning_count: int = Field(description="Number of warnings")
-    violations: list[ContractViolationResponse] = Field(
-        description="List of violations"
-    )
+    violations: list[ContractViolationResponse] = Field(description="List of violations")
 
 
 # =============================================================================
@@ -401,7 +399,8 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
             from mu.kernel.muql import MUQLEngine
 
             engine = MUQLEngine(state.mubase)
-            result = engine.query(request.muql, "json")
+            # Use query_dict to return dict directly - FastAPI handles serialization
+            result = engine.query_dict(request.muql)
             return QueryResponse(result=result, success=True)
         except Exception as e:
             return QueryResponse(result=None, success=False, error=str(e))

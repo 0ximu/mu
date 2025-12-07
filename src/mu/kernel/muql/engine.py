@@ -6,7 +6,7 @@ executing, and formatting MUQL queries.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mu.kernel.muql.executor import QueryExecutor, QueryResult
 from mu.kernel.muql.formatter import OutputFormat, format_result
@@ -89,21 +89,36 @@ class MUQLEngine:
         query: str,
         output_format: OutputFormat | str = OutputFormat.TABLE,
         no_color: bool = False,
-    ) -> str:
+    ) -> str | dict[str, Any]:
         """Execute a query and return formatted output.
 
         Convenience method that combines execute and format.
 
         Args:
             query: The MUQL query string.
-            output_format: Output format (table, json, csv, tree).
+            output_format: Output format (table, json, csv, tree, dict).
             no_color: If True, disable ANSI colors.
 
         Returns:
-            Formatted output string.
+            Formatted output string, or dict if output_format is "dict".
         """
         result = self.execute(query)
         return format_result(result, output_format, no_color)
+
+    def query_dict(self, query: str) -> dict[str, Any]:
+        """Execute a query and return result as dict.
+
+        Convenience method for API endpoints that need dict output
+        without string serialization.
+
+        Args:
+            query: The MUQL query string.
+
+        Returns:
+            Query result as dict (columns, rows, row_count, etc).
+        """
+        result = self.execute(query)
+        return result.to_dict()
 
     def explain(self, query: str) -> str:
         """Explain the execution plan for a query.

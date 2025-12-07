@@ -19,6 +19,7 @@ class OutputFormat(Enum):
     JSON = "json"
     CSV = "csv"
     TREE = "tree"
+    DICT = "dict"  # Returns dict for API use (no serialization)
 
 
 # =============================================================================
@@ -259,16 +260,16 @@ def format_result(
     result: QueryResult,
     output_format: OutputFormat | str = OutputFormat.TABLE,
     no_color: bool = False,
-) -> str:
+) -> str | dict[str, Any]:
     """Format query result in the specified format.
 
     Args:
         result: The query result to format.
-        output_format: The output format (table, json, csv, tree).
+        output_format: The output format (table, json, csv, tree, dict).
         no_color: If True, disable ANSI colors.
 
     Returns:
-        Formatted string.
+        Formatted string, or dict if output_format is DICT.
     """
     if isinstance(output_format, str):
         try:
@@ -284,6 +285,8 @@ def format_result(
         return format_csv(result)
     elif output_format == OutputFormat.TREE:
         return format_tree(result, no_color)
+    elif output_format == OutputFormat.DICT:
+        return result.to_dict()
     else:
         return format_table(result, no_color)
 
