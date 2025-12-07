@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     find_child_by_type,
     find_children_by_type,
     get_node_text,
@@ -214,7 +214,9 @@ class TypeScriptExtractor:
             elif child.type == "type_annotation":
                 func_def.return_type = self._extract_type_annotation(child, source)
             elif child.type == "statement_block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(
+                    child, "typescript", source
+                )
                 func_def.body_source = get_node_text(child, source)
 
         return func_def
@@ -238,7 +240,9 @@ class TypeScriptExtractor:
             elif child.type == "type_annotation":
                 func_def.return_type = self._extract_type_annotation(child, source)
             elif child.type == "statement_block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(
+                    child, "typescript", source
+                )
                 func_def.body_source = get_node_text(child, source)
 
         return func_def
@@ -275,7 +279,9 @@ class TypeScriptExtractor:
             elif child.type == "type_annotation":
                 func_def.return_type = self._extract_type_annotation(child, source)
             elif child.type == "statement_block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(
+                    child, "typescript", source
+                )
                 func_def.body_source = get_node_text(child, source)
 
         return func_def

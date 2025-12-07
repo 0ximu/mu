@@ -25,6 +25,18 @@ class QueryType(Enum):
     ANALYZE = "analyze"
     HISTORY = "history"
     BLAME = "blame"
+    DESCRIBE = "describe"
+
+
+class DescribeTarget(Enum):
+    """Targets for DESCRIBE queries."""
+
+    TABLES = "tables"
+    COLUMNS = "columns"
+    FUNCTIONS = "function"
+    CLASSES = "class"
+    MODULES = "module"
+    NODES = "nodes"
 
 
 class NodeTypeFilter(Enum):
@@ -437,11 +449,42 @@ class BlameQuery:
         }
 
 
+@dataclass
+class DescribeQuery:
+    """A DESCRIBE query for schema introspection.
+
+    Examples:
+        DESCRIBE tables
+        DESCRIBE classes
+        DESCRIBE columns FROM functions
+    """
+
+    query_type: QueryType = field(default=QueryType.DESCRIBE, init=False)
+    target: DescribeTarget = DescribeTarget.TABLES
+    node_type: NodeTypeFilter | None = None  # For DESCRIBE COLUMNS FROM
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query_type": self.query_type.value,
+            "target": self.target.value,
+            "node_type": self.node_type.value if self.node_type else None,
+        }
+
+
 # =============================================================================
 # Union Type
 # =============================================================================
 
-Query = SelectQuery | ShowQuery | FindQuery | PathQuery | AnalyzeQuery | HistoryQuery | BlameQuery
+Query = (
+    SelectQuery
+    | ShowQuery
+    | FindQuery
+    | PathQuery
+    | AnalyzeQuery
+    | HistoryQuery
+    | BlameQuery
+    | DescribeQuery
+)
 
 
 # =============================================================================
@@ -451,6 +494,7 @@ Query = SelectQuery | ShowQuery | FindQuery | PathQuery | AnalyzeQuery | History
 __all__ = [
     # Enums
     "QueryType",
+    "DescribeTarget",
     "NodeTypeFilter",
     "ShowType",
     "FindConditionType",
@@ -480,6 +524,7 @@ __all__ = [
     "AnalyzeQuery",
     "HistoryQuery",
     "BlameQuery",
+    "DescribeQuery",
     # Union type
     "Query",
 ]

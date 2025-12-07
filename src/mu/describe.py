@@ -45,7 +45,11 @@ class OptionInfo:
         }
         if self.short:
             result["short"] = self.short
-        if self.default is not None:
+        # Only include default if it's a JSON-serializable primitive
+        # (excludes None, Click's Sentinel values, Enums, etc.)
+        if self.default is not None and isinstance(
+            self.default, (str, int, float, bool, list, dict)
+        ):
             result["default"] = self.default
         return result
 
@@ -172,8 +176,12 @@ def _extract_command_info(cmd: click.Command, name: str | None = None) -> Comman
     # Extract subcommands for groups
     subcommands: list[CommandInfo] = []
     if isinstance(cmd, click.Group):
-        for sub_name, sub_cmd in sorted(cmd.commands.items()):
-            subcommands.append(_extract_command_info(sub_cmd, sub_name))
+        # Use list_commands to get all commands (supports LazyGroup)
+        ctx = click.Context(cmd)
+        for sub_name in cmd.list_commands(ctx):
+            sub_cmd = cmd.get_command(ctx, sub_name)
+            if sub_cmd is not None:
+                subcommands.append(_extract_command_info(sub_cmd, sub_name))
 
     return CommandInfo(
         name=cmd_name,

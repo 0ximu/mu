@@ -156,7 +156,6 @@ def man_command(
       mu man --toc        # Show table of contents
     """
     console = Console(
-        force_terminal=not no_color,
         width=width,
         no_color=no_color,
     )
@@ -179,5 +178,9 @@ def man_command(
         content = _load_all_content()
 
     # Render with pager
+    # Set LESS env var to handle ANSI codes properly (fixes PyInstaller binary)
+    import os
+
+    os.environ.setdefault("LESS", "-R")
     with console.pager(styles=True):
         console.print(Markdown(content))

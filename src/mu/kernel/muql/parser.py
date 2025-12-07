@@ -19,6 +19,8 @@ from mu.kernel.muql.ast import (
     Comparison,
     ComparisonOperator,
     Condition,
+    DescribeQuery,
+    DescribeTarget,
     EdgeTypeFilter,
     FindCondition,
     FindConditionType,
@@ -720,6 +722,79 @@ class MUQLTransformer(Transformer[Token, Any]):
 
         return BlameQuery(target=target)
 
+    # -------------------------------------------------------------------------
+    # SHOW TABLES/COLUMNS Query (SQL-compatible aliases)
+    # -------------------------------------------------------------------------
+
+    def show_tables_query(self, items: list[Any]) -> DescribeQuery:
+        """SHOW TABLES -> DESCRIBE tables (SQL-compatible alias)."""
+        return DescribeQuery(target=DescribeTarget.TABLES)
+
+    def show_columns_query(self, items: list[Any]) -> DescribeQuery:
+        """SHOW COLUMNS FROM <node_type> -> DESCRIBE columns from <node_type>."""
+        # Extract node_type from items (filtering out keyword tokens)
+        node_type: NodeTypeFilter | None = None
+        for item in items:
+            if isinstance(item, NodeTypeFilter):
+                node_type = item
+                break
+        return DescribeQuery(target=DescribeTarget.COLUMNS, node_type=node_type)
+
+    # -------------------------------------------------------------------------
+    # DESCRIBE Query
+    # -------------------------------------------------------------------------
+
+    def describe_tables(self, items: list[Any]) -> DescribeTarget:
+        return DescribeTarget.TABLES
+
+    def describe_columns(self, items: list[Any]) -> tuple[DescribeTarget, NodeTypeFilter]:
+        # items: [COLUMNS_KW, FROM_KW, node_type]
+        node_type = NodeTypeFilter.NODES
+        for item in items:
+            if isinstance(item, NodeTypeFilter):
+                node_type = item
+        return DescribeTarget.COLUMNS, node_type
+
+    def describe_node_type(self, items: list[Any]) -> DescribeTarget:
+        # items: [node_type] -> map to DescribeTarget
+        for item in items:
+            if isinstance(item, NodeTypeFilter):
+                mapping = {
+                    NodeTypeFilter.FUNCTIONS: DescribeTarget.FUNCTIONS,
+                    NodeTypeFilter.CLASSES: DescribeTarget.CLASSES,
+                    NodeTypeFilter.MODULES: DescribeTarget.MODULES,
+                    NodeTypeFilter.NODES: DescribeTarget.NODES,
+                }
+                return mapping.get(item, DescribeTarget.NODES)
+        return DescribeTarget.NODES
+
+    def describe_target(self, items: list[Any]) -> tuple[DescribeTarget, NodeTypeFilter | None]:
+        # Handle different describe target types
+        for item in items:
+            if isinstance(item, tuple):
+                return item  # (DescribeTarget.COLUMNS, node_type)
+            if isinstance(item, DescribeTarget):
+                return item, None
+        return DescribeTarget.TABLES, None
+
+    def describe_query(self, items: list[Any]) -> DescribeQuery:
+        """Transform DESCRIBE query."""
+        # Items: [DESCRIBE_KW, describe_target]
+        target = DescribeTarget.TABLES
+        node_type: NodeTypeFilter | None = None
+
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, tuple):
+                target, node_type = item
+            elif isinstance(item, DescribeTarget):
+                target = item
+
+        return DescribeQuery(target=target, node_type=node_type)
+
 
 # =============================================================================
 # Parser Class
@@ -770,6 +845,7 @@ class MUQLParser:
                     AnalyzeQuery,
                     HistoryQuery,
                     BlameQuery,
+                    DescribeQuery,
                 ),
             ):
                 raise MUQLSyntaxError(f"Unexpected parse result: {type(result)}")

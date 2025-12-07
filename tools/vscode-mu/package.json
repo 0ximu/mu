@@ -28,6 +28,10 @@
   "activationEvents": [
     "workspaceContains:.mubase",
     "onLanguage:mu",
+    "onView:mu.modules",
+    "onView:mu.classes",
+    "onView:mu.functions",
+    "onView:mu.hotspots",
     "onCommand:mu.compress",
     "onCommand:mu.preview",
     "onCommand:mu.diff"
@@ -282,8 +286,5 @@
     "mocha": "^10.2.0",
     "sinon": "^17.0.1",
     "typescript": "^5.3.0"
-  },
-  "dependencies": {
-    "ws": "^8.16.0"
   }
 }

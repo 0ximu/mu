@@ -57,13 +57,15 @@ mu compress <path> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--output, -o` | stdout | Output file path |
-| `--format, -f` | `mu` | Output format: `mu`, `json`, `md` |
+| `--format, -f` | `mu` | Output format: `mu`, `json`, `markdown` |
 | `--llm` | false | Enable LLM summarization |
-| `--llm-provider` | `anthropic` | LLM provider to use |
+| `--llm-provider` | `anthropic` | LLM provider: `anthropic`, `openai`, `ollama`, `openrouter` |
+| `--llm-model` | varies | Override LLM model |
 | `--local` | false | Use local LLM (Ollama) |
 | `--no-redact` | false | Disable secret redaction |
-| `--include` | `*` | Glob patterns to include |
-| `--exclude` | - | Glob patterns to exclude |
+| `--shell-safe` | false | Escape sigils for shell piping |
+| `-y, --yes` | false | Skip confirmation prompts |
+| `--no-cache` | false | Disable caching (process all files fresh) |
 
 **Examples:**
 ```bash
@@ -97,8 +99,10 @@ mu view <file> [options]
 **Options:**
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--format, -f` | `terminal` | Output: `terminal`, `html`, `md` |
-| `--output, -o` | stdout | Output file (for html/md) |
+| `--format, -f` | `terminal` | Output: `terminal`, `html`, `markdown` |
+| `--theme` | `dark` | Color theme: `dark`, `light` |
+| `-n, --line-numbers` | false | Show line numbers |
+| `--output, -o` | stdout | Output file (for html/markdown) |
 
 **Examples:**
 ```bash
@@ -137,6 +141,248 @@ mu diff main HEAD
 
 # Diff current changes
 mu diff HEAD
+```
+
+### `mu query` / `mu q`
+
+Execute MUQL queries (top-level alias for `mu kernel muql`).
+
+```bash
+mu query <query> [options]
+mu q <query> [options]
+```
+
+**Arguments:**
+- `query`: MUQL query string
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--path, -p` | `.` | Path to codebase |
+| `--format, -f` | `table` | Output: `table`, `json`, `csv`, `tree` |
+| `--interactive, -i` | false | Start interactive REPL |
+| `--explain` | false | Show execution plan |
+| `--no-color` | false | Disable colored output |
+| `--full-paths` | false | Show full file paths without truncation |
+
+**Examples:**
+```bash
+# Quick query
+mu q "SELECT name FROM nodes WHERE type = 'function'"
+
+# With path
+mu query -p ./myproject "SELECT * FROM nodes WHERE complexity > 10"
+
+# JSON output for scripting
+mu q --format json "SELECT name, complexity FROM nodes"
+```
+
+### `mu describe`
+
+Output MU representation of CLI interface (for AI agents).
+
+```bash
+mu describe [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format, -f` | `mu` | Output: `mu`, `json`, `markdown` |
+
+**Examples:**
+```bash
+# MU format (default, most compact)
+mu describe
+
+# JSON for programmatic consumption
+mu describe --format json
+
+# Markdown for documentation
+mu describe --format markdown
+
+# Pipe to clipboard for LLM context
+mu describe | pbcopy
+```
+
+### `mu man`
+
+Display the MU manual.
+
+```bash
+mu man [topic] [options]
+```
+
+**Arguments:**
+- `topic`: Manual topic (optional)
+
+**Topics:**
+| Topic | Description |
+|-------|-------------|
+| `intro` | What is MU? |
+| `quickstart` | 5-minute getting started guide |
+| `sigils` | Sigil reference with examples |
+| `operators` | Data flow operators |
+| `query` | MUbase queries and graph database |
+| `workflows` | Common usage patterns |
+| `philosophy` | Design principles behind MU |
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--toc` | false | Print table of contents |
+| `--no-color` | false | Disable colored output |
+| `--width` | auto | Override terminal width |
+
+**Examples:**
+```bash
+# Interactive manual navigation
+mu man
+
+# Specific topic
+mu man quickstart
+mu man sigils
+
+# Table of contents
+mu man --toc
+```
+
+### `mu llm`
+
+Output MU format spec for LLM consumption.
+
+```bash
+mu llm [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--full` | false | Complete spec with all examples (~2K tokens) |
+| `--examples` | false | Just example transformations |
+| `--copy` | false | Copy to clipboard |
+| `--raw` | false | Output without version header |
+
+**Examples:**
+```bash
+# Quick reference
+mu llm
+
+# Full specification
+mu llm --full
+
+# Copy to clipboard
+mu llm --copy
+```
+
+---
+
+## Kernel Commands
+
+The `mu kernel` command group provides graph database operations.
+
+### `mu kernel init`
+
+Initialize a .mubase graph database.
+
+```bash
+mu kernel init [path] [options]
+```
+
+**Arguments:**
+- `path`: Directory to initialize (default: current directory)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--force, -f` | false | Overwrite existing .mubase file |
+
+### `mu kernel build`
+
+Build graph database from codebase.
+
+```bash
+mu kernel build [path] [options]
+```
+
+**Arguments:**
+- `path`: Directory to scan (default: current directory)
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output, -o` | `{path}/.mubase` | Output .mubase file |
+
+### `mu kernel stats`
+
+Show graph database statistics.
+
+```bash
+mu kernel stats [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--json` | false | Output as JSON |
+
+### `mu kernel query`
+
+Query the graph database (simple interface).
+
+```bash
+mu kernel query [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--type, -t` | all | Filter: `module`, `class`, `function`, `external` |
+| `--complexity, -c` | 0 | Minimum complexity threshold |
+| `--name, -n` | - | Filter by name (supports % wildcard) |
+| `--limit, -l` | 20 | Maximum results |
+| `--json` | false | Output as JSON |
+
+**Examples:**
+```bash
+# Find complex functions
+mu kernel query --complexity 20
+
+# Search by name pattern
+mu kernel query --name "parse%"
+
+# Filter by type
+mu kernel query --type class --limit 50
+```
+
+### `mu kernel deps`
+
+Show dependencies or dependents of a node.
+
+```bash
+mu kernel deps <node_name> [path] [options]
+```
+
+**Arguments:**
+- `node_name`: Function, class, or module name
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--depth, -d` | 1 | Depth of traversal |
+| `--reverse, -r` | false | Show dependents instead |
+| `--json` | false | Output as JSON |
+
+**Examples:**
+```bash
+# Show dependencies
+mu kernel deps UserService
+
+# Show what depends on this node
+mu kernel deps UserService --reverse
+
+# Deep traversal
+mu kernel deps AuthModule --depth 3
 ```
 
 ### `mu kernel embed`
@@ -266,6 +512,135 @@ mu kernel search "database connection" --json
 mu kernel search "api endpoint" --local
 ```
 
+### `mu kernel snapshot`
+
+Create a temporal snapshot of the current graph state (links to git commits).
+
+```bash
+mu kernel snapshot [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--commit, -c` | HEAD | Git commit to snapshot |
+| `--force, -f` | false | Overwrite existing snapshot |
+| `--json` | false | Output as JSON |
+
+### `mu kernel snapshots`
+
+List all temporal snapshots.
+
+```bash
+mu kernel snapshots [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit, -l` | 20 | Maximum snapshots to show |
+| `--json` | false | Output as JSON |
+
+### `mu kernel history`
+
+Show change history for a code node.
+
+```bash
+mu kernel history <node_name> [path] [options]
+```
+
+**Arguments:**
+- `node_name`: Name of node to track
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--limit, -l` | 20 | Maximum changes to show |
+| `--json` | false | Output as JSON |
+
+### `mu kernel blame`
+
+Show who last modified each aspect of a node (like git blame).
+
+```bash
+mu kernel blame <node_name> [path] [options]
+```
+
+**Arguments:**
+- `node_name`: Name of node
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--json` | false | Output as JSON |
+
+### `mu kernel diff`
+
+Show semantic diff between two snapshots.
+
+```bash
+mu kernel diff <from_commit> <to_commit> [path] [options]
+```
+
+**Arguments:**
+- `from_commit`: Starting commit hash/ref
+- `to_commit`: Ending commit hash/ref
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--json` | false | Output as JSON |
+
+### `mu kernel export`
+
+Export graph in multiple formats.
+
+```bash
+mu kernel export [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--format, -f` | `mu` | Export: `mu`, `json`, `mermaid`, `d2`, `cytoscape` |
+| `--output, -o` | stdout | Output file |
+| `--nodes, -n` | all | Comma-separated node IDs to export |
+| `--types, -t` | all | Node types: `module`, `class`, `function`, `external` |
+| `--max-nodes, -m` | unlimited | Maximum nodes to export |
+| `--direction` | TB | Diagram direction (TB/LR for mermaid, right/down for d2) |
+| `--diagram-type` | `flowchart` | Mermaid: `flowchart` or `classDiagram` |
+| `--no-edges` | false | Exclude edges from export |
+| `--pretty/--compact` | pretty | JSON formatting |
+| `--list-formats` | false | List available formats |
+
+**Examples:**
+```bash
+# MU format (LLM-optimized)
+mu kernel export --format mu
+
+# JSON export
+mu kernel export --format json --output graph.json
+
+# Mermaid diagram
+mu kernel export --format mermaid --direction LR
+
+# D2 diagram
+mu kernel export --format d2 --output arch.d2
+
+# Cytoscape.js format for visualization
+mu kernel export --format cytoscape --output graph.cyto.json
+
+# Export specific types
+mu kernel export --format mermaid --types class,function
+
+# Limit for large codebases
+mu kernel export --format json --max-nodes 100
+```
+
+---
+
+## Daemon Commands
+
 ### `mu daemon`
 
 Manage the MU daemon for real-time file watching and HTTP/WebSocket API.
@@ -373,6 +748,155 @@ mu cache stats
 mu cache clear
 mu cache expire
 ```
+
+---
+
+## MCP Commands
+
+### `mu mcp serve`
+
+Start MCP (Model Context Protocol) server for AI assistants like Claude Code.
+
+```bash
+mu mcp serve [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--http` | false | Use HTTP transport instead of stdio |
+| `--port, -p` | 8000 | Port for HTTP transport |
+
+**Examples:**
+```bash
+# Start stdio server (for Claude Code)
+mu mcp serve
+
+# Start HTTP server
+mu mcp serve --http --port 9000
+```
+
+**Configure in Claude Code** (`~/.claude/mcp_servers.json`):
+```json
+{
+  "mu": {
+    "command": "mu",
+    "args": ["mcp", "serve"]
+  }
+}
+```
+
+### `mu mcp tools`
+
+List available MCP tools.
+
+```bash
+mu mcp tools
+```
+
+**Available Tools:**
+| Tool | Description |
+|------|-------------|
+| `mu_query` | Execute MUQL queries against the code graph |
+| `mu_context` | Extract smart context for natural language questions |
+| `mu_deps` | Show dependencies of a code node |
+| `mu_node` | Look up a specific code node by ID |
+| `mu_search` | Search for code nodes by name pattern |
+| `mu_status` | Get MU daemon status and codebase statistics |
+
+### `mu mcp test`
+
+Test MCP tools without starting server.
+
+```bash
+mu mcp test
+```
+
+Runs each MCP tool with a simple test case and reports PASS/FAIL status. Useful for verifying setup.
+
+---
+
+## Contracts Commands
+
+### `mu contracts init`
+
+Create a template `.mu-contracts.yml` file for architecture verification.
+
+```bash
+mu contracts init [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--force, -f` | false | Overwrite existing file |
+
+### `mu contracts verify`
+
+Verify architectural contracts against codebase.
+
+```bash
+mu contracts verify [path] [options]
+```
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--contract-file, -c` | `.mu-contracts.yml` | Contract file path |
+| `--format, -f` | `text` | Output: `text`, `json`, `junit` |
+| `--no-color` | false | Disable colored output |
+| `--fail-fast` | false | Stop on first error |
+| `--only` | all | Only run contracts matching pattern |
+| `--output, -o` | stdout | Output file |
+
+**Examples:**
+```bash
+# Basic verification
+mu contracts verify
+
+# JUnit output for CI
+mu contracts verify --format junit --output test-results.xml
+
+# Run specific contracts
+mu contracts verify --only "no-circular-*"
+
+# Fail fast mode
+mu contracts verify --fail-fast
+```
+
+**Contract File Example (`.mu-contracts.yml`):**
+```yaml
+contracts:
+  - name: no-circular-imports
+    description: Prevent circular import dependencies
+    rule:
+      type: analyze
+      query: circular_imports
+    expect:
+      type: empty
+    severity: error
+
+  - name: max-function-complexity
+    description: Functions should have complexity < 50
+    rule:
+      type: query
+      muql: "SELECT * FROM nodes WHERE type = 'function' AND complexity > 50"
+    expect:
+      type: empty
+    severity: warning
+
+  - name: parser-no-external-deps
+    description: Parser module should not import external packages
+    rule:
+      type: dependency
+      source: "parser/*"
+      forbid: ["requests", "httpx", "aiohttp"]
+    expect:
+      type: empty
+    severity: error
+```
+
+---
 
 ## Configuration
 

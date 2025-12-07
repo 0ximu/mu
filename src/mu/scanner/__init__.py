@@ -49,7 +49,17 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
 }
 
 # Supported languages for MU transformation
-SUPPORTED_LANGUAGES = {"python", "typescript", "tsx", "javascript", "jsx", "csharp", "go", "rust", "java"}
+SUPPORTED_LANGUAGES = {
+    "python",
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "csharp",
+    "go",
+    "rust",
+    "java",
+}
 
 
 @dataclass
@@ -163,11 +173,78 @@ def should_ignore(path: Path, ignore_patterns: list[str], root: Path) -> str | N
     return None
 
 
+def _scan_single_file(
+    file_path: Path, config: MUConfig, result: ScanResult, max_size: int
+) -> ScanResult:
+    """Scan a single file and return structured manifest.
+
+    Args:
+        file_path: Path to the file to scan
+        config: MU configuration
+        result: Partially initialized ScanResult to populate
+        max_size: Maximum file size in bytes
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    logger = get_logger()
+
+    # Check file size
+    try:
+        size = file_path.stat().st_size
+        if size > max_size:
+            result.skipped.append(SkippedItem(path=file_path.name, reason="file_too_large"))
+            logger.info("Found 0 files (file too large)")
+            return result
+    except OSError:
+        logger.info("Found 0 files (cannot read file)")
+        return result
+
+    # Detect language
+    language = detect_language(file_path)
+    if language is None:
+        result.skipped.append(SkippedItem(path=file_path.name, reason="unknown_extension"))
+        logger.info("Found 0 files (unknown extension)")
+        return result
+
+    # Check if language is supported
+    if language not in SUPPORTED_LANGUAGES and language not in {
+        "yaml",
+        "json",
+        "toml",
+        "markdown",
+    }:
+        result.skipped.append(SkippedItem(path=file_path.name, reason="unsupported_language"))
+        logger.info("Found 0 files (unsupported language)")
+        return result
+
+    # Gather file info
+    lines = count_lines(file_path)
+    file_hash = compute_file_hash(file_path)
+
+    file_info = FileInfo(
+        path=file_path.name,
+        language=language,
+        size_bytes=size,
+        hash=file_hash,
+        lines=lines,
+    )
+    result.files.append(file_info)
+
+    # Update stats
+    result.stats.total_files = 1
+    result.stats.total_lines = lines
+    result.stats.languages[language] = 1
+
+    logger.info(f"Found 1 file, {lines} lines")
+    return result
+
+
 def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
     """Scan a codebase and return structured manifest.
 
     Args:
-        root: Root directory to scan
+        root: Root directory or single file to scan
         config: MU configuration
 
     Returns:
@@ -177,7 +254,7 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
     root = root.resolve()
 
     result = ScanResult(
-        root=str(root),
+        root=str(root.parent if root.is_file() else root),
         scanned_at=datetime.now(UTC).isoformat(),
     )
 
@@ -187,6 +264,10 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
 
     logger.info(f"Scanning {root}")
     logger.debug(f"Ignore patterns: {ignore_patterns}")
+
+    # Handle single file case
+    if root.is_file():
+        return _scan_single_file(root, config, result, max_size)
 
     for dirpath, dirnames, filenames in os.walk(root):
         current_dir = Path(dirpath)

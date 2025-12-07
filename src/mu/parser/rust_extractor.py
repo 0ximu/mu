@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     find_child_by_type,
     get_node_text,
 )
@@ -226,7 +226,7 @@ class RustExtractor:
             ):
                 func.return_type = get_node_text(child, source)
             elif child.type == "block":
-                func.body_complexity = count_nodes(child)
+                func.body_complexity = calculate_cyclomatic_complexity(child, "rust", source)
                 func.body_source = get_node_text(child, source)
             elif child.type == "where_clause":
                 func.decorators.append(f"where:{get_node_text(child, source)}")

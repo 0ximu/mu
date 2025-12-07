@@ -7,7 +7,7 @@ from pathlib import Path
 from tree_sitter import Node
 
 from mu.parser.base import (
-    count_nodes,
+    calculate_cyclomatic_complexity,
     find_child_by_type,
     get_node_text,
 )
@@ -203,10 +203,10 @@ class CSharpExtractor:
             elif child.type == "parameter_list":
                 func_def.parameters = self._extract_parameters(child, source)
             elif child.type == "block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(child, "csharp", source)
                 func_def.body_source = get_node_text(child, source)
             elif child.type == "arrow_expression_clause":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(child, "csharp", source)
                 func_def.body_source = get_node_text(child, source)
 
         return func_def
@@ -227,7 +227,7 @@ class CSharpExtractor:
             if child.type == "parameter_list":
                 func_def.parameters = self._extract_parameters(child, source)
             elif child.type == "block":
-                func_def.body_complexity = count_nodes(child)
+                func_def.body_complexity = calculate_cyclomatic_complexity(child, "csharp", source)
                 func_def.body_source = get_node_text(child, source)
 
         return func_def

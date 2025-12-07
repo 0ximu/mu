@@ -190,6 +190,136 @@ def count_nodes(node: Node) -> int:
     return count
 
 
+# Decision point node types by language (tree-sitter node names)
+DECISION_POINTS: dict[str, set[str]] = {
+    "python": {
+        "if_statement",
+        "for_statement",
+        "while_statement",
+        "except_clause",
+        "with_statement",
+        "assert_statement",
+        "boolean_operator",  # 'and', 'or' wrapped by tree-sitter
+        "conditional_expression",  # ternary
+        "match_statement",
+        "case_clause",
+        # Comprehension clauses (count each loop/condition inside)
+        "for_in_clause",
+        "if_clause",
+    },
+    "typescript": {
+        "if_statement",
+        "for_statement",
+        "while_statement",
+        "for_in_statement",
+        "do_statement",
+        "switch_case",
+        "catch_clause",
+        "ternary_expression",
+        "binary_expression",  # SPECIAL: check operator
+    },
+    "javascript": {
+        "if_statement",
+        "for_statement",
+        "while_statement",
+        "for_in_statement",
+        "do_statement",
+        "switch_case",
+        "catch_clause",
+        "ternary_expression",
+        "binary_expression",  # SPECIAL: check operator
+    },
+    "go": {
+        "if_statement",
+        "for_statement",
+        "expression_case",
+        "type_case",
+        "communication_case",
+        "binary_expression",  # SPECIAL: check operator
+    },
+    "java": {
+        "if_statement",
+        "for_statement",
+        "while_statement",
+        "do_statement",
+        "enhanced_for_statement",
+        "switch_block_statement_group",
+        "catch_clause",
+        "ternary_expression",
+        "binary_expression",  # SPECIAL: check operator
+    },
+    "rust": {
+        "if_expression",
+        "for_expression",
+        "while_expression",
+        "loop_expression",
+        "match_expression",
+        "match_arm",
+        "binary_expression",  # SPECIAL: check operator
+    },
+    "csharp": {
+        "if_statement",
+        "for_statement",
+        "while_statement",
+        "do_statement",
+        "foreach_statement",
+        "switch_section",
+        "catch_clause",
+        "conditional_expression",
+        "binary_expression",  # SPECIAL: check operator
+        "switch_expression",
+        "switch_expression_arm",
+        "conditional_access_expression",
+    },
+}
+
+# Binary operators that count as decision points
+DECISION_OPERATORS: set[str] = {"&&", "||", "and", "or", "??"}
+
+
+def calculate_cyclomatic_complexity(node: Node, language: str, source: bytes) -> int:
+    """Calculate McCabe cyclomatic complexity (decision point counting).
+
+    Base complexity is 1. Each decision point adds 1.
+    Decision points: if, for, while, case, catch, &&, ||, ternary, etc.
+
+    Args:
+        node: Tree-sitter AST node (typically function body)
+        language: Programming language name
+        source: Original source bytes for operator text extraction
+
+    Returns:
+        Cyclomatic complexity score (minimum 1)
+    """
+    decision_types = DECISION_POINTS.get(language, set())
+    complexity = 1  # Base complexity
+
+    def _is_decision_operator(n: Node) -> bool:
+        """Check if binary_expression has a decision operator."""
+        for child in n.children:
+            text = source[child.start_byte : child.end_byte].decode("utf-8", errors="replace")
+            if text in DECISION_OPERATORS:
+                return True
+        return False
+
+    def traverse(n: Node) -> None:
+        nonlocal complexity
+
+        if n.type in decision_types:
+            if n.type == "binary_expression":
+                # Only count if operator is && || or ??
+                if _is_decision_operator(n):
+                    complexity += 1
+            else:
+                complexity += 1
+
+        for child in n.children:
+            traverse(child)
+
+    traverse(node)
+    return complexity
+
+
 def get_node_text(node: Node, source: bytes) -> str:
     """Extract text content of a node."""
     return source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")

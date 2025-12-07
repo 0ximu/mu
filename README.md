@@ -44,14 +44,14 @@ Result: LLM correctly answers architectural questions
 
 ```bash
 # From source (recommended for now)
-git clone https://github.com/dominaite/mu.git
+git clone https://github.com/0ximu/mu.git
 cd mu
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-**Binary releases** are also available for standalone deployment (no Python installation required). See [Releases](https://github.com/dominaite/mu/releases) for platform-specific binaries.
+**Binary releases** are also available for standalone deployment (no Python installation required). See [Releases](https://github.com/0ximu/mu/releases) for platform-specific binaries.
 
 ## Quick Start
 
@@ -70,6 +70,8 @@ cat system.mu | pbcopy  # Copy to clipboard (macOS)
 
 ## CLI Commands
 
+### Core Commands
+
 ```bash
 mu init                             # Create .murc.toml config file
 mu scan <path>                      # Analyze codebase structure
@@ -81,10 +83,97 @@ mu compress <path> --local          # Local-only mode (Ollama)
 mu view <file.mu>                   # Render MU with syntax highlighting
 mu view <file.mu> -f html -o out.html  # Export to HTML
 mu diff <base> <head>               # Semantic diff between git refs
-mu query "MATCH (f:Function) RETURN f.name LIMIT 10"  # MUQL query (alias: mu q)
+mu man                              # Interactive manual
+mu man quickstart                   # Topic: intro, quickstart, sigils, query, workflows
+```
+
+### MUbase Graph Database
+
+```bash
+mu kernel init .                    # Initialize .mubase graph database
+mu kernel build .                   # Build/rebuild graph from codebase
+mu kernel stats                     # Show graph statistics
+mu kernel query --name "User%"      # Query nodes by pattern
+mu kernel deps <node>               # Show dependencies of a node
+mu kernel deps <node> -r            # Show reverse dependencies (dependents)
+```
+
+### MUQL Queries (SQL-like interface)
+
+```bash
+mu query "SELECT * FROM nodes WHERE type = 'function'"    # MUQL query
+mu q "SELECT name FROM nodes WHERE complexity > 10"       # Short alias
+mu kernel muql -i                   # Interactive REPL
+mu kernel muql --explain "SELECT..."  # Show query execution plan
+```
+
+### Semantic Search & Context
+
+```bash
+mu kernel embed .                   # Generate embeddings for semantic search
+mu kernel embed . --local           # Use local embeddings (no API)
+mu kernel search "authentication"   # Natural language code search
+mu kernel context "How does auth work?"  # Smart context extraction for questions
+mu kernel context "..." --max-tokens 4000  # Limit output size
+```
+
+### Temporal Features (Time-Travel)
+
+```bash
+mu kernel snapshot                  # Create snapshot at current commit
+mu kernel snapshots                 # List all snapshots
+mu kernel history <node>            # Show change history for a node
+mu kernel blame <node>              # Git-blame style attribution
+mu kernel diff <commit1> <commit2>  # Semantic diff between commits
+```
+
+### Export Formats
+
+```bash
+mu kernel export --format mu        # MU format (default, LLM-optimized)
+mu kernel export --format json      # JSON export
+mu kernel export --format mermaid   # Mermaid diagram
+mu kernel export --format d2        # D2 diagram
+mu kernel export --format cytoscape # Cytoscape.js format
+```
+
+### Daemon Mode (Real-Time Updates)
+
+```bash
+mu daemon start .                   # Start daemon in background
+mu daemon status                    # Check daemon status
+mu daemon stop                      # Stop running daemon
+mu daemon run .                     # Run in foreground (debugging)
+```
+
+### MCP Server (AI Assistant Integration)
+
+```bash
+mu mcp serve                        # Start MCP server (stdio for Claude Code)
+mu mcp serve --http --port 9000     # Start with HTTP transport
+mu mcp tools                        # List available MCP tools
+```
+
+### Architecture Contracts
+
+```bash
+mu contracts init                   # Create .mu-contracts.yml template
+mu contracts verify                 # Verify architectural rules
+mu contracts verify --format junit  # JUnit XML output for CI
+```
+
+### Agent-Proofing
+
+```bash
 mu describe                         # Self-describe CLI for AI agents
-mu describe --format json           # JSON format (also: mu, markdown)
-mu cache clear                      # Clear cached data
+mu describe --format json           # JSON format
+mu describe --format markdown       # Markdown documentation
+```
+
+### Cache Management
+
+```bash
+mu cache clear                      # Clear all cached data
 mu cache stats                      # Show cache statistics
 mu cache expire                     # Remove expired entries
 ```
@@ -249,16 +338,59 @@ mu compress ./src --llm --no-redact
 
 MU is designed to be easily integrated with AI coding agents:
 
+### MCP Server for Claude Code
+
+MU provides a Model Context Protocol (MCP) server for seamless integration with Claude Code and other AI assistants:
+
+```bash
+# Start MCP server (stdio mode for Claude Code)
+mu mcp serve
+
+# Available MCP tools:
+# - mu_query: Execute MUQL queries against the code graph
+# - mu_context: Extract smart context for natural language questions
+# - mu_deps: Show dependencies of a code node
+# - mu_node: Look up a specific code node by ID
+# - mu_search: Search for code nodes by name pattern
+# - mu_status: Get MU daemon status and codebase statistics
+```
+
+**Configure in Claude Code** (`~/.claude/mcp_servers.json`):
+```json
+{
+  "mu": {
+    "command": "mu",
+    "args": ["mcp", "serve"]
+  }
+}
+```
+
 ### Query Your Codebase
 
 ```bash
-# Query the knowledge graph with MUQL (MU Query Language)
-mu query "MATCH (f:Function) WHERE f.complexity > 10 RETURN f.name, f.complexity"
-mu q "MATCH (c:Class) RETURN c.name"  # Short alias
+# MUQL queries (SQL-like syntax)
+mu query "SELECT name, complexity FROM nodes WHERE type = 'function' AND complexity > 10"
+mu q "SELECT * FROM nodes WHERE name LIKE '%User%'"
 
-# Examples:
-mu q "MATCH (f:Function)-[:CALLS]->(g:Function) RETURN f.name, g.name"
-mu q "MATCH (m:Module) WHERE m.loc > 500 RETURN m.path, m.loc"
+# Interactive REPL
+mu kernel muql -i
+
+# Query types: SELECT, SHOW, FIND, PATH, ANALYZE
+mu q "SHOW deps OF 'UserService'"
+mu q "PATH FROM 'auth_service' TO 'database'"
+mu q "ANALYZE complexity"
+```
+
+### Smart Context Extraction
+
+```bash
+# Extract relevant context for natural language questions
+mu kernel context "How does authentication work?"
+mu kernel context "What happens when a user logs in?" --max-tokens 4000
+
+# Semantic search with embeddings
+mu kernel embed .                    # Generate embeddings first
+mu kernel search "error handling"    # Natural language search
 ```
 
 ### Self-Description for Agents
@@ -289,6 +421,17 @@ The `mu describe` command outputs comprehensive CLI documentation optimized for 
 - [x] `mu diff` - semantic diff between git refs
 - [x] VS Code extension (syntax highlighting, commands)
 - [x] GitHub Action for CI/CD integration
+- [x] MUbase graph database with DuckDB
+- [x] MUQL query language with interactive REPL
+- [x] Vector embeddings for semantic search
+- [x] Smart context extraction for questions
+- [x] Temporal features (snapshots, history, blame)
+- [x] Multi-format export (Mermaid, D2, Cytoscape)
+- [x] Real-time daemon mode with WebSocket API
+- [x] MCP server for AI assistants (Claude Code)
+- [x] Architecture contracts verification
+- [ ] mu-viz: Interactive graph visualization
+- [ ] IDE integrations (beyond VS Code)
 
 ## Contributing
 

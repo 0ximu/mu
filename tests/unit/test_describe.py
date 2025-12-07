@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from mu.describe import (
     ArgumentInfo,
     CommandInfo,
@@ -68,6 +66,51 @@ class TestOptionInfo:
         assert result["name"] == "format"
         assert result["short"] == "f"
         assert result["default"] == "json"
+
+    def test_to_dict_excludes_non_serializable_defaults(self) -> None:
+        """Test OptionInfo excludes non-JSON-serializable defaults like Sentinel."""
+        from enum import Enum
+
+        class MockSentinel(Enum):
+            UNSET = "unset"
+
+        opt = OptionInfo(
+            name="option",
+            short=None,
+            type="string",
+            required=False,
+            default=MockSentinel.UNSET,  # Click uses Sentinel enum for unset
+            help="Test option",
+        )
+        result = opt.to_dict()
+
+        # Should NOT include the Sentinel default since it's not JSON-serializable
+        assert "default" not in result
+
+    def test_to_dict_includes_serializable_defaults(self) -> None:
+        """Test OptionInfo includes JSON-serializable defaults."""
+        # Test various serializable types
+        test_cases = [
+            ("string", "default_value"),
+            ("int", 42),
+            ("float", 3.14),
+            ("bool", True),
+            ("list", ["a", "b"]),
+            ("dict", {"key": "value"}),
+        ]
+
+        for type_name, default_val in test_cases:
+            opt = OptionInfo(
+                name="option",
+                short=None,
+                type=type_name,
+                required=False,
+                default=default_val,
+                help="Test option",
+            )
+            result = opt.to_dict()
+            assert "default" in result, f"default should be present for {type_name}"
+            assert result["default"] == default_val
 
 
 class TestCommandInfo:
@@ -219,6 +262,21 @@ class TestFormatJson:
         data = json.loads(output)
         assert data["version"] == "0.1.0"
         assert len(data["commands"]) == 1
+
+    def test_format_json_from_real_cli(self) -> None:
+        """Test that describe_cli() output is valid JSON (regression test)."""
+        # This catches non-serializable types like Click's Sentinel
+        result = describe_cli()
+        output = format_json(result)
+
+        # Should produce valid JSON without TypeError
+        data = json.loads(output)
+        assert data["version"] is not None
+        assert len(data["commands"]) > 0
+
+        # Should have subcommands (not empty due to extraction issues)
+        main_cmd = data["commands"][0]
+        assert len(main_cmd.get("subcommands", [])) > 0
 
 
 class TestFormatMarkdown:

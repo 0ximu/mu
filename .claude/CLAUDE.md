@@ -52,14 +52,40 @@ ruff check src/            # Linting
 ruff format src/           # Format code
 
 # CLI usage
+mu init                     # Create .murc.toml config
 mu scan <path>              # Analyze codebase structure
 mu compress <path>          # Generate MU output
 mu compress <path> --llm    # With LLM summarization
 mu view <file.mu>           # Render with syntax highlighting
 mu diff <base> <head>       # Semantic diff between git refs
-mu cache stats              # Cache statistics
+
+# MUQL Queries
 mu query <muql>             # Execute MUQL query (alias: mu q)
+mu kernel muql -i           # Interactive MUQL REPL
+
+# Graph Database
+mu kernel init .            # Initialize .mubase
+mu kernel build .           # Build graph from codebase
+mu kernel stats             # Graph statistics
+
+# Semantic Search
+mu kernel embed .           # Generate embeddings
+mu kernel search "query"    # Natural language search
+mu kernel context "question" # Smart context extraction
+
+# Cache Management
+mu cache stats              # Cache statistics
+mu cache clear              # Clear cached data
+
+# Agent-Proofing
 mu describe                 # CLI self-description for AI agents
+mu mcp serve                # Start MCP server for Claude Code
+mu contracts verify         # Verify architecture contracts
+
+# Daemon Mode
+mu daemon start .           # Start daemon in background
+mu daemon status            # Check daemon status
+mu daemon stop              # Stop daemon
 ```
 
 ## Core Modules Reference

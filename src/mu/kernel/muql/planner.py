@@ -17,6 +17,8 @@ from mu.kernel.muql.ast import (
     Comparison,
     ComparisonOperator,
     Condition,
+    DescribeQuery,
+    DescribeTarget,
     EdgeTypeFilter,
     FindConditionType,
     FindQuery,
@@ -171,6 +173,8 @@ class QueryPlanner:
             return self._plan_history(query)
         elif isinstance(query, BlameQuery):
             return self._plan_blame(query)
+        elif isinstance(query, DescribeQuery):
+            return self._plan_describe(query)
         else:
             raise ValueError(f"Unknown query type: {type(query)}")
 
@@ -546,6 +550,49 @@ ORDER BY name
             operation="blame",
             target_node=query.target.name,
         )
+
+    # -------------------------------------------------------------------------
+    # DESCRIBE Query Planning
+    # -------------------------------------------------------------------------
+
+    def _plan_describe(self, query: DescribeQuery) -> SQLPlan:
+        """Generate plan for DESCRIBE query."""
+        if query.target == DescribeTarget.TABLES:
+            # DuckDB uses information_schema or SHOW TABLES
+            return SQLPlan(
+                sql="SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' ORDER BY table_name",
+                columns=["table_name"],
+            )
+        elif query.target == DescribeTarget.COLUMNS:
+            # Get columns for a specific node type (all use nodes table)
+            return SQLPlan(
+                sql="SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'nodes' ORDER BY ordinal_position",
+                columns=["column_name", "data_type"],
+            )
+        else:
+            # Describe a node type (functions, classes, modules)
+            type_value = query.target.value
+            if type_value == "nodes":
+                sql = """
+                    SELECT type, COUNT(*) as count
+                    FROM nodes
+                    GROUP BY type
+                    ORDER BY count DESC
+                """
+            else:
+                sql = f"""
+                    SELECT name, file_path as path, complexity
+                    FROM nodes
+                    WHERE type = '{type_value}'
+                    ORDER BY name
+                    LIMIT 100
+                """
+            return SQLPlan(
+                sql=sql,
+                columns=["name", "path", "complexity"]
+                if type_value != "nodes"
+                else ["type", "count"],
+            )
 
 
 # =============================================================================
