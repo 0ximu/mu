@@ -1,9 +1,11 @@
-import { ArrowLeft, Settings, Download, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Settings, Download, Clock, RefreshCcw } from 'lucide-react';
 import { Graph } from '../Graph';
 import { FilterPanel } from '../Toolbar/FilterPanel';
 import { NodeDetails } from '../Details/NodeDetails';
 import { Timeline } from '../Timeline/Timeline';
 import { ExportModal } from '../Export/ExportModal';
+import { CycleDetector } from './CycleDetector';
 import { useUIStore } from '../../store/uiStore';
 import { useGraphStore } from '../../store/graphStore';
 import { Button } from '../common';
@@ -24,6 +26,7 @@ export function GraphView({ onBack, focusNodeId }: GraphViewProps) {
   } = useUIStore();
 
   const { selectedNode, setSelectedNode, wsConnected, loading } = useGraphStore();
+  const [cycleDetectorOpen, setCycleDetectorOpen] = useState(false);
 
   // If we have a focus node and it's not selected, select it
   if (focusNodeId && selectedNode !== focusNodeId) {
@@ -66,6 +69,15 @@ export function GraphView({ onBack, focusNodeId }: GraphViewProps) {
 
           <Button
             variant="ghost"
+            onClick={() => setCycleDetectorOpen(!cycleDetectorOpen)}
+            className={`text-sm ${cycleDetectorOpen ? 'text-bauhaus-yellow' : 'text-white/80 hover:text-white'}`}
+          >
+            <RefreshCcw className="w-4 h-4" />
+            Cycles
+          </Button>
+
+          <Button
+            variant="ghost"
             onClick={() => setExportModalOpen(true)}
             className="text-white/80 hover:text-white text-sm"
           >
@@ -86,7 +98,7 @@ export function GraphView({ onBack, focusNodeId }: GraphViewProps) {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
+        {/* Left Sidebar - Filters */}
         {sidebarOpen && (
           <aside className="w-72 bg-bauhaus-white border-r-4 border-bauhaus-black overflow-y-auto">
             <div className="p-4 border-b-4 border-bauhaus-black bg-bauhaus-yellow">
@@ -96,6 +108,18 @@ export function GraphView({ onBack, focusNodeId }: GraphViewProps) {
             </div>
             <div className="p-4">
               <FilterPanel />
+            </div>
+          </aside>
+        )}
+
+        {/* Cycle Detector Panel */}
+        {cycleDetectorOpen && (
+          <aside className="w-80 bg-bauhaus-canvas border-r-4 border-bauhaus-black overflow-y-auto">
+            <div className="p-4">
+              <CycleDetector
+                onNodeClick={setSelectedNode}
+                onClose={() => setCycleDetectorOpen(false)}
+              />
             </div>
           </aside>
         )}

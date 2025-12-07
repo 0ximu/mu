@@ -66,6 +66,33 @@ class DepsResult:
     dependencies: list[NodeInfo]
 
 
+@dataclass
+class ImpactResult:
+    """Result of impact analysis."""
+
+    node_id: str
+    impacted_nodes: list[str]
+    count: int
+
+
+@dataclass
+class AncestorsResult:
+    """Result of ancestors analysis."""
+
+    node_id: str
+    ancestor_nodes: list[str]
+    count: int
+
+
+@dataclass
+class CyclesResult:
+    """Result of cycle detection."""
+
+    cycles: list[list[str]]
+    cycle_count: int
+    total_nodes_in_cycles: int
+
+
 def _get_client() -> DaemonClient:
     """Get a daemon client, raising if daemon not running."""
     client = DaemonClient(base_url=DEFAULT_DAEMON_URL)
@@ -460,6 +487,176 @@ def mu_status() -> dict[str, Any]:
         }
 
 
+# =============================================================================
+# Graph Reasoning Tools (petgraph-backed)
+# =============================================================================
+
+
+@mcp.tool()
+def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult:
+    """Find downstream impact of changing a node.
+
+    "If I change X, what might break?"
+
+    Uses BFS traversal via Rust petgraph: O(V + E)
+
+    Args:
+        node_id: Node ID or name (e.g., "mod:src/auth.py", "AuthService")
+        edge_types: Optional list of edge types to follow (imports, calls, inherits, contains)
+
+    Returns:
+        List of node IDs that would be impacted by changes to this node
+
+    Examples:
+        - mu_impact("mod:src/auth.py") - What breaks if auth.py changes?
+        - mu_impact("AuthService", ["imports"]) - Only follow import edges
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run 'mu kernel build .' first.")
+
+    from mu.kernel import MUbase
+    from mu.kernel.graph import GraphManager
+
+    db = MUbase(mubase_path)
+    try:
+        gm = GraphManager(db.conn)
+        gm.load()
+
+        # Resolve node name to ID if needed
+        resolved_id = _resolve_node_id(db, node_id)
+
+        if not gm.has_node(resolved_id):
+            raise ValueError(f"Node not found in graph: {resolved_id}")
+
+        impacted = gm.impact(resolved_id, edge_types)
+
+        return ImpactResult(
+            node_id=resolved_id,
+            impacted_nodes=impacted,
+            count=len(impacted),
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_ancestors(node_id: str, edge_types: list[str] | None = None) -> AncestorsResult:
+    """Find upstream dependencies of a node.
+
+    "What does X depend on?"
+
+    Uses BFS traversal via Rust petgraph: O(V + E)
+
+    Args:
+        node_id: Node ID or name (e.g., "mod:src/cli.py", "MUbase")
+        edge_types: Optional list of edge types to follow (imports, calls, inherits, contains)
+
+    Returns:
+        List of node IDs that this node depends on
+
+    Examples:
+        - mu_ancestors("mod:src/cli.py") - What does cli.py depend on?
+        - mu_ancestors("fn:src/auth.py:login", ["calls"]) - What does login() call?
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run 'mu kernel build .' first.")
+
+    from mu.kernel import MUbase
+    from mu.kernel.graph import GraphManager
+
+    db = MUbase(mubase_path)
+    try:
+        gm = GraphManager(db.conn)
+        gm.load()
+
+        # Resolve node name to ID if needed
+        resolved_id = _resolve_node_id(db, node_id)
+
+        if not gm.has_node(resolved_id):
+            raise ValueError(f"Node not found in graph: {resolved_id}")
+
+        ancestor_nodes = gm.ancestors(resolved_id, edge_types)
+
+        return AncestorsResult(
+            node_id=resolved_id,
+            ancestor_nodes=ancestor_nodes,
+            count=len(ancestor_nodes),
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_cycles(edge_types: list[str] | None = None) -> CyclesResult:
+    """Detect circular dependencies in the codebase.
+
+    Uses Kosaraju's strongly connected components algorithm via Rust petgraph: O(V + E)
+
+    Args:
+        edge_types: Optional list of edge types to consider (imports, calls, inherits, contains).
+                   If not specified, all edge types are used.
+
+    Returns:
+        List of cycles, where each cycle is a list of node IDs
+
+    Examples:
+        - mu_cycles() - Find all circular dependencies
+        - mu_cycles(["imports"]) - Find only import cycles
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run 'mu kernel build .' first.")
+
+    from mu.kernel import MUbase
+    from mu.kernel.graph import GraphManager
+
+    db = MUbase(mubase_path)
+    try:
+        gm = GraphManager(db.conn)
+        gm.load()
+
+        cycles = gm.find_cycles(edge_types)
+
+        return CyclesResult(
+            cycles=cycles,
+            cycle_count=len(cycles),
+            total_nodes_in_cycles=sum(len(c) for c in cycles),
+        )
+    finally:
+        db.close()
+
+
+def _resolve_node_id(db: Any, node_ref: str) -> str:
+    """Resolve a node reference to a full node ID.
+
+    Handles:
+    - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
+    - Simple names: MUbase, AuthService
+    """
+    # If it already looks like a full node ID, return it
+    if node_ref.startswith(("mod:", "cls:", "fn:")):
+        return node_ref
+
+    # Try exact name match
+    nodes = db.find_by_name(node_ref)
+    if nodes:
+        return str(nodes[0].id)
+
+    # Try pattern match
+    nodes = db.find_by_name(f"%{node_ref}%")
+    if nodes:
+        # Prefer exact name matches
+        for node in nodes:
+            if node.name == node_ref:
+                return str(node.id)
+        return str(nodes[0].id)
+
+    # Return original if not found (will fail in has_node check)
+    return node_ref
+
+
 def test_tools() -> dict[str, Any]:
     """Test all MCP tools without starting the server.
 
@@ -539,14 +736,23 @@ __all__ = [
     "create_server",
     "run_server",
     "test_tools",
+    # Query tools
     "mu_query",
     "mu_context",
     "mu_deps",
     "mu_node",
     "mu_search",
     "mu_status",
+    # Graph reasoning tools (petgraph-backed)
+    "mu_impact",
+    "mu_ancestors",
+    "mu_cycles",
+    # Data types
     "NodeInfo",
     "QueryResult",
     "ContextResult",
     "DepsResult",
+    "ImpactResult",
+    "AncestorsResult",
+    "CyclesResult",
 ]

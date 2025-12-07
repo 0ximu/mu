@@ -25,8 +25,10 @@
 
 use pyo3::prelude::*;
 
+pub mod differ;
 pub mod exporter;
 pub mod graph;
+pub mod incremental;
 pub mod parser;
 pub mod reducer;
 pub mod scanner;
@@ -203,6 +205,15 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<scanner::ScannedFile>()?;
     m.add_class::<scanner::ScanResult>()?;
 
+    // Differ types
+    m.add_class::<differ::EntityChange>()?;
+    m.add_class::<differ::DiffSummary>()?;
+    m.add_class::<differ::SemanticDiffResult>()?;
+
+    // Incremental parser types
+    m.add_class::<incremental::IncrementalParser>()?;
+    m.add_class::<incremental::IncrementalParseResult>()?;
+
     // Functions
     m.add_function(wrap_pyfunction!(parse_files, m)?)?;
     m.add_function(wrap_pyfunction!(parse_file, m)?)?;
@@ -216,6 +227,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Scanner function
     m.add_function(wrap_pyfunction!(scanner::scan_directory, m)?)?;
+
+    // Differ functions
+    m.add_function(wrap_pyfunction!(differ::semantic_diff, m)?)?;
+    m.add_function(wrap_pyfunction!(differ::semantic_diff_files, m)?)?;
 
     Ok(())
 }

@@ -307,3 +307,294 @@ def scan_directory(
         ScanResult containing discovered files and statistics.
     """
     ...
+
+# Semantic Diff types and functions
+
+class EntityChange:
+    """A single semantic change to a code entity."""
+
+    change_type: str
+    entity_type: str
+    entity_name: str
+    file_path: str
+    parent_name: str | None
+    details: str | None
+    old_signature: str | None
+    new_signature: str | None
+    is_breaking: bool
+
+    def __init__(
+        self,
+        change_type: str,
+        entity_type: str,
+        entity_name: str,
+        file_path: str,
+        parent_name: str | None = None,
+        details: str | None = None,
+        old_signature: str | None = None,
+        new_signature: str | None = None,
+        is_breaking: bool = False,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+    def full_name(self) -> str:
+        """Get fully qualified entity name."""
+        ...
+
+class DiffSummary:
+    """Summary statistics for a diff."""
+
+    modules_added: int
+    modules_removed: int
+    modules_modified: int
+    functions_added: int
+    functions_removed: int
+    functions_modified: int
+    classes_added: int
+    classes_removed: int
+    classes_modified: int
+    methods_added: int
+    methods_removed: int
+    methods_modified: int
+    parameters_added: int
+    parameters_removed: int
+    parameters_modified: int
+    imports_added: int
+    imports_removed: int
+    breaking_changes: int
+
+    def __init__(self) -> None: ...
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+    def text(self) -> str:
+        """Generate human-readable summary string."""
+        ...
+
+class SemanticDiffResult:
+    """Complete result of a semantic diff operation."""
+
+    changes: list[EntityChange]
+    breaking_changes: list[EntityChange]
+    summary: DiffSummary
+    summary_text: str
+    duration_ms: float
+
+    def __init__(self) -> None: ...
+    def has_changes(self) -> bool:
+        """Check if there are any changes."""
+        ...
+    def has_breaking_changes(self) -> bool:
+        """Check if there are breaking changes."""
+        ...
+    def change_count(self) -> int:
+        """Get change count."""
+        ...
+    def filter_by_type(self, entity_type: str) -> list[EntityChange]:
+        """Filter changes by entity type."""
+        ...
+    def filter_by_path(self, file_path: str) -> list[EntityChange]:
+        """Filter changes by file path."""
+        ...
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+    def __len__(self) -> int: ...
+
+def semantic_diff(
+    base_modules: list[ModuleDef],
+    head_modules: list[ModuleDef],
+) -> SemanticDiffResult:
+    """Compute semantic diff between two sets of parsed modules.
+
+    Compares base and head modules to find added, removed, and modified entities
+    including modules, functions, classes, methods, and parameters.
+
+    Args:
+        base_modules: List of ModuleDef from the base/old version
+        head_modules: List of ModuleDef from the head/new version
+
+    Returns:
+        SemanticDiffResult containing all changes and statistics.
+    """
+    ...
+
+def semantic_diff_files(
+    base_path: str,
+    head_path: str,
+    language: str,
+    normalize_paths: bool = True,
+) -> SemanticDiffResult:
+    """Read, parse, and diff two source files in one call.
+
+    Convenience function that handles file reading, parsing, and diffing.
+    Useful for CLI integration (mu diff file1.py file2.py --semantic).
+
+    Args:
+        base_path: Path to the base/old version file
+        head_path: Path to the head/new version file
+        language: Language identifier (python, typescript, javascript, go, java, rust, csharp)
+        normalize_paths: If True (default), treats both files as the same module
+            by using head_path for both. Set to False to compare as different modules.
+
+    Returns:
+        SemanticDiffResult containing all changes and statistics.
+
+    Raises:
+        IOError: If file cannot be read
+        ValueError: If file cannot be parsed
+    """
+    ...
+
+# Incremental Parser types
+
+class IncrementalParseResult:
+    """Result of an incremental parse operation."""
+
+    module: ModuleDef
+    parse_time_ms: float
+    changed_ranges: list[tuple[int, int]]
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+
+class IncrementalParser:
+    """Incremental parser that maintains tree-sitter state for efficient re-parsing.
+
+    This parser keeps the parse tree and source code in memory, allowing
+    subsequent edits to be applied incrementally rather than requiring
+    a full re-parse each time. Enables sub-10ms updates in daemon mode.
+
+    Supports: Python, TypeScript, JavaScript, Go, Java, Rust, C#
+    """
+
+    def __init__(self, source: str, language: str, file_path: str) -> None:
+        """Create a new incremental parser with initial source code.
+
+        Args:
+            source: The initial source code
+            language: Language identifier (python, typescript, go, etc.)
+            file_path: Path to the file (used for module naming)
+
+        Raises:
+            ValueError: If the language is not supported
+            RuntimeError: If parsing fails
+        """
+        ...
+
+    def apply_edit(
+        self,
+        start_byte: int,
+        old_end_byte: int,
+        new_end_byte: int,
+        new_text: str,
+    ) -> IncrementalParseResult:
+        """Apply an edit to the source and incrementally re-parse.
+
+        Args:
+            start_byte: Byte offset where the edit starts
+            old_end_byte: Byte offset where the old text ended
+            new_end_byte: Byte offset where the new text ends
+            new_text: The new text to insert (can be empty for deletions)
+
+        Returns:
+            IncrementalParseResult containing the updated module and timing info.
+
+        Raises:
+            ValueError: If byte offsets are invalid
+            RuntimeError: If parsing fails
+
+        Examples:
+            # Insert 'x' at position 100
+            result = parser.apply_edit(100, 100, 101, "x")
+
+            # Delete 5 characters starting at position 50
+            result = parser.apply_edit(50, 55, 50, "")
+
+            # Replace "foo" with "bar" at position 200 (foo is 3 bytes)
+            result = parser.apply_edit(200, 203, 203, "bar")
+        """
+        ...
+
+    def get_module(self) -> ModuleDef:
+        """Get the current module definition.
+
+        Returns:
+            The ModuleDef for the current source state.
+
+        Raises:
+            RuntimeError: If parsing fails
+        """
+        ...
+
+    def get_source(self) -> str:
+        """Get the current source code."""
+        ...
+
+    def get_language(self) -> str:
+        """Get the language of this parser."""
+        ...
+
+    def get_file_path(self) -> str:
+        """Get the file path of this parser."""
+        ...
+
+    def byte_to_position(self, byte_offset: int) -> tuple[int, int]:
+        """Convert a byte offset to a (line, column) position.
+
+        Args:
+            byte_offset: The byte offset in the source
+
+        Returns:
+            A tuple of (line, column), both 0-indexed.
+
+        Raises:
+            ValueError: If byte_offset is beyond source length
+        """
+        ...
+
+    def position_to_byte(self, line: int, column: int) -> int:
+        """Convert a (line, column) position to a byte offset.
+
+        Args:
+            line: The line number (0-indexed)
+            column: The column number (0-indexed)
+
+        Returns:
+            The byte offset in the source.
+        """
+        ...
+
+    def has_tree(self) -> bool:
+        """Check if the parser has a valid tree."""
+        ...
+
+    def has_errors(self) -> bool:
+        """Check if the current tree has syntax errors."""
+        ...
+
+    def line_count(self) -> int:
+        """Get the number of lines in the source."""
+        ...
+
+    def byte_count(self) -> int:
+        """Get the source length in bytes."""
+        ...
+
+    def reset(self, source: str) -> IncrementalParseResult:
+        """Reset the parser with new source code.
+
+        This performs a full re-parse, discarding the previous tree.
+
+        Args:
+            source: The new source code
+
+        Returns:
+            IncrementalParseResult with the parsed module.
+
+        Raises:
+            RuntimeError: If parsing fails
+        """
+        ...

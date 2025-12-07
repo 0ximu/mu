@@ -15,6 +15,7 @@ import { muClient } from '../../api/client';
 import type { Node, CytoscapeData, NodeType } from '../../api/types';
 import { Button, Badge } from '../common';
 import { MiniGraph } from './MiniGraph';
+import { GraphReasoning } from './GraphReasoning';
 
 interface NodeDetailProps {
   nodeId: string;
@@ -295,6 +296,9 @@ export function NodeDetail({ nodeId, onBack, onNodeClick, onGraphView }: NodeDet
               <p className="text-bauhaus-black/60">No connections found</p>
             </div>
           )}
+
+          {/* Graph Reasoning - Impact & Ancestors Analysis */}
+          <GraphReasoning nodeId={nodeId} onNodeClick={handleNodeNavigate} />
 
           {/* MU Representation */}
           {node.mu_representation && (

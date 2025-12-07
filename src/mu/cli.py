@@ -45,6 +45,10 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "describe": ("mu.commands.describe", "describe"),
     "man": ("mu.commands.man", "man_command"),
     "llm": ("mu.commands.llm_spec", "llm_command"),
+    # Graph reasoning commands (petgraph-backed)
+    "impact": ("mu.commands.graph", "impact"),
+    "ancestors": ("mu.commands.graph", "ancestors"),
+    "cycles": ("mu.commands.graph", "cycles"),
     # Subgroups
     "cache": ("mu.commands.cache", "cache"),
     "kernel": ("mu.commands.kernel", "kernel"),

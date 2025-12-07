@@ -128,6 +128,35 @@ class ContractsResponse(BaseModel):
 
 
 # =============================================================================
+# Graph Reasoning Models
+# =============================================================================
+
+
+class ImpactResponse(BaseModel):
+    """Response model for impact analysis."""
+
+    node_id: str = Field(description="Source node ID")
+    impacted_nodes: list[str] = Field(description="List of impacted node IDs")
+    count: int = Field(description="Number of impacted nodes")
+
+
+class AncestorsResponse(BaseModel):
+    """Response model for ancestors analysis."""
+
+    node_id: str = Field(description="Source node ID")
+    ancestor_nodes: list[str] = Field(description="List of ancestor node IDs")
+    count: int = Field(description="Number of ancestor nodes")
+
+
+class CyclesResponse(BaseModel):
+    """Response model for cycle detection."""
+
+    cycles: list[list[str]] = Field(description="List of cycles (each cycle is a list of node IDs)")
+    cycle_count: int = Field(description="Number of cycles found")
+    total_nodes_in_cycles: int = Field(description="Total nodes involved in cycles")
+
+
+# =============================================================================
 # WebSocket Connection Manager
 # =============================================================================
 
@@ -556,6 +585,124 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
     # -------------------------------------------------------------------------
+    # Graph Reasoning Endpoints (petgraph-backed)
+    # -------------------------------------------------------------------------
+
+    @app.get("/nodes/{node_id:path}/impact", response_model=ImpactResponse)
+    async def get_impact(
+        node_id: str,
+        edge_types: str | None = Query(
+            default=None,
+            description="Comma-separated edge types to follow (imports,calls,inherits,contains)",
+        ),
+    ) -> ImpactResponse:
+        """Find downstream impact of changing a node.
+
+        "If I change X, what might break?"
+        Uses BFS traversal via Rust petgraph.
+        """
+        state: AppState = app.state.daemon
+
+        # Validate node exists
+        node = state.mubase.get_node(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            gm = GraphManager(state.mubase.conn)
+            gm.load()
+
+            if not gm.has_node(node_id):
+                raise HTTPException(status_code=404, detail="Node not found in graph")
+
+            edge_type_list = edge_types.split(",") if edge_types else None
+            impacted = gm.impact(node_id, edge_type_list)
+
+            return ImpactResponse(
+                node_id=node_id,
+                impacted_nodes=impacted,
+                count=len(impacted),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.get("/nodes/{node_id:path}/ancestors", response_model=AncestorsResponse)
+    async def get_ancestors(
+        node_id: str,
+        edge_types: str | None = Query(
+            default=None,
+            description="Comma-separated edge types to follow (imports,calls,inherits,contains)",
+        ),
+    ) -> AncestorsResponse:
+        """Find upstream dependencies of a node.
+
+        "What does X depend on?"
+        Uses BFS traversal via Rust petgraph.
+        """
+        state: AppState = app.state.daemon
+
+        # Validate node exists
+        node = state.mubase.get_node(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            gm = GraphManager(state.mubase.conn)
+            gm.load()
+
+            if not gm.has_node(node_id):
+                raise HTTPException(status_code=404, detail="Node not found in graph")
+
+            edge_type_list = edge_types.split(",") if edge_types else None
+            ancestors = gm.ancestors(node_id, edge_type_list)
+
+            return AncestorsResponse(
+                node_id=node_id,
+                ancestor_nodes=ancestors,
+                count=len(ancestors),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.get("/cycles", response_model=CyclesResponse)
+    async def get_cycles(
+        edge_types: str | None = Query(
+            default=None,
+            description="Comma-separated edge types to consider (imports,calls,inherits,contains)",
+        ),
+    ) -> CyclesResponse:
+        """Detect circular dependencies in the codebase.
+
+        Uses Kosaraju's strongly connected components algorithm via Rust petgraph.
+        """
+        state: AppState = app.state.daemon
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            gm = GraphManager(state.mubase.conn)
+            gm.load()
+
+            edge_type_list = edge_types.split(",") if edge_types else None
+            cycles = gm.find_cycles(edge_type_list)
+
+            return CyclesResponse(
+                cycles=cycles,
+                cycle_count=len(cycles),
+                total_nodes_in_cycles=sum(len(c) for c in cycles),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # -------------------------------------------------------------------------
     # WebSocket Endpoint
     # -------------------------------------------------------------------------
 
@@ -612,4 +759,8 @@ __all__ = [
     "ContractsRequest",
     "ContractsResponse",
     "ContractViolationResponse",
+    # Graph reasoning
+    "ImpactResponse",
+    "AncestorsResponse",
+    "CyclesResponse",
 ]

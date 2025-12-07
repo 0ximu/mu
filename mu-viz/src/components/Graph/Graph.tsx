@@ -151,7 +151,7 @@ export function Graph() {
     });
   }, [filters.types, filters.minComplexity, filters.pathPattern]);
 
-  // Highlight path
+  // Highlight path or node set
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -163,21 +163,37 @@ export function Graph() {
       // Dim all elements
       cy.elements().addClass('dimmed');
 
-      // Highlight path nodes and edges
-      for (let i = 0; i < highlightedPath.length; i++) {
-        const nodeId = highlightedPath[i];
+      // Create a set of highlighted node IDs for efficient lookup
+      const highlightedSet = new Set(highlightedPath);
+
+      // Highlight all nodes in the set
+      highlightedPath.forEach((nodeId) => {
         const node = cy.getElementById(nodeId);
         node.removeClass('dimmed').addClass('highlighted');
+      });
 
-        if (i < highlightedPath.length - 1) {
-          const nextId = highlightedPath[i + 1];
-          cy.edges(`[source = "${nodeId}"][target = "${nextId}"]`)
-            .removeClass('dimmed')
-            .addClass('highlighted');
-          cy.edges(`[source = "${nextId}"][target = "${nodeId}"]`)
-            .removeClass('dimmed')
-            .addClass('highlighted');
+      // Highlight edges between highlighted nodes (for impact/ancestors visualization)
+      // Also highlight sequential path edges (for path finding)
+      cy.edges().forEach((edge) => {
+        const sourceId = edge.source().id();
+        const targetId = edge.target().id();
+
+        // If both source and target are in the highlighted set, highlight the edge
+        if (highlightedSet.has(sourceId) && highlightedSet.has(targetId)) {
+          edge.removeClass('dimmed').addClass('highlighted');
         }
+      });
+
+      // Also handle sequential path highlighting for explicit paths
+      for (let i = 0; i < highlightedPath.length - 1; i++) {
+        const nodeId = highlightedPath[i];
+        const nextId = highlightedPath[i + 1];
+        cy.edges(`[source = "${nodeId}"][target = "${nextId}"]`)
+          .removeClass('dimmed')
+          .addClass('highlighted');
+        cy.edges(`[source = "${nextId}"][target = "${nodeId}"]`)
+          .removeClass('dimmed')
+          .addClass('highlighted');
       }
     }
   }, [highlightedPath]);

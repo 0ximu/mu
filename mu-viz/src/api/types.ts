@@ -96,3 +96,25 @@ export interface ContextResult {
   nodes_included: number;
   confidence: number;
 }
+
+// =============================================================================
+// Graph Reasoning Types
+// =============================================================================
+
+export interface ImpactResult {
+  node_id: string;
+  impacted_nodes: string[];
+  count: number;
+}
+
+export interface AncestorsResult {
+  node_id: string;
+  ancestor_nodes: string[];
+  count: number;
+}
+
+export interface CyclesResult {
+  cycles: string[][];
+  cycle_count: number;
+  total_nodes_in_cycles: number;
+}
