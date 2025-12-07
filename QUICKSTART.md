@@ -214,6 +214,24 @@ mu diff main feature-branch
 mu diff HEAD~5 HEAD
 ```
 
+### MUQL Queries
+Query your codebase using SQL-like syntax for quick insights:
+```bash
+# Find complex functions
+mu query "SELECT * FROM functions WHERE complexity > 20"
+
+# Show dependencies of a class
+mu q "SHOW dependencies OF MyClass"
+
+# List all methods in a service
+mu query "SELECT name, parameters FROM methods WHERE class = 'UserService'"
+
+# Find circular dependencies
+mu q "SHOW cycles"
+```
+
+Use the shorter `mu q` alias for quick queries. Run `mu describe --format json` to see all available commands (useful for AI agents and automation).
+
 ### VS Code Extension
 Install the VS Code extension from `tools/vscode-mu/` for:
 - Syntax highlighting for `.mu` files

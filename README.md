@@ -51,6 +51,8 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
+**Binary releases** are also available for standalone deployment (no Python installation required). See [Releases](https://github.com/dominaite/mu/releases) for platform-specific binaries.
+
 ## Quick Start
 
 ```bash
@@ -79,6 +81,9 @@ mu compress <path> --local          # Local-only mode (Ollama)
 mu view <file.mu>                   # Render MU with syntax highlighting
 mu view <file.mu> -f html -o out.html  # Export to HTML
 mu diff <base> <head>               # Semantic diff between git refs
+mu query "MATCH (f:Function) RETURN f.name LIMIT 10"  # MUQL query (alias: mu q)
+mu describe                         # Self-describe CLI for AI agents
+mu describe --format json           # JSON format (also: mu, markdown)
 mu cache clear                      # Clear cached data
 mu cache stats                      # Show cache statistics
 mu cache expire                     # Remove expired entries
@@ -239,6 +244,36 @@ mu compress ./src --llm --no-redact
 - **Secret detection**: Automatically redacts API keys, tokens, passwords, private keys
 - **Local mode**: Process codebases without any external API calls
 - **Privacy first**: No code leaves your machine without explicit consent
+
+## Agent-Friendly Features
+
+MU is designed to be easily integrated with AI coding agents:
+
+### Query Your Codebase
+
+```bash
+# Query the knowledge graph with MUQL (MU Query Language)
+mu query "MATCH (f:Function) WHERE f.complexity > 10 RETURN f.name, f.complexity"
+mu q "MATCH (c:Class) RETURN c.name"  # Short alias
+
+# Examples:
+mu q "MATCH (f:Function)-[:CALLS]->(g:Function) RETURN f.name, g.name"
+mu q "MATCH (m:Module) WHERE m.loc > 500 RETURN m.path, m.loc"
+```
+
+### Self-Description for Agents
+
+```bash
+# Generate a complete CLI reference for AI agents
+mu describe                    # Default: MU format
+mu describe --format json      # Structured JSON
+mu describe --format markdown  # Markdown documentation
+
+# Pipe to your agent's context
+mu describe | pbcopy
+```
+
+The `mu describe` command outputs comprehensive CLI documentation optimized for AI agents, including all commands, arguments, options, and usage patterns.
 
 ## Roadmap
 

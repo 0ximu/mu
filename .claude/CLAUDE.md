@@ -58,6 +58,8 @@ mu compress <path> --llm    # With LLM summarization
 mu view <file.mu>           # Render with syntax highlighting
 mu diff <base> <head>       # Semantic diff between git refs
 mu cache stats              # Cache statistics
+mu query <muql>             # Execute MUQL query (alias: mu q)
+mu describe                 # CLI self-description for AI agents
 ```
 
 ## Core Modules Reference
@@ -73,6 +75,8 @@ mu cache stats              # Cache statistics
 | `scanner/` | Filesystem walking, language detection | No |
 | `cache/` | Persistent file/LLM caching | No |
 | `viewer/` | MU format rendering | No |
+| `client.py` | Daemon client module (httpx-based) | No |
+| `describe.py` | CLI introspection for AI agents | No |
 | `cli.py` | Click-based CLI orchestration | No |
 
 ## Key Data Models

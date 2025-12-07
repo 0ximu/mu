@@ -21,7 +21,7 @@ Query String → MUQLParser → AST → QueryPlanner → ExecutionPlan → Query
 | `parser.py` | MUQLParser and MUQLTransformer |
 | `planner.py` | QueryPlanner converts AST to execution plans |
 | `executor.py` | QueryExecutor runs plans against MUbase |
-| `formatter.py` | Result formatters (table, JSON, CSV, tree) |
+| `formatter.py` | Result formatters (table, JSON, CSV, tree, dict) |
 | `engine.py` | MUQLEngine unified facade |
 | `repl.py` | Interactive REPL with history |
 
@@ -89,21 +89,31 @@ result = engine.execute("SELECT * FROM functions WHERE complexity > 20")
 for row in result.as_dicts():
     print(f"{row['name']}: {row['complexity']}")
 
-# Formatted output
+# Formatted output (string)
 print(engine.execute_formatted(query, format="table"))
+
+# Dictionary output (for APIs/JSON endpoints)
+data = engine.query_dict("SELECT * FROM functions LIMIT 10")
+# Returns: {"columns": [...], "rows": [...], "count": ...}
 ```
 
 ### CLI Usage
 
 ```bash
-# Single query
+# Single query (multiple command aliases supported)
 mu kernel muql . "SELECT * FROM functions LIMIT 10"
+mu query . "SELECT * FROM functions LIMIT 10"  # Shorthand
+mu q . "SELECT * FROM functions LIMIT 10"      # Even shorter
 
 # Interactive REPL
 mu kernel muql . -i
+mu query . -i
 
 # JSON output
 mu kernel muql . -f json "SELECT name FROM classes"
+
+# Dictionary output (for programmatic use)
+mu query . -f dict "SELECT * FROM functions"
 
 # Show execution plan
 mu kernel muql . --explain "SELECT * FROM functions"
