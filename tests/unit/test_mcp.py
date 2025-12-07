@@ -110,7 +110,11 @@ class TestMuQuery:
 
         assert result.columns == ["name", "complexity"]
         assert result.row_count == 1
-        mock_client.query.assert_called_once_with("SELECT * FROM functions LIMIT 1")
+        # Note: cwd is now passed for multi-project routing
+        mock_client.query.assert_called_once()
+        call_args = mock_client.query.call_args
+        assert call_args[0][0] == "SELECT * FROM functions LIMIT 1"
+        assert "cwd" in call_args[1]
 
     @patch("mu.mcp.server._find_mubase")
     @patch("mu.mcp.server._get_client")
@@ -146,9 +150,12 @@ class TestMuContext:
         assert result.mu_text == "!module Auth"
         assert result.token_count == 500
         assert result.node_count == 3
-        mock_client.context.assert_called_once_with(
-            "How does authentication work?", max_tokens=4000
-        )
+        # Note: cwd is now passed for multi-project routing
+        mock_client.context.assert_called_once()
+        call_args = mock_client.context.call_args
+        assert call_args[0][0] == "How does authentication work?"
+        assert call_args[1]["max_tokens"] == 4000
+        assert "cwd" in call_args[1]
 
     @patch("mu.mcp.server._find_mubase")
     @patch("mu.mcp.server._get_client")

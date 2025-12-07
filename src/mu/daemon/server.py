@@ -2,6 +2,9 @@
 
 Provides HTTP REST API and WebSocket endpoints for querying and
 receiving real-time updates from the code graph.
+
+Supports multi-project mode: clients can pass `cwd` to route requests
+to the appropriate .mubase based on working directory.
 """
 
 from __future__ import annotations
@@ -31,6 +34,134 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Multi-Project Support
+# =============================================================================
+
+
+def find_mubase_for_path(path: Path) -> Path | None:
+    """Find the nearest .mubase file for a given path.
+
+    Walks up the directory tree from `path` looking for .mubase.
+
+    Args:
+        path: Starting path (file or directory)
+
+    Returns:
+        Path to .mubase if found, None otherwise
+    """
+    if path.is_file():
+        path = path.parent
+
+    path = path.resolve()
+    for parent in [path, *path.parents]:
+        mubase = parent / ".mubase"
+        if mubase.exists():
+            return mubase
+    return None
+
+
+class ProjectManager:
+    """Manages multiple project databases for multi-project daemon mode.
+
+    Caches MUbase instances keyed by project root path.
+    Thread-safe via asyncio lock.
+    """
+
+    def __init__(self, default_mubase: MUbase, default_path: Path) -> None:
+        """Initialize with a default project.
+
+        Args:
+            default_mubase: The default MUbase instance
+            default_path: Path to the default .mubase
+        """
+        self._default_mubase = default_mubase
+        self._default_path = default_path.resolve()
+        self._cache: dict[Path, MUbase] = {self._default_path: default_mubase}
+        self._lock = asyncio.Lock()
+
+    async def get_mubase(self, cwd: str | None = None) -> tuple[MUbase, Path]:
+        """Get MUbase instance for a working directory.
+
+        Args:
+            cwd: Client's working directory. If None, returns default.
+
+        Returns:
+            Tuple of (MUbase instance, mubase_path)
+
+        Raises:
+            HTTPException: If no .mubase found for the cwd
+        """
+        if not cwd:
+            return self._default_mubase, self._default_path
+
+        cwd_path = Path(cwd).resolve()
+        mubase_path = find_mubase_for_path(cwd_path)
+
+        if not mubase_path:
+            # No .mubase found - return default with a note
+            logger.debug(f"No .mubase found for {cwd}, using default")
+            return self._default_mubase, self._default_path
+
+        mubase_path = mubase_path.resolve()
+
+        async with self._lock:
+            if mubase_path in self._cache:
+                return self._cache[mubase_path], mubase_path
+
+            # Open new MUbase for this project
+            logger.info(f"Opening MUbase for project: {mubase_path}")
+            db = MUbase(mubase_path)
+            self._cache[mubase_path] = db
+            return db, mubase_path
+
+    async def close_all(self) -> None:
+        """Close all cached MUbase instances."""
+        async with self._lock:
+            for path, db in self._cache.items():
+                if path != self._default_path:  # Don't close default twice
+                    db.close()
+            self._cache.clear()
+
+    @property
+    def project_count(self) -> int:
+        """Number of cached projects."""
+        return len(self._cache)
+
+    def list_projects(self) -> list[str]:
+        """List all cached project paths."""
+        return [str(p) for p in self._cache.keys()]
+
+
+def _resolve_node_id(db: Any, node_ref: str) -> str:
+    """Resolve a node reference to a full node ID.
+
+    Handles:
+    - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
+    - Simple names: MUbase, AuthService
+    """
+    # If it already looks like a full node ID, return it
+    if node_ref.startswith(("mod:", "cls:", "fn:")):
+        return node_ref
+
+    # Try exact name match
+    nodes = db.find_by_name(node_ref)
+    if nodes:
+        return str(nodes[0].id)
+
+    # Try pattern match
+    nodes = db.find_by_name(f"%{node_ref}%")
+    if nodes:
+        # Prefer exact name matches
+        for node in nodes:
+            if node.name == node_ref:
+                return str(node.id)
+        return str(nodes[0].id)
+
+    # Return original if not found (will fail in has_node check)
+    return node_ref
+
+
+# =============================================================================
 # Pydantic Models for API
 # =============================================================================
 
@@ -43,6 +174,9 @@ class StatusResponse(BaseModel):
     stats: dict[str, Any] = Field(description="Database statistics")
     connections: int = Field(description="Active WebSocket connections")
     uptime_seconds: float = Field(description="Daemon uptime in seconds")
+    # Multi-project info
+    active_projects: int = Field(default=1, description="Number of cached projects")
+    project_paths: list[str] = Field(default_factory=list, description="Cached project paths")
 
 
 class NodeResponse(BaseModel):
@@ -71,6 +205,10 @@ class QueryRequest(BaseModel):
     """Request model for /query endpoint."""
 
     muql: str = Field(description="MUQL query string")
+    cwd: str | None = Field(
+        default=None,
+        description="Client working directory for multi-project routing",
+    )
 
 
 class QueryResponse(BaseModel):
@@ -87,6 +225,37 @@ class ContextRequest(BaseModel):
     question: str = Field(description="Natural language question")
     max_tokens: int = Field(default=8000, description="Maximum tokens in output")
     exclude_tests: bool = Field(default=False, description="Exclude test files")
+    cwd: str | None = Field(
+        default=None,
+        description="Client working directory for multi-project routing",
+    )
+
+
+class GraphReasoningRequest(BaseModel):
+    """Request model for graph reasoning endpoints (/impact, /ancestors)."""
+
+    node_id: str = Field(description="Node ID or name to analyze")
+    edge_types: list[str] | None = Field(
+        default=None,
+        description="Optional list of edge types to follow",
+    )
+    cwd: str | None = Field(
+        default=None,
+        description="Client working directory for multi-project routing",
+    )
+
+
+class CyclesRequest(BaseModel):
+    """Request model for /cycles endpoint."""
+
+    edge_types: list[str] | None = Field(
+        default=None,
+        description="Optional list of edge types to consider",
+    )
+    cwd: str | None = Field(
+        default=None,
+        description="Client working directory for multi-project routing",
+    )
 
 
 class ContextResponse(BaseModel):
@@ -125,6 +294,35 @@ class ContractsResponse(BaseModel):
     error_count: int = Field(description="Number of errors")
     warning_count: int = Field(description="Number of warnings")
     violations: list[ContractViolationResponse] = Field(description="List of violations")
+
+
+# =============================================================================
+# Graph Reasoning Models
+# =============================================================================
+
+
+class ImpactResponse(BaseModel):
+    """Response model for impact analysis."""
+
+    node_id: str = Field(description="Source node ID")
+    impacted_nodes: list[str] = Field(description="List of impacted node IDs")
+    count: int = Field(description="Number of impacted nodes")
+
+
+class AncestorsResponse(BaseModel):
+    """Response model for ancestors analysis."""
+
+    node_id: str = Field(description="Source node ID")
+    ancestor_nodes: list[str] = Field(description="List of ancestor node IDs")
+    count: int = Field(description="Number of ancestor nodes")
+
+
+class CyclesResponse(BaseModel):
+    """Response model for cycle detection."""
+
+    cycles: list[list[str]] = Field(description="List of cycles (each cycle is a list of node IDs)")
+    cycle_count: int = Field(description="Number of cycles found")
+    total_nodes_in_cycles: int = Field(description="Total nodes involved in cycles")
 
 
 # =============================================================================
@@ -235,6 +433,8 @@ class AppState:
         self.watcher: FileWatcher | None = None
         self.worker: GraphWorker | None = None
         self.manager = ConnectionManager(max_connections=config.max_connections)
+        # Multi-project support
+        self.projects = ProjectManager(mubase, mubase_path)
 
 
 # =============================================================================
@@ -305,6 +505,8 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
         # Flush any pending queue items
         await state.queue.flush()
 
+        # Close all project databases
+        await state.projects.close_all()
         state.mubase.close()
         logger.info("MU daemon shutdown complete")
 
@@ -320,16 +522,31 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
     # -------------------------------------------------------------------------
 
     @app.get("/status", response_model=StatusResponse)
-    async def get_status() -> StatusResponse:
-        """Get daemon status and statistics."""
+    async def get_status(
+        cwd: str | None = Query(
+            default=None,
+            description="Client working directory for project-specific stats",
+        ),
+    ) -> StatusResponse:
+        """Get daemon status and statistics.
+
+        If `cwd` is provided, returns stats for that project's .mubase.
+        Otherwise returns stats for the default project.
+        """
         state: AppState = app.state.daemon
-        stats = state.mubase.stats()
+
+        # Get project-specific mubase if cwd provided
+        mubase, mubase_path = await state.projects.get_mubase(cwd)
+        stats = mubase.stats()
+
         return StatusResponse(
             status="running",
-            mubase_path=str(state.mubase_path),
+            mubase_path=str(mubase_path),
             stats=stats,
             connections=state.manager.connection_count,
             uptime_seconds=time.time() - state.start_time,
+            active_projects=state.projects.project_count,
+            project_paths=state.projects.list_projects(),
         )
 
     @app.get("/nodes/{node_id}", response_model=NodeResponse)
@@ -392,13 +609,18 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
 
     @app.post("/query", response_model=QueryResponse)
     async def execute_query(request: QueryRequest) -> QueryResponse:
-        """Execute a MUQL query."""
+        """Execute a MUQL query.
+
+        If `cwd` is provided in request, uses that project's .mubase.
+        """
         state: AppState = app.state.daemon
 
         try:
             from mu.kernel.muql import MUQLEngine
 
-            engine = MUQLEngine(state.mubase)
+            # Get project-specific mubase
+            mubase, _ = await state.projects.get_mubase(request.cwd)
+            engine = MUQLEngine(mubase)
             # Use query_dict to return dict directly - FastAPI handles serialization
             result = engine.query_dict(request.muql)
             return QueryResponse(result=result, success=True)
@@ -407,17 +629,23 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
 
     @app.post("/context", response_model=ContextResponse)
     async def get_context(request: ContextRequest) -> ContextResponse:
-        """Extract smart context for a question."""
+        """Extract smart context for a question.
+
+        If `cwd` is provided in request, uses that project's .mubase.
+        """
         state: AppState = app.state.daemon
 
         try:
             from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
+            # Get project-specific mubase
+            mubase, _ = await state.projects.get_mubase(request.cwd)
+
             config = ExtractionConfig(
                 max_tokens=request.max_tokens,
                 exclude_tests=request.exclude_tests,
             )
-            extractor = SmartContextExtractor(state.mubase, config)
+            extractor = SmartContextExtractor(mubase, config)
             result = extractor.extract(request.question)
 
             return ContextResponse(
@@ -437,6 +665,104 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
                     )
                     for n in result.nodes
                 ],
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    # -------------------------------------------------------------------------
+    # Graph Reasoning Endpoints
+    # -------------------------------------------------------------------------
+
+    @app.post("/impact", response_model=ImpactResponse)
+    async def get_impact(request: GraphReasoningRequest) -> ImpactResponse:
+        """Find downstream impact of changing a node.
+
+        "If I change X, what might break?"
+        """
+        state: AppState = app.state.daemon
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            # Get project-specific mubase
+            mubase, _ = await state.projects.get_mubase(request.cwd)
+
+            gm = GraphManager(mubase.conn)
+            gm.load()
+
+            # Resolve node name to ID if needed
+            resolved_id = _resolve_node_id(mubase, request.node_id)
+
+            if not gm.has_node(resolved_id):
+                raise HTTPException(status_code=404, detail=f"Node not found: {resolved_id}")
+
+            impacted = gm.impact(resolved_id, request.edge_types)
+
+            return ImpactResponse(
+                node_id=resolved_id,
+                impacted_nodes=impacted,
+                count=len(impacted),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.post("/ancestors", response_model=AncestorsResponse)
+    async def get_ancestors(request: GraphReasoningRequest) -> AncestorsResponse:
+        """Find upstream dependencies of a node.
+
+        "What does X depend on?"
+        """
+        state: AppState = app.state.daemon
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            # Get project-specific mubase
+            mubase, _ = await state.projects.get_mubase(request.cwd)
+
+            gm = GraphManager(mubase.conn)
+            gm.load()
+
+            # Resolve node name to ID if needed
+            resolved_id = _resolve_node_id(mubase, request.node_id)
+
+            if not gm.has_node(resolved_id):
+                raise HTTPException(status_code=404, detail=f"Node not found: {resolved_id}")
+
+            ancestor_nodes = gm.ancestors(resolved_id, request.edge_types)
+
+            return AncestorsResponse(
+                node_id=resolved_id,
+                ancestor_nodes=ancestor_nodes,
+                count=len(ancestor_nodes),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @app.post("/cycles", response_model=CyclesResponse)
+    async def get_cycles(request: CyclesRequest) -> CyclesResponse:
+        """Detect circular dependencies in the codebase."""
+        state: AppState = app.state.daemon
+
+        try:
+            from mu.kernel.graph import GraphManager
+
+            # Get project-specific mubase
+            mubase, _ = await state.projects.get_mubase(request.cwd)
+
+            gm = GraphManager(mubase.conn)
+            gm.load()
+
+            cycles = gm.find_cycles(request.edge_types)
+
+            return CyclesResponse(
+                cycles=cycles,
+                cycle_count=len(cycles),
+                total_nodes_in_cycles=sum(len(c) for c in cycles),
             )
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
@@ -612,4 +938,8 @@ __all__ = [
     "ContractsRequest",
     "ContractsResponse",
     "ContractViolationResponse",
+    # Graph reasoning
+    "ImpactResponse",
+    "AncestorsResponse",
+    "CyclesResponse",
 ]

@@ -74,7 +74,7 @@ def compress(
     from mu.parser.models import ModuleDef
     from mu.reducer import reduce_codebase
     from mu.reducer.rules import TransformationRules
-    from mu.scanner import scan_codebase
+    from mu.scanner import scan_codebase_auto
     from mu.security import DEFAULT_PATTERNS, SecretScanner, load_custom_patterns
 
     if ctx.config is None:
@@ -116,7 +116,7 @@ def compress(
 
     # Step 1: Scan codebase
     print_info(f"Scanning {path}...")
-    scan_result = scan_codebase(path, ctx.config)
+    scan_result = scan_codebase_auto(path, ctx.config)
 
     if scan_result.stats.total_files == 0:
         print_warning("No supported files found")

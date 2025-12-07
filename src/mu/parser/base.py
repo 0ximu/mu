@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -11,6 +12,22 @@ from tree_sitter import Language, Node, Parser
 from mu.errors import UnsupportedLanguageError
 from mu.logging import get_logger
 from mu.parser.models import ModuleDef
+
+# Check if Rust core is available and should be used
+_USE_RUST_CORE = False
+try:
+    from mu import _core as rust_core
+
+    # Allow disabling via environment variable
+    if os.environ.get("MU_DISABLE_RUST_CORE", "").lower() not in ("1", "true", "yes"):
+        _USE_RUST_CORE = True
+except ImportError:
+    rust_core = None  # type: ignore[assignment]
+
+
+def use_rust_core() -> bool:
+    """Check if Rust core is being used for parsing."""
+    return _USE_RUST_CORE
 
 
 class LanguageExtractor(Protocol):
@@ -125,24 +142,113 @@ def _get_extractor(lang: str) -> LanguageExtractor:
     return _extractors[lang]
 
 
-def parse_file(
+def _rust_module_to_python(rust_module: Any, stored_path: str) -> ModuleDef:
+    """Convert Rust ModuleDef to Python ModuleDef.
+
+    The Rust types are PyO3-bound and need conversion to Python dataclasses.
+    """
+    from mu.parser.models import ClassDef, FunctionDef, ImportDef, ParameterDef
+
+    def convert_param(p: Any) -> ParameterDef:
+        return ParameterDef(
+            name=p.name,
+            type_annotation=p.type_annotation,
+            default_value=p.default_value,
+            is_variadic=p.is_variadic,
+            is_keyword=p.is_keyword,
+        )
+
+    def convert_func(f: Any) -> FunctionDef:
+        return FunctionDef(
+            name=f.name,
+            decorators=list(f.decorators),
+            parameters=[convert_param(p) for p in f.parameters],
+            return_type=f.return_type,
+            is_async=f.is_async,
+            is_static=f.is_static,
+            is_classmethod=f.is_classmethod,
+            is_property=f.is_property,
+            is_method=f.is_method,
+            docstring=f.docstring,
+            body_complexity=f.body_complexity,
+            body_source=f.body_source,
+            start_line=f.start_line,
+            end_line=f.end_line,
+        )
+
+    def convert_class(c: Any) -> ClassDef:
+        return ClassDef(
+            name=c.name,
+            bases=list(c.bases),
+            decorators=list(c.decorators),
+            docstring=c.docstring,
+            methods=[convert_func(m) for m in c.methods],
+            attributes=list(c.attributes),
+            start_line=c.start_line,
+            end_line=c.end_line,
+        )
+
+    def convert_import(i: Any) -> ImportDef:
+        return ImportDef(
+            module=i.module,
+            names=list(i.names),
+            alias=i.alias,
+            is_from=i.is_from,
+            is_dynamic=i.is_dynamic,
+            dynamic_pattern=i.dynamic_pattern,
+            dynamic_source=i.dynamic_source,
+            line_number=i.line_number,
+        )
+
+    return ModuleDef(
+        name=rust_module.name,
+        path=stored_path,
+        language=rust_module.language,
+        module_docstring=rust_module.module_docstring,
+        imports=[convert_import(i) for i in rust_module.imports],
+        classes=[convert_class(c) for c in rust_module.classes],
+        functions=[convert_func(f) for f in rust_module.functions],
+        total_lines=rust_module.total_lines,
+    )
+
+
+def _parse_file_rust(
     file_path: Path,
     language: str,
-    display_path: str | None = None,
+    stored_path: str,
 ) -> ParsedFile:
-    """Parse a source file and extract AST information.
+    """Parse file using Rust core."""
+    result = ParsedFile(path=stored_path, language=language)
 
-    Args:
-        file_path: Path to the source file
-        language: Programming language (python, typescript, javascript, csharp)
-        display_path: Optional path to use in output (for worktree comparisons)
+    try:
+        source = file_path.read_text(errors="replace")
+        rust_result = rust_core.parse_file(source, stored_path, language)
 
-    Returns:
-        ParsedFile with extracted module information or error
-    """
+        if rust_result.error:
+            result.error = rust_result.error
+        elif rust_result.module:
+            result.module = _rust_module_to_python(rust_result.module, stored_path)
+        else:
+            result.error = "No module returned from Rust parser"
+
+    except FileNotFoundError:
+        result.error = f"File not found: {file_path}"
+    except PermissionError:
+        result.error = f"Permission denied: {file_path}"
+    except Exception as e:
+        get_logger().exception(f"Rust parser error for {file_path}")
+        result.error = str(e)
+
+    return result
+
+
+def _parse_file_python(
+    file_path: Path,
+    language: str,
+    stored_path: str,
+) -> ParsedFile:
+    """Parse file using Python tree-sitter implementation."""
     logger = get_logger()
-    # Use display_path if provided (e.g., relative path for diff comparisons)
-    stored_path = display_path if display_path is not None else str(file_path)
     result = ParsedFile(path=stored_path, language=language)
 
     try:
@@ -180,6 +286,33 @@ def parse_file(
         result.error = str(e)
 
     return result
+
+
+def parse_file(
+    file_path: Path,
+    language: str,
+    display_path: str | None = None,
+) -> ParsedFile:
+    """Parse a source file and extract AST information.
+
+    Uses Rust core for parsing when available (2-5x faster).
+    Falls back to Python tree-sitter implementation otherwise.
+
+    Args:
+        file_path: Path to the source file
+        language: Programming language (python, typescript, javascript, csharp)
+        display_path: Optional path to use in output (for worktree comparisons)
+
+    Returns:
+        ParsedFile with extracted module information or error
+    """
+    # Use display_path if provided (e.g., relative path for diff comparisons)
+    stored_path = display_path if display_path is not None else str(file_path)
+
+    if _USE_RUST_CORE:
+        return _parse_file_rust(file_path, language, stored_path)
+    else:
+        return _parse_file_python(file_path, language, stored_path)
 
 
 def count_nodes(node: Node) -> int:

@@ -6,6 +6,9 @@ import type {
   GraphOptions,
   GraphEvent,
   ContextResult,
+  ImpactResult,
+  AncestorsResult,
+  CyclesResult,
 } from './types';
 
 class MUClient {
@@ -109,6 +112,52 @@ class MUClient {
     };
 
     return ws;
+  }
+
+  // ===========================================================================
+  // Graph Reasoning Methods (petgraph-backed)
+  // ===========================================================================
+
+  /**
+   * Find downstream impact of changing a node.
+   * "If I change X, what might break?"
+   */
+  async getImpact(nodeId: string, edgeTypes?: string[]): Promise<ImpactResult> {
+    const params = new URLSearchParams();
+    if (edgeTypes?.length) params.set('edge_types', edgeTypes.join(','));
+
+    const res = await fetch(
+      `${this.baseUrl}/nodes/${encodeURIComponent(nodeId)}/impact?${params}`
+    );
+    if (!res.ok) throw new Error(`Impact request failed: ${res.statusText}`);
+    return res.json();
+  }
+
+  /**
+   * Find upstream dependencies of a node.
+   * "What does X depend on?"
+   */
+  async getAncestors(nodeId: string, edgeTypes?: string[]): Promise<AncestorsResult> {
+    const params = new URLSearchParams();
+    if (edgeTypes?.length) params.set('edge_types', edgeTypes.join(','));
+
+    const res = await fetch(
+      `${this.baseUrl}/nodes/${encodeURIComponent(nodeId)}/ancestors?${params}`
+    );
+    if (!res.ok) throw new Error(`Ancestors request failed: ${res.statusText}`);
+    return res.json();
+  }
+
+  /**
+   * Detect circular dependencies in the codebase.
+   */
+  async getCycles(edgeTypes?: string[]): Promise<CyclesResult> {
+    const params = new URLSearchParams();
+    if (edgeTypes?.length) params.set('edge_types', edgeTypes.join(','));
+
+    const res = await fetch(`${this.baseUrl}/cycles?${params}`);
+    if (!res.ok) throw new Error(`Cycles request failed: ${res.statusText}`);
+    return res.json();
   }
 }
 

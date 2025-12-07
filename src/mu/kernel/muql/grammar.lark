@@ -9,6 +9,7 @@
       | show_tables_query
       | show_columns_query
       | find_query
+      | find_cycles_query
       | path_query
       | analyze_query
       | history_query
@@ -96,6 +97,8 @@ show_type: DEPENDENCIES_KW -> show_dependencies
          | IMPLEMENTATIONS_KW -> show_implementations
          | CHILDREN_KW -> show_children
          | PARENTS_KW -> show_parents
+         | IMPACT_KW -> show_impact
+         | ANCESTORS_KW -> show_ancestors
 
 node_ref: STRING -> quoted_node_ref
         | IDENTIFIER -> identifier_node_ref
@@ -104,6 +107,19 @@ node_ref: STRING -> quoted_node_ref
 qualified_name: IDENTIFIER ("." IDENTIFIER)+
 
 depth_clause: DEPTH_KW NUMBER
+
+// =============================================================================
+// FIND CYCLES Query - Graph cycle detection using petgraph
+// =============================================================================
+
+find_cycles_query: FIND_KW CYCLES_KW [edge_type_filter]
+
+edge_type_filter: WHERE_KW EDGE_TYPE_KW comparison_op edge_type_value
+                | WHERE_KW EDGE_TYPE_KW IN_KW "(" edge_type_list ")"
+
+edge_type_value: STRING -> edge_type_string
+
+edge_type_list: edge_type_value ("," edge_type_value)*
 
 // =============================================================================
 // FIND Query - Pattern-based search
@@ -255,6 +271,12 @@ ANNOTATION_KW: /annotation/i
 MATCHING_KW: /matching/i
 SIMILAR_KW: /similar/i
 TO_KW: /to/i
+CYCLES_KW: /cycles/i
+EDGE_TYPE_KW: /edge_type/i
+
+// Graph traversal keywords (SHOW ANCESTORS)
+// NOTE: IMPACT_KW is already defined below for ANALYZE
+ANCESTORS_KW: /ancestors/i
 
 // PATH keywords
 PATH_KW: /path/i

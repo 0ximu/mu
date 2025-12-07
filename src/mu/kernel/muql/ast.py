@@ -21,6 +21,7 @@ class QueryType(Enum):
     SELECT = "select"
     SHOW = "show"
     FIND = "find"
+    FIND_CYCLES = "find_cycles"  # Graph cycle detection using petgraph
     PATH = "path"
     ANALYZE = "analyze"
     HISTORY = "history"
@@ -60,6 +61,8 @@ class ShowType(Enum):
     IMPLEMENTATIONS = "implementations"
     CHILDREN = "children"
     PARENTS = "parents"
+    IMPACT = "impact"  # Downstream impact analysis (what breaks if I change X?)
+    ANCESTORS = "ancestors"  # Upstream dependency analysis (what does X depend on?)
 
 
 class FindConditionType(Enum):
@@ -471,6 +474,28 @@ class DescribeQuery:
         }
 
 
+@dataclass
+class CyclesQuery:
+    """A FIND CYCLES query for detecting circular dependencies.
+
+    Uses petgraph's Kosaraju algorithm via GraphManager for O(V+E) cycle detection.
+
+    Examples:
+        FIND CYCLES
+        FIND CYCLES WHERE edge_type = 'imports'
+        FIND CYCLES WHERE edge_type IN ('imports', 'calls')
+    """
+
+    query_type: QueryType = field(default=QueryType.FIND_CYCLES, init=False)
+    edge_types: list[str] = field(default_factory=list)  # Empty = all edge types
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "query_type": self.query_type.value,
+            "edge_types": self.edge_types,
+        }
+
+
 # =============================================================================
 # Union Type
 # =============================================================================
@@ -484,6 +509,7 @@ Query = (
     | HistoryQuery
     | BlameQuery
     | DescribeQuery
+    | CyclesQuery
 )
 
 
@@ -525,6 +551,7 @@ __all__ = [
     "HistoryQuery",
     "BlameQuery",
     "DescribeQuery",
+    "CyclesQuery",
     # Union type
     "Query",
 ]

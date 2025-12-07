@@ -13,6 +13,7 @@ from mu.kernel.muql.ast import (
     AnalysisType,
     AnalyzeQuery,
     ComparisonOperator,
+    CyclesQuery,
     EdgeTypeFilter,
     FindConditionType,
     FindQuery,
@@ -384,6 +385,86 @@ class TestShowParser:
 
         assert isinstance(query, ShowQuery)
         assert query.depth == 1
+
+    def test_show_impact(self) -> None:
+        """Parse SHOW impact OF node."""
+        query = parse("SHOW impact OF MUbase")
+
+        assert isinstance(query, ShowQuery)
+        assert query.show_type == ShowType.IMPACT
+        assert query.target.name == "MUbase"
+
+    def test_show_ancestors(self) -> None:
+        """Parse SHOW ancestors OF node."""
+        query = parse("SHOW ancestors OF process_data")
+
+        assert isinstance(query, ShowQuery)
+        assert query.show_type == ShowType.ANCESTORS
+        assert query.target.name == "process_data"
+
+    def test_show_ancestors_with_depth(self) -> None:
+        """Parse SHOW ancestors OF node DEPTH 3."""
+        query = parse("SHOW ancestors OF cli DEPTH 3")
+
+        assert isinstance(query, ShowQuery)
+        assert query.show_type == ShowType.ANCESTORS
+        assert query.target.name == "cli"
+        assert query.depth == 3
+
+    def test_show_impact_quoted_node(self) -> None:
+        """Parse SHOW impact OF quoted node reference."""
+        query = parse('SHOW impact OF "mod:src/auth.py"')
+
+        assert isinstance(query, ShowQuery)
+        assert query.show_type == ShowType.IMPACT
+        assert query.target.name == "mod:src/auth.py"
+        assert query.target.is_quoted
+
+
+class TestFindCyclesParser:
+    """Tests for FIND CYCLES query parsing (graph cycle detection)."""
+
+    def test_find_cycles_basic(self) -> None:
+        """Parse basic FIND CYCLES query."""
+        query = parse("FIND CYCLES")
+
+        assert isinstance(query, CyclesQuery)
+        assert query.edge_types == []
+
+    def test_find_cycles_with_edge_type_equals(self) -> None:
+        """Parse FIND CYCLES WHERE edge_type = 'imports'."""
+        query = parse("FIND CYCLES WHERE edge_type = 'imports'")
+
+        assert isinstance(query, CyclesQuery)
+        assert query.edge_types == ["imports"]
+
+    def test_find_cycles_with_edge_type_in(self) -> None:
+        """Parse FIND CYCLES WHERE edge_type IN ('imports', 'calls')."""
+        query = parse("FIND CYCLES WHERE edge_type IN ('imports', 'calls')")
+
+        assert isinstance(query, CyclesQuery)
+        assert query.edge_types == ["imports", "calls"]
+
+    def test_find_cycles_lowercase(self) -> None:
+        """Parse find cycles in lowercase."""
+        query = parse("find cycles")
+
+        assert isinstance(query, CyclesQuery)
+        assert query.edge_types == []
+
+    def test_find_cycles_mixed_case(self) -> None:
+        """Parse Find Cycles in mixed case."""
+        query = parse("Find Cycles")
+
+        assert isinstance(query, CyclesQuery)
+
+    def test_find_cycles_to_dict(self) -> None:
+        """CyclesQuery serializes to dict."""
+        query = parse("FIND CYCLES WHERE edge_type = 'imports'")
+
+        d = query.to_dict()
+        assert d["query_type"] == "find_cycles"
+        assert d["edge_types"] == ["imports"]
 
 
 class TestFindParser:

@@ -17,6 +17,7 @@ from mu.kernel.muql.ast import (
     Comparison,
     ComparisonOperator,
     Condition,
+    CyclesQuery,
     DescribeQuery,
     DescribeTarget,
     EdgeTypeFilter,
@@ -165,6 +166,8 @@ class QueryPlanner:
             return self._plan_show(query)
         elif isinstance(query, FindQuery):
             return self._plan_find(query)
+        elif isinstance(query, CyclesQuery):
+            return self._plan_cycles(query)
         elif isinstance(query, PathQuery):
             return self._plan_path(query)
         elif isinstance(query, AnalyzeQuery):
@@ -279,14 +282,27 @@ class QueryPlanner:
 
     def _build_select_clause(self, fields: list[SelectField], columns: list[str]) -> str:
         """Build the SELECT clause from field list."""
+        # Full column list matching the nodes table schema order
+        all_columns = [
+            "id",
+            "type",
+            "name",
+            "qualified_name",
+            "file_path",
+            "line_start",
+            "line_end",
+            "properties",
+            "complexity",
+        ]
+
         if not fields:
-            columns.extend(["id", "name", "type", "path", "complexity"])
+            columns.extend(all_columns)
             return "*"
 
         parts: list[str] = []
         for select_field in fields:
             if select_field.is_star and not select_field.aggregate:
-                columns.extend(["id", "name", "type", "path", "complexity"])
+                columns.extend(all_columns)
                 parts.append("*")
             elif select_field.aggregate:
                 agg = select_field.aggregate.value.upper()
@@ -400,8 +416,26 @@ class QueryPlanner:
             ShowType.IMPLEMENTATIONS: "get_implementations",
             ShowType.CHILDREN: "get_children",
             ShowType.PARENTS: "get_parents",
+            ShowType.IMPACT: "get_impact",  # Uses GraphManager.impact()
+            ShowType.ANCESTORS: "get_ancestors",  # Uses GraphManager.ancestors()
         }
         return mapping.get(show_type, "get_dependencies")
+
+    # -------------------------------------------------------------------------
+    # FIND CYCLES Query Planning (Graph cycle detection)
+    # -------------------------------------------------------------------------
+
+    def _plan_cycles(self, query: CyclesQuery) -> GraphPlan:
+        """Generate a graph plan for FIND CYCLES query.
+
+        Uses GraphManager.find_cycles() backed by petgraph's Kosaraju algorithm.
+        """
+        return GraphPlan(
+            operation="find_cycles",
+            target_node="",  # Not applicable for cycles
+            depth=0,  # Not applicable for cycles
+            edge_types=query.edge_types,
+        )
 
     # -------------------------------------------------------------------------
     # FIND Query Planning

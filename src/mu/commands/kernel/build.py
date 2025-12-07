@@ -30,7 +30,7 @@ def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
     from mu.kernel import MUbase
     from mu.logging import print_info, print_success, print_warning
     from mu.parser.base import parse_file
-    from mu.scanner import SUPPORTED_LANGUAGES, scan_codebase
+    from mu.scanner import SUPPORTED_LANGUAGES, scan_codebase_auto
 
     if ctx.config is None:
         ctx.config = MUConfig()
@@ -40,7 +40,7 @@ def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
 
     # Scan codebase
     print_info(f"Scanning {root_path}...")
-    scan_result = scan_codebase(root_path, ctx.config)
+    scan_result = scan_codebase_auto(root_path, ctx.config)
 
     if not scan_result.files:
         print_warning("No supported files found")

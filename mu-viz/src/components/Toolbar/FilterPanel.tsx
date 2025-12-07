@@ -21,6 +21,14 @@ const FILTER_PRESETS: Array<{ label: string; filters: Partial<Filters> }> = [
     },
   },
   {
+    label: 'Modules Only',
+    filters: {
+      types: ['module'],
+      minComplexity: 0,
+      pathPattern: '',
+    },
+  },
+  {
     label: 'High Complexity',
     filters: {
       types: ['module', 'class', 'function', 'external'],

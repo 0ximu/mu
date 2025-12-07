@@ -26,6 +26,7 @@ from mu.kernel.muql.ast import (
     AnalysisType,
     AnalyzeQuery,
     ComparisonOperator,
+    CyclesQuery,
     EdgeTypeFilter,
     FindConditionType,
     FindQuery,
@@ -80,6 +81,7 @@ __all__ = [
     "FindQuery",
     "PathQuery",
     "AnalyzeQuery",
+    "CyclesQuery",
     # Enums
     "NodeTypeFilter",
     "ShowType",

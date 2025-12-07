@@ -51,6 +51,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Rust performance layer - install with: pip install mu-cli[rust]
+rust = [
+    "mu-core>=0.1.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
@@ -61,6 +65,7 @@ dev = [
     "ruff>=0.1.0",
     "bandit>=1.7.0",
     "pyinstaller>=6.0.0",
+    "types-PyYAML>=6.0.0",
 ]
 
 [project.scripts]

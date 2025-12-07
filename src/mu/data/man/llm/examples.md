@@ -1,4 +1,75 @@
-## Example Transformations
+## MCP Tool Examples
+
+### Bootstrap a New Codebase
+
+```python
+# Check what needs to be done
+status = mu_status()
+
+# Follow the guidance
+if status["next_action"] == "mu_init":
+    mu_init(".")
+
+if status["next_action"] == "mu_build":
+    result = mu_build(".")
+    print(f"Built graph: {result.stats}")
+
+# Now query works
+context = mu_context("How does authentication work?")
+```
+
+### PR Review with Semantic Diff
+
+```python
+# Compare main to current branch
+diff = mu_semantic_diff("main", "HEAD")
+
+# Check for breaking changes
+if diff.has_breaking_changes:
+    print("Breaking changes detected:")
+    for change in diff.breaking_changes:
+        print(f"  - {change['change_type']}: {change['entity_name']}")
+
+# Human-readable summary
+print(diff.summary_text)
+# "functions: 2 added, 1 modified; classes: 1 removed"
+```
+
+### Impact Analysis
+
+```python
+# What breaks if I change auth.py?
+impact = mu_impact("mod:src/auth.py")
+print(f"{impact.count} nodes affected")
+
+# Find circular dependencies
+cycles = mu_cycles(["imports"])
+if cycles.cycle_count > 0:
+    print(f"Found {cycles.cycle_count} import cycles")
+    for cycle in cycles.cycles:
+        print(f"  {' -> '.join(cycle)}")
+
+# What does cli.py depend on?
+deps = mu_ancestors("mod:src/cli.py")
+print(f"cli.py has {deps.count} upstream dependencies")
+```
+
+### Fast Codebase Scan
+
+```python
+# Quick file discovery (uses Rust scanner)
+scan = mu_scan(".", extensions=["py", "ts"])
+print(f"Found {scan.total_files} files, {scan.total_lines} lines")
+print(f"Languages: {scan.by_language}")
+
+# Generate compressed output
+compressed = mu_compress("src/auth", format="mu")
+print(f"Compressed to {compressed.token_count} tokens ({compressed.compression_ratio:.0%} reduction)")
+```
+
+---
+
+## MU Format Examples
 
 ### Python Class -> MU
 

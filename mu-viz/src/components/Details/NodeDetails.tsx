@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   X,
   FileCode,
@@ -7,19 +7,28 @@ import {
   ExternalLink,
   GitBranch,
   Layers,
+  Zap,
+  ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { useGraphStore } from '../../store/graphStore';
 import { useUIStore } from '../../store/uiStore';
 import { muClient } from '../../api/client';
-import type { Node } from '../../api/types';
+import type { Node, ImpactResult, AncestorsResult } from '../../api/types';
 import { Button, Badge, Panel } from '../common';
 
 export function NodeDetails() {
-  const { selectedNode, setSelectedNode, elements } = useGraphStore();
+  const { selectedNode, setSelectedNode, elements, setHighlightedPath } = useGraphStore();
   const { setDetailsPanelOpen } = useUIStore();
   const [node, setNode] = useState<Node | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  // Graph reasoning state
+  const [impactResult, setImpactResult] = useState<ImpactResult | null>(null);
+  const [ancestorsResult, setAncestorsResult] = useState<AncestorsResult | null>(null);
+  const [reasoningLoading, setReasoningLoading] = useState<'impact' | 'ancestors' | null>(null);
+  const [reasoningError, setReasoningError] = useState<string | null>(null);
 
   // Fetch full node details when selected
   useEffect(() => {
@@ -27,6 +36,12 @@ export function NodeDetails() {
       setNode(null);
       return;
     }
+
+    // Reset reasoning state when node changes
+    setImpactResult(null);
+    setAncestorsResult(null);
+    setReasoningError(null);
+    setHighlightedPath([]);
 
     setLoading(true);
     muClient
@@ -49,7 +64,55 @@ export function NodeDetails() {
         }
       })
       .finally(() => setLoading(false));
-  }, [selectedNode, elements]);
+  }, [selectedNode, elements, setHighlightedPath]);
+
+  // Impact analysis handler
+  const handleImpact = useCallback(async () => {
+    if (!selectedNode) return;
+    setReasoningLoading('impact');
+    setReasoningError(null);
+    setAncestorsResult(null);
+
+    try {
+      const result = await muClient.getImpact(selectedNode, ['imports']);
+      setImpactResult(result);
+      if (result.impacted_nodes.length > 0) {
+        setHighlightedPath([selectedNode, ...result.impacted_nodes]);
+      }
+    } catch (err) {
+      setReasoningError(err instanceof Error ? err.message : 'Impact analysis failed');
+    } finally {
+      setReasoningLoading(null);
+    }
+  }, [selectedNode, setHighlightedPath]);
+
+  // Ancestors analysis handler
+  const handleAncestors = useCallback(async () => {
+    if (!selectedNode) return;
+    setReasoningLoading('ancestors');
+    setReasoningError(null);
+    setImpactResult(null);
+
+    try {
+      const result = await muClient.getAncestors(selectedNode, ['imports']);
+      setAncestorsResult(result);
+      if (result.ancestor_nodes.length > 0) {
+        setHighlightedPath([...result.ancestor_nodes, selectedNode]);
+      }
+    } catch (err) {
+      setReasoningError(err instanceof Error ? err.message : 'Ancestors analysis failed');
+    } finally {
+      setReasoningLoading(null);
+    }
+  }, [selectedNode, setHighlightedPath]);
+
+  // Clear reasoning results
+  const handleClearReasoning = useCallback(() => {
+    setImpactResult(null);
+    setAncestorsResult(null);
+    setReasoningError(null);
+    setHighlightedPath([]);
+  }, [setHighlightedPath]);
 
   const handleClose = () => {
     setSelectedNode(null);
@@ -251,6 +314,126 @@ export function NodeDetails() {
 
           {connections.incoming.length === 0 && connections.outgoing.length === 0 && (
             <p className="text-sm text-bauhaus-black/40">No connections</p>
+          )}
+        </div>
+
+        {/* Graph Reasoning - Impact & Ancestors */}
+        <div className="space-y-3 pt-2 border-t-2 border-bauhaus-black">
+          <h3 className="font-bauhaus-label text-bauhaus-black flex items-center gap-2">
+            <Zap className="w-4 h-4" />
+            Graph Reasoning
+          </h3>
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            <Button
+              variant="red"
+              onClick={handleImpact}
+              disabled={reasoningLoading !== null}
+              className="flex-1 text-xs px-2 py-1.5"
+            >
+              {reasoningLoading === 'impact' ? '...' : 'Impact'}
+            </Button>
+            <Button
+              variant="blue"
+              onClick={handleAncestors}
+              disabled={reasoningLoading !== null}
+              className="flex-1 text-xs px-2 py-1.5"
+            >
+              {reasoningLoading === 'ancestors' ? '...' : 'Ancestors'}
+            </Button>
+          </div>
+
+          {/* Error */}
+          {reasoningError && (
+            <div className="flex items-center gap-1 text-xs text-bauhaus-red">
+              <AlertTriangle className="w-3 h-3" />
+              {reasoningError}
+            </div>
+          )}
+
+          {/* Impact Results */}
+          {impactResult && (
+            <div className="bg-bauhaus-red/10 border-2 border-bauhaus-red p-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-bauhaus-red">
+                  Impact: {impactResult.count} nodes
+                </span>
+                <button
+                  onClick={handleClearReasoning}
+                  className="text-xs text-bauhaus-black/40 hover:text-bauhaus-black"
+                >
+                  Clear
+                </button>
+              </div>
+              {impactResult.count > 0 ? (
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {impactResult.impacted_nodes.slice(0, 10).map((id) => {
+                    const n = elements?.nodes.find((x) => x.data.id === id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setSelectedNode(id)}
+                        className="w-full flex items-center gap-1 px-1 py-0.5 text-xs bg-white hover:bg-bauhaus-muted transition-colors text-left"
+                      >
+                        <span className="w-1.5 h-1.5 bg-bauhaus-red rounded-full" />
+                        <span className="truncate flex-1">{n?.data.label || id.split('/').pop()}</span>
+                        <ChevronRight className="w-3 h-3 text-bauhaus-black/40" />
+                      </button>
+                    );
+                  })}
+                  {impactResult.count > 10 && (
+                    <span className="text-xs text-bauhaus-black/40">
+                      +{impactResult.count - 10} more
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-bauhaus-black/60">No downstream impact</p>
+              )}
+            </div>
+          )}
+
+          {/* Ancestors Results */}
+          {ancestorsResult && (
+            <div className="bg-bauhaus-blue/10 border-2 border-bauhaus-blue p-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold text-bauhaus-blue">
+                  Ancestors: {ancestorsResult.count} nodes
+                </span>
+                <button
+                  onClick={handleClearReasoning}
+                  className="text-xs text-bauhaus-black/40 hover:text-bauhaus-black"
+                >
+                  Clear
+                </button>
+              </div>
+              {ancestorsResult.count > 0 ? (
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {ancestorsResult.ancestor_nodes.slice(0, 10).map((id) => {
+                    const n = elements?.nodes.find((x) => x.data.id === id);
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setSelectedNode(id)}
+                        className="w-full flex items-center gap-1 px-1 py-0.5 text-xs bg-white hover:bg-bauhaus-muted transition-colors text-left"
+                      >
+                        <span className="w-1.5 h-1.5 bg-bauhaus-blue rounded-full" />
+                        <span className="truncate flex-1">{n?.data.label || id.split('/').pop()}</span>
+                        <ChevronRight className="w-3 h-3 text-bauhaus-black/40" />
+                      </button>
+                    );
+                  })}
+                  {ancestorsResult.count > 10 && (
+                    <span className="text-xs text-bauhaus-black/40">
+                      +{ancestorsResult.count - 10} more
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-bauhaus-black/60">No upstream dependencies</p>
+              )}
+            </div>
           )}
         </div>
 

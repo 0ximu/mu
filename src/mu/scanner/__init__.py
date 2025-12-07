@@ -8,10 +8,24 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from mu.config import MUConfig
 from mu.logging import get_logger
+
+# Try to import Rust scanner
+_rust_core: ModuleType | None
+try:
+    from mu import _core as _rust_core
+
+    _HAS_RUST_SCANNER = hasattr(_rust_core, "scan_directory")
+except ImportError:
+    _rust_core = None
+    _HAS_RUST_SCANNER = False
+
+# Environment variable to force Python scanner
+_USE_RUST_SCANNER = os.environ.get("MU_USE_RUST_SCANNER", "1") != "0" and _HAS_RUST_SCANNER
 
 # Language detection by file extension
 LANGUAGE_EXTENSIONS: dict[str, str] = {
@@ -371,3 +385,95 @@ def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
 
     logger.info(f"Found {result.stats.total_files} files, {result.stats.total_lines} lines")
     return result
+
+
+def _scan_codebase_rust(root: Path, config: MUConfig) -> ScanResult:
+    """Scan a codebase using the Rust scanner (fast path).
+
+    Args:
+        root: Root directory to scan
+        config: MU configuration
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    logger = get_logger()
+    root = root.resolve()
+
+    if _rust_core is None:
+        raise RuntimeError("Rust scanner not available")
+
+    logger.info(f"Scanning {root} (Rust scanner)")
+
+    # Build extension filter from supported languages
+    extensions = list(
+        {
+            ext.lstrip(".")
+            for ext, lang in LANGUAGE_EXTENSIONS.items()
+            if lang in SUPPORTED_LANGUAGES or lang in {"yaml", "json", "toml", "markdown"}
+        }
+    )
+
+    # Call Rust scanner
+    rust_result = _rust_core.scan_directory(
+        str(root),
+        extensions=extensions,
+        ignore_patterns=config.scanner.ignore if config.scanner.ignore else None,
+        follow_symlinks=False,
+        compute_hashes=True,
+        count_lines_flag=True,
+    )
+
+    # Convert Rust result to Python dataclass
+    result = ScanResult(
+        root=str(root),
+        scanned_at=datetime.now(UTC).isoformat(),
+    )
+
+    for rust_file in rust_result.files:
+        file_info = FileInfo(
+            path=rust_file.path,
+            language=rust_file.language,
+            size_bytes=rust_file.size_bytes,
+            hash=rust_file.hash or "",
+            lines=rust_file.lines,
+        )
+        result.files.append(file_info)
+        result.stats.total_files += 1
+        result.stats.total_lines += rust_file.lines
+        result.stats.languages[rust_file.language] = (
+            result.stats.languages.get(rust_file.language, 0) + 1
+        )
+
+    # Add skipped info (just count, since Rust doesn't track individual skipped items)
+    for _ in range(rust_result.skipped_count):
+        result.skipped.append(SkippedItem(path="<filtered>", reason="extension_filter"))
+
+    logger.info(
+        f"Found {result.stats.total_files} files, {result.stats.total_lines} lines "
+        f"({rust_result.duration_ms:.2f}ms)"
+    )
+    return result
+
+
+def scan_codebase_auto(root: Path, config: MUConfig) -> ScanResult:
+    """Scan a codebase using the best available scanner.
+
+    Automatically selects the Rust scanner if available and enabled,
+    falling back to the Python scanner otherwise.
+
+    Args:
+        root: Root directory or single file to scan
+        config: MU configuration
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    if _USE_RUST_SCANNER and root.is_dir():
+        try:
+            return _scan_codebase_rust(root, config)
+        except Exception as e:
+            logger = get_logger()
+            logger.warning(f"Rust scanner failed, falling back to Python: {e}")
+            return scan_codebase(root, config)
+    return scan_codebase(root, config)

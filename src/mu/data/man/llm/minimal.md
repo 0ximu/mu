@@ -1,4 +1,28 @@
-## Sigils
+## MCP Bootstrap Flow
+
+When entering a new codebase:
+1. `mu_status()` - Check status, get `next_action`
+2. `mu_init(".")` - Create config (if needed)
+3. `mu_build(".")` - Build code graph
+4. Now `mu_context`, `mu_query`, etc. work
+
+## MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `mu_status` | Health check + `next_action` guidance |
+| `mu_init` | Create .murc.toml config |
+| `mu_build` | Build .mubase graph |
+| `mu_query` | MUQL queries |
+| `mu_context` | Smart context for questions |
+| `mu_semantic_diff` | PR review with breaking changes |
+| `mu_scan` | Fast file discovery (Rust, 6.9x faster) |
+| `mu_compress` | Generate MU output |
+| `mu_impact` | "If I change X, what breaks?" |
+| `mu_ancestors` | "What does X depend on?" |
+| `mu_cycles` | Detect circular dependencies |
+
+## MU Sigils
 ! = module/service boundary
 $ = entity/data shape (class, struct, type)
 # = function/method

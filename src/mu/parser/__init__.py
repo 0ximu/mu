@@ -1,6 +1,10 @@
-"""MU Parser - Tree-sitter based AST extraction."""
+"""MU Parser - Tree-sitter based AST extraction.
 
-from mu.parser.base import ParsedFile, parse_file
+Uses Rust core for parsing when available (2-5x faster).
+Set MU_DISABLE_RUST_CORE=1 to force Python implementation.
+"""
+
+from mu.parser.base import ParsedFile, parse_file, use_rust_core
 from mu.parser.models import (
     ClassDef,
     FunctionDef,
@@ -17,4 +21,5 @@ __all__ = [
     "ImportDef",
     "ParameterDef",
     "ModuleDef",
+    "use_rust_core",
 ]

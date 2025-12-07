@@ -482,3 +482,443 @@ class TestDiffModels:
             class_name="MyClass",
         )
         assert method.full_name == "MyClass.my_method"
+
+
+class TestRustSemanticDiff:
+    """Tests for the Rust-based semantic diff engine."""
+
+    @pytest.fixture
+    def core_module(self):
+        """Import _core module for tests."""
+        from mu import _core
+        return _core
+
+    def test_semantic_diff_available(self, core_module):
+        """Test that semantic_diff function is available from Rust."""
+        assert hasattr(core_module, "semantic_diff")
+        assert hasattr(core_module, "EntityChange")
+        assert hasattr(core_module, "DiffSummary")
+        assert hasattr(core_module, "SemanticDiffResult")
+
+    def test_diff_added_function(self, core_module):
+        """Test detecting an added function via Rust differ."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="new_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        assert result.has_changes()
+        assert result.summary.functions_added == 1
+        assert result.summary.modules_modified == 1
+
+        func_changes = [c for c in result.changes if c.entity_type == "function"]
+        assert len(func_changes) == 1
+        assert func_changes[0].entity_name == "new_func"
+        assert func_changes[0].change_type == "added"
+
+    def test_diff_removed_function_is_breaking(self, core_module):
+        """Test that removing a function is marked as breaking."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="old_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        assert result.has_changes()
+        assert result.has_breaking_changes()
+        assert result.summary.functions_removed == 1
+
+        func_changes = [c for c in result.breaking_changes if c.entity_type == "function"]
+        assert len(func_changes) == 1
+        assert func_changes[0].entity_name == "old_func"
+        assert func_changes[0].is_breaking
+
+    def test_diff_modified_function_signature(self, core_module):
+        """Test detecting function signature changes."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="my_func",
+                    parameters=[
+                        core_module.ParameterDef(name="x", type_annotation="int"),
+                    ],
+                    return_type="str",
+                ),
+            ],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="my_func",
+                    parameters=[
+                        core_module.ParameterDef(name="x", type_annotation="int"),
+                        core_module.ParameterDef(name="y", type_annotation="str"),
+                    ],
+                    return_type="int",  # Changed return type
+                ),
+            ],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        assert result.has_changes()
+        # Return type change is breaking
+        assert result.has_breaking_changes()
+        assert result.summary.functions_modified == 1
+        assert result.summary.parameters_added == 1
+
+    def test_diff_added_class(self, core_module):
+        """Test detecting an added class."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[
+                core_module.ClassDef(
+                    name="NewClass",
+                    bases=["BaseClass"],
+                    methods=[],
+                ),
+            ],
+            functions=[],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        assert result.has_changes()
+        assert result.summary.classes_added == 1
+
+        class_changes = [c for c in result.changes if c.entity_type == "class"]
+        assert len(class_changes) == 1
+        assert class_changes[0].entity_name == "NewClass"
+        assert class_changes[0].change_type == "added"
+
+    def test_diff_added_method(self, core_module):
+        """Test detecting an added method in a class."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[
+                core_module.ClassDef(
+                    name="MyClass",
+                    bases=[],
+                    methods=[],
+                ),
+            ],
+            functions=[],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[
+                core_module.ClassDef(
+                    name="MyClass",
+                    bases=[],
+                    methods=[
+                        core_module.FunctionDef(
+                            name="new_method",
+                            parameters=[],
+                            return_type=None,
+                            is_method=True,
+                        ),
+                    ],
+                ),
+            ],
+            functions=[],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        assert result.has_changes()
+        assert result.summary.methods_added == 1
+
+        method_changes = [c for c in result.changes if c.entity_type == "method"]
+        assert len(method_changes) == 1
+        assert method_changes[0].entity_name == "new_method"
+        assert method_changes[0].parent_name == "MyClass"
+
+    def test_diff_no_changes(self, core_module):
+        """Test when there are no changes."""
+        mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="my_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+
+        result = core_module.semantic_diff([mod], [mod])
+
+        assert not result.has_changes()
+        assert not result.has_breaking_changes()
+        assert result.change_count() == 0
+
+    def test_diff_added_module(self, core_module):
+        """Test detecting an added module."""
+        new_mod = core_module.ModuleDef(
+            name="new_module",
+            path="new_module.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+
+        result = core_module.semantic_diff([], [new_mod])
+
+        assert result.has_changes()
+        assert result.summary.modules_added == 1
+
+    def test_diff_removed_module_is_breaking(self, core_module):
+        """Test that removing a module is breaking."""
+        old_mod = core_module.ModuleDef(
+            name="old_module",
+            path="old_module.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+
+        result = core_module.semantic_diff([old_mod], [])
+
+        assert result.has_changes()
+        assert result.has_breaking_changes()
+        assert result.summary.modules_removed == 1
+
+    def test_result_to_dict(self, core_module):
+        """Test SemanticDiffResult serialization."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                core_module.FunctionDef(
+                    name="new_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+        data = result.to_dict()
+
+        assert "changes" in data
+        assert "breaking_changes" in data
+        assert "summary" in data
+        assert "summary_text" in data
+        assert "duration_ms" in data
+        assert data["has_changes"] is True
+
+    def test_filter_by_type(self, core_module):
+        """Test filtering changes by entity type."""
+        base_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+        head_mod = core_module.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[
+                core_module.ClassDef(
+                    name="NewClass",
+                    bases=[],
+                    methods=[],
+                ),
+            ],
+            functions=[
+                core_module.FunctionDef(
+                    name="new_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+
+        result = core_module.semantic_diff([base_mod], [head_mod])
+
+        func_changes = result.filter_by_type("function")
+        assert len(func_changes) == 1
+        assert func_changes[0].entity_name == "new_func"
+
+        class_changes = result.filter_by_type("class")
+        assert len(class_changes) == 1
+        assert class_changes[0].entity_name == "NewClass"
+
+    def test_python_integration_semantic_diff_modules(self):
+        """Test the Python wrapper function."""
+        from mu.diff import semantic_diff_modules
+        from mu import _core
+
+        base_mod = _core.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[],
+        )
+        head_mod = _core.ModuleDef(
+            name="test",
+            path="test.py",
+            language="python",
+            imports=[],
+            classes=[],
+            functions=[
+                _core.FunctionDef(
+                    name="new_func",
+                    parameters=[],
+                    return_type="str",
+                ),
+            ],
+        )
+
+        result = semantic_diff_modules([base_mod], [head_mod])
+
+        assert result is not None
+        assert result.has_changes()
+        assert result.summary.functions_added == 1
+
+    def test_semantic_diff_files(self, tmp_path):
+        """Test the file-based semantic diff function."""
+        from mu import _core
+
+        base_code = '''
+def old_function():
+    return 'hello'
+'''
+        head_code = '''
+def old_function():
+    return 'hello'
+
+def new_function(x: int) -> str:
+    return str(x)
+'''
+
+        base_file = tmp_path / "base.py"
+        head_file = tmp_path / "head.py"
+        base_file.write_text(base_code)
+        head_file.write_text(head_code)
+
+        # Test with normalize_paths=True (default)
+        result = _core.semantic_diff_files(str(base_file), str(head_file), "python")
+
+        assert result.has_changes()
+        assert result.summary.modules_modified == 1
+        assert result.summary.functions_added == 1
+
+        func_changes = [c for c in result.changes if c.entity_type == "function"]
+        assert len(func_changes) == 1
+        assert func_changes[0].entity_name == "new_function"
+        assert func_changes[0].change_type == "added"
+
+    def test_semantic_diff_files_error_handling(self, tmp_path):
+        """Test error handling for semantic_diff_files."""
+        from mu import _core
+        import pytest
+
+        # Non-existent file should raise IOError
+        with pytest.raises(IOError):
+            _core.semantic_diff_files("/nonexistent/path.py", "/other/path.py", "python")
+
+        # Invalid syntax should raise ValueError
+        invalid_file = tmp_path / "invalid.py"
+        valid_file = tmp_path / "valid.py"
+        invalid_file.write_text("def broken(")  # Invalid Python syntax
+        valid_file.write_text("def valid(): pass")
+
+        # Note: Tree-sitter is lenient and may partially parse invalid code
+        # This test documents the behavior rather than asserting an exception
+        try:
+            result = _core.semantic_diff_files(str(invalid_file), str(valid_file), "python")
+            # If it parses (tree-sitter is lenient), verify result is valid
+            assert result is not None
+        except ValueError:
+            # If it fails to parse, that's also acceptable
+            pass

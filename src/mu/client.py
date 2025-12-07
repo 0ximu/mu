@@ -56,11 +56,12 @@ class DaemonClient:
         except Exception:
             return False
 
-    def query(self, muql: str) -> dict[str, Any]:
+    def query(self, muql: str, cwd: str | None = None) -> dict[str, Any]:
         """Execute a MUQL query via the daemon.
 
         Args:
             muql: The MUQL query string.
+            cwd: Client working directory for multi-project routing.
 
         Returns:
             Query result as dict with columns, rows, etc.
@@ -69,9 +70,12 @@ class DaemonClient:
             DaemonError: If query fails or daemon is not available.
         """
         try:
+            payload: dict[str, Any] = {"muql": muql}
+            if cwd:
+                payload["cwd"] = cwd
             response = self._client.post(
                 "/query",
-                json={"muql": muql},
+                json=payload,
                 timeout=30.0,  # Longer timeout for query execution
             )
             response.raise_for_status()
@@ -87,8 +91,11 @@ class DaemonClient:
         except Exception as e:
             raise DaemonError(f"Query error: {e}") from e
 
-    def status(self) -> dict[str, Any]:
+    def status(self, cwd: str | None = None) -> dict[str, Any]:
         """Get daemon status and statistics.
+
+        Args:
+            cwd: Client working directory for project-specific stats.
 
         Returns:
             Status information including uptime, connections, etc.
@@ -97,7 +104,8 @@ class DaemonClient:
             DaemonError: If status request fails.
         """
         try:
-            response = self._client.get("/status")
+            params = {"cwd": cwd} if cwd else {}
+            response = self._client.get("/status", params=params)
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
         except httpx.ConnectError as e:
@@ -110,6 +118,7 @@ class DaemonClient:
         question: str,
         max_tokens: int = 8000,
         exclude_tests: bool = False,
+        cwd: str | None = None,
     ) -> dict[str, Any]:
         """Get smart context for a question.
 
@@ -117,6 +126,7 @@ class DaemonClient:
             question: Natural language question.
             max_tokens: Maximum tokens in output.
             exclude_tests: Whether to exclude test files.
+            cwd: Client working directory for multi-project routing.
 
         Returns:
             Context result with mu_text, token_count, nodes.
@@ -125,13 +135,16 @@ class DaemonClient:
             DaemonError: If request fails.
         """
         try:
+            payload: dict[str, Any] = {
+                "question": question,
+                "max_tokens": max_tokens,
+                "exclude_tests": exclude_tests,
+            }
+            if cwd:
+                payload["cwd"] = cwd
             response = self._client.post(
                 "/context",
-                json={
-                    "question": question,
-                    "max_tokens": max_tokens,
-                    "exclude_tests": exclude_tests,
-                },
+                json=payload,
                 timeout=30.0,
             )
             response.raise_for_status()
@@ -140,6 +153,112 @@ class DaemonClient:
             raise DaemonError(f"Daemon not available: {e}") from e
         except Exception as e:
             raise DaemonError(f"Context request failed: {e}") from e
+
+    def impact(
+        self,
+        node_id: str,
+        edge_types: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get downstream impact of a node.
+
+        Args:
+            node_id: Node ID or name.
+            edge_types: Optional edge types to follow.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Impact result with node_id, impacted_nodes, count.
+        """
+        try:
+            payload: dict[str, Any] = {"node_id": node_id}
+            if edge_types:
+                payload["edge_types"] = edge_types
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/impact",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Impact request failed: {e.response.text}") from e
+        except Exception as e:
+            raise DaemonError(f"Impact error: {e}") from e
+
+    def ancestors(
+        self,
+        node_id: str,
+        edge_types: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get upstream dependencies of a node.
+
+        Args:
+            node_id: Node ID or name.
+            edge_types: Optional edge types to follow.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Ancestors result with node_id, ancestor_nodes, count.
+        """
+        try:
+            payload: dict[str, Any] = {"node_id": node_id}
+            if edge_types:
+                payload["edge_types"] = edge_types
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/ancestors",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Ancestors request failed: {e.response.text}") from e
+        except Exception as e:
+            raise DaemonError(f"Ancestors error: {e}") from e
+
+    def cycles(
+        self,
+        edge_types: list[str] | None = None,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Detect circular dependencies.
+
+        Args:
+            edge_types: Optional edge types to consider.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Cycles result with cycles, cycle_count, total_nodes_in_cycles.
+        """
+        try:
+            payload: dict[str, Any] = {}
+            if edge_types:
+                payload["edge_types"] = edge_types
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/cycles",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Cycles request failed: {e.response.text}") from e
+        except Exception as e:
+            raise DaemonError(f"Cycles error: {e}") from e
 
     def close(self) -> None:
         """Close the HTTP client."""

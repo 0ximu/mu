@@ -25,10 +25,16 @@ block_cipher = None
 # tiktoken requires vocabulary files (e.g., cl100k_base.tiktoken) at runtime
 tik_datas, tik_binaries, tik_hiddenimports = collect_all('tiktoken')
 
+# Find and include the Rust extension (_core.abi3.so)
+rust_ext_path = src_root / "mu" / "_core.abi3.so"
+rust_binaries = []
+if rust_ext_path.exists():
+    rust_binaries = [(str(rust_ext_path), "mu")]
+
 a = Analysis(
     ["src/mu/cli.py"],
     pathex=[str(src_root)],
-    binaries=tik_binaries,
+    binaries=tik_binaries + rust_binaries,
     datas=[
         # Include MUQL grammar file (required for Lark parser at runtime)
         ("src/mu/kernel/muql/grammar.lark", "mu/kernel/muql"),
@@ -44,6 +50,48 @@ a = Analysis(
         "mu.logging",
         "mu.client",
         "mu.describe",
+        # Commands (lazy-loaded modules)
+        "mu.commands",
+        "mu.commands.lazy",
+        "mu.commands.cache",
+        "mu.commands.compress",
+        "mu.commands.describe",
+        "mu.commands.diff",
+        "mu.commands.init_cmd",
+        "mu.commands.llm_spec",
+        "mu.commands.man",
+        "mu.commands.query",
+        "mu.commands.scan",
+        "mu.commands.view",
+        # Command subgroups
+        "mu.commands.contracts",
+        "mu.commands.contracts.init_cmd",
+        "mu.commands.contracts.verify",
+        "mu.commands.daemon",
+        "mu.commands.daemon.run",
+        "mu.commands.daemon.start",
+        "mu.commands.daemon.status",
+        "mu.commands.daemon.stop",
+        "mu.commands.kernel",
+        "mu.commands.kernel.blame",
+        "mu.commands.kernel.build",
+        "mu.commands.kernel.context",
+        "mu.commands.kernel.deps",
+        "mu.commands.kernel.diff",
+        "mu.commands.kernel.embed",
+        "mu.commands.kernel.export",
+        "mu.commands.kernel.history",
+        "mu.commands.kernel.init_cmd",
+        "mu.commands.kernel.muql",
+        "mu.commands.kernel.search",
+        "mu.commands.kernel.snapshot",
+        "mu.commands.kernel.stats",
+        "mu.commands.mcp",
+        "mu.commands.mcp.serve",
+        "mu.commands.mcp.test",
+        "mu.commands.mcp.tools",
+        # Graph reasoning commands
+        "mu.commands.graph",
         # Parser extractors (correct paths - no 'extractors' subpackage)
         "mu.parser",
         "mu.parser.base",
@@ -62,6 +110,20 @@ a = Analysis(
         "mu.kernel.muql.executor",
         "mu.kernel.muql.planner",
         "mu.kernel.muql.formatter",
+        "mu.kernel.graph",
+        # Diff module
+        "mu.diff",
+        "mu.diff.differ",
+        "mu.diff.models",
+        "mu.diff.formatters",
+        "mu.diff.git_utils",
+        # Scanner module
+        "mu.scanner",
+        # MCP server
+        "mu.mcp",
+        "mu.mcp.server",
+        # Rust extension (loaded dynamically)
+        "mu._core",
         # Tree-sitter language bindings
         "tree_sitter",
         "tree_sitter_python",
@@ -91,6 +153,10 @@ a = Analysis(
         "uvicorn",
         "watchfiles",
         "starlette",
+        # MCP server
+        "mcp",
+        "mcp.server",
+        "mcp.server.fastmcp",
         # Async support
         "anyio",
         "sniffio",

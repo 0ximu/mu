@@ -90,6 +90,13 @@ mu mcp serve --http            # Start with HTTP transport
 mu mcp tools                   # List available MCP tools
 mu mcp test                    # Test MCP tools
 
+# MCP Bootstrap Flow (for agents)
+# 1. mu_status() → get next_action
+# 2. mu_init(".") → create .murc.toml (if needed)
+# 3. mu_build(".") → build .mubase graph
+# 4. mu_context("question") → query works!
+# 5. mu_semantic_diff("main", "HEAD") → PR review
+
 # Architecture Contracts
 mu contracts init              # Create .mu-contracts.yml template
 mu contracts verify            # Verify architectural rules
@@ -124,6 +131,13 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 ## Supported Languages
 
 Python, TypeScript, JavaScript, Go, Java, Rust, C#
+
+## Rust Core Performance (mu-core)
+
+- **Scanner**: 6.9x faster than Python, respects .gitignore/.muignore
+- **Semantic Diff**: Entity-level changes with breaking change detection
+- **Incremental Parser**: <5ms updates for daemon mode
+- **Graph Reasoning**: petgraph-backed O(V+E) algorithms (impact, ancestors, cycles)
 
 ## MU Sigils
 
