@@ -1,22 +1,23 @@
 //! Python-specific AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type,
-    get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Python source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_python::LANGUAGE.into())
+    parser
+        .set_language(&tree_sitter_python::LANGUAGE.into())
         .map_err(|e| format!("Failed to set Python language: {}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse Python source")?;
     let root = tree.root_node();
 
@@ -61,14 +62,14 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
                 module.classes.push(extract_class(&child, source, None));
             }
             "function_definition" => {
-                module.functions.push(extract_function(&child, source, false, None));
+                module
+                    .functions
+                    .push(extract_function(&child, source, false, None));
             }
-            "decorated_definition" => {
-                match extract_decorated(&child, source, false) {
-                    Decorated::Class(c) => module.classes.push(c),
-                    Decorated::Function(f) => module.functions.push(f),
-                }
-            }
+            "decorated_definition" => match extract_decorated(&child, source, false) {
+                Decorated::Class(c) => module.classes.push(c),
+                Decorated::Function(f) => module.functions.push(f),
+            },
             _ => {}
         }
     }
@@ -105,7 +106,11 @@ fn extract_import(node: &Node, source: &str) -> ImportDef {
 
     ImportDef {
         module: names.first().cloned().unwrap_or_default(),
-        names: if names.len() > 1 { names[1..].to_vec() } else { vec![] },
+        names: if names.len() > 1 {
+            names[1..].to_vec()
+        } else {
+            vec![]
+        },
         alias,
         is_from: false,
         ..Default::default()
@@ -186,7 +191,9 @@ fn extract_class(node: &Node, source: &str, decorators: Option<Vec<String>>) -> 
                 let mut arg_cursor = child.walk();
                 for arg in child.children(&mut arg_cursor) {
                     if arg.kind() == "identifier" || arg.kind() == "attribute" {
-                        class_def.bases.push(get_node_text(&arg, source).to_string());
+                        class_def
+                            .bases
+                            .push(get_node_text(&arg, source).to_string());
                     }
                 }
             }
@@ -215,7 +222,9 @@ fn extract_class_body(block: &Node, source: &str, class_def: &mut ClassDef) {
                 first_statement = false;
             }
             "function_definition" => {
-                class_def.methods.push(extract_function(&child, source, true, None));
+                class_def
+                    .methods
+                    .push(extract_function(&child, source, true, None));
                 first_statement = false;
             }
             "decorated_definition" => {
@@ -228,7 +237,9 @@ fn extract_class_body(block: &Node, source: &str, class_def: &mut ClassDef) {
                 // Look for class attributes
                 if let Some(assignment) = find_child_by_type(&child, "assignment") {
                     if let Some(left) = find_child_by_type(&assignment, "identifier") {
-                        class_def.attributes.push(get_node_text(&left, source).to_string());
+                        class_def
+                            .attributes
+                            .push(get_node_text(&left, source).to_string());
                     }
                 }
                 first_statement = false;
@@ -476,7 +487,12 @@ fn extract_decorated(node: &Node, source: &str, is_method: bool) -> Decorated {
                 return Decorated::Class(extract_class(&child, source, Some(decorators)));
             }
             "function_definition" => {
-                return Decorated::Function(extract_function(&child, source, is_method, Some(decorators)));
+                return Decorated::Function(extract_function(
+                    &child,
+                    source,
+                    is_method,
+                    Some(decorators),
+                ));
             }
             _ => {}
         }
@@ -537,8 +553,8 @@ fn find_dynamic_imports_recursive(node: &Node, source: &str, results: &mut Vec<I
 
 /// Check if a call node is a dynamic import pattern.
 fn check_dynamic_import_call(node: &Node, source: &str) -> Option<ImportDef> {
-    let func_node = find_child_by_type(node, "attribute")
-        .or_else(|| find_child_by_type(node, "identifier"))?;
+    let func_node =
+        find_child_by_type(node, "attribute").or_else(|| find_child_by_type(node, "identifier"))?;
 
     let func_text = get_node_text(&func_node, source);
     let line_number = get_start_line(node);
@@ -561,14 +577,18 @@ fn extract_importlib_call(node: &Node, source: &str, line_number: u32) -> Option
     let args_node = find_child_by_type(node, "argument_list")?;
 
     let mut cursor = args_node.walk();
-    let first_arg = args_node.children(&mut cursor)
+    let first_arg = args_node
+        .children(&mut cursor)
         .find(|c| c.kind() != "(" && c.kind() != ")" && c.kind() != ",")?;
 
     let arg_text = get_node_text(&first_arg, source);
 
     // Determine if it's a static string or dynamic pattern
-    if first_arg.kind() == "string" && !arg_text.starts_with("f'") && !arg_text.starts_with("f\"")
-        && !arg_text.starts_with("F'") && !arg_text.starts_with("F\"")
+    if first_arg.kind() == "string"
+        && !arg_text.starts_with("f'")
+        && !arg_text.starts_with("f\"")
+        && !arg_text.starts_with("F'")
+        && !arg_text.starts_with("F\"")
     {
         // Static string
         let module_name = extract_string(&first_arg, source);
@@ -597,7 +617,8 @@ fn extract_builtin_import_call(node: &Node, source: &str, line_number: u32) -> O
     let args_node = find_child_by_type(node, "argument_list")?;
 
     let mut cursor = args_node.walk();
-    let first_arg = args_node.children(&mut cursor)
+    let first_arg = args_node
+        .children(&mut cursor)
         .find(|c| c.kind() != "(" && c.kind() != ")" && c.kind() != ",")?;
 
     let arg_text = get_node_text(&first_arg, source);

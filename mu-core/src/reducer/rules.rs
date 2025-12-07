@@ -36,15 +36,9 @@ impl TransformationRules {
                 "__gt__".to_string(),
                 "__ge__".to_string(),
             ],
-            strip_imports: vec![
-                "typing".to_string(),
-                "__future__".to_string(),
-            ],
+            strip_imports: vec!["typing".to_string(), "__future__".to_string()],
             strip_decorators: vec![],
-            filter_parameters: vec![
-                "self".to_string(),
-                "cls".to_string(),
-            ],
+            filter_parameters: vec!["self".to_string(), "cls".to_string()],
             min_body_complexity: 3,
             max_body_lines: 50,
         }
@@ -64,9 +58,9 @@ impl TransformationRules {
 
     /// Check if an import should be stripped.
     pub fn should_strip_import(&self, module: &str) -> bool {
-        self.strip_imports.iter().any(|pattern| {
-            module == pattern || module.starts_with(&format!("{}.", pattern))
-        })
+        self.strip_imports
+            .iter()
+            .any(|pattern| module == pattern || module.starts_with(&format!("{}.", pattern)))
     }
 
     /// Filter out common parameters (self, cls).

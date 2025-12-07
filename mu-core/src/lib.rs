@@ -25,12 +25,12 @@
 
 use pyo3::prelude::*;
 
-pub mod types;
+pub mod exporter;
+pub mod graph;
 pub mod parser;
 pub mod reducer;
 pub mod security;
-pub mod exporter;
-pub mod graph;
+pub mod types;
 
 use types::*;
 
@@ -52,9 +52,7 @@ fn parse_files(
     num_threads: Option<usize>,
 ) -> PyResult<Vec<ParseResult>> {
     // Release GIL for parallel execution
-    Ok(py.allow_threads(|| {
-        parser::parse_files_parallel(file_infos, num_threads)
-    }))
+    Ok(py.allow_threads(|| parser::parse_files_parallel(file_infos, num_threads)))
 }
 
 /// Parse a single file from source.

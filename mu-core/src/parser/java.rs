@@ -1,21 +1,23 @@
 //! Java AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Java source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_java::LANGUAGE.into())
+    parser
+        .set_language(&tree_sitter_java::LANGUAGE.into())
         .map_err(|e| format!("Failed to set Java language: {}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse Java source")?;
     let root = tree.root_node();
 
@@ -147,7 +149,9 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
             }
             "superclass" => {
                 if let Some(type_node) = find_child_by_type(&child, "type_identifier") {
-                    class_def.bases.push(get_node_text(&type_node, source).to_string());
+                    class_def
+                        .bases
+                        .push(get_node_text(&type_node, source).to_string());
                 }
             }
             "super_interfaces" => {
@@ -224,7 +228,9 @@ fn extract_class_body(node: &Node, source: &str, class_def: &mut ClassDef) {
             "class_declaration" => {
                 // Inner class - add as attribute for reference
                 if let Some(id) = find_child_by_type(&child, "identifier") {
-                    class_def.attributes.push(format!("class:{}", get_node_text(&id, source)));
+                    class_def
+                        .attributes
+                        .push(format!("class:{}", get_node_text(&id, source)));
                 }
             }
             _ => {}
@@ -420,7 +426,9 @@ fn extract_enum(node: &Node, source: &str) -> ClassDef {
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "enum_constant" {
                         if let Some(id) = find_child_by_type(&inner, "identifier") {
-                            class_def.attributes.push(get_node_text(&id, source).to_string());
+                            class_def
+                                .attributes
+                                .push(get_node_text(&id, source).to_string());
                         }
                     }
                 }
@@ -431,7 +439,6 @@ fn extract_enum(node: &Node, source: &str) -> ClassDef {
 
     class_def
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -463,7 +470,9 @@ public interface Greeter {
 "#;
         let result = parse(source, "Greeter.java").unwrap();
         assert_eq!(result.classes.len(), 1);
-        assert!(result.classes[0].decorators.contains(&"interface".to_string()));
+        assert!(result.classes[0]
+            .decorators
+            .contains(&"interface".to_string()));
     }
 
     #[test]

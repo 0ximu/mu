@@ -1,7 +1,7 @@
 //! Secret redaction functionality.
 
-use crate::types::RedactedSecret;
 use super::patterns::find_secrets;
+use crate::types::RedactedSecret;
 
 /// Redact secrets from source code.
 ///

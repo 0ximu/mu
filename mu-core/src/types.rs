@@ -133,7 +133,9 @@ impl FunctionDef {
         let dict = PyDict::new_bound(py);
         dict.set_item("name", &self.name)?;
 
-        let params: Vec<PyObject> = self.parameters.iter()
+        let params: Vec<PyObject> = self
+            .parameters
+            .iter()
             .map(|p| p.to_dict(py))
             .collect::<PyResult<Vec<_>>>()?;
         dict.set_item("parameters", params)?;
@@ -212,7 +214,9 @@ impl ClassDef {
         dict.set_item("bases", &self.bases)?;
         dict.set_item("decorators", &self.decorators)?;
 
-        let methods: Vec<PyObject> = self.methods.iter()
+        let methods: Vec<PyObject> = self
+            .methods
+            .iter()
             .map(|m| m.to_dict(py))
             .collect::<PyResult<Vec<_>>>()?;
         dict.set_item("methods", methods)?;
@@ -353,17 +357,23 @@ impl ModuleDef {
         dict.set_item("path", &self.path)?;
         dict.set_item("language", &self.language)?;
 
-        let imports: Vec<PyObject> = self.imports.iter()
+        let imports: Vec<PyObject> = self
+            .imports
+            .iter()
             .map(|i| i.to_dict(py))
             .collect::<PyResult<Vec<_>>>()?;
         dict.set_item("imports", imports)?;
 
-        let classes: Vec<PyObject> = self.classes.iter()
+        let classes: Vec<PyObject> = self
+            .classes
+            .iter()
             .map(|c| c.to_dict(py))
             .collect::<PyResult<Vec<_>>>()?;
         dict.set_item("classes", classes)?;
 
-        let functions: Vec<PyObject> = self.functions.iter()
+        let functions: Vec<PyObject> = self
+            .functions
+            .iter()
             .map(|f| f.to_dict(py))
             .collect::<PyResult<Vec<_>>>()?;
         dict.set_item("functions", functions)?;
@@ -391,11 +401,7 @@ pub struct FileInfo {
 impl FileInfo {
     #[new]
     #[pyo3(signature = (path, source, language))]
-    fn new(
-        path: String,
-        source: String,
-        language: String,
-    ) -> Self {
+    fn new(path: String, source: String, language: String) -> Self {
         Self {
             path,
             source,

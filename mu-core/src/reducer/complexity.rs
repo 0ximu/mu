@@ -11,99 +11,119 @@ use tree_sitter::Node;
 static DECISION_POINTS: Lazy<HashMap<&str, HashSet<&str>>> = Lazy::new(|| {
     let mut m = HashMap::new();
 
-    m.insert("python", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "except_clause",
-        "with_statement",
-        "assert_statement",
-        "boolean_operator",  // 'and', 'or' wrapped by tree-sitter
-        "conditional_expression",  // ternary
-        "match_statement",
-        "case_clause",
-        // Comprehension clauses (count each loop/condition inside)
-        "for_in_clause",
-        "if_clause",
-    ]));
+    m.insert(
+        "python",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "except_clause",
+            "with_statement",
+            "assert_statement",
+            "boolean_operator",       // 'and', 'or' wrapped by tree-sitter
+            "conditional_expression", // ternary
+            "match_statement",
+            "case_clause",
+            // Comprehension clauses (count each loop/condition inside)
+            "for_in_clause",
+            "if_clause",
+        ]),
+    );
 
-    m.insert("typescript", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "for_in_statement",
-        "do_statement",
-        "switch_case",
-        "catch_clause",
-        "ternary_expression",
-        "binary_expression",  // SPECIAL: check operator
-    ]));
+    m.insert(
+        "typescript",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "for_in_statement",
+            "do_statement",
+            "switch_case",
+            "catch_clause",
+            "ternary_expression",
+            "binary_expression", // SPECIAL: check operator
+        ]),
+    );
 
-    m.insert("javascript", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "for_in_statement",
-        "do_statement",
-        "switch_case",
-        "catch_clause",
-        "ternary_expression",
-        "binary_expression",  // SPECIAL: check operator
-    ]));
+    m.insert(
+        "javascript",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "for_in_statement",
+            "do_statement",
+            "switch_case",
+            "catch_clause",
+            "ternary_expression",
+            "binary_expression", // SPECIAL: check operator
+        ]),
+    );
 
-    m.insert("go", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "expression_case",
-        "type_case",
-        "communication_case",
-        "binary_expression",  // SPECIAL: check operator
-    ]));
+    m.insert(
+        "go",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "expression_case",
+            "type_case",
+            "communication_case",
+            "binary_expression", // SPECIAL: check operator
+        ]),
+    );
 
-    m.insert("java", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "do_statement",
-        "enhanced_for_statement",
-        "switch_block_statement_group",
-        "catch_clause",
-        "ternary_expression",
-        "binary_expression",  // SPECIAL: check operator
-    ]));
+    m.insert(
+        "java",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "enhanced_for_statement",
+            "switch_block_statement_group",
+            "catch_clause",
+            "ternary_expression",
+            "binary_expression", // SPECIAL: check operator
+        ]),
+    );
 
-    m.insert("rust", HashSet::from([
-        "if_expression",
-        "for_expression",
-        "while_expression",
-        "loop_expression",
-        "match_expression",
-        "match_arm",
-        "binary_expression",  // SPECIAL: check operator
-    ]));
+    m.insert(
+        "rust",
+        HashSet::from([
+            "if_expression",
+            "for_expression",
+            "while_expression",
+            "loop_expression",
+            "match_expression",
+            "match_arm",
+            "binary_expression", // SPECIAL: check operator
+        ]),
+    );
 
-    m.insert("csharp", HashSet::from([
-        "if_statement",
-        "for_statement",
-        "while_statement",
-        "do_statement",
-        "foreach_statement",
-        "switch_section",
-        "catch_clause",
-        "conditional_expression",
-        "binary_expression",  // SPECIAL: check operator
-        "switch_expression",
-        "switch_expression_arm",
-        "conditional_access_expression",
-    ]));
+    m.insert(
+        "csharp",
+        HashSet::from([
+            "if_statement",
+            "for_statement",
+            "while_statement",
+            "do_statement",
+            "foreach_statement",
+            "switch_section",
+            "catch_clause",
+            "conditional_expression",
+            "binary_expression", // SPECIAL: check operator
+            "switch_expression",
+            "switch_expression_arm",
+            "conditional_access_expression",
+        ]),
+    );
 
     m
 });
 
 /// Binary operators that count as decision points.
-static DECISION_OPERATORS: Lazy<HashSet<&str>> = Lazy::new(|| {
-    HashSet::from(["&&", "||", "and", "or", "??"])
-});
+static DECISION_OPERATORS: Lazy<HashSet<&str>> =
+    Lazy::new(|| HashSet::from(["&&", "||", "and", "or", "??"]));
 
 /// Calculate cyclomatic complexity for a code snippet.
 ///
@@ -116,7 +136,9 @@ pub fn calculate(source: &str, language: &str) -> u32 {
     let mut complexity = 1u32;
 
     // Simple keyword counting as fallback
-    for keyword in &["if ", "for ", "while ", "catch ", "case ", "elif ", "else if "] {
+    for keyword in &[
+        "if ", "for ", "while ", "catch ", "case ", "elif ", "else if ",
+    ] {
         complexity += source.matches(keyword).count() as u32;
     }
 

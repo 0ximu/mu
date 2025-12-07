@@ -1,6 +1,6 @@
 //! Benchmark for parsing performance.
 
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_parse_python(c: &mut Criterion) {
     let source = r#"

@@ -65,7 +65,7 @@ class ModuleDef:
     total_lines: int
     error: str | None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """Convert to dictionary representation."""
         ...
 

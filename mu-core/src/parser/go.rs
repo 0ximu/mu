@@ -1,33 +1,34 @@
 //! Go AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Go source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_go::LANGUAGE.into())
+    parser
+        .set_language(&tree_sitter_go::LANGUAGE.into())
         .map_err(|e| format!("Failed to set Go language: {}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse Go source")?;
     let root = tree.root_node();
 
     // Get module name from package clause or file name
-    let name = extract_package_name(&root, source)
-        .unwrap_or_else(|| {
-            Path::new(file_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string()
-        });
+    let name = extract_package_name(&root, source).unwrap_or_else(|| {
+        Path::new(file_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    });
 
     let mut module = ModuleDef {
         name,
@@ -221,7 +222,9 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
 
     // Add receiver as decorator for clarity
     if !receiver_type.is_empty() {
-        func_def.decorators.push(format!("receiver:{}", receiver_type));
+        func_def
+            .decorators
+            .push(format!("receiver:{}", receiver_type));
     }
 
     func_def
@@ -361,7 +364,9 @@ fn extract_struct_fields(node: &Node, source: &str, class_def: &mut ClassDef) {
                     let mut field_cursor = field.walk();
                     for f in field.children(&mut field_cursor) {
                         if f.kind() == "field_identifier" {
-                            class_def.attributes.push(get_node_text(&f, source).to_string());
+                            class_def
+                                .attributes
+                                .push(get_node_text(&f, source).to_string());
                         } else if f.kind() == "type_identifier" {
                             // Embedded type (acts as base)
                             class_def.bases.push(get_node_text(&f, source).to_string());
@@ -406,7 +411,9 @@ fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef
             }
         } else if child.kind() == "type_identifier" {
             // Embedded interface
-            class_def.bases.push(get_node_text(&child, source).to_string());
+            class_def
+                .bases
+                .push(get_node_text(&child, source).to_string());
         }
     }
 }

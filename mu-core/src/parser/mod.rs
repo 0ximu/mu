@@ -8,12 +8,12 @@ use rayon::prelude::*;
 
 use crate::types::{FileInfo, ParseResult};
 
-pub mod python;
-pub mod typescript;
+pub mod csharp;
 pub mod go;
 pub mod java;
+pub mod python;
 pub mod rust_lang;
-pub mod csharp;
+pub mod typescript;
 
 mod helpers;
 
@@ -28,18 +28,12 @@ pub fn parse_files_parallel(
 ) -> Vec<ParseResult> {
     // Configure thread pool if specified
     let pool = match num_threads {
-        Some(n) if n > 0 => {
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(n)
-                .build()
-                .ok()
-        }
+        Some(n) if n > 0 => rayon::ThreadPoolBuilder::new().num_threads(n).build().ok(),
         _ => None,
     };
 
-    let parse_fn = |info: &FileInfo| -> ParseResult {
-        parse_source(&info.source, &info.path, &info.language)
-    };
+    let parse_fn =
+        |info: &FileInfo| -> ParseResult { parse_source(&info.source, &info.path, &info.language) };
 
     match pool {
         Some(pool) => pool.install(|| file_infos.par_iter().map(parse_fn).collect()),
@@ -69,12 +63,20 @@ pub fn parse_source(source: &str, path: &str, language: &str) -> ParseResult {
 /// Get supported languages.
 pub fn supported_languages() -> &'static [&'static str] {
     &[
-        "python", "py",
-        "typescript", "ts", "tsx",
-        "javascript", "js", "jsx",
+        "python",
+        "py",
+        "typescript",
+        "ts",
+        "tsx",
+        "javascript",
+        "js",
+        "jsx",
         "go",
         "java",
-        "rust", "rs",
-        "csharp", "cs", "c#",
+        "rust",
+        "rs",
+        "csharp",
+        "cs",
+        "c#",
     ]
 }

@@ -1,6 +1,6 @@
 //! Markdown format exporter.
 
-use crate::types::{ModuleDef, ExportConfig, ClassDef, FunctionDef};
+use crate::types::{ClassDef, ExportConfig, FunctionDef, ModuleDef};
 
 /// Export module to Markdown format.
 pub fn export(module: &ModuleDef) -> String {
@@ -38,7 +38,11 @@ fn export_module(module: &ModuleDef) -> String {
         lines.push(String::new());
         for import in &module.imports {
             if import.is_from && !import.names.is_empty() {
-                lines.push(format!("- `from {} import {}`", import.module, import.names.join(", ")));
+                lines.push(format!(
+                    "- `from {} import {}`",
+                    import.module,
+                    import.names.join(", ")
+                ));
             } else {
                 lines.push(format!("- `import {}`", import.module));
             }
@@ -90,7 +94,9 @@ fn export_class(class: &ClassDef) -> String {
         lines.push("**Methods:**".to_string());
         lines.push(String::new());
         for method in &class.methods {
-            let params: Vec<_> = method.parameters.iter()
+            let params: Vec<_> = method
+                .parameters
+                .iter()
                 .filter(|p| p.name != "self" && p.name != "cls")
                 .map(|p| {
                     if let Some(ref t) = p.type_annotation {
@@ -101,12 +107,20 @@ fn export_class(class: &ClassDef) -> String {
                 })
                 .collect();
 
-            let ret = method.return_type.as_ref()
+            let ret = method
+                .return_type
+                .as_ref()
                 .map(|r| format!(" -> {}", r))
                 .unwrap_or_default();
 
             let async_prefix = if method.is_async { "async " } else { "" };
-            lines.push(format!("- `{}{}({}){}`", async_prefix, method.name, params.join(", "), ret));
+            lines.push(format!(
+                "- `{}{}({}){}`",
+                async_prefix,
+                method.name,
+                params.join(", "),
+                ret
+            ));
         }
         lines.push(String::new());
     }
@@ -118,7 +132,9 @@ fn export_class(class: &ClassDef) -> String {
 fn export_function(func: &FunctionDef) -> String {
     let mut lines = Vec::new();
 
-    let params: Vec<_> = func.parameters.iter()
+    let params: Vec<_> = func
+        .parameters
+        .iter()
         .filter(|p| p.name != "self" && p.name != "cls")
         .map(|p| {
             if let Some(ref t) = p.type_annotation {
@@ -129,13 +145,21 @@ fn export_function(func: &FunctionDef) -> String {
         })
         .collect();
 
-    let ret = func.return_type.as_ref()
+    let ret = func
+        .return_type
+        .as_ref()
         .map(|r| format!(" -> {}", r))
         .unwrap_or_default();
 
     let async_prefix = if func.is_async { "async " } else { "" };
 
-    lines.push(format!("### `{}{}({}){}`", async_prefix, func.name, params.join(", "), ret));
+    lines.push(format!(
+        "### `{}{}({}){}`",
+        async_prefix,
+        func.name,
+        params.join(", "),
+        ret
+    ));
     lines.push(String::new());
 
     if let Some(ref doc) = func.docstring {

@@ -2,7 +2,7 @@
 //!
 //! Exports ModuleDef to the sigil-based MU format.
 
-use crate::types::{ModuleDef, ExportConfig};
+use crate::types::{ExportConfig, ModuleDef};
 
 // MU Sigils
 const SIGIL_MODULE: &str = "!";
@@ -49,7 +49,9 @@ fn export_module(module: &ModuleDef, config: &ExportConfig) -> String {
 
     // Imports
     if !module.imports.is_empty() {
-        let imports: Vec<_> = module.imports.iter()
+        let imports: Vec<_> = module
+            .imports
+            .iter()
             .filter(|i| !i.is_dynamic)
             .map(|i| {
                 if i.is_from && !i.names.is_empty() {
@@ -130,7 +132,11 @@ fn export_class(class: &crate::types::ClassDef, config: &ExportConfig) -> String
 }
 
 /// Export a function to MU format.
-fn export_function(func: &crate::types::FunctionDef, config: &ExportConfig, indent: usize) -> String {
+fn export_function(
+    func: &crate::types::FunctionDef,
+    config: &ExportConfig,
+    indent: usize,
+) -> String {
     let indent_str = "  ".repeat(indent);
     let mut parts = Vec::new();
 
@@ -151,7 +157,9 @@ fn export_function(func: &crate::types::FunctionDef, config: &ExportConfig, inde
     parts.push(func.name.clone());
 
     // Parameters (filter self/cls)
-    let params: Vec<_> = func.parameters.iter()
+    let params: Vec<_> = func
+        .parameters
+        .iter()
         .filter(|p| p.name != "self" && p.name != "cls")
         .map(|p| {
             if let Some(ref t) = p.type_annotation {
@@ -207,7 +215,10 @@ fn export_function(func: &crate::types::FunctionDef, config: &ExportConfig, inde
 
     // Complexity indicator
     if func.body_complexity > 10 {
-        lines.push(format!("{}  :: complexity: {}", indent_str, func.body_complexity));
+        lines.push(format!(
+            "{}  :: complexity: {}",
+            indent_str, func.body_complexity
+        ));
     }
 
     lines.join("\n")
@@ -232,9 +243,11 @@ mod tests {
     fn test_export_simple_function() {
         let func = FunctionDef {
             name: "hello".to_string(),
-            parameters: vec![
-                ParameterDef { name: "name".to_string(), type_annotation: Some("str".to_string()), ..Default::default() }
-            ],
+            parameters: vec![ParameterDef {
+                name: "name".to_string(),
+                type_annotation: Some("str".to_string()),
+                ..Default::default()
+            }],
             return_type: Some("str".to_string()),
             ..Default::default()
         };
@@ -254,7 +267,10 @@ mod tests {
             ..Default::default()
         };
 
-        let config = ExportConfig { shell_safe: true, ..Default::default() };
+        let config = ExportConfig {
+            shell_safe: true,
+            ..Default::default()
+        };
         let output = export_all(&[module], &config);
         assert!(output.contains("\\!"));
     }

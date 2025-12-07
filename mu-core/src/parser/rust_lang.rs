@@ -1,21 +1,23 @@
 //! Rust AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Rust source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_rust::LANGUAGE.into())
+    parser
+        .set_language(&tree_sitter_rust::LANGUAGE.into())
         .map_err(|e| format!("Failed to set Rust language: {}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse Rust source")?;
     let root = tree.root_node();
 
@@ -34,7 +36,8 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     };
 
     // Collect impl blocks to associate with types
-    let mut impl_methods: std::collections::HashMap<String, Vec<FunctionDef>> = std::collections::HashMap::new();
+    let mut impl_methods: std::collections::HashMap<String, Vec<FunctionDef>> =
+        std::collections::HashMap::new();
 
     // First pass: collect all declarations
     let mut cursor = root.walk();
@@ -110,9 +113,7 @@ fn extract_use(node: &Node, source: &str) -> Option<ImportDef> {
                 is_pub = true;
             }
             "scoped_identifier" | "identifier" => {
-                module = get_node_text(&child, source)
-                    .replace("::", ".")
-                    .to_string();
+                module = get_node_text(&child, source).replace("::", ".").to_string();
             }
             "use_as_clause" => {
                 let mut inner_cursor = child.walk();
@@ -120,16 +121,14 @@ fn extract_use(node: &Node, source: &str) -> Option<ImportDef> {
                     match inner.kind() {
                         "scoped_identifier" => {
                             if module.is_empty() {
-                                module = get_node_text(&inner, source)
-                                    .replace("::", ".")
-                                    .to_string();
+                                module =
+                                    get_node_text(&inner, source).replace("::", ".").to_string();
                             }
                         }
                         "identifier" => {
                             if module.is_empty() {
-                                module = get_node_text(&inner, source)
-                                    .replace("::", ".")
-                                    .to_string();
+                                module =
+                                    get_node_text(&inner, source).replace("::", ".").to_string();
                             } else {
                                 alias = Some(get_node_text(&inner, source).to_string());
                             }
@@ -340,7 +339,9 @@ fn extract_enum(node: &Node, source: &str) -> ClassDef {
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "enum_variant" {
                         if let Some(id) = find_child_by_type(&inner, "identifier") {
-                            class_def.attributes.push(get_node_text(&id, source).to_string());
+                            class_def
+                                .attributes
+                                .push(get_node_text(&id, source).to_string());
                         }
                     }
                 }
@@ -378,7 +379,9 @@ fn extract_trait(node: &Node, source: &str) -> ClassDef {
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "type_identifier" {
-                        class_def.bases.push(get_node_text(&inner, source).to_string());
+                        class_def
+                            .bases
+                            .push(get_node_text(&inner, source).to_string());
                     }
                 }
             }

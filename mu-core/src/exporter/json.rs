@@ -1,6 +1,6 @@
 //! JSON format exporter.
 
-use crate::types::{ModuleDef, ExportConfig};
+use crate::types::{ExportConfig, ModuleDef};
 
 /// Export modules to JSON format.
 pub fn export(modules: &[ModuleDef], config: &ExportConfig) -> Result<String, serde_json::Error> {
@@ -36,7 +36,10 @@ mod tests {
             ..Default::default()
         }];
 
-        let config = ExportConfig { pretty_print: true, ..Default::default() };
+        let config = ExportConfig {
+            pretty_print: true,
+            ..Default::default()
+        };
         let output = export(&modules, &config).unwrap();
         assert!(output.contains('\n'));
     }

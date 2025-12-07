@@ -1,13 +1,13 @@
 //! TypeScript/JavaScript AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse TypeScript/JavaScript source code.
 ///
@@ -24,11 +24,11 @@ pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<Modul
         tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
     };
 
-    parser.set_language(&language)
+    parser
+        .set_language(&language)
         .map_err(|e| format!("Failed to set language: {}", e))?;
 
-    let tree = parser.parse(source, None)
-        .ok_or("Failed to parse source")?;
+    let tree = parser.parse(source, None).ok_or("Failed to parse source")?;
     let root = tree.root_node();
 
     let name = Path::new(file_path)
@@ -37,7 +37,11 @@ pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<Modul
         .unwrap_or("unknown")
         .to_string();
 
-    let lang = if is_javascript { "javascript" } else { "typescript" };
+    let lang = if is_javascript {
+        "javascript"
+    } else {
+        "typescript"
+    };
 
     let mut module = ModuleDef {
         name,
@@ -60,7 +64,9 @@ pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<Modul
                 module.classes.push(extract_class(&child, source));
             }
             "function_declaration" => {
-                module.functions.push(extract_function(&child, source, false));
+                module
+                    .functions
+                    .push(extract_function(&child, source, false));
             }
             "lexical_declaration" | "variable_declaration" => {
                 // Check for arrow functions or function expressions
@@ -119,7 +125,12 @@ fn extract_import(node: &Node, source: &str) -> Option<ImportDef> {
 }
 
 /// Extract import clause (named imports, default import, namespace import).
-fn extract_import_clause(node: &Node, source: &str, names: &mut Vec<String>, alias: &mut Option<String>) {
+fn extract_import_clause(
+    node: &Node,
+    source: &str,
+    names: &mut Vec<String>,
+    alias: &mut Option<String>,
+) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -201,7 +212,9 @@ fn extract_class_body(node: &Node, source: &str, class_def: &mut ClassDef) {
             }
             "public_field_definition" | "field_definition" => {
                 if let Some(name) = find_child_by_type(&child, "property_identifier") {
-                    class_def.attributes.push(get_node_text(&name, source).to_string());
+                    class_def
+                        .attributes
+                        .push(get_node_text(&name, source).to_string());
                 }
             }
             _ => {}
@@ -230,7 +243,8 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
                 func_def.parameters = extract_parameters(&child, source);
             }
             "statement_block" => {
-                func_def.body_complexity = complexity::calculate_for_node(&child, source, "typescript");
+                func_def.body_complexity =
+                    complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
             }
             "async" => {
@@ -267,7 +281,8 @@ fn extract_function(node: &Node, source: &str, is_method: bool) -> FunctionDef {
                 func_def.parameters = extract_parameters(&child, source);
             }
             "statement_block" => {
-                func_def.body_complexity = complexity::calculate_for_node(&child, source, "typescript");
+                func_def.body_complexity =
+                    complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
             }
             "type_annotation" => {
@@ -310,7 +325,8 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
                             let mut type_cursor = inner.walk();
                             for type_child in inner.children(&mut type_cursor) {
                                 if type_child.kind() != ":" {
-                                    param.type_annotation = Some(get_node_text(&type_child, source).to_string());
+                                    param.type_annotation =
+                                        Some(get_node_text(&type_child, source).to_string());
                                     break;
                                 }
                             }
@@ -380,7 +396,8 @@ fn extract_arrow_function(node: &Node, source: &str) -> FunctionDef {
                 }
             }
             "statement_block" => {
-                func_def.body_complexity = complexity::calculate_for_node(&child, source, "typescript");
+                func_def.body_complexity =
+                    complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
             }
             "async" => {
@@ -402,7 +419,9 @@ fn extract_export(node: &Node, source: &str, module: &mut ModuleDef) {
                 module.classes.push(extract_class(&child, source));
             }
             "function_declaration" => {
-                module.functions.push(extract_function(&child, source, false));
+                module
+                    .functions
+                    .push(extract_function(&child, source, false));
             }
             "interface_declaration" => {
                 module.classes.push(extract_interface(&child, source));
@@ -436,7 +455,9 @@ fn extract_interface(node: &Node, source: &str) -> ClassDef {
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "type_identifier" {
-                        class_def.bases.push(get_node_text(&inner, source).to_string());
+                        class_def
+                            .bases
+                            .push(get_node_text(&inner, source).to_string());
                     }
                 }
             }
@@ -478,7 +499,9 @@ fn extract_interface_body(node: &Node, source: &str, class_def: &mut ClassDef) {
             }
             "property_signature" => {
                 if let Some(name) = find_child_by_type(&child, "property_identifier") {
-                    class_def.attributes.push(get_node_text(&name, source).to_string());
+                    class_def
+                        .attributes
+                        .push(get_node_text(&name, source).to_string());
                 }
             }
             _ => {}
@@ -510,16 +533,15 @@ fn find_dynamic_imports_recursive(node: &Node, source: &str, results: &mut Vec<I
 }
 
 fn check_dynamic_import(node: &Node, source: &str) -> Option<ImportDef> {
-    let func_node = find_child_by_type(node, "import")
-        .or_else(|| find_child_by_type(node, "identifier"))?;
+    let func_node =
+        find_child_by_type(node, "import").or_else(|| find_child_by_type(node, "identifier"))?;
 
     let func_text = get_node_text(&func_node, source);
 
     if func_text == "import" || func_text == "require" {
         let args = find_child_by_type(node, "arguments")?;
         let mut cursor = args.walk();
-        let first_arg = args.children(&mut cursor)
-            .find(|c| c.kind() == "string")?;
+        let first_arg = args.children(&mut cursor).find(|c| c.kind() == "string")?;
 
         let module = get_node_text(&first_arg, source)
             .trim_matches('"')

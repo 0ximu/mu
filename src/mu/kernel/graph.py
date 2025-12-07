@@ -23,6 +23,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from duckdb import DuckDBPyConnection
 
+    from mu._core import GraphEngine
+
 
 @dataclass
 class GraphStats:
@@ -47,7 +49,7 @@ class GraphManager:
             db: DuckDB connection (from MUbase.conn)
         """
         self.db = db
-        self._engine: object | None = None
+        self._engine: GraphEngine | None = None
 
     def load(self) -> GraphStats:
         """Load graph data from DuckDB into petgraph.
@@ -120,6 +122,7 @@ class GraphManager:
             >>> import_cycles = gm.find_cycles(["imports"])
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.find_cycles(edge_types)
 
     def impact(
@@ -148,6 +151,7 @@ class GraphManager:
             >>> gm.impact("mod:src/auth.py", ["imports"])
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.impact(node_id, edge_types)
 
     def ancestors(
@@ -173,6 +177,7 @@ class GraphManager:
             >>> gm.ancestors("fn:src/auth.py:login")
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.ancestors(node_id, edge_types)
 
     def shortest_path(
@@ -199,6 +204,7 @@ class GraphManager:
             ...     print(" -> ".join(path))
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.shortest_path(from_id, to_id, edge_types)
 
     def neighbors(
@@ -226,6 +232,7 @@ class GraphManager:
             >>> gm.neighbors("mod:src/auth.py", "incoming", 2, ["imports"])
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.neighbors(node_id, direction, depth, edge_types)
 
     def has_node(self, node_id: str) -> bool:
@@ -238,6 +245,7 @@ class GraphManager:
             True if the node exists.
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return self._engine.has_node(node_id)
 
     def stats(self) -> GraphStats:
@@ -247,6 +255,7 @@ class GraphManager:
             GraphStats with node/edge counts and edge types.
         """
         self._ensure_loaded()
+        assert self._engine is not None
         return GraphStats(
             node_count=self._engine.node_count(),
             edge_count=self._engine.edge_count(),

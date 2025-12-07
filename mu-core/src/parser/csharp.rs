@@ -1,21 +1,23 @@
 //! C# AST extractor using tree-sitter.
 
 use std::path::Path;
-use tree_sitter::{Parser, Node};
+use tree_sitter::{Node, Parser};
 
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
-use crate::reducer::complexity;
 use super::helpers::{
-    get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines,
+    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
+use crate::reducer::complexity;
+use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse C# source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
-    parser.set_language(&tree_sitter_c_sharp::LANGUAGE.into())
+    parser
+        .set_language(&tree_sitter_c_sharp::LANGUAGE.into())
         .map_err(|e| format!("Failed to set C# language: {}", e))?;
 
-    let tree = parser.parse(source, None)
+    let tree = parser
+        .parse(source, None)
         .ok_or("Failed to parse C# source")?;
     let root = tree.root_node();
 
@@ -178,7 +180,8 @@ fn extract_modifiers(node: &Node, source: &str, decorators: &mut Vec<String>) {
                     }
                 }
             }
-            "public" | "private" | "protected" | "internal" | "static" | "abstract" | "sealed" | "partial" | "async" | "virtual" | "override" => {
+            "public" | "private" | "protected" | "internal" | "static" | "abstract" | "sealed"
+            | "partial" | "async" | "virtual" | "override" => {
                 decorators.push(get_node_text(&child, source).to_string());
             }
             _ => {}
@@ -190,7 +193,10 @@ fn extract_modifiers(node: &Node, source: &str, decorators: &mut Vec<String>) {
 fn extract_base_list(node: &Node, source: &str, bases: &mut Vec<String>) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "identifier" || child.kind() == "generic_name" || child.kind() == "qualified_name" {
+        if child.kind() == "identifier"
+            || child.kind() == "generic_name"
+            || child.kind() == "qualified_name"
+        {
             bases.push(get_node_text(&child, source).to_string());
         }
     }
@@ -215,7 +221,9 @@ fn extract_class_body(node: &Node, source: &str, class_def: &mut ClassDef) {
             }
             "event_declaration" => {
                 if let Some(id) = find_child_by_type(&child, "identifier") {
-                    class_def.attributes.push(format!("event:{}", get_node_text(&id, source)));
+                    class_def
+                        .attributes
+                        .push(format!("event:{}", get_node_text(&id, source)));
                 }
             }
             _ => {}
@@ -242,7 +250,8 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
                     func_def.name = get_node_text(&child, source).to_string();
                 }
             }
-            "predefined_type" | "nullable_type" | "array_type" | "generic_name" | "qualified_name" => {
+            "predefined_type" | "nullable_type" | "array_type" | "generic_name"
+            | "qualified_name" => {
                 if func_def.return_type.is_none() {
                     func_def.return_type = Some(get_node_text(&child, source).to_string());
                 }
@@ -358,7 +367,8 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
                     "identifier" => {
                         param.name = get_node_text(&inner, source).to_string();
                     }
-                    "predefined_type" | "nullable_type" | "array_type" | "generic_name" | "qualified_name" => {
+                    "predefined_type" | "nullable_type" | "array_type" | "generic_name"
+                    | "qualified_name" => {
                         param.type_annotation = Some(get_node_text(&inner, source).to_string());
                     }
                     "equals_value_clause" => {
@@ -468,7 +478,9 @@ fn extract_enum(node: &Node, source: &str) -> ClassDef {
                 for inner in child.children(&mut inner_cursor) {
                     if inner.kind() == "enum_member_declaration" {
                         if let Some(id) = find_child_by_type(&inner, "identifier") {
-                            class_def.attributes.push(get_node_text(&id, source).to_string());
+                            class_def
+                                .attributes
+                                .push(get_node_text(&id, source).to_string());
                         }
                     }
                 }
@@ -517,7 +529,9 @@ public interface IGreeter {
 "#;
         let result = parse(source, "IGreeter.cs").unwrap();
         assert_eq!(result.classes.len(), 1);
-        assert!(result.classes[0].decorators.contains(&"interface".to_string()));
+        assert!(result.classes[0]
+            .decorators
+            .contains(&"interface".to_string()));
     }
 
     #[test]

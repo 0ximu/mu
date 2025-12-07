@@ -127,11 +127,7 @@ impl GraphEngine {
             kosaraju_scc(&filtered)
                 .into_iter()
                 .filter(|scc| scc.len() > 1)
-                .map(|scc| {
-                    scc.into_iter()
-                        .map(|idx| filtered[idx].clone())
-                        .collect()
-                })
+                .map(|scc| scc.into_iter().map(|idx| filtered[idx].clone()).collect())
                 .collect()
         } else {
             // No filtering - use original graph

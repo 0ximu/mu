@@ -14,6 +14,6 @@ try:
 
     rust_core = _core
     RUST_CORE_AVAILABLE = True
-    RUST_CORE_VERSION = _core.version()  # type: ignore[attr-defined]
+    RUST_CORE_VERSION = _core.version()
 except ImportError:
     pass
