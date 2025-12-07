@@ -30,29 +30,24 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
+          enable-cache: true
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync
 
       - name: Run tests
         run: |
           # Note: test_rust_core.py will be skipped if Rust core not compiled
           # See .github/workflows/rust-core.yml for Rust-specific CI
-          pytest tests/ -v --tb=short --ignore=tests/unit/test_rust_core.py
+          uv run pytest tests/ -v --tb=short --ignore=tests/unit/test_rust_core.py
 
       - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
-          pytest tests/ --cov=src/mu --cov-report=xml --cov-report=term-missing --ignore=tests/unit/test_rust_core.py
+          uv run pytest tests/ --cov=src/mu --cov-report=xml --cov-report=term-missing --ignore=tests/unit/test_rust_core.py
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -71,30 +66,25 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-quality-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-quality-
+          enable-cache: true
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+        run: uv sync
 
       - name: Check formatting with ruff
-        run: ruff format --check src/
+        run: uv run ruff format --check src/
 
       - name: Linting with ruff
-        run: ruff check src/
+        run: uv run ruff check src/
 
       - name: Type checking with mypy
-        run: mypy src/mu --ignore-missing-imports
+        run: uv run mypy src/mu --ignore-missing-imports
 
       - name: Security scan with bandit
-        run: bandit -r src/mu -ll
+        run: uv run bandit -r src/mu -ll
 
   build:
     runs-on: ubuntu-latest
@@ -107,16 +97,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install build twine
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
 
       - name: Build package
-        run: python -m build
+        run: uv build
 
       - name: Check package
-        run: twine check dist/*
+        run: uvx twine check dist/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

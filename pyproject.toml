@@ -140,3 +140,26 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
+
+[dependency-groups]
+# Development dependencies (use: uv sync --group dev)
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-benchmark>=4.0.0",
+    "hypothesis>=6.90.0",
+    "mypy>=1.7.0",
+    "ruff>=0.1.0",
+    "bandit>=1.7.0",
+    "pyinstaller>=6.0.0",
+    "types-PyYAML>=6.0.0",
+]
+
+[tool.uv]
+# Default to dev group only; rust extra requires local mu-core build
+default-groups = ["dev"]
+
+[tool.uv.sources]
+# mu-core is built locally from mu-core/ subdirectory (only when rust extra requested)
+mu-core = { path = "mu-core", extra = "rust" }

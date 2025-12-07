@@ -43,7 +43,12 @@ Result: LLM correctly answers architectural questions
 ## Installation
 
 ```bash
-# From source (recommended for now)
+# Using uv (recommended)
+git clone https://github.com/0ximu/mu.git
+cd mu
+uv sync
+
+# Or with pip
 git clone https://github.com/0ximu/mu.git
 cd mu
 python -m venv .venv
@@ -298,16 +303,16 @@ After generating MU output, try these prompts:
 
 ```bash
 # Run tests
-pytest
+uv run pytest
 
 # Run specific test file
-pytest tests/unit/test_parser.py -v
+uv run pytest tests/unit/test_parser.py -v
 
 # Type checking
-mypy src/mu
+uv run mypy src/mu
 
 # Linting
-ruff check src/
+uv run ruff check src/
 ```
 
 ## LLM Integration
