@@ -427,8 +427,7 @@ class DependencyRuleEvaluator:
             if fnmatch(source_path, from_pattern) and fnmatch(target_path, to_pattern):
                 # Check exceptions
                 is_exception = any(
-                    fnmatch(source_path, exc) or fnmatch(target_path, exc)
-                    for exc in exceptions
+                    fnmatch(source_path, exc) or fnmatch(target_path, exc) for exc in exceptions
                 )
                 if not is_exception:
                     violations.append(

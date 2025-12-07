@@ -199,7 +199,9 @@ class ContractReporter:
         elif "name" in detail:
             path = detail.get("path", "")
             complexity = detail.get("complexity", "")
-            return f"{detail['name']} ({path})" + (f" complexity={complexity}" if complexity else "")
+            return f"{detail['name']} ({path})" + (
+                f" complexity={complexity}" if complexity else ""
+            )
         elif "cycle" in detail:
             return " -> ".join(detail["cycle"])
         else:

@@ -128,7 +128,9 @@ def _parse_contract(data: dict[str, Any]) -> Contract:
         severity = Severity(severity_str)
     except ValueError as e:
         valid = ", ".join(s.value for s in Severity)
-        raise ContractParseError(f"Invalid severity: {severity_str}. Must be one of: {valid}") from e
+        raise ContractParseError(
+            f"Invalid severity: {severity_str}. Must be one of: {valid}"
+        ) from e
 
     # Parse rule
     rule_data = data.get("rule")
@@ -159,7 +161,9 @@ def _parse_rule(data: dict[str, Any]) -> Rule:
         rule_type = RuleType(rule_type_str)
     except ValueError as e:
         valid = ", ".join(r.value for r in RuleType)
-        raise ContractParseError(f"Invalid rule type: {rule_type_str}. Must be one of: {valid}") from e
+        raise ContractParseError(
+            f"Invalid rule type: {rule_type_str}. Must be one of: {valid}"
+        ) from e
 
     # Extract params based on rule type
     params: dict[str, Any] = {}

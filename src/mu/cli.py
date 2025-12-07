@@ -2825,7 +2825,9 @@ def contracts_verify(
         contracts_data.contracts = [
             c for c in contracts_data.contracts if fnmatch(c.name, only_pattern)
         ]
-        print_info(f"Filtered to {len(contracts_data.contracts)} contracts matching '{only_pattern}'")
+        print_info(
+            f"Filtered to {len(contracts_data.contracts)} contracts matching '{only_pattern}'"
+        )
 
     if not contracts_data.contracts:
         print_warning("No contracts to verify")
@@ -2880,7 +2882,7 @@ def contracts_init(path: Path, force: bool) -> None:
         print_info("Use --force to overwrite")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    template = '''# MU Contracts - Architecture Rules
+    template = """# MU Contracts - Architecture Rules
 # Documentation: https://github.com/0ximu/mu/docs/contracts.md
 
 version: "1.0"
@@ -2937,7 +2939,7 @@ contracts:
   #     must_have:
   #       decorator: "@injectable"
   #   expect: empty
-'''
+"""
 
     contract_path.write_text(template)
     print_success(f"Created {contract_path}")
