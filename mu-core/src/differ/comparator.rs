@@ -35,7 +35,13 @@ fn generate_signature(func: &FunctionDef) -> String {
 
     let async_prefix = if func.is_async { "async " } else { "" };
 
-    format!("{}{}({}){}", async_prefix, func.name, params.join(", "), ret)
+    format!(
+        "{}{}({}){}",
+        async_prefix,
+        func.name,
+        params.join(", "),
+        ret
+    )
 }
 
 /// Diff function parameters and return changes.
@@ -182,10 +188,8 @@ fn diff_functions(
         class_name,
     );
 
-    let has_signature_change = return_type_changed
-        || async_changed
-        || static_changed
-        || !param_changes.is_empty();
+    let has_signature_change =
+        return_type_changed || async_changed || static_changed || !param_changes.is_empty();
 
     if has_signature_change || complexity_changed {
         let mut details_parts = Vec::new();
@@ -198,16 +202,10 @@ fn diff_functions(
             ));
         }
         if async_changed {
-            details_parts.push(format!(
-                "async: {} -> {}",
-                base.is_async, head.is_async
-            ));
+            details_parts.push(format!("async: {} -> {}", base.is_async, head.is_async));
         }
         if static_changed {
-            details_parts.push(format!(
-                "static: {} -> {}",
-                base.is_static, head.is_static
-            ));
+            details_parts.push(format!("static: {} -> {}", base.is_static, head.is_static));
         }
         if complexity_changed {
             details_parts.push(format!(
@@ -374,10 +372,16 @@ fn diff_single_module(base: &ModuleDef, head: &ModuleDef) -> Vec<EntityChange> {
     let file_path = &head.path;
 
     // Diff functions
-    let base_funcs: HashMap<&str, &FunctionDef> =
-        base.functions.iter().map(|f| (f.name.as_str(), f)).collect();
-    let head_funcs: HashMap<&str, &FunctionDef> =
-        head.functions.iter().map(|f| (f.name.as_str(), f)).collect();
+    let base_funcs: HashMap<&str, &FunctionDef> = base
+        .functions
+        .iter()
+        .map(|f| (f.name.as_str(), f))
+        .collect();
+    let head_funcs: HashMap<&str, &FunctionDef> = head
+        .functions
+        .iter()
+        .map(|f| (f.name.as_str(), f))
+        .collect();
 
     let base_func_names: HashSet<&str> = base_funcs.keys().copied().collect();
     let head_func_names: HashSet<&str> = head_funcs.keys().copied().collect();
@@ -527,10 +531,7 @@ pub fn semantic_diff_modules(
         let func_count = module.functions.len();
         let class_count = module.classes.len();
         if func_count > 0 || class_count > 0 {
-            change.details = Some(format!(
-                "{} functions, {} classes",
-                func_count, class_count
-            ));
+            change.details = Some(format!("{} functions, {} classes", func_count, class_count));
         }
 
         result.add_change(change);
@@ -616,13 +617,19 @@ pub fn semantic_diff_files(
     use std::fs;
 
     // Read files
-    let base_source = fs::read_to_string(base_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read base file: {}", e)))?;
-    let head_source = fs::read_to_string(head_path)
-        .map_err(|e| pyo3::exceptions::PyIOError::new_err(format!("Failed to read head file: {}", e)))?;
+    let base_source = fs::read_to_string(base_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read base file: {}", e))
+    })?;
+    let head_source = fs::read_to_string(head_path).map_err(|e| {
+        pyo3::exceptions::PyIOError::new_err(format!("Failed to read head file: {}", e))
+    })?;
 
     // Use normalized path if requested (default: true for CLI usage)
-    let effective_base_path = if normalize_paths { head_path } else { base_path };
+    let effective_base_path = if normalize_paths {
+        head_path
+    } else {
+        base_path
+    };
 
     // Parse files
     let base_result = crate::parser::parse_source(&base_source, effective_base_path, language);
@@ -632,13 +639,17 @@ pub fn semantic_diff_files(
     let base_module = base_result.module.ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
             "Failed to parse base file: {}",
-            base_result.error.unwrap_or_else(|| "Unknown error".to_string())
+            base_result
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string())
         ))
     })?;
     let head_module = head_result.module.ok_or_else(|| {
         pyo3::exceptions::PyValueError::new_err(format!(
             "Failed to parse head file: {}",
-            head_result.error.unwrap_or_else(|| "Unknown error".to_string())
+            head_result
+                .error
+                .unwrap_or_else(|| "Unknown error".to_string())
         ))
     })?;
 
@@ -660,7 +671,11 @@ mod tests {
         }
     }
 
-    fn make_function(name: &str, params: Vec<ParameterDef>, return_type: Option<&str>) -> FunctionDef {
+    fn make_function(
+        name: &str,
+        params: Vec<ParameterDef>,
+        return_type: Option<&str>,
+    ) -> FunctionDef {
         FunctionDef {
             name: name.to_string(),
             parameters: params,
@@ -832,7 +847,11 @@ mod tests {
         let base = vec![make_module(
             "mod",
             "src/mod.py",
-            vec![make_function("func", vec![make_param("a", Some("int"), None)], None)],
+            vec![make_function(
+                "func",
+                vec![make_param("a", Some("int"), None)],
+                None,
+            )],
             vec![],
         )];
         let head = vec![make_module(

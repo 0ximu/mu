@@ -157,7 +157,7 @@ def kernel_context(
     # Copy to clipboard if requested
     if copy:
         try:
-            import pyperclip
+            import pyperclip  # type: ignore[import-untyped]
 
             pyperclip.copy(output_str)
             print_success("Copied to clipboard")

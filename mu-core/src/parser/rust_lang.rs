@@ -115,6 +115,21 @@ fn extract_use(node: &Node, source: &str) -> Option<ImportDef> {
             "scoped_identifier" | "identifier" => {
                 module = get_node_text(&child, source).replace("::", ".").to_string();
             }
+            "scoped_use_list" => {
+                // Handle `use foo::bar::{a, b, c}` pattern
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    match inner.kind() {
+                        "scoped_identifier" | "identifier" => {
+                            module = get_node_text(&inner, source).replace("::", ".").to_string();
+                        }
+                        "use_list" => {
+                            extract_use_list(&inner, source, &mut names);
+                        }
+                        _ => {}
+                    }
+                }
+            }
             "use_as_clause" => {
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
@@ -202,15 +217,42 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
             "visibility_modifier" => {
                 func_def.decorators.push("pub".to_string());
             }
+            "function_modifiers" => {
+                // Check for async, const, unsafe, etc.
+                let mods_text = get_node_text(&child, source);
+                if mods_text.contains("async") {
+                    func_def.is_async = true;
+                }
+                if mods_text.contains("const") {
+                    func_def.decorators.push("const".to_string());
+                }
+                if mods_text.contains("unsafe") {
+                    func_def.decorators.push("unsafe".to_string());
+                }
+            }
             "identifier" => {
                 if func_def.name.is_empty() {
                     func_def.name = get_node_text(&child, source).to_string();
                 }
             }
+            "type_parameters" => {
+                // Generic parameters like <T, U>
+                func_def
+                    .decorators
+                    .push(format!("generic:{}", get_node_text(&child, source)));
+            }
             "parameters" => {
                 func_def.parameters = extract_parameters(&child, source);
             }
-            "type_identifier" | "generic_type" | "reference_type" | "tuple_type" => {
+            "type_identifier"
+            | "generic_type"
+            | "reference_type"
+            | "tuple_type"
+            | "primitive_type"
+            | "scoped_type_identifier"
+            | "unit_type"
+            | "pointer_type"
+            | "array_type" => {
                 if func_def.return_type.is_none() {
                     func_def.return_type = Some(get_node_text(&child, source).to_string());
                 }
@@ -220,7 +262,13 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
             }
             "async" => {
+                // Direct async keyword (older tree-sitter versions)
                 func_def.is_async = true;
+            }
+            "where_clause" => {
+                func_def
+                    .decorators
+                    .push(format!("where:{}", get_node_text(&child, source)));
             }
             _ => {}
         }

@@ -25,10 +25,16 @@ block_cipher = None
 # tiktoken requires vocabulary files (e.g., cl100k_base.tiktoken) at runtime
 tik_datas, tik_binaries, tik_hiddenimports = collect_all('tiktoken')
 
+# Find and include the Rust extension (_core.abi3.so)
+rust_ext_path = src_root / "mu" / "_core.abi3.so"
+rust_binaries = []
+if rust_ext_path.exists():
+    rust_binaries = [(str(rust_ext_path), "mu")]
+
 a = Analysis(
     ["src/mu/cli.py"],
     pathex=[str(src_root)],
-    binaries=tik_binaries,
+    binaries=tik_binaries + rust_binaries,
     datas=[
         # Include MUQL grammar file (required for Lark parser at runtime)
         ("src/mu/kernel/muql/grammar.lark", "mu/kernel/muql"),
@@ -102,6 +108,20 @@ a = Analysis(
         "mu.kernel.muql.executor",
         "mu.kernel.muql.planner",
         "mu.kernel.muql.formatter",
+        "mu.kernel.graph",
+        # Diff module
+        "mu.diff",
+        "mu.diff.differ",
+        "mu.diff.models",
+        "mu.diff.formatters",
+        "mu.diff.git_utils",
+        # Scanner module
+        "mu.scanner",
+        # MCP server
+        "mu.mcp",
+        "mu.mcp.server",
+        # Rust extension (loaded dynamically)
+        "mu._core",
         # Tree-sitter language bindings
         "tree_sitter",
         "tree_sitter_python",
@@ -131,6 +151,10 @@ a = Analysis(
         "uvicorn",
         "watchfiles",
         "starlette",
+        # MCP server
+        "mcp",
+        "mcp.server",
+        "mcp.server.fastmcp",
         # Async support
         "anyio",
         "sniffio",

@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
-from diskcache import Cache
+from diskcache import Cache  # type: ignore[import-untyped]
 
 from mu.config import CacheConfig
 

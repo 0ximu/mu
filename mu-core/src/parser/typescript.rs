@@ -538,23 +538,81 @@ fn check_dynamic_import(node: &Node, source: &str) -> Option<ImportDef> {
 
     let func_text = get_node_text(&func_node, source);
 
-    if func_text == "import" || func_text == "require" {
+    if func_text == "import" {
+        // Dynamic import() - look for argument
         let args = find_child_by_type(node, "arguments")?;
         let mut cursor = args.walk();
-        let first_arg = args.children(&mut cursor).find(|c| c.kind() == "string")?;
 
-        let module = get_node_text(&first_arg, source)
-            .trim_matches('"')
-            .trim_matches('\'')
-            .to_string();
+        for child in args.children(&mut cursor) {
+            match child.kind() {
+                "string" => {
+                    // Static string: import("./module")
+                    let module = get_node_text(&child, source)
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
+                    return Some(ImportDef {
+                        module,
+                        is_dynamic: true,
+                        dynamic_source: Some("import()".to_string()),
+                        line_number: get_start_line(node),
+                        ..Default::default()
+                    });
+                }
+                "template_string" => {
+                    // Template literal: import(`./handlers/${type}.js`)
+                    let pattern = get_node_text(&child, source);
+                    return Some(ImportDef {
+                        module: "<dynamic>".to_string(),
+                        is_dynamic: true,
+                        dynamic_pattern: Some(pattern.to_string()),
+                        dynamic_source: Some("import()".to_string()),
+                        line_number: get_start_line(node),
+                        ..Default::default()
+                    });
+                }
+                "identifier" | "member_expression" | "binary_expression" => {
+                    // Variable or expression: import(modulePath)
+                    let pattern = get_node_text(&child, source);
+                    return Some(ImportDef {
+                        module: "<dynamic>".to_string(),
+                        is_dynamic: true,
+                        dynamic_pattern: Some(pattern.to_string()),
+                        dynamic_source: Some("import()".to_string()),
+                        line_number: get_start_line(node),
+                        ..Default::default()
+                    });
+                }
+                _ => {}
+            }
+        }
+    } else if func_text == "require" {
+        // require() - check if argument is dynamic
+        let args = find_child_by_type(node, "arguments")?;
+        let mut cursor = args.walk();
 
-        return Some(ImportDef {
-            module,
-            is_dynamic: true,
-            dynamic_source: Some(func_text.to_string()),
-            line_number: get_start_line(node),
-            ..Default::default()
-        });
+        for child in args.children(&mut cursor) {
+            match child.kind() {
+                "string" => {
+                    // Static require - skip (handled elsewhere as regular import)
+                    return None;
+                }
+                "template_string" | "identifier" | "member_expression" | "binary_expression"
+                | "call_expression" => {
+                    // Dynamic require: require(modulePath), require(`./x/${y}`), require(getModule())
+                    let pattern = get_node_text(&child, source);
+                    return Some(ImportDef {
+                        module: "<dynamic>".to_string(),
+                        is_dynamic: true,
+                        dynamic_pattern: Some(pattern.to_string()),
+                        dynamic_source: Some("require()".to_string()),
+                        line_number: get_start_line(node),
+                        ..Default::default()
+                    });
+                }
+                _ => {}
+            }
+        }
     }
 
     None

@@ -49,7 +49,7 @@ def _detect_device() -> str:
         Device string: 'cuda', 'mps', or 'cpu'
     """
     try:
-        import torch
+        import torch  # type: ignore[import-not-found]
 
         if torch.cuda.is_available():
             return "cuda"
@@ -120,7 +120,7 @@ class LocalEmbeddingProvider:
     def _load_model_sync(self) -> Any:
         """Load the sentence-transformers model synchronously."""
         try:
-            from sentence_transformers import SentenceTransformer
+            from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
 
             hf_name = self._model_config["hf_name"]
             logger.info(f"Loading model {hf_name} on {self._device}")

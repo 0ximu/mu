@@ -21,7 +21,7 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         .ok_or("Failed to parse Java source")?;
     let root = tree.root_node();
 
-    // Get module name from package or filename
+    // Get module name from package or filename (prefer package name alone, like Python impl)
     let package_name = extract_package_name(&root, source);
     let class_name = Path::new(file_path)
         .file_stem()
@@ -29,11 +29,8 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         .unwrap_or("unknown")
         .to_string();
 
-    let name = if let Some(pkg) = &package_name {
-        format!("{}.{}", pkg, class_name)
-    } else {
-        class_name
-    };
+    // Use just the package name if available (consistent with Python parser)
+    let name = package_name.unwrap_or(class_name);
 
     let mut module = ModuleDef {
         name,
@@ -88,6 +85,7 @@ fn extract_package_name(root: &Node, source: &str) -> Option<String> {
 fn extract_import(node: &Node, source: &str) -> Option<ImportDef> {
     let mut module = String::new();
     let mut is_static = false;
+    let mut is_wildcard = false;
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -96,7 +94,7 @@ fn extract_import(node: &Node, source: &str) -> Option<ImportDef> {
                 module = get_node_text(&child, source).to_string();
             }
             "asterisk" => {
-                module.push_str(".*");
+                is_wildcard = true;
             }
             "static" => {
                 is_static = true;
@@ -109,13 +107,19 @@ fn extract_import(node: &Node, source: &str) -> Option<ImportDef> {
         return None;
     }
 
+    // Handle wildcard imports
+    if is_wildcard {
+        module.push_str(".*");
+    }
+
     let mut import = ImportDef {
         module,
         ..Default::default()
     };
 
+    // Mark static imports with alias (consistent with Python parser)
     if is_static {
-        import.names.push("static".to_string());
+        import.alias = Some("static".to_string());
     }
 
     Some(import)
@@ -141,17 +145,25 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
                 }
             }
             "type_parameters" => {
-                // Generic type parameters
+                // Generic type parameters - add as decorator like "generic:<T>"
                 let generics = get_node_text(&child, source);
                 if !generics.is_empty() {
-                    class_def.name.push_str(&generics);
+                    class_def.decorators.push(format!("generic:{}", generics));
                 }
             }
             "superclass" => {
-                if let Some(type_node) = find_child_by_type(&child, "type_identifier") {
-                    class_def
-                        .bases
-                        .push(get_node_text(&type_node, source).to_string());
+                // Get the full type including generics (e.g., AbstractList<E>)
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    match inner.kind() {
+                        "type_identifier" | "generic_type" => {
+                            class_def
+                                .bases
+                                .push(get_node_text(&inner, source).to_string());
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
             }
             "super_interfaces" => {
@@ -177,8 +189,8 @@ fn extract_modifiers(node: &Node, source: &str, decorators: &mut Vec<String>) {
                 for inner in child.children(&mut inner_cursor) {
                     match inner.kind() {
                         "marker_annotation" | "annotation" => {
-                            let text = get_node_text(&inner, source);
-                            decorators.push(text.trim_start_matches('@').to_string());
+                            // Keep the @ prefix for annotations
+                            decorators.push(get_node_text(&inner, source).to_string());
                         }
                         "public" | "private" | "protected" | "static" | "final" | "abstract" => {
                             decorators.push(get_node_text(&inner, source).to_string());
@@ -188,8 +200,8 @@ fn extract_modifiers(node: &Node, source: &str, decorators: &mut Vec<String>) {
                 }
             }
             "marker_annotation" | "annotation" => {
-                let text = get_node_text(&child, source);
-                decorators.push(text.trim_start_matches('@').to_string());
+                // Keep the @ prefix for annotations
+                decorators.push(get_node_text(&child, source).to_string());
             }
             _ => {}
         }
@@ -330,8 +342,22 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
                     "identifier" => {
                         param.name = get_node_text(&inner, source).to_string();
                     }
+                    "variable_declarator" => {
+                        // For spread parameters, the name is in a variable_declarator
+                        if let Some(id) = find_child_by_type(&inner, "identifier") {
+                            param.name = get_node_text(&id, source).to_string();
+                        } else {
+                            // Sometimes the variable_declarator just contains the name directly
+                            param.name = get_node_text(&inner, source).to_string();
+                        }
+                    }
                     "type_identifier" | "generic_type" | "array_type" => {
-                        param.type_annotation = Some(get_node_text(&inner, source).to_string());
+                        let type_text = get_node_text(&inner, source);
+                        if is_variadic {
+                            param.type_annotation = Some(format!("{}...", type_text));
+                        } else {
+                            param.type_annotation = Some(type_text.to_string());
+                        }
                     }
                     _ => {}
                 }

@@ -200,9 +200,8 @@ impl IncrementalParser {
         let old_end_position = byte_offset_to_point(&self.source, old_end_byte);
 
         // Apply the edit to our source string
-        let mut new_source = String::with_capacity(
-            self.source.len() - (old_end_byte - start_byte) + new_text.len(),
-        );
+        let mut new_source =
+            String::with_capacity(self.source.len() - (old_end_byte - start_byte) + new_text.len());
         new_source.push_str(&self.source[..start_byte]);
         new_source.push_str(new_text);
         if old_end_byte < self.source.len() {
@@ -210,7 +209,8 @@ impl IncrementalParser {
         }
 
         // Calculate new end position
-        let new_end_position = byte_offset_to_point(&new_source, new_end_byte.min(new_source.len()));
+        let new_end_position =
+            byte_offset_to_point(&new_source, new_end_byte.min(new_source.len()));
 
         // Create the InputEdit for tree-sitter
         let input_edit = InputEdit {
@@ -248,7 +248,9 @@ impl IncrementalParser {
         let parse_result = parser::parse_source(&self.source, &self.file_path, &self.language);
         let module = parse_result.module.ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
-                parse_result.error.unwrap_or_else(|| "Parse failed".to_string()),
+                parse_result
+                    .error
+                    .unwrap_or_else(|| "Parse failed".to_string()),
             )
         })?;
 
@@ -270,7 +272,9 @@ impl IncrementalParser {
         let parse_result = parser::parse_source(&self.source, &self.file_path, &self.language);
         parse_result.module.ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
-                parse_result.error.unwrap_or_else(|| "Parse failed".to_string()),
+                parse_result
+                    .error
+                    .unwrap_or_else(|| "Parse failed".to_string()),
             )
         })
     }
@@ -361,7 +365,9 @@ impl IncrementalParser {
 
     /// Check if the current tree has syntax errors.
     fn has_errors(&self) -> bool {
-        self.tree.as_ref().map_or(true, |t| t.root_node().has_error())
+        self.tree
+            .as_ref()
+            .map_or(true, |t| t.root_node().has_error())
     }
 
     /// Get the number of lines in the source.
@@ -387,7 +393,9 @@ impl IncrementalParser {
         let parse_result = parser::parse_source(&self.source, &self.file_path, &self.language);
         let module = parse_result.module.ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err(
-                parse_result.error.unwrap_or_else(|| "Parse failed".to_string()),
+                parse_result
+                    .error
+                    .unwrap_or_else(|| "Parse failed".to_string()),
             )
         })?;
 
@@ -497,10 +505,16 @@ mod tests {
     }
 
     // Helper to create an incremental parser for testing (bypasses PyO3)
-    fn create_test_parser(source: &str, language: &str, file_path: &str) -> Result<IncrementalParser, String> {
+    fn create_test_parser(
+        source: &str,
+        language: &str,
+        file_path: &str,
+    ) -> Result<IncrementalParser, String> {
         let mut parser = Parser::new();
         let ts_language = get_tree_sitter_language(language)?;
-        parser.set_language(&ts_language).map_err(|e| e.to_string())?;
+        parser
+            .set_language(&ts_language)
+            .map_err(|e| e.to_string())?;
         let tree = parser.parse(source, None);
         Ok(IncrementalParser {
             parser,
@@ -520,13 +534,24 @@ mod tests {
         new_text: &str,
     ) -> Result<IncrementalParseResult, String> {
         if start_byte > parser.source.len() {
-            return Err(format!("start_byte {} beyond source length {}", start_byte, parser.source.len()));
+            return Err(format!(
+                "start_byte {} beyond source length {}",
+                start_byte,
+                parser.source.len()
+            ));
         }
         if old_end_byte > parser.source.len() {
-            return Err(format!("old_end_byte {} beyond source length {}", old_end_byte, parser.source.len()));
+            return Err(format!(
+                "old_end_byte {} beyond source length {}",
+                old_end_byte,
+                parser.source.len()
+            ));
         }
         if start_byte > old_end_byte {
-            return Err(format!("start_byte {} > old_end_byte {}", start_byte, old_end_byte));
+            return Err(format!(
+                "start_byte {} > old_end_byte {}",
+                start_byte, old_end_byte
+            ));
         }
 
         let start_time = Instant::now();
@@ -542,7 +567,8 @@ mod tests {
             new_source.push_str(&parser.source[old_end_byte..]);
         }
 
-        let new_end_position = byte_offset_to_point(&new_source, new_end_byte.min(new_source.len()));
+        let new_end_position =
+            byte_offset_to_point(&new_source, new_end_byte.min(new_source.len()));
 
         let input_edit = InputEdit {
             start_byte,
@@ -571,9 +597,12 @@ mod tests {
         parser.tree = new_tree;
         parser.source = new_source;
 
-        let parse_result = crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
+        let parse_result =
+            crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
         let module = parse_result.module.ok_or_else(|| {
-            parse_result.error.unwrap_or_else(|| "Parse failed".to_string())
+            parse_result
+                .error
+                .unwrap_or_else(|| "Parse failed".to_string())
         })?;
 
         let parse_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -587,21 +616,30 @@ mod tests {
 
     // Helper to get module for testing
     fn test_get_module(parser: &IncrementalParser) -> Result<ModuleDef, String> {
-        let parse_result = crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
+        let parse_result =
+            crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
         parse_result.module.ok_or_else(|| {
-            parse_result.error.unwrap_or_else(|| "Parse failed".to_string())
+            parse_result
+                .error
+                .unwrap_or_else(|| "Parse failed".to_string())
         })
     }
 
     // Helper to reset parser for testing
-    fn test_reset(parser: &mut IncrementalParser, source: &str) -> Result<IncrementalParseResult, String> {
+    fn test_reset(
+        parser: &mut IncrementalParser,
+        source: &str,
+    ) -> Result<IncrementalParseResult, String> {
         let start_time = Instant::now();
         parser.source = source.to_string();
         parser.tree = parser.parser.parse(source, None);
 
-        let parse_result = crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
+        let parse_result =
+            crate::parser::parse_source(&parser.source, &parser.file_path, &parser.language);
         let module = parse_result.module.ok_or_else(|| {
-            parse_result.error.unwrap_or_else(|| "Parse failed".to_string())
+            parse_result
+                .error
+                .unwrap_or_else(|| "Parse failed".to_string())
         })?;
 
         let parse_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -703,7 +741,8 @@ mod tests {
         // Add a new function at the end
         let addition = "\n\ndef bar():\n    pass";
         let end = source.len();
-        let _result = test_apply_edit(&mut parser, end, end, end + addition.len(), addition).unwrap();
+        let _result =
+            test_apply_edit(&mut parser, end, end, end + addition.len(), addition).unwrap();
 
         let module = test_get_module(&parser).unwrap();
         assert_eq!(module.functions.len(), 2);

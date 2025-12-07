@@ -151,6 +151,7 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
         ..Default::default()
     };
 
+    let mut found_params = false;
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
@@ -160,9 +161,18 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
                 }
             }
             "parameter_list" => {
-                func_def.parameters = extract_parameters(&child, source);
+                if !found_params {
+                    func_def.parameters = extract_parameters(&child, source);
+                    found_params = true;
+                } else {
+                    // Second parameter_list is multiple return values
+                    func_def.return_type = Some(get_node_text(&child, source).to_string());
+                }
             }
-            "result" => {
+            // Simple return type (single value)
+            "type_identifier" | "pointer_type" | "slice_type" | "array_type" | "map_type"
+            | "channel_type" | "qualified_type" | "interface_type" | "struct_type"
+            | "function_type" => {
                 func_def.return_type = Some(get_node_text(&child, source).to_string());
             }
             "block" => {
@@ -194,22 +204,31 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
     };
 
     let mut receiver_type = String::new();
+    let mut param_list_count = 0;
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
             "parameter_list" => {
-                // First parameter_list is the receiver, second is parameters
-                if receiver_type.is_empty() {
+                if param_list_count == 0 {
+                    // First parameter_list is the receiver
                     receiver_type = extract_receiver_type(&child, source);
-                } else {
+                } else if param_list_count == 1 {
+                    // Second parameter_list is the actual parameters
                     func_def.parameters = extract_parameters(&child, source);
+                } else {
+                    // Third parameter_list is multiple return values
+                    func_def.return_type = Some(get_node_text(&child, source).to_string());
                 }
+                param_list_count += 1;
             }
             "field_identifier" => {
                 func_def.name = get_node_text(&child, source).to_string();
             }
-            "result" => {
+            // Simple return type (single value)
+            "type_identifier" | "pointer_type" | "slice_type" | "array_type" | "map_type"
+            | "channel_type" | "qualified_type" | "interface_type" | "struct_type"
+            | "function_type" => {
                 func_def.return_type = Some(get_node_text(&child, source).to_string());
             }
             "block" => {
@@ -256,43 +275,78 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "parameter_declaration" {
-            let mut names = Vec::new();
-            let mut type_annotation = None;
-            let mut is_variadic = false;
+        match child.kind() {
+            "parameter_declaration" => {
+                let mut names = Vec::new();
+                let mut type_annotation = None;
 
-            let mut inner_cursor = child.walk();
-            for inner in child.children(&mut inner_cursor) {
-                match inner.kind() {
-                    "identifier" => {
-                        names.push(get_node_text(&inner, source).to_string());
-                    }
-                    "variadic_parameter_declaration" => {
-                        is_variadic = true;
-                        if let Some(id) = find_child_by_type(&inner, "identifier") {
-                            names.push(get_node_text(&id, source).to_string());
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    match inner.kind() {
+                        "identifier" => {
+                            names.push(get_node_text(&inner, source).to_string());
                         }
-                    }
-                    _ => {
-                        // Assume it's a type
-                        if names.is_empty() {
-                            // Type-only parameter (no name)
-                            type_annotation = Some(get_node_text(&inner, source).to_string());
-                        } else {
+                        // Skip commas and other punctuation
+                        "," | "(" | ")" => {}
+                        _ => {
+                            // Assume it's a type (could be type_identifier, slice_type, etc.)
                             type_annotation = Some(get_node_text(&inner, source).to_string());
                         }
                     }
                 }
-            }
 
-            for name in names {
-                params.push(ParameterDef {
-                    name,
-                    type_annotation: type_annotation.clone(),
-                    is_variadic,
-                    ..Default::default()
-                });
+                // If we found names, create params for each
+                if !names.is_empty() {
+                    for name in names {
+                        params.push(ParameterDef {
+                            name,
+                            type_annotation: type_annotation.clone(),
+                            is_variadic: false,
+                            ..Default::default()
+                        });
+                    }
+                } else if type_annotation.is_some() {
+                    // Type-only parameter (no name, like in return types)
+                    params.push(ParameterDef {
+                        name: String::new(),
+                        type_annotation,
+                        is_variadic: false,
+                        ..Default::default()
+                    });
+                }
             }
+            "variadic_parameter_declaration" => {
+                // Handle variadic parameters like `nums ...int`
+                let mut name = String::new();
+                let mut type_annotation = None;
+
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    match inner.kind() {
+                        "identifier" => {
+                            name = get_node_text(&inner, source).to_string();
+                        }
+                        "..." => {
+                            // Skip the ellipsis token
+                        }
+                        _ => {
+                            // Type (after the ellipsis)
+                            let type_text = get_node_text(&inner, source).to_string();
+                            type_annotation = Some(format!("...{}", type_text));
+                        }
+                    }
+                }
+
+                if !name.is_empty() {
+                    params.push(ParameterDef {
+                        name,
+                        type_annotation,
+                        is_variadic: true,
+                        ..Default::default()
+                    });
+                }
+            }
+            _ => {}
         }
     }
 
@@ -382,7 +436,8 @@ fn extract_struct_fields(node: &Node, source: &str, class_def: &mut ClassDef) {
 fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "method_spec" {
+        // Handle both old "method_spec" and new "method_elem" node types
+        if child.kind() == "method_spec" || child.kind() == "method_elem" {
             let mut method = FunctionDef {
                 is_method: true,
                 start_line: get_start_line(&child),
@@ -390,6 +445,7 @@ fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef
                 ..Default::default()
             };
 
+            let mut param_list_count = 0;
             let mut inner_cursor = child.walk();
             for inner in child.children(&mut inner_cursor) {
                 match inner.kind() {
@@ -397,9 +453,18 @@ fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef
                         method.name = get_node_text(&inner, source).to_string();
                     }
                     "parameter_list" => {
-                        method.parameters = extract_parameters(&inner, source);
+                        if param_list_count == 0 {
+                            method.parameters = extract_parameters(&inner, source);
+                        } else {
+                            // Second parameter_list is multiple return values
+                            method.return_type = Some(get_node_text(&inner, source).to_string());
+                        }
+                        param_list_count += 1;
                     }
-                    "result" => {
+                    // Simple return type (single value)
+                    "type_identifier" | "pointer_type" | "slice_type" | "array_type"
+                    | "map_type" | "channel_type" | "qualified_type" | "interface_type"
+                    | "struct_type" | "function_type" => {
                         method.return_type = Some(get_node_text(&inner, source).to_string());
                     }
                     _ => {}
@@ -414,6 +479,16 @@ fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef
             class_def
                 .bases
                 .push(get_node_text(&child, source).to_string());
+        } else if child.kind() == "type_elem" {
+            // Type element for embedded interfaces (Go 1.18+)
+            let mut type_cursor = child.walk();
+            for type_child in child.children(&mut type_cursor) {
+                if type_child.kind() == "type_identifier" || type_child.kind() == "qualified_type" {
+                    class_def
+                        .bases
+                        .push(get_node_text(&type_child, source).to_string());
+                }
+            }
         }
     }
 }
