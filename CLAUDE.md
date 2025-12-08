@@ -19,6 +19,7 @@ src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
 src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
 src/mu/mcp/CLAUDE.md                  # MCP server for AI assistants
+src/mu/agent/CLAUDE.md                # MU Agent - code structure specialist
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
@@ -138,6 +139,7 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`client.py`**: Daemon communication client for programmatic MU integration
 - **`describe.py`**: CLI introspection and self-description (mu/json/markdown formats)
 - **`mcp/`**: MCP server exposing MU tools for Claude Code and other AI assistants
+- **`agent/`**: MU Agent - code structure specialist running on Haiku (60x cheaper)
 
 ## Supported Languages
 

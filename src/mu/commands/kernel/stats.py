@@ -17,6 +17,7 @@ def kernel_stats(path: Path, as_json: bool) -> None:
 
     from rich.table import Table
 
+    from mu.client import DaemonClient
     from mu.errors import ExitCode
     from mu.kernel import MUbase
     from mu.logging import console, print_error, print_info
@@ -28,9 +29,24 @@ def kernel_stats(path: Path, as_json: bool) -> None:
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
-    stats = db.stats()
-    db.close()
+    # Try daemon first to avoid DuckDB lock conflicts
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            status_resp = client.status(cwd=str(path.resolve()))
+            stats = status_resp.get("stats", {})
+            client.close()
+        except Exception:
+            # Daemon available but request failed, fall back to direct access
+            client.close()
+            db = MUbase(mubase_path)
+            stats = db.stats()
+            db.close()
+    else:
+        client.close()
+        db = MUbase(mubase_path)
+        stats = db.stats()
+        db.close()
 
     if as_json:
         console.print(json_module.dumps(stats, indent=2, default=str))
