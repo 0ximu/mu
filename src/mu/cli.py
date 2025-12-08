@@ -34,28 +34,42 @@ pass_context = click.make_pass_decorator(MUContext, ensure=True)
 
 # Define lazy subcommands: name -> (module_path, attribute_name)
 LAZY_COMMANDS: dict[str, tuple[str, str]] = {
-    # Top-level commands
-    "compress": ("mu.commands.compress", "compress"),
-    "scan": ("mu.commands.scan", "scan"),
-    "view": ("mu.commands.view", "view"),
-    "diff": ("mu.commands.diff", "diff"),
+    # Core commands (most common workflows)
+    "bootstrap": ("mu.commands.core", "bootstrap"),
+    "status": ("mu.commands.core", "status"),
+    "read": ("mu.commands.core", "read"),
+    "context": ("mu.commands.core", "context"),
+    "search": ("mu.commands.core", "search"),
+    # Query commands
     "query": ("mu.commands.query", "query"),
     "q": ("mu.commands.query", "q"),
-    "init": ("mu.commands.init_cmd", "init"),
-    "describe": ("mu.commands.describe", "describe"),
-    "man": ("mu.commands.man", "man_command"),
-    "llm": ("mu.commands.llm_spec", "llm_command"),
     # Graph reasoning commands (petgraph-backed)
     "impact": ("mu.commands.graph", "impact"),
     "ancestors": ("mu.commands.graph", "ancestors"),
     "cycles": ("mu.commands.graph", "cycles"),
-    # Subgroups
-    "cache": ("mu.commands.cache", "cache"),
-    "kernel": ("mu.commands.kernel", "kernel"),
+    # Intelligence Layer commands
+    "patterns": ("mu.commands.patterns", "patterns"),
+    "generate": ("mu.commands.generate", "generate"),
+    "warn": ("mu.commands.warn", "warn"),
+    "related": ("mu.commands.core", "related"),
+    # Output commands
+    "compress": ("mu.commands.compress", "compress"),
+    "diff": ("mu.commands.diff", "diff"),
+    # Service groups
     "daemon": ("mu.commands.daemon", "daemon"),
     "mcp": ("mu.commands.mcp", "mcp"),
-    "contracts": ("mu.commands.contracts", "contracts"),
     "agent": ("mu.agent.cli", "agent"),
+    # Advanced/power-user commands
+    "kernel": ("mu.commands.kernel", "kernel"),
+    "cache": ("mu.commands.cache", "cache"),
+    "contracts": ("mu.commands.contracts", "contracts"),
+    # Legacy commands (kept for compatibility)
+    "init": ("mu.commands.init_cmd", "init"),
+    "scan": ("mu.commands.scan", "scan"),
+    "view": ("mu.commands.view", "view"),
+    "describe": ("mu.commands.describe", "describe"),
+    "man": ("mu.commands.man", "man_command"),
+    "llm": ("mu.commands.llm_spec", "llm_command"),
 }
 
 

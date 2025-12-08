@@ -93,6 +93,92 @@ class CyclesResult:
     total_nodes_in_cycles: int
 
 
+@dataclass
+class PatternInfo:
+    """Information about a detected pattern."""
+
+    name: str
+    category: str
+    description: str
+    frequency: int
+    confidence: float
+    examples: list[dict[str, Any]]
+    anti_patterns: list[str]
+
+
+@dataclass
+class PatternsOutput:
+    """Result of mu_patterns - detected codebase patterns."""
+
+    patterns: list[PatternInfo]
+    total_patterns: int
+    categories_found: list[str]
+    detection_time_ms: float
+
+
+@dataclass
+class GeneratedFileInfo:
+    """Information about a generated file."""
+
+    path: str
+    content: str
+    description: str
+    is_primary: bool
+
+
+@dataclass
+class GenerateOutput:
+    """Result of mu_generate - code template generation."""
+
+    template_type: str
+    name: str
+    files: list[GeneratedFileInfo]
+    patterns_used: list[str]
+    suggestions: list[str]
+
+
+@dataclass
+class ViolationInfo:
+    """Information about a pattern violation."""
+
+    file_path: str
+    line_start: int | None
+    line_end: int | None
+    severity: str
+    rule: str
+    message: str
+    suggestion: str
+    pattern_category: str
+
+
+@dataclass
+class ValidateOutput:
+    """Result of mu_validate - pattern validation for changes."""
+
+    valid: bool
+    violations: list[ViolationInfo]
+    patterns_checked: list[str]
+    files_checked: list[str]
+    error_count: int
+    warning_count: int
+    info_count: int
+    validation_time_ms: float
+
+
+@dataclass
+class ReadResult:
+    """Result of mu_read - source code extraction."""
+
+    node_id: str
+    file_path: str
+    line_start: int
+    line_end: int
+    source: str
+    context_before: str
+    context_after: str
+    language: str
+
+
 def _get_client() -> DaemonClient:
     """Get a daemon client, raising if daemon not running."""
     client = DaemonClient(base_url=DEFAULT_DAEMON_URL)
@@ -223,6 +309,100 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
 
 
 @mcp.tool()
+def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
+    """Read source code for a specific node.
+
+    Closes the find→read loop: after finding nodes with mu_query or mu_context,
+    use mu_read to see the actual source code.
+
+    Args:
+        node_id: Node ID or name (e.g., "AuthService", "cls:src/auth.py:AuthService")
+        context_lines: Lines of context before/after the node (default 3)
+
+    Returns:
+        ReadResult with source code and surrounding context
+
+    Example:
+        # Find a class, then read its source
+        result = mu_query("SELECT id FROM classes WHERE name = 'AuthService'")
+        source = mu_read(result.rows[0][0])
+        print(source.source)  # The actual class code
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        # Resolve node name to ID if needed
+        resolved_id = _resolve_node_id(db, node_id)
+        node = db.get_node(resolved_id)
+
+        if not node:
+            raise ValueError(f"Node not found: {node_id}")
+
+        if not node.file_path or not node.line_start or not node.line_end:
+            raise ValueError(f"Node {node_id} has no source location info")
+
+        # Read the source file
+        file_path = Path(node.file_path)
+        if not file_path.is_absolute():
+            # Try relative to mubase root
+            root_path = mubase_path.parent
+            file_path = root_path / file_path
+
+        if not file_path.exists():
+            raise ValueError(f"Source file not found: {file_path}")
+
+        # Read lines from file
+        lines = file_path.read_text().splitlines()
+        total_lines = len(lines)
+
+        # Calculate ranges (1-indexed to 0-indexed)
+        start_idx = node.line_start - 1
+        end_idx = node.line_end
+
+        # Context ranges
+        context_start = max(0, start_idx - context_lines)
+        context_end = min(total_lines, end_idx + context_lines)
+
+        # Extract source and context
+        source_lines = lines[start_idx:end_idx]
+        context_before_lines = lines[context_start:start_idx]
+        context_after_lines = lines[end_idx:context_end]
+
+        # Detect language from file extension
+        ext = file_path.suffix.lstrip(".")
+        lang_map = {
+            "py": "python",
+            "ts": "typescript",
+            "tsx": "typescript",
+            "js": "javascript",
+            "jsx": "javascript",
+            "go": "go",
+            "rs": "rust",
+            "java": "java",
+            "cs": "csharp",
+        }
+        language = lang_map.get(ext, ext)
+
+        return ReadResult(
+            node_id=resolved_id,
+            file_path=str(file_path),
+            line_start=node.line_start,
+            line_end=node.line_end,
+            source="\n".join(source_lines),
+            context_before="\n".join(context_before_lines),
+            context_after="\n".join(context_after_lines),
+            language=language,
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
 def mu_deps(node_name: str, depth: int = 2, direction: str = "outgoing") -> DepsResult:
     """Show dependencies of a code node.
 
@@ -319,137 +499,6 @@ def mu_deps(node_name: str, depth: int = 2, direction: str = "outgoing") -> Deps
 
 
 @mcp.tool()
-def mu_node(node_id: str) -> NodeInfo:
-    """Look up a specific code node by ID.
-
-    Node IDs follow the pattern: type:path (e.g., "mod:src/auth.py", "class:AuthService")
-
-    Args:
-        node_id: The node ID to look up
-
-    Returns:
-        Node information including location and complexity
-    """
-    # Get current working directory for multi-project routing
-    cwd = str(Path.cwd())
-
-    try:
-        client = _get_client()
-        with client:
-            # Use a targeted query to find the node
-            query = f"SELECT * FROM nodes WHERE id = '{node_id}' LIMIT 1"
-            result = client.query(query, cwd=cwd)
-
-        columns = result.get("columns", [])
-        rows = result.get("rows", [])
-
-        if not rows:
-            raise ValueError(f"Node not found: {node_id}")
-
-        row_dict = dict(zip(columns, rows[0], strict=False))
-        return NodeInfo(
-            id=row_dict.get("id", node_id),
-            type=row_dict.get("type", ""),
-            name=row_dict.get("name", ""),
-            qualified_name=row_dict.get("qualified_name"),
-            file_path=row_dict.get("file_path"),
-            line_start=row_dict.get("line_start"),
-            line_end=row_dict.get("line_end"),
-            complexity=row_dict.get("complexity", 0),
-        )
-    except DaemonError:
-        mubase_path = _find_mubase()
-        if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu daemon start .' first.") from None
-
-        from mu.kernel import MUbase
-
-        db = MUbase(mubase_path)
-        try:
-            node = db.get_node(node_id)
-            if not node:
-                raise ValueError(f"Node not found: {node_id}")
-
-            return NodeInfo(
-                id=node.id,
-                type=node.type.value,
-                name=node.name,
-                qualified_name=node.qualified_name,
-                file_path=node.file_path,
-                line_start=node.line_start,
-                line_end=node.line_end,
-                complexity=node.complexity,
-            )
-        finally:
-            db.close()
-
-
-@mcp.tool()
-def mu_search(
-    pattern: str,
-    node_type: str | None = None,
-    limit: int = 20,
-) -> QueryResult:
-    """Search for code nodes by name pattern.
-
-    Uses SQL LIKE pattern matching. Use % for wildcards.
-
-    Args:
-        pattern: Name pattern to search (e.g., "%auth%", "User%", "%Service")
-        node_type: Optional filter by type: "function", "class", "module"
-        limit: Maximum results to return (default 20)
-
-    Returns:
-        Matching nodes with location info
-    """
-    # Get current working directory for multi-project routing
-    cwd = str(Path.cwd())
-
-    # Build MUQL query
-    type_filter = ""
-    if node_type:
-        type_filter = f" AND type = '{node_type}'"
-
-    query = (
-        f"SELECT id, type, name, file_path, line_start, complexity "
-        f"FROM nodes WHERE name LIKE '{pattern}'{type_filter} "
-        f"ORDER BY complexity DESC LIMIT {limit}"
-    )
-
-    try:
-        client = _get_client()
-        with client:
-            result = client.query(query, cwd=cwd)
-
-        return QueryResult(
-            columns=result.get("columns", []),
-            rows=result.get("rows", []),
-            row_count=result.get("row_count", len(result.get("rows", []))),
-            execution_time_ms=result.get("execution_time_ms"),
-        )
-    except DaemonError:
-        mubase_path = _find_mubase()
-        if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu daemon start .' first.") from None
-
-        from mu.kernel import MUbase
-        from mu.kernel.muql import MUQLEngine
-
-        db = MUbase(mubase_path)
-        try:
-            engine = MUQLEngine(db)
-            result = engine.query_dict(query)
-            return QueryResult(
-                columns=result.get("columns", []),
-                rows=result.get("rows", []),
-                row_count=result.get("row_count", len(result.get("rows", []))),
-                execution_time_ms=result.get("execution_time_ms"),
-            )
-        finally:
-            db.close()
-
-
-@mcp.tool()
 def mu_status() -> dict[str, Any]:
     """Get MU daemon status and codebase statistics.
 
@@ -521,28 +570,16 @@ def mu_status() -> dict[str, Any]:
                 db.close()
 
         # No mubase found - guide agent to bootstrap
-        if not config_exists:
-            return {
-                "daemon_running": False,
-                "config_exists": False,
-                "mubase_exists": False,
-                "mubase_path": None,
-                "embeddings_exist": False,
-                "stats": {},
-                "next_action": "mu_init",
-                "message": "No .murc.toml found. Run mu_init() to create configuration.",
-            }
-        else:
-            return {
-                "daemon_running": False,
-                "config_exists": True,
-                "mubase_exists": False,
-                "mubase_path": None,
-                "embeddings_exist": False,
-                "stats": {},
-                "next_action": "mu_build",
-                "message": "No .mubase found. Run mu_build() to build the code graph.",
-            }
+        return {
+            "daemon_running": False,
+            "config_exists": config_exists,
+            "mubase_exists": False,
+            "mubase_path": None,
+            "embeddings_exist": False,
+            "stats": {},
+            "next_action": "mu_bootstrap",
+            "message": "No .mubase found. Run mu_bootstrap() to initialize MU.",
+        }
 
 
 # =============================================================================
@@ -551,22 +588,14 @@ def mu_status() -> dict[str, Any]:
 
 
 @dataclass
-class InitResult:
-    """Result of mu_init."""
-
-    success: bool
-    config_path: str
-    message: str
-
-
-@dataclass
-class BuildResult:
-    """Result of mu_build."""
+class BootstrapResult:
+    """Result of mu_bootstrap."""
 
     success: bool
     mubase_path: str
     stats: dict[str, Any]
     duration_ms: float
+    message: str
 
 
 @dataclass
@@ -583,109 +612,87 @@ class SemanticDiffOutput:
 
 
 @mcp.tool()
-def mu_init(path: str = ".", force: bool = False) -> InitResult:
-    """Initialize MU configuration for a codebase.
+def mu_bootstrap(path: str = ".", force: bool = False) -> BootstrapResult:
+    """Bootstrap MU for a codebase in one step.
 
-    Creates .murc.toml with sensible defaults.
-    Safe to run multiple times (won't overwrite existing config unless force=True).
+    This single command:
+    1. Creates .murc.toml config if missing
+    2. Builds the .mubase code graph
+    3. Returns ready-to-query status
 
-    Args:
-        path: Path to initialize (default: current directory)
-        force: Overwrite existing .murc.toml if present
-
-    Returns:
-        InitResult with success status and config path
-    """
-    from mu.config import get_default_config_toml
-
-    root = Path(path).resolve()
-    config_path = root / ".murc.toml"
-
-    if config_path.exists() and not force:
-        return InitResult(
-            success=True,
-            config_path=str(config_path),
-            message="Configuration already exists. Use force=True to overwrite.",
-        )
-
-    try:
-        config_path.write_text(get_default_config_toml())
-        return InitResult(
-            success=True,
-            config_path=str(config_path),
-            message=f"Created {config_path}. Run mu_build() next to build the code graph.",
-        )
-    except PermissionError:
-        return InitResult(
-            success=False,
-            config_path=str(config_path),
-            message=f"Permission denied writing to {config_path}",
-        )
-    except Exception as e:
-        return InitResult(
-            success=False,
-            config_path=str(config_path),
-            message=f"Failed to create config: {e}",
-        )
-
-
-@mcp.tool()
-def mu_build(path: str = ".", force: bool = False) -> BuildResult:
-    """Build or rebuild the .mubase code graph.
-
-    This is the main bootstrap command. Run this before using
-    mu_query, mu_context, mu_deps, etc.
+    Safe to run multiple times. Use force=True to rebuild.
 
     Args:
         path: Path to codebase (default: current directory)
         force: Force rebuild even if .mubase exists
 
     Returns:
-        BuildResult with stats and duration
+        BootstrapResult with stats and ready status
+
+    Example:
+        result = mu_bootstrap(".")
+        if result.success:
+            # Now use mu_query, mu_context, mu_deps, etc.
+            pass
     """
     import time
 
-    from mu.config import MUConfig
+    from mu.config import MUConfig, get_default_config_toml
     from mu.kernel import MUbase
     from mu.parser.base import parse_file
     from mu.scanner import SUPPORTED_LANGUAGES, scan_codebase_auto
 
     start_time = time.time()
     root_path = Path(path).resolve()
+    config_path = root_path / ".murc.toml"
     mubase_path = root_path / ".mubase"
 
-    # Check if rebuild is needed
+    # Step 1: Ensure config exists
+    if not config_path.exists():
+        try:
+            config_path.write_text(get_default_config_toml())
+        except PermissionError:
+            return BootstrapResult(
+                success=False,
+                mubase_path=str(mubase_path),
+                stats={},
+                duration_ms=(time.time() - start_time) * 1000,
+                message=f"Permission denied writing to {config_path}",
+            )
+
+    # Step 2: Check if rebuild is needed
     if mubase_path.exists() and not force:
-        # Return existing stats
         db = MUbase(mubase_path)
         try:
             stats = db.stats()
-            return BuildResult(
+            return BootstrapResult(
                 success=True,
                 mubase_path=str(mubase_path),
                 stats=stats,
                 duration_ms=0.0,
+                message="MU ready. Graph already exists.",
             )
         finally:
             db.close()
 
+    # Step 3: Load config and scan
     try:
         config = MUConfig.load()
     except Exception:
         config = MUConfig()
 
-    # Scan codebase
     scan_result = scan_codebase_auto(root_path, config)
 
     if not scan_result.files:
-        return BuildResult(
+        return BootstrapResult(
             success=False,
             mubase_path=str(mubase_path),
             stats={},
             duration_ms=(time.time() - start_time) * 1000,
+            message="No supported files found in codebase.",
         )
 
-    # Parse all files
+    # Step 4: Parse all files
     modules = []
     for file_info in scan_result.files:
         if file_info.language not in SUPPORTED_LANGUAGES:
@@ -695,14 +702,15 @@ def mu_build(path: str = ".", force: bool = False) -> BuildResult:
             modules.append(parsed.module)
 
     if not modules:
-        return BuildResult(
+        return BootstrapResult(
             success=False,
             mubase_path=str(mubase_path),
             stats={"error": "No modules parsed successfully"},
             duration_ms=(time.time() - start_time) * 1000,
+            message="Failed to parse any files.",
         )
 
-    # Build graph
+    # Step 5: Build graph
     db = MUbase(mubase_path)
     db.build(modules, root_path)
     stats = db.stats()
@@ -710,11 +718,12 @@ def mu_build(path: str = ".", force: bool = False) -> BuildResult:
 
     duration_ms = (time.time() - start_time) * 1000
 
-    return BuildResult(
+    return BootstrapResult(
         success=True,
         mubase_path=str(mubase_path),
         stats=stats,
         duration_ms=duration_ms,
+        message=f"MU ready. Built graph with {stats.get('nodes', 0)} nodes in {duration_ms:.0f}ms.",
     )
 
 
@@ -937,17 +946,6 @@ def mu_semantic_diff(
 
 
 @dataclass
-class ScanOutput:
-    """Result of mu_scan."""
-
-    files: list[dict[str, Any]]
-    total_files: int
-    total_lines: int
-    by_language: dict[str, int]
-    duration_ms: float
-
-
-@dataclass
 class CompressOutput:
     """Result of mu_compress."""
 
@@ -955,68 +953,6 @@ class CompressOutput:
     token_count: int
     compression_ratio: float
     file_count: int
-
-
-@mcp.tool()
-def mu_scan(
-    path: str = ".",
-    extensions: list[str] | None = None,
-) -> ScanOutput:
-    """Scan codebase and return file statistics.
-
-    Fast discovery without full graph build.
-    Uses Rust scanner (6-7x faster than Python).
-
-    Args:
-        path: Path to scan (default: current directory)
-        extensions: Filter by extensions (e.g., ["py", "ts"])
-
-    Returns:
-        ScanOutput with file list and statistics
-    """
-    import time
-
-    from mu.config import MUConfig
-    from mu.scanner import scan_codebase_auto
-
-    start_time = time.time()
-    root_path = Path(path).resolve()
-
-    try:
-        config = MUConfig.load()
-    except Exception:
-        config = MUConfig()
-
-    scan_result = scan_codebase_auto(root_path, config)
-
-    # Convert to output format
-    files: list[dict[str, Any]] = []
-    total_lines = 0
-    for f in scan_result.files:
-        # Filter by extension if specified
-        if extensions:
-            file_ext = Path(f.path).suffix.lstrip(".")
-            if file_ext not in extensions and f.language not in extensions:
-                continue
-        files.append(
-            {
-                "path": f.path,
-                "language": f.language,
-                "lines": f.lines,
-                "size_bytes": f.size_bytes,
-            }
-        )
-        total_lines += f.lines
-
-    duration_ms = (time.time() - start_time) * 1000
-
-    return ScanOutput(
-        files=files,
-        total_files=len(files),
-        total_lines=total_lines,
-        by_language=scan_result.stats.languages,
-        duration_ms=duration_ms,
-    )
 
 
 @mcp.tool()
@@ -1302,6 +1238,723 @@ def mu_cycles(edge_types: list[str] | None = None) -> CyclesResult:
             db.close()
 
 
+# =============================================================================
+# Intelligence Layer Tools
+# =============================================================================
+
+
+@mcp.tool()
+def mu_patterns(
+    category: str | None = None,
+    refresh: bool = False,
+) -> PatternsOutput:
+    """Get detected codebase patterns.
+
+    Analyzes the codebase to detect recurring patterns including:
+    - Naming conventions (file/function/class naming)
+    - Error handling patterns
+    - Import organization
+    - Architectural patterns (services, repositories)
+    - Testing patterns
+    - API patterns
+
+    Args:
+        category: Optional filter by category. Valid categories:
+                  error_handling, state_management, api, naming,
+                  testing, components, imports, architecture, async, logging
+        refresh: Force re-analysis (bypass cached patterns)
+
+    Returns:
+        PatternsOutput with detected patterns and examples
+
+    Examples:
+        - mu_patterns() - Get all detected patterns
+        - mu_patterns("naming") - Get naming convention patterns only
+        - mu_patterns("error_handling") - Get error handling patterns
+        - mu_patterns(refresh=True) - Force re-analysis
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import PatternCategory, PatternDetector
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        # Check for cached patterns unless refresh requested
+        if not refresh and db.has_patterns():
+            stored_patterns = db.get_patterns(category)
+            if stored_patterns:
+                # Get categories from stored patterns
+                categories_found = list({p.category.value for p in stored_patterns})
+
+                patterns_info = [
+                    PatternInfo(
+                        name=p.name,
+                        category=p.category.value,
+                        description=p.description,
+                        frequency=p.frequency,
+                        confidence=p.confidence,
+                        examples=[e.to_dict() for e in p.examples],
+                        anti_patterns=p.anti_patterns,
+                    )
+                    for p in stored_patterns
+                ]
+
+                return PatternsOutput(
+                    patterns=patterns_info,
+                    total_patterns=len(patterns_info),
+                    categories_found=categories_found,
+                    detection_time_ms=0.0,  # From cache
+                )
+
+        # Run pattern detection
+        detector = PatternDetector(db)
+
+        # Convert category string to enum if provided
+        cat_enum = None
+        if category:
+            try:
+                cat_enum = PatternCategory(category)
+            except ValueError:
+                valid_cats = [c.value for c in PatternCategory]
+                raise ValueError(
+                    f"Invalid category: {category}. Valid categories: {valid_cats}"
+                ) from None
+
+        result = detector.detect(category=cat_enum, refresh=refresh)
+
+        # Save patterns for future use (only if detecting all)
+        if not category:
+            db.save_patterns(result.patterns)
+
+        # Convert to output format
+        patterns_info = [
+            PatternInfo(
+                name=p.name,
+                category=p.category.value,
+                description=p.description,
+                frequency=p.frequency,
+                confidence=p.confidence,
+                examples=[e.to_dict() for e in p.examples],
+                anti_patterns=p.anti_patterns,
+            )
+            for p in result.patterns
+        ]
+
+        return PatternsOutput(
+            patterns=patterns_info,
+            total_patterns=result.total_patterns,
+            categories_found=result.categories_found,
+            detection_time_ms=result.detection_time_ms,
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_generate(
+    template_type: str,
+    name: str,
+    options: dict[str, Any] | None = None,
+) -> GenerateOutput:
+    """Generate code following codebase patterns.
+
+    Creates boilerplate code that matches the detected patterns and conventions
+    of your codebase. Supports multiple template types for different architectural
+    components.
+
+    Args:
+        template_type: What to generate. Valid types:
+                      hook, component, service, repository, api_route,
+                      test, model, controller
+        name: Name for the generated code (e.g., "UserProfile", "useAuth", "PaymentService")
+        options: Additional options:
+                - entity: Entity name for services/repositories (e.g., "User")
+                - fields: List of fields for models [{"name": "email", "type": "str"}]
+                - target: Target module for test generation
+                - props: Props definition for components (TypeScript)
+
+    Returns:
+        GenerateOutput with generated files, patterns used, and suggestions
+
+    Examples:
+        - mu_generate("hook", "useAuth") - Generate React hook
+        - mu_generate("service", "User") - Generate UserService class
+        - mu_generate("api_route", "users") - Generate API route handlers
+        - mu_generate("model", "Product", {"fields": [{"name": "price", "type": "float"}]})
+        - mu_generate("test", "auth", {"target": "src/auth.py"})
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import CodeGenerator, TemplateType
+    from mu.kernel import MUbase
+
+    # Validate template type
+    try:
+        tt = TemplateType(template_type)
+    except ValueError:
+        valid_types = [t.value for t in TemplateType]
+        raise ValueError(
+            f"Invalid template_type: {template_type}. Valid types: {valid_types}"
+        ) from None
+
+    db = MUbase(mubase_path)
+    try:
+        generator = CodeGenerator(db)
+        result = generator.generate(tt, name, options)
+
+        # Convert to output format
+        files_info = [
+            GeneratedFileInfo(
+                path=f.path,
+                content=f.content,
+                description=f.description,
+                is_primary=f.is_primary,
+            )
+            for f in result.files
+        ]
+
+        return GenerateOutput(
+            template_type=result.template_type.value,
+            name=result.name,
+            files=files_info,
+            patterns_used=result.patterns_used,
+            suggestions=result.suggestions,
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_validate(
+    files: list[str] | None = None,
+    staged: bool = False,
+    category: str | None = None,
+) -> ValidateOutput:
+    """Validate code changes against detected codebase patterns.
+
+    Pre-commit validation that checks if new or modified code follows
+    established conventions and architectural rules. Can validate:
+    - Specific files
+    - Git staged changes
+    - All uncommitted changes
+
+    Args:
+        files: Optional list of file paths to validate. If None, uses git status.
+        staged: If True and files is None, validate only staged changes.
+        category: Optional category filter. Valid categories:
+                  naming, architecture, testing, imports, error_handling,
+                  api, async, logging, state_management, components
+
+    Returns:
+        ValidateOutput with violations, patterns checked, and counts
+
+    Examples:
+        - mu_validate() - Validate all uncommitted changes
+        - mu_validate(staged=True) - Validate only staged changes (pre-commit)
+        - mu_validate(["src/new_service.py"]) - Validate specific files
+        - mu_validate(category="naming") - Only check naming conventions
+        - mu_validate(staged=True, category="architecture") - Architecture check before commit
+
+    Use Cases:
+        - Pre-commit hook: mu_validate(staged=True)
+        - Code review: mu_validate(["file1.py", "file2.py"])
+        - Style check: mu_validate(category="naming")
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import PatternCategory
+    from mu.intelligence.validator import ChangeValidator
+    from mu.kernel import MUbase
+
+    # Validate category if provided
+    cat_enum = None
+    if category:
+        try:
+            cat_enum = PatternCategory(category)
+        except ValueError:
+            valid_cats = [c.value for c in PatternCategory]
+            raise ValueError(
+                f"Invalid category: {category}. Valid categories: {valid_cats}"
+            ) from None
+
+    db = MUbase(mubase_path)
+    try:
+        validator = ChangeValidator(db)
+        result = validator.validate(files=files, staged=staged, category=cat_enum)
+
+        # Convert violations to output format
+        violations_info = [
+            ViolationInfo(
+                file_path=v.file_path,
+                line_start=v.line_start,
+                line_end=v.line_end,
+                severity=v.severity.value,
+                rule=v.rule,
+                message=v.message,
+                suggestion=v.suggestion,
+                pattern_category=v.pattern_category,
+            )
+            for v in result.violations
+        ]
+
+        return ValidateOutput(
+            valid=result.valid,
+            violations=violations_info,
+            patterns_checked=result.patterns_checked,
+            files_checked=result.files_checked,
+            error_count=result.error_count,
+            warning_count=result.warning_count,
+            info_count=result.info_count,
+            validation_time_ms=result.validation_time_ms,
+        )
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Proactive Warnings Tools
+# =============================================================================
+
+
+@dataclass
+class WarningInfo:
+    """Information about a proactive warning."""
+
+    category: str
+    level: str
+    message: str
+    details: dict[str, Any]
+
+
+@dataclass
+class WarningsOutput:
+    """Result of mu_warn - proactive warnings for a target."""
+
+    target: str
+    target_type: str
+    warnings: list[WarningInfo]
+    summary: str
+    risk_score: float
+    analysis_time_ms: float
+
+
+@mcp.tool()
+def mu_warn(target: str) -> WarningsOutput:
+    """Get proactive warnings about a target before modification.
+
+    Analyzes a file or node to identify potential issues that should be
+    considered before making changes. Returns warnings about:
+    - High impact: Many files depend on this (>10 dependents)
+    - Stale code: Not modified in >6 months
+    - Security sensitive: Contains auth/crypto/secrets logic
+    - No tests: No test coverage detected
+    - High complexity: Cyclomatic complexity >20
+    - Deprecated: Marked as deprecated in code
+
+    Args:
+        target: File path or node ID to analyze
+                Examples: "src/auth.py", "AuthService", "cls:src/auth.py:AuthService"
+
+    Returns:
+        WarningsOutput with all detected warnings and risk score
+
+    Examples:
+        - mu_warn("src/auth.py") - Check auth module before modifying
+        - mu_warn("AuthService") - Check a specific class
+        - mu_warn("mod:src/payments.py") - Check by node ID
+
+    Use Cases:
+        - Before modifying critical code: Check impact and risks
+        - PR review: Understand what you're touching
+        - New to codebase: Get context before changes
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence.warnings import ProactiveWarningGenerator
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        generator = ProactiveWarningGenerator(db, root_path=mubase_path.parent)
+        result = generator.analyze(target)
+
+        # Convert to output format
+        warnings_info = [
+            WarningInfo(
+                category=w.category.value,
+                level=w.level,
+                message=w.message,
+                details=w.details,
+            )
+            for w in result.warnings
+        ]
+
+        return WarningsOutput(
+            target=result.target,
+            target_type=result.target_type,
+            warnings=warnings_info,
+            summary=result.summary,
+            risk_score=result.risk_score,
+            analysis_time_ms=result.analysis_time_ms,
+        )
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Natural Language Query Tools
+# =============================================================================
+
+
+@dataclass
+class AskResult:
+    """Result of mu_ask - NL to MUQL translation and execution."""
+
+    question: str
+    muql: str
+    explanation: str
+    confidence: float
+    executed: bool
+    columns: list[str]
+    rows: list[list[Any]]
+    row_count: int
+    error: str | None = None
+
+
+@dataclass
+class TaskFileContext:
+    """File context for task-aware extraction."""
+
+    path: str
+    relevance: float
+    reason: str
+    is_entry_point: bool
+    suggested_action: str
+
+
+@dataclass
+class TaskContextOutput:
+    """Result of mu_task_context - curated context for development tasks."""
+
+    relevant_files: list[TaskFileContext]
+    entry_points: list[str]
+    patterns: list[PatternInfo]
+    warnings: list[dict[str, str]]
+    suggestions: list[dict[str, str]]
+    mu_text: str
+    token_count: int
+    confidence: float
+    task_type: str
+    entity_types: list[str]
+    keywords: list[str]
+
+
+@mcp.tool()
+def mu_ask(
+    question: str,
+    execute: bool = True,
+    model: str | None = None,
+) -> AskResult:
+    """Translate a natural language question to MUQL and optionally execute it.
+
+    Converts questions like "What are the most complex functions?" into
+    executable MUQL queries using an LLM. Optionally executes the query
+    and returns results.
+
+    Args:
+        question: Natural language question about the codebase
+        execute: Whether to execute the generated query (default True)
+        model: Optional LLM model override (default: claude-3-haiku)
+
+    Returns:
+        AskResult with generated MUQL, explanation, and query results
+
+    Examples:
+        - mu_ask("What are the most complex functions?")
+        - mu_ask("Show me all service classes")
+        - mu_ask("What depends on AuthService?")
+        - mu_ask("Are there any circular dependencies?")
+        - mu_ask("Find functions with the cache decorator")
+        - mu_ask("How do I get from the API to the database?")
+
+    Note:
+        Requires an API key for the LLM provider (ANTHROPIC_API_KEY by default).
+        The translation uses claude-3-haiku for cost efficiency (~$0.001/query).
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import NL2MUQLTranslator
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        translator = NL2MUQLTranslator(db=db, model=model)
+        result = translator.translate(question, execute=execute)
+
+        # Extract query results if available
+        columns: list[str] = []
+        rows: list[list[Any]] = []
+        row_count = 0
+
+        if result.result:
+            columns = result.result.get("columns", [])
+            rows = result.result.get("rows", [])
+            row_count = result.result.get("row_count", len(rows))
+
+        return AskResult(
+            question=result.question,
+            muql=result.muql,
+            explanation=result.explanation,
+            confidence=result.confidence,
+            executed=result.executed,
+            columns=columns,
+            rows=rows,
+            row_count=row_count,
+            error=result.error,
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_task_context(
+    task: str,
+    max_tokens: int = 8000,
+    include_tests: bool = True,
+    include_patterns: bool = True,
+) -> TaskContextOutput:
+    """Extract comprehensive context for a development task.
+
+    Given a natural language task description, returns a curated context bundle
+    containing everything an AI assistant needs to complete the task:
+    - Relevant files to read/modify
+    - Entry points (where to start)
+    - Codebase patterns to follow
+    - Code examples of similar implementations
+    - Warnings about high-impact files
+    - Suggestions for related changes
+
+    This is the killer feature for AI coding assistants - reduces exploration
+    from 30-60 seconds to 5-10 seconds by providing focused, relevant context.
+
+    Args:
+        task: Natural language task description (e.g., "Add rate limiting to API endpoints")
+        max_tokens: Maximum tokens in the MU output (default 8000)
+        include_tests: Include relevant test patterns (default True)
+        include_patterns: Include detected codebase patterns (default True)
+
+    Returns:
+        TaskContextOutput with files, patterns, warnings, and curated MU context
+
+    Examples:
+        - mu_task_context("Add rate limiting to the API endpoints")
+        - mu_task_context("Fix the authentication bug in login flow")
+        - mu_task_context("Refactor UserService to use repository pattern")
+        - mu_task_context("Add unit tests for payment processing")
+
+    Token Budget Allocation:
+        - 60% for core relevant files
+        - 20% for patterns and examples
+        - 10% for dependencies
+        - 10% for warnings and metadata
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import TaskContextConfig, TaskContextExtractor
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        config = TaskContextConfig(
+            max_tokens=max_tokens,
+            include_tests=include_tests,
+            include_patterns=include_patterns,
+        )
+
+        extractor = TaskContextExtractor(db, config)
+        result = extractor.extract(task)
+
+        # Convert to output format
+        file_contexts = [
+            TaskFileContext(
+                path=f.path,
+                relevance=f.relevance,
+                reason=f.reason,
+                is_entry_point=f.is_entry_point,
+                suggested_action=f.suggested_action,
+            )
+            for f in result.relevant_files
+        ]
+
+        patterns_info = [
+            PatternInfo(
+                name=p.name,
+                category=p.category.value,
+                description=p.description,
+                frequency=p.frequency,
+                confidence=p.confidence,
+                examples=[e.to_dict() for e in p.examples],
+                anti_patterns=p.anti_patterns,
+            )
+            for p in result.patterns
+        ]
+
+        warnings_list = [w.to_dict() for w in result.warnings]
+        suggestions_list = [s.to_dict() for s in result.suggestions]
+
+        # Extract task analysis info
+        task_type = result.task_analysis.task_type.value if result.task_analysis else "modify"
+        entity_types = (
+            [et.value for et in result.task_analysis.entity_types] if result.task_analysis else []
+        )
+        keywords = result.task_analysis.keywords if result.task_analysis else []
+
+        return TaskContextOutput(
+            relevant_files=file_contexts,
+            entry_points=result.entry_points,
+            patterns=patterns_info,
+            warnings=warnings_list,
+            suggestions=suggestions_list,
+            mu_text=result.mu_text,
+            token_count=result.token_count,
+            confidence=result.confidence,
+            task_type=task_type,
+            entity_types=entity_types,
+            keywords=keywords,
+        )
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Related Files Tools (F4)
+# =============================================================================
+
+
+@dataclass
+class RelatedFileInfo:
+    """Information about a related file."""
+
+    path: str
+    exists: bool
+    action: str  # "update", "create", "review"
+    reason: str
+    confidence: float
+    source: str  # "convention", "git_cochange", "dependency"
+    template: str | None = None
+
+
+@dataclass
+class RelatedFilesOutput:
+    """Result of mu_related - suggest related files."""
+
+    file_path: str
+    change_type: str
+    related_files: list[RelatedFileInfo]
+    detection_time_ms: float
+
+
+@mcp.tool()
+def mu_related(
+    file_path: str,
+    change_type: Literal["create", "modify", "delete"] = "modify",
+) -> RelatedFilesOutput:
+    """Suggest related files that should change together.
+
+    Given a file being modified, suggests related files that typically
+    change together based on:
+
+    1. **Convention patterns**: Test files, stories, index exports
+       - `src/hooks/useFoo.ts` → `src/hooks/__tests__/useFoo.test.ts`
+       - `src/auth.py` → `tests/unit/test_auth.py`
+
+    2. **Git co-change analysis**: Files that historically change together
+       - "When A changes, B changes 80% of the time"
+
+    3. **Dependency analysis**: Files that import the changed file
+       - What might break if this file changes
+
+    Args:
+        file_path: The file being modified (relative or absolute path)
+        change_type: Type of change: "create", "modify", or "delete"
+
+    Returns:
+        RelatedFilesOutput with suggested files and reasons
+
+    Examples:
+        - mu_related("src/auth.py") - Find files related to auth.py
+        - mu_related("src/hooks/useAuth.ts") - Find test/story files
+        - mu_related("src/new_feature.py", "create") - Creating a new file
+        - mu_related("src/old_module.py", "delete") - Deleting a file
+
+    Use Cases:
+        - Before committing: Check what else might need updating
+        - Creating new files: See what supporting files to create
+        - Deleting code: See what might break or need cleanup
+    """
+    mubase_path = _find_mubase()
+
+    # MUbase is optional for this tool - conventions work without it
+    db = None
+    if mubase_path:
+        from mu.kernel import MUbase
+
+        try:
+            db = MUbase(mubase_path)
+        except Exception:
+            pass
+
+    try:
+        from mu.intelligence import RelatedFilesDetector
+
+        root_path = mubase_path.parent if mubase_path else Path.cwd()
+        detector = RelatedFilesDetector(db=db, root_path=root_path)
+
+        result = detector.detect(
+            file_path,
+            change_type=change_type,
+            include_conventions=True,
+            include_git_cochange=True,
+            include_dependencies=db is not None,
+        )
+
+        related_info = [
+            RelatedFileInfo(
+                path=rf.path,
+                exists=rf.exists,
+                action=rf.action,
+                reason=rf.reason,
+                confidence=rf.confidence,
+                source=rf.source,
+                template=rf.template,
+            )
+            for rf in result.related_files
+        ]
+
+        return RelatedFilesOutput(
+            file_path=result.file_path,
+            change_type=result.change_type,
+            related_files=related_info,
+            detection_time_ms=result.detection_time_ms,
+        )
+    finally:
+        if db:
+            db.close()
+
+
 def _resolve_node_id(db: Any, node_ref: str) -> str:
     """Resolve a node reference to a full node ID.
 
@@ -1361,15 +2014,20 @@ def test_tools() -> dict[str, Any]:
     except Exception as e:
         results["mu_query"] = {"ok": False, "error": str(e)}
 
-    # Test mu_search
+    # Test mu_read
     try:
-        result = mu_search("%", limit=1)
-        results["mu_search"] = {
-            "ok": True,
-            "found": result.row_count > 0,
-        }
+        # Try to read any function
+        query_result = mu_query("SELECT id FROM functions LIMIT 1")
+        if query_result.rows:
+            read_result = mu_read(query_result.rows[0][0])
+            results["mu_read"] = {
+                "ok": True,
+                "has_source": len(read_result.source) > 0,
+            }
+        else:
+            results["mu_read"] = {"ok": True, "skipped": "no functions found"}
     except Exception as e:
-        results["mu_search"] = {"ok": False, "error": str(e)}
+        results["mu_read"] = {"ok": False, "error": str(e)}
 
     # Test mu_context (requires embeddings, may fail gracefully)
     try:
@@ -1410,35 +2068,55 @@ __all__ = [
     "create_server",
     "run_server",
     "test_tools",
-    # Bootstrap tools (P0)
-    "mu_init",
-    "mu_build",
-    "mu_semantic_diff",
-    # Discovery tools (P1)
-    "mu_scan",
-    "mu_compress",
-    # Query tools
-    "mu_query",
-    "mu_context",
-    "mu_deps",
-    "mu_node",
-    "mu_search",
+    # Bootstrap (single command)
+    "mu_bootstrap",
     "mu_status",
-    # Graph reasoning tools (petgraph-backed)
+    # Query & Read
+    "mu_query",
+    "mu_read",
+    "mu_context",
+    # Natural Language Query
+    "mu_ask",
+    # Dependencies
+    "mu_deps",
+    # Graph reasoning (petgraph-backed)
     "mu_impact",
     "mu_ancestors",
     "mu_cycles",
+    # Intelligence Layer
+    "mu_patterns",
+    "mu_generate",
+    "mu_validate",
+    "mu_warn",
+    "mu_task_context",
+    "mu_related",
+    # Compression
+    "mu_compress",
+    # Diff
+    "mu_semantic_diff",
     # Data types
     "NodeInfo",
     "QueryResult",
+    "ReadResult",
     "ContextResult",
     "DepsResult",
     "ImpactResult",
     "AncestorsResult",
     "CyclesResult",
-    "InitResult",
-    "BuildResult",
+    "PatternInfo",
+    "PatternsOutput",
+    "GeneratedFileInfo",
+    "GenerateOutput",
+    "BootstrapResult",
     "SemanticDiffOutput",
-    "ScanOutput",
     "CompressOutput",
+    "AskResult",
+    "TaskFileContext",
+    "TaskContextOutput",
+    "ViolationInfo",
+    "ValidateOutput",
+    "WarningInfo",
+    "WarningsOutput",
+    "RelatedFileInfo",
+    "RelatedFilesOutput",
 ]
