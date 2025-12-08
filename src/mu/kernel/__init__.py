@@ -55,13 +55,14 @@ from mu.kernel.export import (
 )
 from mu.kernel.graph import GraphManager, GraphStats
 from mu.kernel.models import Edge, Node
-from mu.kernel.mubase import MUbase, MUbaseCorruptionError
+from mu.kernel.mubase import MUbase, MUbaseCorruptionError, MUbaseLockError
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
 
 __all__ = [
     # Main class
     "MUbase",
     "MUbaseCorruptionError",
+    "MUbaseLockError",
     # Models
     "Node",
     "Edge",

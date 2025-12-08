@@ -7,10 +7,15 @@ DuckDB lock conflicts from concurrent access.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 import httpx
+
+# Suppress httpx INFO logs by default (HTTP request logs pollute CLI output)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 __all__ = ["DaemonClient", "is_daemon_running", "forward_query"]
 
@@ -259,6 +264,81 @@ class DaemonClient:
             raise DaemonError(f"Cycles request failed: {e.response.text}") from e
         except Exception as e:
             raise DaemonError(f"Cycles error: {e}") from e
+
+    def node(self, node_id: str, cwd: str | None = None) -> dict[str, Any]:
+        """Get a node by ID.
+
+        Args:
+            node_id: Node ID (e.g., "mod:src/cli.py", "cls:src/auth.py:AuthService").
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Node information dict with id, name, type, file_path, line_start, line_end.
+
+        Raises:
+            DaemonError: If request fails or node not found.
+        """
+        try:
+            # URL-encode the node_id since it may contain special characters
+            import urllib.parse
+
+            encoded_id = urllib.parse.quote(node_id, safe="")
+            params = {"cwd": cwd} if cwd else {}
+            response = self._client.get(
+                f"/node/{encoded_id}",
+                params=params,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            if not data.get("success"):
+                raise DaemonError(data.get("error", "Node not found"))
+            return cast(dict[str, Any], data.get("data", {}))
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Node request failed: {e.response.text}") from e
+        except Exception as e:
+            if isinstance(e, DaemonError):
+                raise
+            raise DaemonError(f"Node error: {e}") from e
+
+    def find_node(
+        self,
+        name: str,
+        cwd: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Find a node by name (fuzzy match).
+
+        Uses MUQL to search for nodes by name pattern.
+
+        Args:
+            name: Node name to search for.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            First matching node info, or None if not found.
+        """
+        try:
+            # First try exact name match
+            query = f"SELECT * FROM nodes WHERE name = '{name}' LIMIT 1"
+            result = self.query(query, cwd=cwd)
+            if result.get("rows"):
+                row = result["rows"][0]
+                cols = result.get("columns", [])
+                return dict(zip(cols, row, strict=False))
+
+            # Fall back to pattern match
+            query = f"SELECT * FROM nodes WHERE name LIKE '%{name}%' ORDER BY CASE WHEN name = '{name}' THEN 0 ELSE 1 END LIMIT 1"
+            result = self.query(query, cwd=cwd)
+            if result.get("rows"):
+                row = result["rows"][0]
+                cols = result.get("columns", [])
+                return dict(zip(cols, row, strict=False))
+
+            return None
+        except DaemonError:
+            return None
 
     def close(self) -> None:
         """Close the HTTP client."""

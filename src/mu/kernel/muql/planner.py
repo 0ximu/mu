@@ -540,7 +540,7 @@ class QueryPlanner:
             type_filter = f"type = '{node_type.value}' AND "
 
         return f"""
-SELECT id, name, type, path
+SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}name LIKE ?
 ORDER BY name
@@ -554,7 +554,7 @@ ORDER BY name
 
         # Decorators are stored in node metadata
         return f"""
-SELECT id, name, type, path
+SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}metadata LIKE ?
 ORDER BY name

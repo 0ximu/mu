@@ -167,24 +167,36 @@ def impact(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_warning
-    from mu.mcp.server import mu_impact as mcp_impact
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
-            # Use MCP tool which routes through daemon
-            edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_impact(node, edge_type_list)
+            # Resolve node to full ID if it's a short name
+            resolved_node = node
+            if not node.startswith(("mod:", "cls:", "fn:")):
+                found = client.find_node(node, cwd=str(path.resolve()))
+                if found:
+                    resolved_node = found.get("id", node)
 
-            title = f"Impact of {result.node_id} ({result.count} nodes)"
-            output = _format_node_list(result.impacted_nodes, title, output_format, no_color)
+            edge_type_list = list(edge_types) if edge_types else None
+            result = client.impact(resolved_node, edge_types=edge_type_list, cwd=str(path.resolve()))
+
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                impacted = data
+            else:
+                impacted = data if isinstance(data, list) else []
+
+            title = f"Impact of {resolved_node} ({len(impacted)} nodes)"
+            output = _format_node_list(impacted, title, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
         except Exception as e:
-            print_warning(f"MCP tool failed, falling back to local: {e}")
+            print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
     _impact_local(node, path, edge_types, output_format, no_color)
@@ -198,13 +210,20 @@ def _impact_local(
     no_color: bool,
 ) -> None:
     """Execute impact analysis in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    import sys
+
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
@@ -285,23 +304,36 @@ def ancestors(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_warning
-    from mu.mcp.server import mu_ancestors as mcp_ancestors
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
-            edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_ancestors(node, edge_type_list)
+            # Resolve node to full ID if it's a short name
+            resolved_node = node
+            if not node.startswith(("mod:", "cls:", "fn:")):
+                found = client.find_node(node, cwd=str(path.resolve()))
+                if found:
+                    resolved_node = found.get("id", node)
 
-            title = f"Ancestors of {result.node_id} ({result.count} nodes)"
-            output = _format_node_list(result.ancestor_nodes, title, output_format, no_color)
+            edge_type_list = list(edge_types) if edge_types else None
+            result = client.ancestors(resolved_node, edge_types=edge_type_list, cwd=str(path.resolve()))
+
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                ancestor_nodes = data
+            else:
+                ancestor_nodes = data if isinstance(data, list) else []
+
+            title = f"Ancestors of {resolved_node} ({len(ancestor_nodes)} nodes)"
+            output = _format_node_list(ancestor_nodes, title, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
         except Exception as e:
-            print_warning(f"MCP tool failed, falling back to local: {e}")
+            print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
     _ancestors_local(node, path, edge_types, output_format, no_color)
@@ -315,13 +347,18 @@ def _ancestors_local(
     no_color: bool,
 ) -> None:
     """Execute ancestors analysis in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
@@ -398,18 +435,26 @@ def cycles(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_info, print_warning
-    from mu.mcp.server import mu_cycles as mcp_cycles
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
             edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_cycles(edge_type_list)
+            result = client.cycles(edge_types=edge_type_list, cwd=str(path.resolve()))
 
-            print_info(f"Analyzed graph: {result.total_nodes_in_cycles} nodes in cycles")
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                detected_cycles = data
+                total_nodes = sum(len(c) for c in detected_cycles)
+            else:
+                detected_cycles = []
+                total_nodes = 0
 
-            output = _format_cycles(result.cycles, output_format, no_color)
+            print_info(f"Analyzed graph: {total_nodes} nodes in cycles")
+
+            output = _format_cycles(detected_cycles, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
@@ -428,13 +473,18 @@ def _cycles_local(
     no_color: bool,
 ) -> None:
     """Execute cycle detection in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
-    from mu.logging import console, print_info
+    from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()

@@ -486,16 +486,16 @@ class QueryExecutor:
         # Find high-complexity nodes
         if target:
             sql = """
-                SELECT name, type, path, complexity
+                SELECT name, type, file_path, complexity
                 FROM nodes
-                WHERE complexity > 0 AND path LIKE '%' || ? || '%'
+                WHERE complexity > 0 AND file_path LIKE '%' || ? || '%'
                 ORDER BY complexity DESC
                 LIMIT 20
             """
             cursor = self._db.conn.execute(sql, [target])
         else:
             sql = """
-                SELECT name, type, path, complexity
+                SELECT name, type, file_path, complexity
                 FROM nodes
                 WHERE complexity > 0
                 ORDER BY complexity DESC
@@ -506,7 +506,7 @@ class QueryExecutor:
         rows = cursor.fetchall()
 
         return QueryResult(
-            columns=["name", "type", "path", "complexity"],
+            columns=["name", "type", "file_path", "complexity"],
             rows=[tuple(row) for row in rows],
             row_count=len(rows),
         )
@@ -516,24 +516,24 @@ class QueryExecutor:
         # Hotspots are nodes with high complexity and many dependents
         if target:
             sql = """
-                SELECT n.name, n.type, n.path, n.complexity,
+                SELECT n.name, n.type, n.file_path, n.complexity,
                        COUNT(DISTINCT e.source_id) as dependents
                 FROM nodes n
                 LEFT JOIN edges e ON e.target_id = n.id
-                WHERE n.complexity > 10 AND n.path LIKE '%' || ? || '%'
-                GROUP BY n.id, n.name, n.type, n.path, n.complexity
+                WHERE n.complexity > 10 AND n.file_path LIKE '%' || ? || '%'
+                GROUP BY n.id, n.name, n.type, n.file_path, n.complexity
                 ORDER BY n.complexity * COUNT(DISTINCT e.source_id) DESC
                 LIMIT 20
             """
             cursor = self._db.conn.execute(sql, [target])
         else:
             sql = """
-                SELECT n.name, n.type, n.path, n.complexity,
+                SELECT n.name, n.type, n.file_path, n.complexity,
                        COUNT(DISTINCT e.source_id) as dependents
                 FROM nodes n
                 LEFT JOIN edges e ON e.target_id = n.id
                 WHERE n.complexity > 10
-                GROUP BY n.id, n.name, n.type, n.path, n.complexity
+                GROUP BY n.id, n.name, n.type, n.file_path, n.complexity
                 ORDER BY n.complexity * COUNT(DISTINCT e.source_id) DESC
                 LIMIT 20
             """
@@ -542,7 +542,7 @@ class QueryExecutor:
         rows = cursor.fetchall()
 
         return QueryResult(
-            columns=["name", "type", "path", "complexity", "dependents"],
+            columns=["name", "type", "file_path", "complexity", "dependents"],
             rows=[tuple(row) for row in rows],
             row_count=len(rows),
         )
@@ -571,22 +571,22 @@ class QueryExecutor:
         """Find potentially unused code (no dependents)."""
         if target:
             sql = """
-                SELECT n.name, n.type, n.path
+                SELECT n.name, n.type, n.file_path
                 FROM nodes n
                 LEFT JOIN edges e ON e.target_id = n.id
                 WHERE e.id IS NULL AND n.type IN ('function', 'class')
-                      AND n.path LIKE '%' || ? || '%'
-                ORDER BY n.path, n.name
+                      AND n.file_path LIKE '%' || ? || '%'
+                ORDER BY n.file_path, n.name
                 LIMIT 50
             """
             cursor = self._db.conn.execute(sql, [target])
         else:
             sql = """
-                SELECT n.name, n.type, n.path
+                SELECT n.name, n.type, n.file_path
                 FROM nodes n
                 LEFT JOIN edges e ON e.target_id = n.id
                 WHERE e.id IS NULL AND n.type IN ('function', 'class')
-                ORDER BY n.path, n.name
+                ORDER BY n.file_path, n.name
                 LIMIT 50
             """
             cursor = self._db.conn.execute(sql)
@@ -594,7 +594,7 @@ class QueryExecutor:
         rows = cursor.fetchall()
 
         return QueryResult(
-            columns=["name", "type", "path"],
+            columns=["name", "type", "file_path"],
             rows=[tuple(row) for row in rows],
             row_count=len(rows),
         )
@@ -603,23 +603,23 @@ class QueryExecutor:
         """Analyze module coupling (external dependencies)."""
         if target:
             sql = """
-                SELECT n.path, COUNT(DISTINCT e.target_id) as dependencies
+                SELECT n.file_path, COUNT(DISTINCT e.target_id) as dependencies
                 FROM nodes n
                 JOIN edges e ON e.source_id = n.id
                 WHERE n.type = 'module' AND e.type = 'imports'
-                      AND n.path LIKE '%' || ? || '%'
-                GROUP BY n.path
+                      AND n.file_path LIKE '%' || ? || '%'
+                GROUP BY n.file_path
                 ORDER BY dependencies DESC
                 LIMIT 20
             """
             cursor = self._db.conn.execute(sql, [target])
         else:
             sql = """
-                SELECT n.path, COUNT(DISTINCT e.target_id) as dependencies
+                SELECT n.file_path, COUNT(DISTINCT e.target_id) as dependencies
                 FROM nodes n
                 JOIN edges e ON e.source_id = n.id
                 WHERE n.type = 'module' AND e.type = 'imports'
-                GROUP BY n.path
+                GROUP BY n.file_path
                 ORDER BY dependencies DESC
                 LIMIT 20
             """
@@ -628,7 +628,7 @@ class QueryExecutor:
         rows = cursor.fetchall()
 
         return QueryResult(
-            columns=["path", "dependencies"],
+            columns=["file_path", "dependencies"],
             rows=[tuple(row) for row in rows],
             row_count=len(rows),
         )
@@ -637,7 +637,7 @@ class QueryExecutor:
         """Analyze module cohesion (internal vs external calls)."""
         # Simplified cohesion metric
         sql = """
-            SELECT n.path,
+            SELECT n.file_path,
                    COUNT(DISTINCT c.id) as children,
                    COUNT(DISTINCT e.id) as internal_edges
             FROM nodes n
@@ -649,7 +649,7 @@ class QueryExecutor:
                 WHERE c2_edge.source_id = n.id AND c2_edge.type = 'contains'
             )
             WHERE n.type = 'module'
-            GROUP BY n.path
+            GROUP BY n.file_path
             HAVING COUNT(DISTINCT c.id) > 1
             ORDER BY CAST(COUNT(DISTINCT e.id) AS FLOAT) / COUNT(DISTINCT c.id) DESC
             LIMIT 20
@@ -660,14 +660,14 @@ class QueryExecutor:
             rows = cursor.fetchall()
 
             return QueryResult(
-                columns=["path", "children", "internal_edges"],
+                columns=["file_path", "children", "internal_edges"],
                 rows=[tuple(row) for row in rows],
                 row_count=len(rows),
             )
         except Exception as e:
             # Fallback for simpler query - include error for debugging
             return QueryResult(
-                columns=["path", "children", "internal_edges"],
+                columns=["file_path", "children", "internal_edges"],
                 rows=[],
                 row_count=0,
                 error=f"Cohesion analysis failed: {e}",

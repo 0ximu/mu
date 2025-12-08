@@ -203,7 +203,7 @@ def status(ctx: MUContext, as_json: bool) -> None:
     """
     import json
 
-    from mu.kernel import MUbase
+    from mu.client import DaemonClient, DaemonError
     from mu.logging import print_info, print_success, print_warning
 
     cwd = Path.cwd()
@@ -221,28 +221,60 @@ def status(ctx: MUContext, as_json: bool) -> None:
     stats = {}
     next_action = None
     message = ""
+    daemon_running = False
 
-    if mubase_path:
-        embeddings_db = mubase_path.parent / ".mu-embeddings.db"
-        embeddings_exist = embeddings_db.exists()
-
-        db = MUbase(mubase_path)
+    # Try daemon first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        daemon_running = True
         try:
-            stats = db.stats()
-        finally:
-            db.close()
+            daemon_status = client.status(cwd=str(cwd))
+            stats = daemon_status.get("stats", {})
+            if mubase_path:
+                embeddings_db = mubase_path.parent / ".mu-embeddings.db"
+                embeddings_exist = embeddings_db.exists()
 
-        if not embeddings_exist:
-            next_action = "mu bootstrap --embed"
-            message = "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+            if not embeddings_exist:
+                next_action = "mu bootstrap --embed"
+                message = "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+            else:
+                next_action = None
+                message = "MU ready. All systems operational."
+        except DaemonError as e:
+            print_warning(f"Daemon query failed: {e}")
+            daemon_running = False
+
+    # Fallback to direct MUbase access
+    if not daemon_running:
+        if mubase_path:
+            embeddings_db = mubase_path.parent / ".mu-embeddings.db"
+            embeddings_exist = embeddings_db.exists()
+
+            from mu.kernel import MUbase, MUbaseLockError
+
+            try:
+                db = MUbase(mubase_path, read_only=True)
+                try:
+                    stats = db.stats()
+                finally:
+                    db.close()
+            except MUbaseLockError:
+                # Database locked - daemon might be running but we couldn't connect
+                stats = {}
+                message = "Database locked. Start daemon with 'mu daemon start' for queries."
+
+            if not embeddings_exist:
+                next_action = "mu bootstrap --embed"
+                message = message or "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+            else:
+                next_action = None
+                message = message or "MU ready. All systems operational."
         else:
-            next_action = None
-            message = "MU ready. All systems operational."
-    else:
-        next_action = "mu bootstrap"
-        message = "No .mubase found. Run 'mu bootstrap' to initialize."
+            next_action = "mu bootstrap"
+            message = "No .mubase found. Run 'mu bootstrap' to initialize."
 
     result = {
+        "daemon_running": daemon_running,
         "config_exists": config_exists,
         "mubase_exists": mubase_path is not None,
         "mubase_path": str(mubase_path) if mubase_path else None,
@@ -257,6 +289,8 @@ def status(ctx: MUContext, as_json: bool) -> None:
     else:
         if mubase_path:
             print_success("MU Status: Ready")
+            if daemon_running:
+                print_info("  Daemon: Running")
             print_info(f"  Database: {mubase_path}")
             print_info(f"  Nodes: {stats.get('nodes', 0)}")
             print_info(f"  Edges: {stats.get('edges', 0)}")
@@ -292,7 +326,7 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
     """
     import json
 
-    from mu.kernel import MUbase
+    from mu.client import DaemonClient, DaemonError
     from mu.logging import print_error, print_info
 
     # Find mubase
@@ -308,58 +342,40 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         print_error("No .mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    db = MUbase(mubase_path)
-    try:
-        # Resolve node name to ID if needed
-        resolved_id = node_id
-        if not node_id.startswith(("mod:", "cls:", "fn:")):
-            nodes = db.find_by_name(node_id)
-            if not nodes:
-                nodes = db.find_by_name(f"%{node_id}%")
-            if nodes:
-                # Prefer exact match
-                for node in nodes:
-                    if node.name == node_id:
-                        resolved_id = node.id
-                        break
-                else:
-                    resolved_id = nodes[0].id
-            else:
-                print_error(f"Node not found: {node_id}")
-                sys.exit(1)
+    # Helper to read source from node data
+    def _read_source(
+        node_data: dict,
+        resolved_id: str,
+        root_path: Path,
+    ) -> dict:
+        file_path_str = node_data.get("file_path")
+        line_start = node_data.get("line_start")
+        line_end = node_data.get("line_end")
+        node_type = node_data.get("node_type", node_data.get("type", ""))
 
-        fetched_node = db.get_node(resolved_id)
-        if not fetched_node:
-            print_error(f"Node not found: {node_id}")
-            sys.exit(1)
-
-        node = fetched_node  # Type narrowing for mypy
-
-        if not node.file_path or not node.line_start or not node.line_end:
+        if not file_path_str or not line_start or not line_end:
             missing = []
-            if not node.file_path:
+            if not file_path_str:
                 missing.append("file_path")
-            if not node.line_start:
+            if not line_start:
                 missing.append("line_start")
-            if not node.line_end:
+            if not line_end:
                 missing.append("line_end")
 
-            if node.type.value == "external":
+            if node_type == "external":
                 hint = "(external dependencies don't have source)"
-            elif not node.file_path:
+            elif not file_path_str:
                 hint = '(try: mu query "SELECT * FROM nodes WHERE file_path IS NOT NULL")'
             else:
-                hint = f"(file: {node.file_path} - try reading the file directly)"
+                hint = f"(file: {file_path_str} - try reading the file directly)"
 
             print_error(
                 f"Node '{node_id}' has no source location (missing: {', '.join(missing)}) {hint}"
             )
             sys.exit(1)
 
-        # Read the source file
-        file_path = Path(node.file_path)
+        file_path = Path(file_path_str)
         if not file_path.is_absolute():
-            root_path = mubase_path.parent
             file_path = root_path / file_path
 
         if not file_path.exists():
@@ -369,8 +385,8 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         lines = file_path.read_text().splitlines()
         total_lines = len(lines)
 
-        start_idx = node.line_start - 1
-        end_idx = node.line_end
+        start_idx = line_start - 1
+        end_idx = line_end
 
         context_start = max(0, start_idx - context_lines)
         context_end = min(total_lines, end_idx + context_lines)
@@ -393,42 +409,111 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         }
         language = lang_map.get(ext, ext)
 
-        result = {
+        return {
             "node_id": resolved_id,
             "file_path": str(file_path),
-            "line_start": node.line_start,
-            "line_end": node.line_end,
+            "line_start": line_start,
+            "line_end": line_end,
             "source": "\n".join(source_lines),
             "context_before": "\n".join(context_before_lines),
             "context_after": "\n".join(context_after_lines),
             "language": language,
         }
 
-        if as_json:
-            click.echo(json.dumps(result, indent=2))
-        else:
-            # Pretty print with line numbers
-            print_info(f"# {resolved_id}")
-            print_info(f"# {file_path}:{node.line_start}-{node.line_end}")
-            print_info("")
+    result = None
+    root_path = mubase_path.parent
 
-            # Context before (dimmed)
-            for i, line in enumerate(context_before_lines):
-                line_no = context_start + i + 1
-                click.echo(click.style(f"{line_no:4} │ {line}", dim=True))
+    # Try daemon first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            # Resolve node name to ID if needed
+            if node_id.startswith(("mod:", "cls:", "fn:")):
+                resolved_id = node_id
+                node_data = client.node(node_id, cwd=str(cwd))
+            else:
+                found = client.find_node(node_id, cwd=str(cwd))
+                if not found:
+                    print_error(f"Node not found: {node_id}")
+                    sys.exit(1)
+                resolved_id = found.get("id", node_id)
+                node_data = found
 
-            # Source (highlighted)
-            for i, line in enumerate(source_lines):
-                line_no = node.line_start + i
-                click.echo(f"{line_no:4} │ {line}")
+            if node_data:
+                result = _read_source(node_data, resolved_id, root_path)
+        except DaemonError:
+            pass  # Fall through to local mode
 
-            # Context after (dimmed)
-            for i, line in enumerate(context_after_lines):
-                line_no = node.line_end + i + 1
-                click.echo(click.style(f"{line_no:4} │ {line}", dim=True))
+    # Fallback to direct MUbase access
+    if result is None:
+        from mu.errors import ExitCode
+        from mu.kernel import MUbase, MUbaseLockError
 
-    finally:
-        db.close()
+        try:
+            db = MUbase(mubase_path, read_only=True)
+        except MUbaseLockError:
+            print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+            sys.exit(ExitCode.CONFIG_ERROR)
+
+        try:
+            # Resolve node name to ID if needed
+            resolved_id = node_id
+            if not node_id.startswith(("mod:", "cls:", "fn:")):
+                nodes = db.find_by_name(node_id)
+                if not nodes:
+                    nodes = db.find_by_name(f"%{node_id}%")
+                if nodes:
+                    for node in nodes:
+                        if node.name == node_id:
+                            resolved_id = node.id
+                            break
+                    else:
+                        resolved_id = nodes[0].id
+                else:
+                    print_error(f"Node not found: {node_id}")
+                    sys.exit(1)
+
+            fetched_node = db.get_node(resolved_id)
+            if not fetched_node:
+                print_error(f"Node not found: {node_id}")
+                sys.exit(1)
+
+            node = fetched_node
+            node_data = {
+                "file_path": node.file_path,
+                "line_start": node.line_start,
+                "line_end": node.line_end,
+                "node_type": node.type.value if hasattr(node.type, "value") else str(node.type),
+            }
+            result = _read_source(node_data, resolved_id, root_path)
+        finally:
+            db.close()
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2))
+    else:
+        # Pretty print with line numbers
+        print_info(f"# {result['node_id']}")
+        print_info(f"# {result['file_path']}:{result['line_start']}-{result['line_end']}")
+        print_info("")
+
+        # Context before (dimmed)
+        context_before_lines = result["context_before"].split("\n") if result["context_before"] else []
+        source_lines = result["source"].split("\n") if result["source"] else []
+        context_after_lines = result["context_after"].split("\n") if result["context_after"] else []
+
+        context_start = result["line_start"] - len(context_before_lines)
+        for i, line in enumerate(context_before_lines):
+            line_no = context_start + i
+            click.echo(click.style(f"{line_no:4} │ {line}", dim=True))
+
+        for i, line in enumerate(source_lines):
+            line_no = result["line_start"] + i
+            click.echo(f"{line_no:4} │ {line}")
+
+        for i, line in enumerate(context_after_lines):
+            line_no = result["line_end"] + i + 1
+            click.echo(click.style(f"{line_no:4} │ {line}", dim=True))
 
 
 @click.command()
@@ -460,7 +545,7 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
     """
     import json
 
-    from mu.kernel import MUbase
+    from mu.client import DaemonClient, DaemonError
     from mu.logging import print_error, print_info, print_warning
 
     # Find mubase
@@ -476,7 +561,47 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
         print_error("No .mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    db = MUbase(mubase_path)
+    # Task context requires local features (not in daemon yet)
+    # Standard context can use daemon
+    if not task:
+        # Try daemon first for standard context (no lock)
+        client = DaemonClient()
+        if client.is_running():
+            try:
+                result = client.context(question, max_tokens=max_tokens, cwd=str(cwd))
+                mu_text = result.get("mu_text", "")
+                token_count = result.get("token_count", 0)
+                nodes = result.get("nodes", [])
+
+                if as_json:
+                    click.echo(
+                        json.dumps(
+                            {
+                                "mu_text": mu_text,
+                                "token_count": token_count,
+                                "node_count": len(nodes),
+                            },
+                            indent=2,
+                        )
+                    )
+                else:
+                    print_info(f"# {len(nodes)} nodes, {token_count} tokens")
+                    print_info("")
+                    click.echo(mu_text)
+                return
+            except DaemonError:
+                pass  # Fall through to local mode
+
+    # Local mode (daemon unavailable or task context requested)
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
     try:
         if task:
             # Task-aware context extraction
@@ -539,7 +664,7 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
                 print_info(f"# MU Context ({result.token_count} tokens)")
                 click.echo(result.mu_text)
         else:
-            # Standard context extraction
+            # Standard context extraction (local fallback)
             from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
             cfg = ExtractionConfig(max_tokens=max_tokens)
@@ -605,39 +730,106 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
         print_error("No .mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    db = MUbase(mubase_path)
+    from mu.errors import ExitCode
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
     try:
         embed_stats = db.embedding_stats()
-        if embed_stats["nodes_with_embeddings"] == 0:
-            print_warning("No embeddings found. Run 'mu bootstrap --embed' first.")
-            sys.exit(1)
+        has_embeddings = embed_stats["nodes_with_embeddings"] > 0
 
-        try:
-            config = MUConfig.load()
-        except Exception:
-            config = MUConfig()
+        if has_embeddings:
+            # Semantic search with embeddings
+            try:
+                config = MUConfig.load()
+            except Exception:
+                config = MUConfig()
 
-        service = EmbeddingService(config=config.embeddings, provider="local")
+            service = EmbeddingService(config=config.embeddings, provider="local")
 
-        async def get_query_embedding() -> list[float] | None:
-            return await service.embed_query(query)
+            async def get_query_embedding() -> list[float] | None:
+                return await service.embed_query(query)
 
-        print_info(f"Searching for: {query}")
-        query_embedding = asyncio.run(get_query_embedding())
+            print_info(f"Semantic search: {query}")
+            query_embedding = asyncio.run(get_query_embedding())
 
-        if query_embedding is None:
-            print_error("Failed to generate query embedding")
-            asyncio.run(service.close())
-            sys.exit(1)
+            if query_embedding is None:
+                print_warning("Failed to generate query embedding, falling back to keyword search")
+                has_embeddings = False
+            else:
+                # Perform vector search
+                results = db.vector_search(
+                    query_embedding=query_embedding,
+                    embedding_type="code",
+                    limit=limit,
+                )
 
-        # Perform vector search
-        results = db.vector_search(
-            query_embedding=query_embedding,
-            embedding_type="code",
-            limit=limit,
-        )
+                asyncio.run(service.close())
 
-        asyncio.run(service.close())
+                if as_json:
+                    click.echo(
+                        json_module.dumps(
+                            [
+                                {
+                                    "node_id": node.id,
+                                    "name": node.name,
+                                    "type": node.type.value,
+                                    "score": round(score, 4),
+                                    "file_path": node.file_path,
+                                    "line_start": node.line_start,
+                                }
+                                for node, score in results
+                            ],
+                            indent=2,
+                        )
+                    )
+                else:
+                    if not results:
+                        print_info("No results found")
+                        return
+
+                    print_info(f"Found {len(results)} results:\n")
+                    for node, score in results:
+                        score_pct = score * 100
+                        click.echo(f"  {node.name} ({node.type.value}) - {score_pct:.1f}%")
+                        if node.file_path:
+                            click.echo(click.style(f"    {node.file_path}:{node.line_start}", dim=True))
+                return
+
+        # Keyword search fallback (no embeddings or embedding failed)
+        if not has_embeddings:
+            print_info(f"Keyword search: {query}")
+            print_info(click.style("(For semantic search, run 'mu bootstrap --embed')", dim=True))
+            print_info("")
+
+        # Search by name pattern
+        keyword_results = db.find_by_name(f"%{query}%")
+
+        # Also search in qualified names if we have few results
+        if len(keyword_results) < limit:
+            # Get all nodes and filter by qualified_name containing query
+            all_nodes = db.execute(
+                """
+                SELECT * FROM nodes
+                WHERE qualified_name LIKE ? OR name LIKE ?
+                ORDER BY
+                    CASE WHEN name LIKE ? THEN 0 ELSE 1 END,
+                    complexity DESC
+                LIMIT ?
+                """,
+                [f"%{query}%", f"%{query}%", f"%{query}%", limit],
+            )
+            from mu.kernel.models import Node
+
+            keyword_results = [Node.from_row(row) for row in all_nodes]
+
+        # Limit results
+        keyword_results = keyword_results[:limit]
 
         if as_json:
             click.echo(
@@ -647,24 +839,23 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
                             "node_id": node.id,
                             "name": node.name,
                             "type": node.type.value,
-                            "score": round(score, 4),
+                            "score": 1.0,  # No score for keyword search
                             "file_path": node.file_path,
                             "line_start": node.line_start,
                         }
-                        for node, score in results
+                        for node in keyword_results
                     ],
                     indent=2,
                 )
             )
         else:
-            if not results:
+            if not keyword_results:
                 print_info("No results found")
                 return
 
-            print_info(f"Found {len(results)} results:\n")
-            for node, score in results:
-                score_pct = score * 100
-                click.echo(f"  {node.name} ({node.type.value}) - {score_pct:.1f}%")
+            print_info(f"Found {len(keyword_results)} results:\n")
+            for node in keyword_results:
+                click.echo(f"  {node.name} ({node.type.value})")
                 if node.file_path:
                     click.echo(click.style(f"    {node.file_path}:{node.line_start}", dim=True))
     finally:

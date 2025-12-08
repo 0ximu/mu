@@ -119,15 +119,22 @@ class MUQLTransformer(Transformer[Token, Any]):
         return Comparison(field=str(field), operator=op, value=value)
 
     def in_comparison(self, items: list[Any]) -> Comparison:
-        field, values = items
+        # items: [IDENTIFIER, value_list] - IN_KW is filtered out by Lark
+        field = items[0]
+        values = items[-1]  # value_list is always last
         return Comparison(field=str(field), operator=ComparisonOperator.IN, value=values)
 
     def not_in_comparison(self, items: list[Any]) -> Comparison:
-        field, values = items
+        # items: [IDENTIFIER, NOT_KW, value_list] - NOT_KW token may be present
+        # Extract field (first item) and values (last item, which is the value_list)
+        field = items[0]
+        values = items[-1]  # value_list is always last
         return Comparison(field=str(field), operator=ComparisonOperator.NOT_IN, value=values)
 
     def contains_comparison(self, items: list[Any]) -> Comparison:
-        field, value = items
+        # items: [IDENTIFIER, value] - CONTAINS_KW is filtered out by Lark
+        field = items[0]
+        value = items[-1]  # value is always last
         return Comparison(field=str(field), operator=ComparisonOperator.CONTAINS, value=value)
 
     def grouped_condition(self, items: list[Any]) -> Comparison | AggregateComparison:
@@ -1061,8 +1068,13 @@ class MUQLParser:
                 raise MUQLSyntaxError(f"Unexpected parse result: {type(result)}")
             return result
         except UnexpectedCharacters as e:
+            # Check for common mistake patterns
+            suggestion = self._suggest_fix(query, e.column)
+            error_msg = f"Unexpected character '{e.char}' at position {e.column}"
+            if suggestion:
+                error_msg += f"\n\n{suggestion}"
             raise MUQLSyntaxError(
-                f"Unexpected character '{e.char}' at position {e.column}",
+                error_msg,
                 line=e.line,
                 column=e.column,
             ) from e
@@ -1070,13 +1082,76 @@ class MUQLParser:
             expected = ", ".join(sorted(e.expected)[:5])
             if len(e.expected) > 5:
                 expected += ", ..."
+            # Check for common mistake patterns
+            suggestion = self._suggest_fix(query, e.column if e.column else 0)
+            error_msg = f"Unexpected token '{e.token}'. Expected one of: {expected}"
+            if suggestion:
+                error_msg += f"\n\n{suggestion}"
             raise MUQLSyntaxError(
-                f"Unexpected token '{e.token}'. Expected one of: {expected}",
+                error_msg,
                 line=e.line,
                 column=e.column,
             ) from e
         except LarkError as e:
             raise MUQLSyntaxError(str(e)) from e
+
+    def _suggest_fix(self, query: str, position: int) -> str | None:
+        """Suggest a fix for common query mistakes.
+
+        Args:
+            query: The query string
+            position: Position where the error occurred
+
+        Returns:
+            A suggestion string or None
+        """
+        query_lower = query.lower().strip()
+
+        # Common pattern: type:function name:foo (key:value syntax from other tools)
+        if ":" in query and not query_lower.startswith(("select", "show", "find", "path", "analyze", "describe", "history", "blame")):
+            # Extract the key:value parts
+            parts = query.split()
+            filters = []
+            for part in parts:
+                if ":" in part:
+                    key, value = part.split(":", 1)
+                    filters.append(f'{key} = \'{value}\'')
+
+            if filters:
+                suggested = f"SELECT * FROM nodes WHERE {' AND '.join(filters)}"
+                return (
+                    f"💡 It looks like you're using key:value syntax.\n"
+                    f"MUQL uses SQL-like syntax. Try:\n"
+                    f"  {suggested}\n\n"
+                    f"Common query examples:\n"
+                    f"  SELECT * FROM functions WHERE name LIKE '%auth%'\n"
+                    f"  SELECT * FROM classes WHERE complexity > 20\n"
+                    f"  FIND functions MATCHING 'test_%'\n"
+                    f"  SHOW dependencies OF MyClass DEPTH 2"
+                )
+
+        # Pattern: just a name without query keyword
+        if not any(query_lower.startswith(kw) for kw in
+                   ["select", "show", "find", "path", "analyze", "describe", "history", "blame"]):
+            return (
+                f"💡 MUQL queries must start with a keyword.\n\n"
+                f"Common query formats:\n"
+                f"  SELECT * FROM functions WHERE name = '{query.strip()}'\n"
+                f"  FIND functions MATCHING '{query.strip()}'\n"
+                f"  SHOW dependencies OF {query.strip()}\n\n"
+                f"Use 'mu q --examples' to see more examples."
+            )
+
+        # Pattern: common SQL mistakes
+        if "where type =" in query_lower or "where type=" in query_lower:
+            return (
+                "💡 Use FROM clause to filter by type, not WHERE.\n\n"
+                "Correct:\n"
+                "  SELECT * FROM functions WHERE name LIKE '%auth%'\n"
+                "  SELECT * FROM classes WHERE complexity > 20"
+            )
+
+        return None
 
 
 # =============================================================================

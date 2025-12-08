@@ -126,7 +126,6 @@ class TestSelectParser:
         assert query.where.comparisons[0].operator == ComparisonOperator.LIKE
         assert query.where.comparisons[0].value.value == "test%"
 
-    @pytest.mark.xfail(reason="Known bug: IN comparison transformer has unpacking issue")
     def test_select_with_where_in(self) -> None:
         """Parse SELECT with WHERE IN condition."""
         query = parse("SELECT * FROM functions WHERE name IN ('foo', 'bar', 'baz')")
@@ -139,7 +138,6 @@ class TestSelectParser:
         assert len(values) == 3
         assert values[0].value == "foo"
 
-    @pytest.mark.xfail(reason="Known bug: NOT IN comparison transformer has unpacking issue")
     def test_select_with_where_not_in(self) -> None:
         """Parse SELECT with WHERE NOT IN condition."""
         query = parse("SELECT * FROM functions WHERE name NOT IN ('main', '__init__')")
@@ -147,7 +145,6 @@ class TestSelectParser:
         assert isinstance(query, SelectQuery)
         assert query.where.comparisons[0].operator == ComparisonOperator.NOT_IN
 
-    @pytest.mark.xfail(reason="Known bug: CONTAINS comparison transformer has unpacking issue")
     def test_select_with_where_contains(self) -> None:
         """Parse SELECT with WHERE CONTAINS condition."""
         query = parse("SELECT * FROM functions WHERE name CONTAINS 'test'")

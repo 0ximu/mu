@@ -32,6 +32,16 @@ class MUbaseCorruptionError(Exception):
     pass
 
 
+class MUbaseLockError(Exception):
+    """Raised when the database is locked by another process.
+
+    This typically happens when the daemon is running and holding
+    a write lock on the database.
+    """
+
+    pass
+
+
 class MUbase:
     """Graph database for code analysis.
 
@@ -41,21 +51,33 @@ class MUbase:
 
     VERSION = "1.0.0"
 
-    def __init__(self, path: Path | str = ".mubase") -> None:
+    def __init__(self, path: Path | str = ".mubase", read_only: bool = False) -> None:
         """Initialize MUbase.
 
         Args:
             path: Path to the .mubase file (created if doesn't exist)
+            read_only: If True, open in read-only mode (avoids lock conflicts)
 
         Raises:
             MUbaseCorruptionError: If the database or WAL file is corrupted
+            MUbaseLockError: If the database is locked and read_only=False
         """
         self.path = Path(path)
+        self.read_only = read_only
         try:
-            self.conn = duckdb.connect(str(self.path))
+            self.conn = duckdb.connect(str(self.path), read_only=read_only)
             self._init_schema()
         except duckdb.Error as e:
             error_msg = str(e).lower()
+            if "lock" in error_msg or "locked" in error_msg:
+                raise MUbaseLockError(
+                    f"Database is locked by another process.\n\n"
+                    f"This usually means the daemon is running. Options:\n"
+                    f"  1. Use 'mu daemon start' and let commands route through daemon\n"
+                    f"  2. Stop the daemon with 'mu daemon stop'\n"
+                    f"  3. Use read-only mode for query commands\n\n"
+                    f"Original error: {e}"
+                ) from e
             if "wal" in error_msg or "corrupt" in error_msg or "internal" in error_msg:
                 wal_file = self.path.with_suffix(".mubase.wal")
                 raise MUbaseCorruptionError(
@@ -1568,4 +1590,5 @@ class MUbase:
 __all__ = [
     "MUbase",
     "MUbaseCorruptionError",
+    "MUbaseLockError",
 ]

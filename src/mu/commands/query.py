@@ -8,6 +8,56 @@ from pathlib import Path
 import click
 
 
+MUQL_EXAMPLES = """
+MUQL Query Examples
+===================
+
+Basic SELECT queries:
+  SELECT * FROM functions                    # All functions
+  SELECT * FROM functions LIMIT 10           # First 10 functions
+  SELECT name, complexity FROM functions     # Specific columns
+  SELECT * FROM classes WHERE complexity > 20
+
+Filtering:
+  SELECT * FROM functions WHERE name LIKE '%auth%'
+  SELECT * FROM functions WHERE name = 'parse_file'
+  SELECT * FROM classes WHERE file_path LIKE 'src/api/%'
+
+Aggregation:
+  SELECT COUNT(*) FROM functions
+  SELECT type, COUNT(*) FROM nodes GROUP BY type
+  SELECT AVG(complexity) FROM functions
+
+SHOW relationships:
+  SHOW dependencies OF MyClass               # What does MyClass depend on?
+  SHOW dependents OF MyClass                 # What depends on MyClass?
+  SHOW dependencies OF MyClass DEPTH 3       # Transitive dependencies
+  SHOW children OF MyModule                  # Contents of a module/class
+
+FIND pattern search:
+  FIND functions MATCHING 'test_%'           # Functions starting with test_
+  FIND classes CALLING parse_file            # Classes that call parse_file
+  FIND functions WITH DECORATOR '@cache'     # Functions with decorator
+
+PATH queries:
+  PATH FROM cli TO parser                    # Any path between nodes
+  PATH FROM cli TO parser MAX DEPTH 5        # Limited depth
+  PATH FROM api TO database VIA imports      # Only import edges
+
+ANALYZE:
+  ANALYZE complexity                         # Complexity analysis
+  ANALYZE hotspots                           # High-change areas
+  ANALYZE circular                           # Circular dependencies
+  FIND CYCLES                                # Detect cycles in graph
+
+DESCRIBE (schema):
+  DESCRIBE tables                            # List available tables
+  DESCRIBE functions                         # Schema for functions table
+
+For more details: https://github.com/dominaite/mu#muql
+"""
+
+
 def _execute_muql(
     path: Path,
     query_str: str | None,
@@ -16,6 +66,7 @@ def _execute_muql(
     no_color: bool,
     explain: bool,
     full_paths: bool = False,
+    offline: bool = False,
 ) -> None:
     """Shared MUQL execution logic for query commands.
 
@@ -24,12 +75,19 @@ def _execute_muql(
     Thin Client Architecture (ADR-002):
     - If daemon is running, forward query via HTTP (no DB lock)
     - If daemon is not running, fall back to local MUbase access
+    - If offline=True, skip daemon entirely and use local access
     """
+    import os
+
     from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.kernel.muql.executor import QueryResult
     from mu.kernel.muql.formatter import format_result
     from mu.logging import console, print_error, print_info, print_warning
+
+    # Check for MU_OFFLINE environment variable
+    if os.environ.get("MU_OFFLINE", "").lower() in ("1", "true", "yes"):
+        offline = True
 
     mubase_path = path.resolve() / ".mubase"
     truncate_paths = not full_paths
@@ -51,6 +109,13 @@ def _execute_muql(
         print_info('Example: mu query "SELECT * FROM functions LIMIT 10"')
         print_info("         mu query -i")
         sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Offline mode: skip daemon entirely
+    if offline:
+        _execute_muql_local(
+            mubase_path, query_str, interactive, output_format, no_color, explain, truncate_paths
+        )
+        return
 
     # Try daemon first (Thin Client path - no lock)
     client = DaemonClient()
@@ -91,15 +156,29 @@ def _execute_muql_local(
 ) -> None:
     """Execute MUQL query in local mode (direct MUbase access).
 
-    This path requires exclusive lock on the database.
+    Opens database in read-only mode for queries to avoid lock conflicts.
+    Only interactive mode requires write access.
     """
     from mu.errors import ExitCode
-    from mu.kernel import MUbase
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.muql import MUQLEngine
     from mu.kernel.muql.repl import run_repl
     from mu.logging import console, print_error, print_info
 
-    db = MUbase(mubase_path)
+    # Use read-only mode for non-interactive queries to avoid lock issues
+    read_only = not interactive
+
+    try:
+        db = MUbase(mubase_path, read_only=read_only)
+    except MUbaseLockError:
+        print_error("Database is locked by another process.")
+        print_info("")
+        print_info("The daemon may be running. Try one of these:")
+        print_info("  1. Start daemon: mu daemon start")
+        print_info("     Then queries route through daemon automatically")
+        print_info("  2. Stop daemon:  mu daemon stop")
+        print_info("     Then run your query again")
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         if interactive:
@@ -148,6 +227,8 @@ def _execute_muql_local(
 @click.option("--no-color", is_flag=True, help="Disable colored output")
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
 @click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
+@click.option("--examples", is_flag=True, help="Show MUQL query examples")
+@click.option("--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)")
 def query(
     muql: str | None,
     path: Path,
@@ -156,6 +237,8 @@ def query(
     no_color: bool,
     explain: bool,
     full_paths: bool,
+    examples: bool,
+    offline: bool,
 ) -> None:
     """Execute MUQL query against the codebase graph.
 
@@ -169,8 +252,13 @@ def query(
         mu query -i                         # Interactive mode
         mu query -f json "SELECT * FROM classes"
         mu query --full-paths "SELECT * FROM modules"
+        mu query --examples                 # Show query examples
+        mu query --offline "SELECT ..."     # Skip daemon, use local DB
     """
-    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths)
+    if examples:
+        click.echo(MUQL_EXAMPLES)
+        return
+    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths, offline)
 
 
 @click.command("q")
@@ -194,6 +282,8 @@ def query(
 @click.option("--no-color", is_flag=True, help="Disable colored output")
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
 @click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
+@click.option("--examples", is_flag=True, help="Show MUQL query examples")
+@click.option("--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)")
 def q(
     muql: str | None,
     path: Path,
@@ -202,6 +292,8 @@ def q(
     no_color: bool,
     explain: bool,
     full_paths: bool,
+    examples: bool,
+    offline: bool,
 ) -> None:
     """Execute MUQL query (short alias for 'mu query').
 
@@ -209,8 +301,13 @@ def q(
     Examples:
         mu q "SELECT * FROM functions LIMIT 10"
         mu q -i
+        mu q --examples
+        mu q --offline "SELECT ..."
     """
-    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths)
+    if examples:
+        click.echo(MUQL_EXAMPLES)
+        return
+    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths, offline)
 
 
 __all__ = ["query", "q", "_execute_muql", "_execute_muql_local"]

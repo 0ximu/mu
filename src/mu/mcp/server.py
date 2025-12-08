@@ -328,70 +328,61 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
         source = mu_read(result.rows[0][0])
         print(source.source)  # The actual class code
     """
+    cwd = str(Path.cwd())
     mubase_path = _find_mubase()
-    if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
 
-    from mu.kernel import MUbase
+    # Helper to extract source from node data
+    def _extract_source(
+        node_data: dict,
+        resolved_id: str,
+        root_path: Path,
+    ) -> ReadResult:
+        file_path_str = node_data.get("file_path")
+        line_start = node_data.get("line_start")
+        line_end = node_data.get("line_end")
+        node_type = node_data.get("node_type", node_data.get("type", ""))
 
-    db = MUbase(mubase_path)
-    try:
-        # Resolve node name to ID if needed
-        resolved_id = _resolve_node_id(db, node_id)
-        node = db.get_node(resolved_id)
-
-        if not node:
-            raise ValueError(f"Node not found: {node_id}")
-
-        if not node.file_path or not node.line_start or not node.line_end:
-            # Provide helpful guidance based on what's missing
+        if not file_path_str or not line_start or not line_end:
             missing = []
-            if not node.file_path:
+            if not file_path_str:
                 missing.append("file_path")
-            if not node.line_start:
+            if not line_start:
                 missing.append("line_start")
-            if not node.line_end:
+            if not line_end:
                 missing.append("line_end")
 
-            if node.type.value == "external":
+            if node_type == "external":
                 hint = " (external dependencies don't have source)"
-            elif not node.file_path:
+            elif not file_path_str:
                 hint = " (try mu_query to find nodes with file paths)"
             else:
-                hint = f" (file: {node.file_path}, try reading the file directly)"
+                hint = f" (file: {file_path_str}, try reading the file directly)"
 
             raise ValueError(
                 f"Node '{node_id}' has no source location (missing: {', '.join(missing)}){hint}"
             )
 
         # Read the source file
-        file_path = Path(node.file_path)
+        file_path = Path(file_path_str)
         if not file_path.is_absolute():
-            # Try relative to mubase root
-            root_path = mubase_path.parent
             file_path = root_path / file_path
 
         if not file_path.exists():
             raise ValueError(f"Source file not found: {file_path}")
 
-        # Read lines from file
         lines = file_path.read_text().splitlines()
         total_lines = len(lines)
 
-        # Calculate ranges (1-indexed to 0-indexed)
-        start_idx = node.line_start - 1
-        end_idx = node.line_end
+        start_idx = line_start - 1
+        end_idx = line_end
 
-        # Context ranges
         context_start = max(0, start_idx - context_lines)
         context_end = min(total_lines, end_idx + context_lines)
 
-        # Extract source and context
         source_lines = lines[start_idx:end_idx]
         context_before_lines = lines[context_start:start_idx]
         context_after_lines = lines[end_idx:context_end]
 
-        # Detect language from file extension
         ext = file_path.suffix.lstrip(".")
         lang_map = {
             "py": "python",
@@ -409,13 +400,64 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
         return ReadResult(
             node_id=resolved_id,
             file_path=str(file_path),
-            line_start=node.line_start,
-            line_end=node.line_end,
+            line_start=line_start,
+            line_end=line_end,
             source="\n".join(source_lines),
             context_before="\n".join(context_before_lines),
             context_after="\n".join(context_after_lines),
             language=language,
         )
+
+    # Try daemon first (no lock)
+    try:
+        client = _get_client()
+        with client:
+            # Resolve node name to ID if needed
+            if node_id.startswith(("mod:", "cls:", "fn:")):
+                resolved_id = node_id
+                node_data = client.node(node_id, cwd=cwd)
+            else:
+                # Find by name using MUQL
+                found = client.find_node(node_id, cwd=cwd)
+                if not found:
+                    raise ValueError(f"Node not found: {node_id}")
+                resolved_id = found.get("id", node_id)
+                node_data = found
+
+            if not node_data:
+                raise ValueError(f"Node not found: {node_id}")
+
+            # Determine root path
+            root_path = mubase_path.parent if mubase_path else Path.cwd()
+            return _extract_source(node_data, resolved_id, root_path)
+
+    except DaemonError:
+        # Fall back to direct MUbase access
+        pass
+
+    # Direct MUbase access fallback
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.kernel import MUbase
+
+    db = MUbase(mubase_path)
+    try:
+        resolved_id = _resolve_node_id(db, node_id)
+        node = db.get_node(resolved_id)
+
+        if not node:
+            raise ValueError(f"Node not found: {node_id}")
+
+        # Convert node to dict for _extract_source
+        node_data = {
+            "file_path": node.file_path,
+            "line_start": node.line_start,
+            "line_end": node.line_end,
+            "node_type": node.type.value if hasattr(node.type, "value") else str(node.type),
+        }
+
+        return _extract_source(node_data, resolved_id, mubase_path.parent)
     finally:
         db.close()
 
@@ -869,6 +911,18 @@ def mu_semantic_diff(
         include_type_annotations=True,
     )
 
+    def normalize_path(p: str, worktree_path: Path) -> str:
+        """Strip worktree prefix to get relative path."""
+        # Convert to Path for easier manipulation
+        p_path = Path(p)
+        worktree_str = str(worktree_path)
+
+        # If the path starts with the worktree path, strip it
+        if p.startswith(worktree_str):
+            rel = p_path.relative_to(worktree_path)
+            return str(rel)
+        return p
+
     def process_version(version_path: Path) -> tuple[Any, list[ModuleDef]]:
         scan_result = scan_codebase_auto(version_path, config)
         if scan_result.stats.total_files == 0:
@@ -917,13 +971,14 @@ def mu_semantic_diff(
             pass
 
         if rust_result is not None:
+            # Normalize paths for Rust results - strip worktree prefix
             changes = [
                 {
                     "entity_type": c.entity_type,
                     "entity_name": c.entity_name,
                     "change_type": c.change_type,
                     "details": c.details,
-                    "module_path": c.module_path,
+                    "module_path": normalize_path(c.module_path, target_path),
                     "is_breaking": c.is_breaking,
                 }
                 for c in rust_result.changes
@@ -934,7 +989,7 @@ def mu_semantic_diff(
                     "entity_name": c.entity_name,
                     "change_type": c.change_type,
                     "details": c.details,
-                    "module_path": c.module_path,
+                    "module_path": normalize_path(c.module_path, target_path),
                 }
                 for c in rust_result.breaking_changes
             ]
@@ -952,11 +1007,14 @@ def mu_semantic_diff(
         differ = SemanticDiffer(base_assembled, target_assembled, base_ref, head_ref)
         result = differ.diff()
 
-        # Convert to simplified format
+        # Convert to simplified format, normalizing paths
         changes = []
         breaking_changes = []
 
         for mod_diff in result.module_diffs:
+            # Normalize module path to strip worktree prefix
+            norm_path = normalize_path(mod_diff.path, target_path)
+
             # Added functions
             for func_name in mod_diff.added_functions:
                 changes.append(
@@ -964,8 +1022,8 @@ def mu_semantic_diff(
                         "entity_type": "function",
                         "entity_name": func_name,
                         "change_type": "added",
-                        "details": f"New function in {mod_diff.path}",
-                        "module_path": mod_diff.path,
+                        "details": f"New function in {norm_path}",
+                        "module_path": norm_path,
                         "is_breaking": False,
                     }
                 )
@@ -976,8 +1034,8 @@ def mu_semantic_diff(
                     "entity_type": "function",
                     "entity_name": func_name,
                     "change_type": "removed",
-                    "details": f"Function removed from {mod_diff.path}",
-                    "module_path": mod_diff.path,
+                    "details": f"Function removed from {norm_path}",
+                    "module_path": norm_path,
                     "is_breaking": True,
                 }
                 changes.append(change)
@@ -990,8 +1048,8 @@ def mu_semantic_diff(
                         "entity_type": "class",
                         "entity_name": cls_name,
                         "change_type": "added",
-                        "details": f"New class in {mod_diff.path}",
-                        "module_path": mod_diff.path,
+                        "details": f"New class in {norm_path}",
+                        "module_path": norm_path,
                         "is_breaking": False,
                     }
                 )
@@ -1001,8 +1059,8 @@ def mu_semantic_diff(
                     "entity_type": "class",
                     "entity_name": cls_name,
                     "change_type": "removed",
-                    "details": f"Class removed from {mod_diff.path}",
-                    "module_path": mod_diff.path,
+                    "details": f"Class removed from {norm_path}",
+                    "module_path": norm_path,
                     "is_breaking": True,
                 }
                 changes.append(change)
@@ -2743,6 +2801,115 @@ def _resolve_node_id(db: Any, node_ref: str) -> str:
     return node_ref
 
 
+# Registry of all MCP tools with descriptions for testing/listing
+TOOL_REGISTRY: dict[str, dict[str, str]] = {
+    "mu_status": {"description": "Get MU daemon status and codebase statistics"},
+    "mu_bootstrap": {"description": "Bootstrap MU for a codebase in one step"},
+    "mu_query": {"description": "Execute a MUQL query against the code graph"},
+    "mu_read": {"description": "Read source code for a specific node"},
+    "mu_context": {"description": "Extract smart context for a natural language question"},
+    "mu_deps": {"description": "Show dependencies of a code node"},
+    "mu_impact": {"description": "Find downstream impact of changing a node"},
+    "mu_ancestors": {"description": "Find upstream dependencies of a node"},
+    "mu_cycles": {"description": "Detect circular dependencies in the codebase"},
+    "mu_patterns": {"description": "Get detected codebase patterns"},
+    "mu_generate": {"description": "Generate code following codebase patterns"},
+    "mu_validate": {"description": "Validate code changes against detected patterns"},
+    "mu_warn": {"description": "Get proactive warnings about a target before modification"},
+    "mu_ask": {"description": "Translate natural language to MUQL and execute"},
+    "mu_task_context": {"description": "Extract comprehensive context for a development task"},
+    "mu_related": {"description": "Suggest related files that should change together"},
+    "mu_remember": {"description": "Store a memory for future recall across sessions"},
+    "mu_recall": {"description": "Recall memories based on search criteria"},
+    "mu_why": {"description": "Analyze git history to understand why code exists"},
+    "mu_compress": {"description": "Generate compressed MU representation"},
+    "mu_semantic_diff": {"description": "Compare two git refs and return semantic changes"},
+    "mu_review_diff": {"description": "Comprehensive code review of changes between git refs"},
+}
+
+
+def test_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Test a specific MCP tool with optional input.
+
+    Args:
+        tool_name: Name of the tool to test (e.g., "mu_status", "mu_query")
+        tool_input: Optional dict of arguments to pass to the tool
+
+    Returns:
+        Dictionary with test result: {"ok": bool, "result": Any, "error": str | None}
+    """
+    # Map tool names to functions
+    tool_funcs = {
+        "mu_status": mu_status,
+        "mu_bootstrap": mu_bootstrap,
+        "mu_query": mu_query,
+        "mu_read": mu_read,
+        "mu_context": mu_context,
+        "mu_deps": mu_deps,
+        "mu_impact": mu_impact,
+        "mu_ancestors": mu_ancestors,
+        "mu_cycles": mu_cycles,
+        "mu_patterns": mu_patterns,
+        "mu_generate": mu_generate,
+        "mu_validate": mu_validate,
+        "mu_warn": mu_warn,
+        "mu_ask": mu_ask,
+        "mu_task_context": mu_task_context,
+        "mu_related": mu_related,
+        "mu_remember": mu_remember,
+        "mu_recall": mu_recall,
+        "mu_why": mu_why,
+        "mu_compress": mu_compress,
+        "mu_semantic_diff": mu_semantic_diff,
+        "mu_review_diff": mu_review_diff,
+    }
+
+    if tool_name not in tool_funcs:
+        return {"ok": False, "error": f"Unknown tool: {tool_name}"}
+
+    func = tool_funcs[tool_name]
+
+    try:
+        if tool_input:
+            result = func(**tool_input)
+        else:
+            # Use default test arguments for each tool
+            defaults = {
+                "mu_status": {},
+                "mu_bootstrap": {"path": "."},
+                "mu_query": {"query": "DESCRIBE tables"},
+                "mu_read": {"node_id": "test"},  # Will likely fail
+                "mu_context": {"question": "test", "max_tokens": 100},
+                "mu_deps": {"node_name": "test"},
+                "mu_impact": {"node_id": "test"},
+                "mu_ancestors": {"node_id": "test"},
+                "mu_cycles": {},
+                "mu_patterns": {},
+                "mu_generate": {"template_type": "hook", "name": "test"},
+                "mu_validate": {},
+                "mu_warn": {"target": "test"},
+                "mu_ask": {"question": "what functions exist?", "execute": False},
+                "mu_task_context": {"task": "test", "max_tokens": 100},
+                "mu_related": {"file_path": "test.py"},
+                "mu_remember": {"content": "test", "category": "learning"},
+                "mu_recall": {},
+                "mu_why": {"target": "test"},
+                "mu_compress": {"path": "."},
+                "mu_semantic_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
+                "mu_review_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
+            }
+            result = func(**defaults.get(tool_name, {}))
+
+        # Convert dataclass to dict if needed
+        if hasattr(result, "__dataclass_fields__"):
+            from dataclasses import asdict
+            result = asdict(result)
+
+        return {"ok": True, "result": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def test_tools() -> dict[str, Any]:
     """Test all MCP tools without starting the server.
 
@@ -2827,6 +2994,8 @@ __all__ = [
     "create_server",
     "run_server",
     "test_tools",
+    "test_tool",
+    "TOOL_REGISTRY",
     # Bootstrap (single command)
     "mu_bootstrap",
     "mu_status",

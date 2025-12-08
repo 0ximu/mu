@@ -272,35 +272,52 @@ finally:
     def status(self) -> dict[str, Any]:
         """Get daemon status.
 
+        Checks both PID file and HTTP availability to detect running daemon,
+        even if started outside of lifecycle management.
+
         Returns:
             Status dictionary with daemon info
         """
         running, pid = self.is_running()
 
-        if not running:
-            return {"status": "stopped"}
-
-        # Try to get detailed status from HTTP endpoint
+        # Always check HTTP availability - daemon might be running without PID file
+        http_available = False
+        http_data: dict[str, Any] = {}
         try:
             response = httpx.get(
                 f"http://{self.config.host}:{self.config.port}/status",
                 timeout=STATUS_TIMEOUT,
             )
             if response.status_code == 200:
-                data: dict[str, Any] = response.json()
-                data["pid"] = pid
-                data["healthy"] = True
-                return data
+                http_available = True
+                http_data = response.json()
         except httpx.RequestError:
             pass
 
-        # Process is running but not responding
-        return {
-            "status": "running",
-            "pid": pid,
-            "healthy": False,
-            "message": "Daemon is running but not responding to HTTP",
-        }
+        if running and http_available:
+            # Best case: PID file exists and HTTP responds
+            http_data["pid"] = pid
+            http_data["healthy"] = True
+            return http_data
+
+        if running and not http_available:
+            # PID file exists but HTTP not responding
+            return {
+                "status": "running",
+                "pid": pid,
+                "healthy": False,
+                "message": "Daemon process exists but not responding to HTTP",
+            }
+
+        if not running and http_available:
+            # No PID file but something is serving on the port
+            http_data["status"] = "running"
+            http_data["healthy"] = True
+            http_data["message"] = "Daemon running (no PID file - may have been started externally)"
+            return http_data
+
+        # Neither PID file nor HTTP available
+        return {"status": "stopped"}
 
     def _write_pid(self) -> None:
         """Write current PID to file with secure permissions."""
