@@ -14,25 +14,29 @@ def mcp_tools() -> None:
     from rich.table import Table
 
     from mu.logging import console, print_info
+    from mu.mcp.server import mcp
 
     table = Table(title="MU MCP Tools")
     table.add_column("Tool", style="cyan")
     table.add_column("Description")
 
-    # Get tools from the server
-    tools = [
-        ("mu_query", "Execute MUQL queries against the code graph"),
-        ("mu_context", "Extract smart context for natural language questions"),
-        ("mu_deps", "Show dependencies of a code node"),
-        ("mu_node", "Look up a specific code node by ID"),
-        ("mu_search", "Search for code nodes by name pattern"),
-        ("mu_status", "Get MU daemon status and codebase statistics"),
-    ]
+    # Get tools dynamically from the MCP server
+    tools = []
+    for tool in mcp._tool_manager._tools.values():
+        name = tool.name
+        # Extract first line of docstring as description
+        desc = (tool.description or "").split("\n")[0].strip()
+        tools.append((name, desc))
+
+    # Sort alphabetically
+    tools.sort(key=lambda x: x[0])
 
     for name, desc in tools:
         table.add_row(name, desc)
 
     console.print(table)
+    console.print()
+    print_info(f"Total: {len(tools)} tools available")
     console.print()
     print_info("To use with Claude Code, add to ~/.claude/mcp_servers.json:")
     console.print('  {"mu": {"command": "mu", "args": ["mcp", "serve"]}}')

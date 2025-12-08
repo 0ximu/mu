@@ -294,6 +294,20 @@ class NL2MUQLTranslator:
         Returns:
             TranslationResult with the generated MUQL and optionally results
         """
+        # Check for API key before making LLM call
+        if not self._has_api_key():
+            return TranslationResult(
+                question=question,
+                muql="",
+                explanation="",
+                confidence=0.0,
+                error=(
+                    "No API key configured. mu_ask requires an LLM API key. "
+                    "Set ANTHROPIC_API_KEY environment variable, or use "
+                    "OPENAI_API_KEY with MU_ASK_MODEL=gpt-4o-mini."
+                ),
+            )
+
         # Get schema context if available
         schema_info = None
         if include_schema and self.db:
@@ -331,12 +345,41 @@ class NL2MUQLTranslator:
 
         except Exception as e:
             logger.error(f"Translation failed: {e}")
+            error_msg = str(e)
+            # Provide more helpful error for auth issues
+            if "auth" in error_msg.lower() or "api key" in error_msg.lower():
+                error_msg = (
+                    f"API authentication failed: {error_msg}. "
+                    "Check that your ANTHROPIC_API_KEY is valid."
+                )
             return TranslationResult(
                 question=question,
                 muql="",
                 explanation="",
                 confidence=0.0,
-                error=str(e),
+                error=error_msg,
+            )
+
+    def _has_api_key(self) -> bool:
+        """Check if an API key is available for the configured model."""
+        # Check explicit key first
+        if self._api_key:
+            return True
+
+        # Check environment variables based on model
+        model_lower = (self.model or "").lower()
+        if "claude" in model_lower or "anthropic" in model_lower:
+            return bool(os.getenv("ANTHROPIC_API_KEY"))
+        elif "gpt" in model_lower or "openai" in model_lower:
+            return bool(os.getenv("OPENAI_API_KEY"))
+        elif "gemini" in model_lower or "google" in model_lower:
+            return bool(os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
+        else:
+            # For other models, check common keys
+            return bool(
+                os.getenv("ANTHROPIC_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("GOOGLE_API_KEY")
             )
 
     def _estimate_confidence(self, question: str, muql: str) -> float:
