@@ -22,6 +22,20 @@ The only exception: if the first tool returns ZERO results, try ONE alternative.
 
 {graph_summary}
 
+## IMPORTANT: Language-Aware Queries
+
+When the graph has a Primary Language listed above, ALWAYS filter queries to prioritize
+that language unless the user specifically asks about another language:
+
+- For C# codebases: Filter with `file_path LIKE '%.cs'` and exclude `file_path NOT LIKE '%test%'`
+- For Python codebases: Filter with `file_path LIKE '%.py'` and exclude `file_path NOT LIKE '%test%'`
+- For TypeScript: Filter with `file_path LIKE '%.ts'`
+- For Java: Filter with `file_path LIKE '%.java'`
+
+Example: If Primary Language is C# and user asks "What are the main services?":
+GOOD: `SELECT name, file_path FROM classes WHERE name LIKE '%Service%' AND file_path LIKE '%.cs' AND file_path NOT LIKE '%test%'`
+BAD: `SELECT name FROM classes WHERE name LIKE '%Service%'` (returns Python test files too)
+
 ## Your Tools
 
 ### mu_query(muql: str) -> QueryResult

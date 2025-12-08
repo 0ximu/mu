@@ -287,9 +287,7 @@ class RelatedFilesDetector:
 
         return str(path)
 
-    def _detect_by_convention(
-        self, file_path: str, change_type: str
-    ) -> list[RelatedFile]:
+    def _detect_by_convention(self, file_path: str, change_type: str) -> list[RelatedFile]:
         """Detect related files based on naming conventions."""
         related: list[RelatedFile] = []
 
@@ -335,17 +333,13 @@ class RelatedFilesDetector:
                     reason=pattern.reason,
                     confidence=pattern.confidence,
                     source="convention",
-                    template=self._get_template(pattern.name, file_path)
-                    if not exists
-                    else None,
+                    template=self._get_template(pattern.name, file_path) if not exists else None,
                 )
             )
 
         return related
 
-    def _detect_by_git_cochange(
-        self, file_path: str, change_type: str
-    ) -> list[RelatedFile]:
+    def _detect_by_git_cochange(self, file_path: str, change_type: str) -> list[RelatedFile]:
         """Detect files that historically change together via git log."""
         related: list[RelatedFile] = []
 
@@ -432,9 +426,7 @@ class RelatedFilesDetector:
 
         return related
 
-    def _detect_by_dependency(
-        self, file_path: str, change_type: str
-    ) -> list[RelatedFile]:
+    def _detect_by_dependency(self, file_path: str, change_type: str) -> list[RelatedFile]:
         """Detect related files based on import/dependency graph."""
         related: list[RelatedFile] = []
 
@@ -542,7 +534,7 @@ class RelatedFilesDetector:
             "ts_test": "// Test file for {name}\nimport {{ describe, it, expect }} from 'vitest';\n\ndescribe('{name}', () => {{\n  it('should work', () => {{\n    expect(true).toBe(true);\n  }});\n}});\n",
             "ts_spec": "// Spec file for {name}\nimport {{ describe, it, expect }} from 'vitest';\n\ndescribe('{name}', () => {{\n  it('should work', () => {{\n    expect(true).toBe(true);\n  }});\n}});\n",
             "storybook": "// Storybook story for {name}\nimport type {{ Meta, StoryObj }} from '@storybook/react';\nimport {{ {Name} }} from './{name}';\n\nconst meta: Meta<typeof {Name}> = {{\n  component: {Name},\n}};\n\nexport default meta;\ntype Story = StoryObj<typeof {Name}>;\n\nexport const Default: Story = {{}};\n",
-            "go_test": "// Test file for {name}\npackage {package}\n\nimport \"testing\"\n\nfunc Test{Name}(t *testing.T) {{\n\t// TODO: Add tests\n}}\n",
+            "go_test": '// Test file for {name}\npackage {package}\n\nimport "testing"\n\nfunc Test{Name}(t *testing.T) {{\n\t// TODO: Add tests\n}}\n',
         }
 
         template = templates.get(pattern_name)

@@ -336,7 +336,24 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         node = fetched_node  # Type narrowing for mypy
 
         if not node.file_path or not node.line_start or not node.line_end:
-            print_error(f"Node {node_id} has no source location info")
+            missing = []
+            if not node.file_path:
+                missing.append("file_path")
+            if not node.line_start:
+                missing.append("line_start")
+            if not node.line_end:
+                missing.append("line_end")
+
+            if node.type.value == "external":
+                hint = "(external dependencies don't have source)"
+            elif not node.file_path:
+                hint = '(try: mu query "SELECT * FROM nodes WHERE file_path IS NOT NULL")'
+            else:
+                hint = f"(file: {node.file_path} - try reading the file directly)"
+
+            print_error(
+                f"Node '{node_id}' has no source location (missing: {', '.join(missing)}) {hint}"
+            )
             sys.exit(1)
 
         # Read the source file
@@ -417,7 +434,9 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
 @click.command()
 @click.argument("question")
 @click.option("--max-tokens", "-t", default=8000, help="Maximum tokens in output")
-@click.option("--task", is_flag=True, help="Use task-aware context extraction (includes patterns, warnings)")
+@click.option(
+    "--task", is_flag=True, help="Use task-aware context extraction (includes patterns, warnings)"
+)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_obj
 def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json: bool) -> None:
@@ -524,24 +543,26 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
             from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
             cfg = ExtractionConfig(max_tokens=max_tokens)
-            extractor = SmartContextExtractor(db, cfg)
-            result = extractor.extract(question)
+            smart_extractor = SmartContextExtractor(db, cfg)
+            context_result = smart_extractor.extract(question)
 
             if as_json:
                 click.echo(
                     json.dumps(
                         {
-                            "mu_text": result.mu_text,
-                            "token_count": result.token_count,
-                            "node_count": len(result.nodes),
+                            "mu_text": context_result.mu_text,
+                            "token_count": context_result.token_count,
+                            "node_count": len(context_result.nodes),
                         },
                         indent=2,
                     )
                 )
             else:
-                print_info(f"# {len(result.nodes)} nodes, {result.token_count} tokens")
+                print_info(
+                    f"# {len(context_result.nodes)} nodes, {context_result.token_count} tokens"
+                )
                 print_info("")
-                click.echo(result.mu_text)
+                click.echo(context_result.mu_text)
     finally:
         db.close()
 

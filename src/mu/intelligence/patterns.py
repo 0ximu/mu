@@ -143,7 +143,7 @@ class PatternDetector:
         modules = self.db.get_nodes(NodeType.MODULE)
 
         # Detect class naming patterns
-        class_suffixes = self._analyze_suffixes([c.name for c in classes])
+        class_suffixes = self._analyze_suffixes([c.name for c in classes if c.name])
         for suffix, count in class_suffixes.most_common(10):
             if count >= self.MIN_FREQUENCY and len(suffix) > 2:
                 examples = self._get_examples_by_suffix(classes, suffix)
@@ -165,7 +165,7 @@ class PatternDetector:
                     )
 
         # Detect function naming patterns
-        func_prefixes = self._analyze_prefixes([f.name for f in functions])
+        func_prefixes = self._analyze_prefixes([f.name for f in functions if f.name])
         for prefix, count in func_prefixes.most_common(10):
             if count >= self.MIN_FREQUENCY and len(prefix) > 2:
                 examples = self._get_examples_by_prefix(functions, prefix)
@@ -664,7 +664,7 @@ class PatternDetector:
         pascal_funcs = [
             f
             for f in functions
-            if f.name[0].isupper() and not f.name.isupper() and "_" not in f.name
+            if f.name and f.name[0].isupper() and not f.name.isupper() and "_" not in f.name
         ]
 
         if len(components) >= self.MIN_FREQUENCY:

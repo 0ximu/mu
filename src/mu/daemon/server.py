@@ -172,6 +172,9 @@ class StatusResponse(BaseModel):
     status: str = Field(description="Daemon status (running)")
     mubase_path: str = Field(description="Path to .mubase file")
     stats: dict[str, Any] = Field(description="Database statistics")
+    language_stats: dict[str, Any] = Field(
+        default_factory=dict, description="Language distribution statistics"
+    )
     connections: int = Field(description="Active WebSocket connections")
     uptime_seconds: float = Field(description="Daemon uptime in seconds")
     # Multi-project info
@@ -538,11 +541,13 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
         # Get project-specific mubase if cwd provided
         mubase, mubase_path = await state.projects.get_mubase(cwd)
         stats = mubase.stats()
+        language_stats = mubase.get_language_stats()
 
         return StatusResponse(
             status="running",
             mubase_path=str(mubase_path),
             stats=stats,
+            language_stats=language_stats,
             connections=state.manager.connection_count,
             uptime_seconds=time.time() - state.start_time,
             active_projects=state.projects.project_count,

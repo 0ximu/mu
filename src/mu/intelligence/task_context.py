@@ -79,35 +79,72 @@ class TaskAnalyzer:
     # Task type indicators
     TASK_PATTERNS: dict[TaskType, list[str]] = {
         TaskType.CREATE: [
-            r"\badd\b", r"\bcreate\b", r"\bimplement\b", r"\bbuild\b",
-            r"\bnew\b", r"\bintroduce\b", r"\bset up\b", r"\bsetup\b",
+            r"\badd\b",
+            r"\bcreate\b",
+            r"\bimplement\b",
+            r"\bbuild\b",
+            r"\bnew\b",
+            r"\bintroduce\b",
+            r"\bset up\b",
+            r"\bsetup\b",
         ],
         TaskType.MODIFY: [
-            r"\bmodify\b", r"\bchange\b", r"\bupdate\b", r"\bedit\b",
-            r"\balter\b", r"\badjust\b", r"\btweak\b", r"\benhance\b",
+            r"\bmodify\b",
+            r"\bchange\b",
+            r"\bupdate\b",
+            r"\bedit\b",
+            r"\balter\b",
+            r"\badjust\b",
+            r"\btweak\b",
+            r"\benhance\b",
         ],
         TaskType.DELETE: [
-            r"\bremove\b", r"\bdelete\b", r"\bdrop\b", r"\bclean up\b",
+            r"\bremove\b",
+            r"\bdelete\b",
+            r"\bdrop\b",
+            r"\bclean up\b",
             r"\bdeprecate\b",
         ],
         TaskType.REFACTOR: [
-            r"\brefactor\b", r"\brestructure\b", r"\breorganize\b",
-            r"\bextract\b", r"\bmove\b", r"\brename\b", r"\bsplit\b",
+            r"\brefactor\b",
+            r"\brestructure\b",
+            r"\breorganize\b",
+            r"\bextract\b",
+            r"\bmove\b",
+            r"\brename\b",
+            r"\bsplit\b",
         ],
         TaskType.DEBUG: [
-            r"\bfix\b", r"\bbug\b", r"\bdebug\b", r"\bissue\b",
-            r"\berror\b", r"\bcrash\b", r"\bbroken\b", r"\bfailing\b",
+            r"\bfix\b",
+            r"\bbug\b",
+            r"\bdebug\b",
+            r"\bissue\b",
+            r"\berror\b",
+            r"\bcrash\b",
+            r"\bbroken\b",
+            r"\bfailing\b",
         ],
         TaskType.TEST: [
-            r"\btest\b", r"\btests\b", r"\btesting\b", r"\bspec\b",
-            r"\bcoverage\b", r"\bunit test\b",
+            r"\btest\b",
+            r"\btests\b",
+            r"\btesting\b",
+            r"\bspec\b",
+            r"\bcoverage\b",
+            r"\bunit test\b",
         ],
         TaskType.DOCUMENT: [
-            r"\bdocument\b", r"\bdocs\b", r"\breadme\b", r"\bcomment\b",
-            r"\bjsdoc\b", r"\bdocstring\b",
+            r"\bdocument\b",
+            r"\bdocs\b",
+            r"\breadme\b",
+            r"\bcomment\b",
+            r"\bjsdoc\b",
+            r"\bdocstring\b",
         ],
         TaskType.REVIEW: [
-            r"\breview\b", r"\baudit\b", r"\bcheck\b", r"\banalyze\b",
+            r"\breview\b",
+            r"\baudit\b",
+            r"\bcheck\b",
+            r"\banalyze\b",
             r"\binspect\b",
         ],
     }
@@ -115,35 +152,66 @@ class TaskAnalyzer:
     # Entity type indicators
     ENTITY_PATTERNS: dict[EntityType, list[str]] = {
         EntityType.API_ENDPOINT: [
-            r"\bapi\b", r"\bendpoint\b", r"\broute\b", r"\brest\b",
-            r"\bgraphql\b", r"\bget\b", r"\bpost\b", r"\bput\b", r"\bdelete\b",
+            r"\bapi\b",
+            r"\bendpoint\b",
+            r"\broute\b",
+            r"\brest\b",
+            r"\bgraphql\b",
+            r"\bget\b",
+            r"\bpost\b",
+            r"\bput\b",
+            r"\bdelete\b",
         ],
         EntityType.HOOK: [
-            r"\bhook\b", r"\buse[A-Z]", r"\bcustom hook\b",
+            r"\bhook\b",
+            r"\buse[A-Z]",
+            r"\bcustom hook\b",
         ],
         EntityType.COMPONENT: [
-            r"\bcomponent\b", r"\bwidget\b", r"\bui\b", r"\bview\b",
-            r"\bscreen\b", r"\bpage\b",
+            r"\bcomponent\b",
+            r"\bwidget\b",
+            r"\bui\b",
+            r"\bview\b",
+            r"\bscreen\b",
+            r"\bpage\b",
         ],
         EntityType.SERVICE: [
-            r"\bservice\b", r"\bbusiness logic\b", r"\bmanager\b",
+            r"\bservice\b",
+            r"\bbusiness logic\b",
+            r"\bmanager\b",
         ],
         EntityType.REPOSITORY: [
-            r"\brepository\b", r"\brepo\b", r"\bstore\b", r"\bdao\b",
+            r"\brepository\b",
+            r"\brepo\b",
+            r"\bstore\b",
+            r"\bdao\b",
             r"\bdata access\b",
         ],
         EntityType.MODEL: [
-            r"\bmodel\b", r"\bentity\b", r"\bschema\b", r"\bdto\b",
-            r"\btype\b", r"\binterface\b",
+            r"\bmodel\b",
+            r"\bentity\b",
+            r"\bschema\b",
+            r"\bdto\b",
+            r"\btype\b",
+            r"\binterface\b",
         ],
         EntityType.MIDDLEWARE: [
-            r"\bmiddleware\b", r"\binterceptor\b", r"\bguard\b", r"\bfilter\b",
+            r"\bmiddleware\b",
+            r"\binterceptor\b",
+            r"\bguard\b",
+            r"\bfilter\b",
         ],
         EntityType.CONFIG: [
-            r"\bconfig\b", r"\bconfiguration\b", r"\bsettings\b", r"\benv\b",
+            r"\bconfig\b",
+            r"\bconfiguration\b",
+            r"\bsettings\b",
+            r"\benv\b",
         ],
         EntityType.TEST: [
-            r"\btest\b", r"\bspec\b", r"\bunit\b", r"\bintegration\b",
+            r"\btest\b",
+            r"\bspec\b",
+            r"\bunit\b",
+            r"\bintegration\b",
         ],
     }
 
@@ -185,9 +253,7 @@ class TaskAnalyzer:
         domain_hints = self._detect_domains(task_lower)
 
         # Calculate confidence
-        confidence = self._calculate_confidence(
-            task_type, entity_types, keywords, domain_hints
-        )
+        confidence = self._calculate_confidence(task_type, entity_types, keywords, domain_hints)
 
         return TaskAnalysis(
             original_task=task,
@@ -240,10 +306,38 @@ class TaskAnalyzer:
 
         # Extract meaningful words (4+ chars, not common words)
         stop_words = {
-            "that", "this", "with", "from", "have", "been", "will", "should",
-            "would", "could", "must", "need", "want", "like", "make", "sure",
-            "when", "where", "what", "which", "while", "there", "their", "then",
-            "than", "other", "some", "more", "into", "also", "just", "only",
+            "that",
+            "this",
+            "with",
+            "from",
+            "have",
+            "been",
+            "will",
+            "should",
+            "would",
+            "could",
+            "must",
+            "need",
+            "want",
+            "like",
+            "make",
+            "sure",
+            "when",
+            "where",
+            "what",
+            "which",
+            "while",
+            "there",
+            "their",
+            "then",
+            "than",
+            "other",
+            "some",
+            "more",
+            "into",
+            "also",
+            "just",
+            "only",
         }
         words = re.findall(r"\b[a-z]{4,}\b", task.lower())
         meaningful = [w for w in words if w not in stop_words]
@@ -348,9 +442,7 @@ class TaskContextExtractor:
         # Note: include_tests is used for filtering later (planned feature)
         _ = include_tests if include_tests is not None else self.config.include_tests
         effective_include_patterns = (
-            include_patterns
-            if include_patterns is not None
-            else self.config.include_patterns
+            include_patterns if include_patterns is not None else self.config.include_patterns
         )
 
         # Step 1: Analyze task
@@ -728,11 +820,7 @@ class TaskContextExtractor:
                 continue
 
             # Find module node
-            mod_nodes = [
-                n
-                for n in nodes
-                if n.file_path == file_path and n.type == NodeType.MODULE
-            ]
+            mod_nodes = [n for n in nodes if n.file_path == file_path and n.type == NodeType.MODULE]
             if not mod_nodes:
                 continue
 

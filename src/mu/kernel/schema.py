@@ -212,6 +212,17 @@ CREATE INDEX IF NOT EXISTS idx_patterns_frequency ON patterns(frequency DESC);
 """
 
 
+# Codebase stats schema - language distribution and metrics
+CODEBASE_STATS_SCHEMA_SQL = """
+-- Codebase statistics computed during build
+CREATE TABLE IF NOT EXISTS codebase_stats (
+    key VARCHAR PRIMARY KEY,
+    value JSON NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+"""
+
+
 __all__ = [
     "ChangeType",
     "NodeType",
@@ -221,4 +232,5 @@ __all__ = [
     "TEMPORAL_SCHEMA_SQL",
     "MEMORY_SCHEMA_SQL",
     "PATTERNS_SCHEMA_SQL",
+    "CODEBASE_STATS_SCHEMA_SQL",
 ]

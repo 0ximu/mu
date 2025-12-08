@@ -213,9 +213,7 @@ class ProactiveWarningGenerator:
             analysis_time_ms=analysis_time_ms,
         )
 
-    def _resolve_target(
-        self, target: str
-    ) -> tuple[str, list[Any], Path | None]:
+    def _resolve_target(self, target: str) -> tuple[str, list[Any], Path | None]:
         """Resolve a target string to nodes and file path.
 
         Returns:
@@ -285,7 +283,11 @@ class ProactiveWarningGenerator:
                     dependent_count = len(impacted)
 
                     if dependent_count > self.config.high_impact_threshold:
-                        level = "error" if dependent_count > self.config.high_impact_threshold * 3 else "warn"
+                        level = (
+                            "error"
+                            if dependent_count > self.config.high_impact_threshold * 3
+                            else "warn"
+                        )
                         warnings.append(
                             ProactiveWarning(
                                 category=WarningCategory.HIGH_IMPACT,
@@ -424,43 +426,152 @@ class ProactiveWarningGenerator:
 
         return warnings
 
-    def _check_tests(
-        self, file_path: Path, nodes: list[Any]
-    ) -> list[ProactiveWarning]:
+    def _check_tests(self, file_path: Path, nodes: list[Any]) -> list[ProactiveWarning]:
         """Check if the target has associated tests."""
         warnings: list[ProactiveWarning] = []
 
         # Skip test files themselves (check filename, not full path)
         filename = file_path.name.lower()
+        filename_upper = file_path.name  # Preserve case for C# check
         if (
             filename.startswith("test_")
-            or filename.endswith(("_test.py", ".test.py", ".spec.py", ".test.ts", ".spec.ts"))
+            or filename.endswith(
+                ("_test.py", ".test.py", ".spec.py", ".test.ts", ".spec.ts", "_test.go")
+            )
             or "test" in filename.split("_")  # e.g., my_test_utils.py
+            or filename_upper.endswith(
+                ("Tests.cs", "Test.cs", "Tests.java", "Test.java")
+            )  # C#/Java
         ):
             return warnings
 
         # Look for test files
-        test_candidates = []
         stem = file_path.stem
+        suffix = file_path.suffix
         parent = file_path.parent
 
-        # Common test file patterns
-        patterns = [
-            parent / f"test_{stem}{file_path.suffix}",
-            parent / f"{stem}_test{file_path.suffix}",
-            parent / f"{stem}.test{file_path.suffix}",
-            parent / f"{stem}.spec{file_path.suffix}",
-            parent / "__tests__" / f"{stem}{file_path.suffix}",
-            parent / "__tests__" / f"{stem}.test{file_path.suffix}",
-            parent / "tests" / f"test_{stem}{file_path.suffix}",
-            parent.parent / "tests" / f"test_{stem}{file_path.suffix}",
-        ]
+        # Build patterns based on file type for better relevance
+        patterns: list[Path] = []
+        patterns_tried: list[str] = []  # Human-readable pattern names
+
+        # Detect language from suffix
+        is_csharp = suffix.lower() == ".cs"
+        is_java = suffix.lower() == ".java"
+        is_python = suffix.lower() == ".py"
+        is_js_ts = suffix.lower() in (".js", ".jsx", ".ts", ".tsx")
+        is_go = suffix.lower() == ".go"
+
+        if is_csharp or is_java:
+            # C# / Java style: FooTests.cs or FooTest.cs (prioritize first)
+            patterns.extend(
+                [
+                    parent / f"{stem}Tests{suffix}",
+                    parent / f"{stem}Test{suffix}",
+                    parent.parent / "Tests" / f"{stem}Tests{suffix}",
+                    parent.parent / "Tests" / f"{stem}Test{suffix}",
+                    parent.parent.parent / "Tests" / f"{stem}Tests{suffix}",
+                ]
+            )
+            patterns_tried.extend(
+                [
+                    f"{stem}Tests{suffix}",
+                    f"{stem}Test{suffix}",
+                    f"../Tests/{stem}Tests{suffix}",
+                ]
+            )
+
+            # Also check for sibling *.Tests project directory (common .NET convention)
+            # e.g., src/MyProject/Services/FooService.cs -> src/MyProject.Tests/Services/FooServiceTests.cs
+            for ancestor in [parent.parent, parent.parent.parent, parent.parent.parent.parent]:
+                if ancestor.exists():
+                    for sibling in ancestor.iterdir():
+                        if sibling.is_dir() and sibling.name.endswith(".Tests"):
+                            # Try to mirror the path structure
+                            try:
+                                rel_path = file_path.relative_to(
+                                    ancestor / sibling.name.replace(".Tests", "")
+                                )
+                                test_path = sibling / rel_path.parent / f"{stem}Tests{suffix}"
+                                patterns.append(test_path)
+                            except ValueError:
+                                # Path not relative, try direct lookup
+                                test_path = sibling / f"{stem}Tests{suffix}"
+                                patterns.append(test_path)
+                    break  # Only check one ancestor level for .Tests projects
+
+        elif is_python:
+            # Python style: test_foo.py or foo_test.py
+            patterns.extend(
+                [
+                    parent / f"test_{stem}{suffix}",
+                    parent / f"{stem}_test{suffix}",
+                    parent / "tests" / f"test_{stem}{suffix}",
+                    parent.parent / "tests" / f"test_{stem}{suffix}",
+                    parent.parent / "tests" / "unit" / f"test_{stem}{suffix}",
+                ]
+            )
+            patterns_tried.extend(
+                [
+                    f"test_{stem}{suffix}",
+                    f"{stem}_test{suffix}",
+                    f"tests/test_{stem}{suffix}",
+                ]
+            )
+
+        elif is_js_ts:
+            # JS/TS style: foo.test.ts or foo.spec.ts
+            patterns.extend(
+                [
+                    parent / f"{stem}.test{suffix}",
+                    parent / f"{stem}.spec{suffix}",
+                    parent / "__tests__" / f"{stem}{suffix}",
+                    parent / "__tests__" / f"{stem}.test{suffix}",
+                ]
+            )
+            patterns_tried.extend(
+                [
+                    f"{stem}.test{suffix}",
+                    f"{stem}.spec{suffix}",
+                    f"__tests__/{stem}{suffix}",
+                ]
+            )
+
+        elif is_go:
+            # Go style: foo_test.go (same directory)
+            patterns.extend(
+                [
+                    parent / f"{stem}_test{suffix}",
+                ]
+            )
+            patterns_tried.extend(
+                [
+                    f"{stem}_test{suffix}",
+                ]
+            )
+
+        else:
+            # Generic fallback - try common patterns
+            patterns.extend(
+                [
+                    parent / f"test_{stem}{suffix}",
+                    parent / f"{stem}_test{suffix}",
+                    parent / f"{stem}Tests{suffix}",
+                    parent / f"{stem}Test{suffix}",
+                    parent / f"{stem}.test{suffix}",
+                ]
+            )
+            patterns_tried.extend(
+                [
+                    f"test_{stem}{suffix}",
+                    f"{stem}Tests{suffix}",
+                ]
+            )
 
         test_found = False
         for pattern in patterns:
             if pattern.exists():
                 test_found = True
-                test_candidates.append(str(pattern))
+                break
 
         if not test_found:
             # Check if there are any test imports referencing these nodes
@@ -472,7 +583,7 @@ class ProactiveWarningGenerator:
                     level="warn",
                     message="No test file found - consider adding tests before modifying",
                     details={
-                        "checked_patterns": [str(p) for p in patterns[:3]],
+                        "tried": patterns_tried[:3],
                         "node_names": node_names[:5],
                     },
                 )
@@ -578,9 +689,7 @@ class ProactiveWarningGenerator:
         # Normalize to 0-1 range (cap at 1.0)
         return min(1.0, score)
 
-    def _generate_summary(
-        self, warnings: list[ProactiveWarning], target: str
-    ) -> str:
+    def _generate_summary(self, warnings: list[ProactiveWarning], target: str) -> str:
         """Generate a one-line summary of warnings."""
         if not warnings:
             return f"No warnings for {target}"

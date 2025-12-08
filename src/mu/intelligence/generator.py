@@ -382,8 +382,8 @@ describe('{name}', () => {{
     def _generate_component(self, name: str, options: dict[str, Any]) -> GenerateResult:
         """Generate a UI component."""
         name = self._to_pascal_case(name)
-        patterns_used = []
-        suggestions = []
+        patterns_used: list[str] = []
+        suggestions: list[str] = []
 
         # Find components directory
         components_dir = self._find_similar_file("components/") or "src/components"
@@ -498,8 +498,8 @@ describe('{name}', () => {{
         if not name.endswith("Service"):
             name = f"{name}Service"
 
-        patterns_used = []
-        suggestions = []
+        patterns_used: list[str] = []
+        suggestions: list[str] = []
 
         # Check for service pattern
         arch_patterns = self._get_patterns_by_category(PatternCategory.ARCHITECTURE)
@@ -726,8 +726,8 @@ describe('{name}', () => {{
         if not any(name.endswith(s) for s in ["Repository", "Repo", "Store"]):
             name = f"{name}Repository"
 
-        patterns_used = []
-        suggestions = []
+        patterns_used: list[str] = []
+        suggestions: list[str] = []
 
         # Check for repository pattern
         arch_patterns = self._get_patterns_by_category(PatternCategory.ARCHITECTURE)
@@ -840,8 +840,8 @@ export class {name}Impl implements {name}<{entity}> {{
     def _generate_api_route(self, name: str, options: dict[str, Any]) -> GenerateResult:
         """Generate an API route handler."""
         snake_name = self._to_snake_case(name)
-        patterns_used = []
-        suggestions = []
+        patterns_used: list[str] = []
+        suggestions: list[str] = []
 
         # Check for API patterns
         api_patterns = self._get_patterns_by_category(PatternCategory.API)

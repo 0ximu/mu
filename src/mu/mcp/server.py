@@ -344,7 +344,25 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
             raise ValueError(f"Node not found: {node_id}")
 
         if not node.file_path or not node.line_start or not node.line_end:
-            raise ValueError(f"Node {node_id} has no source location info")
+            # Provide helpful guidance based on what's missing
+            missing = []
+            if not node.file_path:
+                missing.append("file_path")
+            if not node.line_start:
+                missing.append("line_start")
+            if not node.line_end:
+                missing.append("line_end")
+
+            if node.type.value == "external":
+                hint = " (external dependencies don't have source)"
+            elif not node.file_path:
+                hint = " (try mu_query to find nodes with file paths)"
+            else:
+                hint = f" (file: {node.file_path}, try reading the file directly)"
+
+            raise ValueError(
+                f"Node '{node_id}' has no source location (missing: {', '.join(missing)}){hint}"
+            )
 
         # Read the source file
         file_path = Path(node.file_path)
@@ -530,6 +548,9 @@ def mu_status() -> dict[str, Any]:
         with client:
             status = client.status(cwd=cwd)
 
+        # Get language stats from the response
+        language_stats = status.get("language_stats", {})
+
         return {
             "daemon_running": True,
             "config_exists": config_exists,
@@ -537,6 +558,7 @@ def mu_status() -> dict[str, Any]:
             "mubase_path": status.get("mubase_path", ""),
             "embeddings_exist": embeddings_exist,
             "stats": status.get("stats", {}),
+            "language_stats": language_stats,
             "connections": status.get("connections", 0),
             "uptime_seconds": status.get("uptime_seconds", 0),
             "next_action": None,
@@ -550,6 +572,7 @@ def mu_status() -> dict[str, Any]:
             db = MUbase(mubase_path)
             try:
                 stats = db.stats()
+                language_stats = db.get_language_stats()
                 return {
                     "daemon_running": False,
                     "config_exists": config_exists,
@@ -557,11 +580,12 @@ def mu_status() -> dict[str, Any]:
                     "mubase_path": str(mubase_path),
                     "embeddings_exist": embeddings_exist,
                     "stats": stats,
+                    "language_stats": language_stats,
                     "connections": 0,
                     "uptime_seconds": 0,
                     "next_action": "mu_embed" if not embeddings_exist else None,
                     "message": (
-                        "MU ready (direct access). Run mu_embed() to enable semantic search."
+                        "MU ready (direct access). 💡 Run `mu kernel embed .` to enable mu_search() (semantic search)."
                         if not embeddings_exist
                         else "MU ready (direct access)."
                     ),
@@ -577,6 +601,7 @@ def mu_status() -> dict[str, Any]:
             "mubase_path": None,
             "embeddings_exist": False,
             "stats": {},
+            "language_stats": {},
             "next_action": "mu_bootstrap",
             "message": "No .mubase found. Run mu_bootstrap() to initialize MU.",
         }
@@ -596,6 +621,7 @@ class BootstrapResult:
     stats: dict[str, Any]
     duration_ms: float
     message: str
+    suggestion: str | None = None  # Optional next step hint
 
 
 @dataclass
@@ -781,6 +807,7 @@ def mu_bootstrap(path: str = ".", force: bool = False) -> BootstrapResult:
         stats=stats,
         duration_ms=duration_ms,
         message=f"MU ready. Built graph with {stats.get('nodes', 0)} nodes in {duration_ms:.0f}ms.",
+        suggestion="💡 For semantic search (mu_search), run: mu kernel embed . (requires OPENAI_API_KEY or local embeddings)",
     )
 
 
@@ -1098,15 +1125,11 @@ def mu_review_diff(
                 )
                 if result.returncode == 0:
                     changed_files = [
-                        f.strip()
-                        for f in result.stdout.strip().splitlines()
-                        if f.strip()
+                        f.strip() for f in result.stdout.strip().splitlines() if f.strip()
                     ]
 
                     # Filter to only files that still exist (not deleted)
-                    existing_files = [
-                        f for f in changed_files if (root_path / f).exists()
-                    ]
+                    existing_files = [f for f in changed_files if (root_path / f).exists()]
 
                     if existing_files:
                         db = MUbase(mubase_path)
@@ -1160,9 +1183,7 @@ def mu_review_diff(
         added = [c for c in diff_result.changes if c.get("change_type") == "added"]
         removed = [c for c in diff_result.changes if c.get("change_type") == "removed"]
         modified = [
-            c
-            for c in diff_result.changes
-            if c.get("change_type") not in ("added", "removed")
+            c for c in diff_result.changes if c.get("change_type") not in ("added", "removed")
         ]
 
         if added:
@@ -1182,9 +1203,7 @@ def mu_review_diff(
             change_type = bc.get("change_type", "modified")
             summary_parts.append(f"- **{entity}**: {change_type}")
         if len(diff_result.breaking_changes) > 5:
-            summary_parts.append(
-                f"  ... and {len(diff_result.breaking_changes) - 5} more"
-            )
+            summary_parts.append(f"  ... and {len(diff_result.breaking_changes) - 5} more")
         summary_parts.append("")
 
     # Pattern validation summary
@@ -1227,8 +1246,7 @@ def mu_review_diff(
         )
     elif warning_count > 0:
         summary_parts.append(
-            "⚠️ **Consider addressing warnings** for consistency. "
-            "Changes are otherwise acceptable."
+            "⚠️ **Consider addressing warnings** for consistency. Changes are otherwise acceptable."
         )
     else:
         summary_parts.append("✅ **Looks good!** No blocking issues found.")

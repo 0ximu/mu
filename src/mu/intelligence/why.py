@@ -269,9 +269,7 @@ class WhyAnalyzer:
         # Co-change analysis (optional, slower)
         frequently_changed_with: list[str] = []
         if include_cochanges and len(commits) >= 2:
-            frequently_changed_with = self._analyze_cochanges(
-                file_path, commits, max_cochanges=5
-            )
+            frequently_changed_with = self._analyze_cochanges(file_path, commits, max_cochanges=5)
 
         analysis_time_ms = (time.time() - start_time) * 1000
 
@@ -294,9 +292,7 @@ class WhyAnalyzer:
             analysis_time_ms=analysis_time_ms,
         )
 
-    def _resolve_target(
-        self, target: str
-    ) -> tuple[Path | None, int | None, int | None, str]:
+    def _resolve_target(self, target: str) -> tuple[Path | None, int | None, int | None, str]:
         """Resolve a target string to file path and optional line range.
 
         Args:
@@ -323,9 +319,7 @@ class WhyAnalyzer:
                         pass
 
         # Check if it's a file path
-        if "/" in target or target.endswith(
-            (".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java")
-        ):
+        if "/" in target or target.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java")):
             file_path = self.root_path / target
             if file_path.exists():
                 return file_path, None, None, "file"
@@ -502,9 +496,7 @@ class WhyAnalyzer:
             refs.extend(matches)
         return list(set(refs))
 
-    def _analyze_contributors(
-        self, commits: list[CommitInfo]
-    ) -> list[dict[str, Any]]:
+    def _analyze_contributors(self, commits: list[CommitInfo]) -> list[dict[str, Any]]:
         """Analyze contributors from commits.
 
         Returns:
@@ -553,8 +545,10 @@ class WhyAnalyzer:
         message = origin_commit.message
         if message:
             # Clean up common prefixes
-            message = re.sub(r"^(feat|fix|chore|refactor|docs|test|style)(\(.+\))?:\s*", "", message)
-            parts.append(f": \"{message}\"")
+            message = re.sub(
+                r"^(feat|fix|chore|refactor|docs|test|style)(\(.+\))?:\s*", "", message
+            )
+            parts.append(f': "{message}"')
 
         # Issue references
         if issue_refs:
@@ -636,11 +630,7 @@ class WhyAnalyzer:
 
         # Sort by frequency and filter out low-frequency
         min_count = max(2, len(commits) // 5)  # At least 20% co-occurrence
-        frequent = [
-            (f, count)
-            for f, count in cochange_counts.items()
-            if count >= min_count
-        ]
+        frequent = [(f, count) for f, count in cochange_counts.items() if count >= min_count]
         frequent.sort(key=lambda x: x[1], reverse=True)
 
         return [f for f, _ in frequent[:max_cochanges]]

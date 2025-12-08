@@ -77,10 +77,7 @@ def warn(target: str, output_json: bool) -> None:
             + click.style(result.target, bold=True)
             + click.style(f" ({result.target_type})", dim=True)
         )
-        click.echo(
-            click.style("  Risk score: ", dim=True)
-            + _risk_color(result.risk_score)
-        )
+        click.echo(click.style("  Risk score: ", dim=True) + _risk_color(result.risk_score))
         click.echo()
 
         # Display each warning
@@ -112,9 +109,7 @@ def warn(target: str, output_json: bool) -> None:
 
         # Summary
         click.echo(click.style(f"  Summary: {result.summary}", dim=True))
-        click.echo(
-            click.style(f"  Analysis time: {result.analysis_time_ms:.1f}ms", dim=True)
-        )
+        click.echo(click.style(f"  Analysis time: {result.analysis_time_ms:.1f}ms", dim=True))
 
     finally:
         db.close()

@@ -28,20 +28,20 @@ show_columns_query: SHOW_KW COLUMNS_KW FROM_KW node_type
 // SELECT Query - SQL-like queries on nodes table
 // =============================================================================
 
-select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [temporal_clause] [order_by_clause] [limit_clause]
+select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [temporal_clause] [group_by_clause] [having_clause] [order_by_clause] [limit_clause]
 
 select_list: STAR
            | field_list
 
 field_list: field ("," field)*
 
-field: COUNT_KW "(" STAR ")" -> count_star
-     | COUNT_KW "(" IDENTIFIER ")" -> count_field
-     | AVG_KW "(" IDENTIFIER ")" -> avg_field
-     | MAX_KW "(" IDENTIFIER ")" -> max_agg_field
-     | MIN_KW "(" IDENTIFIER ")" -> min_agg_field
-     | SUM_KW "(" IDENTIFIER ")" -> sum_field
-     | IDENTIFIER
+field: COUNT_KW "(" STAR ")" [AS_KW IDENTIFIER] -> count_star
+     | COUNT_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> count_field
+     | AVG_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> avg_field
+     | MAX_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> max_agg_field
+     | MIN_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> min_agg_field
+     | SUM_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> sum_field
+     | IDENTIFIER [AS_KW IDENTIFIER] -> named_field
 
 node_type: FUNCTIONS_KW -> functions_type
          | CLASSES_KW -> classes_type
@@ -62,6 +62,15 @@ comparison: IDENTIFIER comparison_op value -> simple_comparison
           | IDENTIFIER CONTAINS_KW value -> contains_comparison
           | IDENTIFIER NOT_KW IN_KW "(" value_list ")" -> not_in_comparison
           | "(" condition ")" -> grouped_condition
+          | aggregate_expr comparison_op value -> aggregate_comparison
+
+// Aggregate expressions for HAVING clause
+aggregate_expr: COUNT_KW "(" STAR ")" -> agg_count_star
+              | COUNT_KW "(" IDENTIFIER ")" -> agg_count_field
+              | AVG_KW "(" IDENTIFIER ")" -> agg_avg_field
+              | MAX_KW "(" IDENTIFIER ")" -> agg_max_field
+              | MIN_KW "(" IDENTIFIER ")" -> agg_min_field
+              | SUM_KW "(" IDENTIFIER ")" -> agg_sum_field
 
 comparison_op: EQ | NEQ | GT | LT | GTE | LTE | LIKE_KW
 
@@ -72,6 +81,14 @@ value: STRING -> string_value
      | NULL_KW -> null_value
 
 value_list: value ("," value)*
+
+// GROUP BY clause
+group_by_clause: GROUP_KW BY_KW group_field ("," group_field)*
+
+group_field: IDENTIFIER
+
+// HAVING clause (filter on aggregates)
+having_clause: HAVING_KW condition
 
 // ORDER BY clause
 order_by_clause: ORDER_KW BY_KW order_field ("," order_field)*
@@ -215,6 +232,8 @@ describe_target: TABLES_KW -> describe_tables
 SELECT_KW: /select/i
 FROM_KW: /from/i
 WHERE_KW: /where/i
+GROUP_KW: /group/i
+HAVING_KW: /having/i
 ORDER_KW: /order/i
 BY_KW: /by/i
 LIMIT_KW: /limit/i
@@ -224,6 +243,7 @@ NOT_KW: /not/i
 IN_KW: /in/i
 LIKE_KW: /like/i
 CONTAINS_KW: /contains/i
+AS_KW: /as/i
 
 // Aggregate functions
 COUNT_KW: /count/i

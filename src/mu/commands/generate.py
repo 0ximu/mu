@@ -132,10 +132,7 @@ def generate(
         print_success(f"Generated {result.template_type.value}: {result.name}\n")
 
         if result.patterns_used:
-            click.echo(
-                click.style("  Patterns used: ", dim=True)
-                + ", ".join(result.patterns_used)
-            )
+            click.echo(click.style("  Patterns used: ", dim=True) + ", ".join(result.patterns_used))
             click.echo()
 
         for file in result.files:

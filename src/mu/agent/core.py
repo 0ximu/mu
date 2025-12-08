@@ -254,6 +254,17 @@ class MUAgent:
             except Exception:
                 pass
 
+            # Get language stats from persisted codebase_stats (computed during build)
+            languages: dict[str, int] = {}
+            primary_language: str | None = None
+            try:
+                lang_stats = status.get("language_stats", {})
+                if lang_stats:
+                    languages = lang_stats.get("languages", {})
+                    primary_language = lang_stats.get("primary_language")
+            except Exception:
+                pass
+
             return GraphSummary(
                 node_count=stats.get("node_count", 0),
                 edge_count=stats.get("edge_count", 0),
@@ -261,6 +272,8 @@ class MUAgent:
                 classes=stats.get("nodes_by_type", {}).get("class", 0),
                 functions=stats.get("nodes_by_type", {}).get("function", 0),
                 top_level_modules=top_modules,
+                primary_language=primary_language,
+                languages=languages,
             )
         except DaemonError:
             return GraphSummary()
@@ -283,8 +296,6 @@ class MUAgent:
         Returns:
             Tuple of (final_content, tool_calls_made, total_tokens).
         """
-        from mu.agent.providers import LLMResponse
-
         tool_calls_made = 0
         total_tokens = response.input_tokens + response.output_tokens
 
@@ -304,9 +315,7 @@ class MUAgent:
                 tool_calls_made += 1
                 result = execute_tool(tc["name"], tc["args"], mu_client)
                 formatted_result = format_tool_result(result)
-                tool_results.append(
-                    provider.format_tool_result(tc["id"], formatted_result)
-                )
+                tool_results.append(provider.format_tool_result(tc["id"], formatted_result))
 
             # Build continuation messages
             # For OpenAI, we need to include the assistant message with tool_calls
@@ -342,7 +351,7 @@ class MUAgent:
         response: Any,
     ) -> dict[str, Any]:
         """Build assistant message for continuation."""
-        from mu.agent.providers import AnthropicProvider, OpenAIProvider
+        from mu.agent.providers import OpenAIProvider
 
         if isinstance(provider, OpenAIProvider):
             # OpenAI needs the tool_calls in the message

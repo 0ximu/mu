@@ -21,6 +21,17 @@ if TYPE_CHECKING:
     from mu.parser.models import ModuleDef
 
 
+class MUbaseCorruptionError(Exception):
+    """Raised when the .mubase database is corrupted.
+
+    This typically happens when the WAL file is corrupted due to
+    an unclean shutdown. The fix is to remove the .mubase* files
+    and rebuild with `mu build`.
+    """
+
+    pass
+
+
 class MUbase:
     """Graph database for code analysis.
 
@@ -35,10 +46,26 @@ class MUbase:
 
         Args:
             path: Path to the .mubase file (created if doesn't exist)
+
+        Raises:
+            MUbaseCorruptionError: If the database or WAL file is corrupted
         """
         self.path = Path(path)
-        self.conn = duckdb.connect(str(self.path))
-        self._init_schema()
+        try:
+            self.conn = duckdb.connect(str(self.path))
+            self._init_schema()
+        except duckdb.Error as e:
+            error_msg = str(e).lower()
+            if "wal" in error_msg or "corrupt" in error_msg or "internal" in error_msg:
+                wal_file = self.path.with_suffix(".mubase.wal")
+                raise MUbaseCorruptionError(
+                    f"Database appears corrupted: {e}\n\n"
+                    f"To fix, remove the database files and rebuild:\n"
+                    f"  rm {self.path}*\n"
+                    f"  mu build .\n\n"
+                    f"WAL file exists: {wal_file.exists()}"
+                ) from e
+            raise
 
     def _init_schema(self) -> None:
         """Initialize database schema if needed."""
@@ -105,6 +132,9 @@ class MUbase:
         # Insert edges
         for edge in edges:
             self.add_edge(edge)
+
+        # Compute and store language statistics
+        self._compute_and_store_language_stats(modules)
 
     def add_node(self, node: Node) -> None:
         """Add or update a node in the graph."""
@@ -1373,6 +1403,155 @@ class MUbase:
         result = self.conn.execute("DELETE FROM edges WHERE id = ?", [edge_id])
         return result.rowcount > 0 if hasattr(result, "rowcount") else True
 
+    # =========================================================================
+    # Codebase Statistics Methods
+    # =========================================================================
+
+    def _ensure_codebase_stats_schema(self) -> None:
+        """Create codebase_stats table if it doesn't exist."""
+        from mu.kernel.schema import CODEBASE_STATS_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM codebase_stats LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(CODEBASE_STATS_SCHEMA_SQL)
+
+    def _compute_and_store_language_stats(self, modules: list[ModuleDef]) -> None:
+        """Compute language statistics from modules and store in database.
+
+        Args:
+            modules: List of parsed ModuleDef objects.
+        """
+        import json
+        from collections import Counter
+        from datetime import datetime
+
+        # Count files by language
+        languages: Counter[str] = Counter()
+        ext_map = {
+            ".py": "Python",
+            ".ts": "TypeScript",
+            ".tsx": "TypeScript",
+            ".js": "JavaScript",
+            ".jsx": "JavaScript",
+            ".go": "Go",
+            ".rs": "Rust",
+            ".java": "Java",
+            ".cs": "C#",
+            ".rb": "Ruby",
+            ".php": "PHP",
+            ".swift": "Swift",
+            ".kt": "Kotlin",
+            ".scala": "Scala",
+            ".cpp": "C++",
+            ".c": "C",
+            ".h": "C/C++ Header",
+            ".hpp": "C++ Header",
+        }
+
+        for module in modules:
+            # Get extension from file path
+            if module.path:
+                ext = "." + module.path.rsplit(".", 1)[-1] if "." in module.path else ""
+                lang = ext_map.get(ext.lower())
+                if lang:
+                    languages[lang] += 1
+
+        # Calculate percentages
+        total = sum(languages.values())
+        percentages: dict[str, float] = {}
+        if total > 0:
+            for lang, count in languages.items():
+                percentages[lang] = round(count / total * 100, 2)
+
+        # Determine primary language
+        primary_language = languages.most_common(1)[0][0] if languages else None
+
+        # Store in database
+        self._ensure_codebase_stats_schema()
+        now = datetime.now(UTC).isoformat()
+
+        stats_data = {
+            "languages": dict(languages),
+            "percentages": percentages,
+            "primary_language": primary_language,
+            "total_files": total,
+        }
+
+        # Delete existing and insert new
+        self.conn.execute("DELETE FROM codebase_stats WHERE key = 'languages'")
+        self.conn.execute(
+            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
+            ["languages", json.dumps(stats_data), now],
+        )
+
+    def get_language_stats(self) -> dict[str, Any]:
+        """Get stored language statistics.
+
+        Returns:
+            Dictionary with language distribution:
+            {
+                "languages": {"Python": 100, "C#": 784, ...},
+                "percentages": {"Python": 11.3, "C#": 88.7, ...},
+                "primary_language": "C#",
+                "total_files": 884
+            }
+        """
+        import json
+
+        self._ensure_codebase_stats_schema()
+
+        row = self.conn.execute(
+            "SELECT value FROM codebase_stats WHERE key = 'languages'"
+        ).fetchone()
+
+        if row:
+            result: dict[str, Any] = json.loads(row[0])
+            return result
+
+        return {
+            "languages": {},
+            "percentages": {},
+            "primary_language": None,
+            "total_files": 0,
+        }
+
+    def set_codebase_stat(self, key: str, value: Any) -> None:
+        """Store a codebase statistic.
+
+        Args:
+            key: Statistic key.
+            value: Value (must be JSON-serializable).
+        """
+        import json
+        from datetime import datetime
+
+        self._ensure_codebase_stats_schema()
+        now = datetime.now(UTC).isoformat()
+
+        self.conn.execute("DELETE FROM codebase_stats WHERE key = ?", [key])
+        self.conn.execute(
+            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
+            [key, json.dumps(value), now],
+        )
+
+    def get_codebase_stat(self, key: str) -> Any | None:
+        """Get a stored codebase statistic.
+
+        Args:
+            key: Statistic key.
+
+        Returns:
+            The stored value, or None if not found.
+        """
+        import json
+
+        self._ensure_codebase_stats_schema()
+
+        row = self.conn.execute("SELECT value FROM codebase_stats WHERE key = ?", [key]).fetchone()
+
+        return json.loads(row[0]) if row else None
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()
@@ -1388,4 +1567,5 @@ class MUbase:
 
 __all__ = [
     "MUbase",
+    "MUbaseCorruptionError",
 ]
