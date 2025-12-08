@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("blame")
 @click.argument("node_name", type=str)
@@ -31,10 +33,10 @@ def kernel_blame(node_name: str, path: Path, as_json: bool) -> None:
     from mu.kernel.temporal import HistoryTracker
     from mu.logging import console, print_error, print_info
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     db = MUbase(mubase_path)

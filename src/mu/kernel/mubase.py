@@ -6,6 +6,7 @@ recursive dependency queries.
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,10 +15,32 @@ import duckdb
 from mu.kernel.builder import GraphBuilder
 from mu.kernel.models import Edge, Node
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
+from mu.paths import MUBASE_FILE, get_mu_dir
 
 if TYPE_CHECKING:
     from mu.kernel.embeddings.models import NodeEmbedding
     from mu.parser.models import ModuleDef
+
+
+class MUbaseCorruptionError(Exception):
+    """Raised when the .mubase database is corrupted.
+
+    This typically happens when the WAL file is corrupted due to
+    an unclean shutdown. The fix is to remove the .mubase* files
+    and rebuild with `mu build`.
+    """
+
+    pass
+
+
+class MUbaseLockError(Exception):
+    """Raised when the database is locked by another process.
+
+    This typically happens when the daemon is running and holding
+    a write lock on the database.
+    """
+
+    pass
 
 
 class MUbase:
@@ -29,15 +52,66 @@ class MUbase:
 
     VERSION = "1.0.0"
 
-    def __init__(self, path: Path | str = ".mubase") -> None:
+    def __init__(self, path: Path | str | None = None, read_only: bool = False) -> None:
         """Initialize MUbase.
 
         Args:
-            path: Path to the .mubase file (created if doesn't exist)
+            path: Path to the mubase file. If None, uses .mu/mubase in cwd.
+                  Can be a full path or just a directory (mubase file inferred).
+            read_only: If True, open in read-only mode (avoids lock conflicts)
+
+        Raises:
+            MUbaseCorruptionError: If the database or WAL file is corrupted
+            MUbaseLockError: If the database is locked and read_only=False
         """
-        self.path = Path(path)
-        self.conn = duckdb.connect(str(self.path))
-        self._init_schema()
+        # Handle special :memory: case for in-memory DuckDB (used in tests)
+        if path is not None and str(path) == ":memory:":
+            self.path = Path(":memory:")
+        elif path is None:
+            # Default: .mu/mubase in current directory
+            self.path = get_mu_dir() / MUBASE_FILE
+        else:
+            path = Path(path)
+            if path.is_dir():
+                # Directory provided - use .mu/mubase within it
+                self.path = get_mu_dir(path) / MUBASE_FILE
+            elif path.name == MUBASE_FILE or path.suffix == ".mubase":
+                # Full path to mubase file provided
+                self.path = path
+            else:
+                # Assume it's a project root, use .mu/mubase
+                self.path = get_mu_dir(path) / MUBASE_FILE
+        self.read_only = read_only
+
+        # Ensure parent directory exists (create .mu/ if needed)
+        # Skip for :memory: (in-memory DuckDB) to avoid creating literal ":memory:" directory
+        if not read_only and str(self.path) != ":memory:":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            self.conn = duckdb.connect(str(self.path), read_only=read_only)
+            self._init_schema()
+        except duckdb.Error as e:
+            error_msg = str(e).lower()
+            if "lock" in error_msg or "locked" in error_msg:
+                raise MUbaseLockError(
+                    f"Database is locked by another process.\n\n"
+                    f"This usually means the daemon is running. Options:\n"
+                    f"  1. Use 'mu daemon start' and let commands route through daemon\n"
+                    f"  2. Stop the daemon with 'mu daemon stop'\n"
+                    f"  3. Use read-only mode for query commands\n\n"
+                    f"Original error: {e}"
+                ) from e
+            if "wal" in error_msg or "corrupt" in error_msg or "internal" in error_msg:
+                wal_file = self.path.parent / f"{self.path.name}.wal"
+                raise MUbaseCorruptionError(
+                    f"Database appears corrupted: {e}\n\n"
+                    f"To fix, remove the database files and rebuild:\n"
+                    f"  rm {self.path}*\n"
+                    f"  mu build .\n\n"
+                    f"WAL file exists: {wal_file.exists()}"
+                ) from e
+            raise
 
     def _init_schema(self) -> None:
         """Initialize database schema if needed."""
@@ -104,6 +178,9 @@ class MUbase:
         # Insert edges
         for edge in edges:
             self.add_edge(edge)
+
+        # Compute and store language statistics
+        self._compute_and_store_language_stats(modules)
 
     def add_node(self, node: Node) -> None:
         """Add or update a node in the graph."""
@@ -847,6 +924,441 @@ class MUbase:
         return unique
 
     # =========================================================================
+    # Pattern Storage Methods
+    # =========================================================================
+
+    def _ensure_patterns_schema(self) -> None:
+        """Create patterns table if it doesn't exist."""
+        from mu.kernel.schema import PATTERNS_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM patterns LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(PATTERNS_SCHEMA_SQL)
+
+    def save_patterns(self, patterns: list[Any]) -> None:
+        """Save patterns to the database.
+
+        Args:
+            patterns: List of Pattern objects to save.
+        """
+        from datetime import datetime
+
+        self._ensure_patterns_schema()
+
+        # Clear existing patterns
+        self.conn.execute("DELETE FROM patterns")
+
+        now = datetime.now(UTC).isoformat()
+        for pattern in patterns:
+            import json
+
+            self.conn.execute(
+                """
+                INSERT INTO patterns
+                (id, category, name, description, frequency, confidence,
+                 examples, anti_patterns, related_patterns, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    f"pat:{pattern.category.value}:{pattern.name}",
+                    pattern.category.value,
+                    pattern.name,
+                    pattern.description,
+                    pattern.frequency,
+                    pattern.confidence,
+                    json.dumps([e.to_dict() for e in pattern.examples]),
+                    json.dumps(pattern.anti_patterns),
+                    json.dumps(getattr(pattern, "related_patterns", [])),
+                    now,
+                    now,
+                ],
+            )
+
+    def get_patterns(self, category: str | None = None) -> list[Any]:
+        """Get stored patterns.
+
+        Args:
+            category: Optional category filter.
+
+        Returns:
+            List of Pattern objects.
+        """
+        import json
+
+        from mu.intelligence.models import Pattern, PatternCategory, PatternExample
+
+        self._ensure_patterns_schema()
+
+        if category:
+            rows = self.conn.execute(
+                "SELECT * FROM patterns WHERE category = ? ORDER BY frequency DESC",
+                [category],
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM patterns ORDER BY frequency DESC").fetchall()
+
+        patterns = []
+        for row in rows:
+            # row: id, category, name, description, frequency, confidence,
+            #      examples, anti_patterns, related_patterns, created_at, updated_at
+            examples_data = json.loads(row[6]) if row[6] else []
+            examples = [
+                PatternExample(
+                    file_path=e.get("file_path", ""),
+                    line_start=e.get("line_start", 0),
+                    line_end=e.get("line_end", 0),
+                    code_snippet=e.get("code_snippet", ""),
+                    annotation=e.get("annotation", ""),
+                )
+                for e in examples_data
+            ]
+            patterns.append(
+                Pattern(
+                    name=row[2],
+                    category=PatternCategory(row[1]),
+                    description=row[3] or "",
+                    frequency=row[4] or 0,
+                    confidence=row[5] or 0.0,
+                    examples=examples,
+                    anti_patterns=json.loads(row[7]) if row[7] else [],
+                    related_patterns=json.loads(row[8]) if row[8] else [],
+                )
+            )
+        return patterns
+
+    def has_patterns(self) -> bool:
+        """Check if patterns are stored in the database.
+
+        Returns:
+            True if patterns exist, False otherwise.
+        """
+        try:
+            self._ensure_patterns_schema()
+            result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
+            return result is not None and result[0] > 0
+        except Exception:
+            return False
+
+    def patterns_stats(self) -> dict[str, Any]:
+        """Get pattern statistics.
+
+        Returns:
+            Dictionary with pattern counts and categories.
+        """
+        self._ensure_patterns_schema()
+
+        result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
+        total = result[0] if result else 0
+
+        by_category: dict[str, int] = {}
+        rows = self.conn.execute(
+            "SELECT category, COUNT(*) FROM patterns GROUP BY category"
+        ).fetchall()
+        for row in rows:
+            by_category[row[0]] = row[1]
+
+        return {
+            "total_patterns": total,
+            "patterns_by_category": by_category,
+        }
+
+    # =========================================================================
+    # Memory Storage Methods (Cross-Session Learnings)
+    # =========================================================================
+
+    def _ensure_memory_schema(self) -> None:
+        """Create memory table if it doesn't exist."""
+        from mu.kernel.schema import MEMORY_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM memories LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(MEMORY_SCHEMA_SQL)
+
+    def save_memory(
+        self,
+        content: str,
+        category: str,
+        context: str = "",
+        source: str = "",
+        confidence: float = 1.0,
+        importance: int = 1,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> str:
+        """Save a memory to the database.
+
+        Args:
+            content: The memory content.
+            category: Memory category (preference, decision, context, etc.).
+            context: Optional additional context.
+            source: Where this memory came from.
+            confidence: Confidence level (0.0 - 1.0).
+            importance: Importance level (1-5).
+            tags: Optional list of tags.
+            embedding: Optional vector embedding.
+
+        Returns:
+            The memory ID.
+        """
+        import hashlib
+        import json
+        from datetime import datetime
+
+        self._ensure_memory_schema()
+
+        # Generate ID from content hash
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
+        memory_id = f"mem:{category}:{content_hash}"
+
+        now = datetime.now(UTC).isoformat()
+
+        # Check if memory already exists (update if so)
+        existing = self.conn.execute(
+            "SELECT id, access_count FROM memories WHERE id = ?", [memory_id]
+        ).fetchone()
+
+        if existing:
+            # Update existing memory
+            self.conn.execute(
+                """
+                UPDATE memories SET
+                    content = ?, context = ?, source = ?,
+                    confidence = ?, importance = ?, tags = ?,
+                    embedding = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                [
+                    content,
+                    context,
+                    source,
+                    confidence,
+                    importance,
+                    json.dumps(tags or []),
+                    embedding,
+                    now,
+                    memory_id,
+                ],
+            )
+        else:
+            # Insert new memory
+            self.conn.execute(
+                """
+                INSERT INTO memories
+                (id, category, content, context, source, confidence,
+                 importance, tags, embedding, created_at, updated_at,
+                 accessed_at, access_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+                """,
+                [
+                    memory_id,
+                    category,
+                    content,
+                    context,
+                    source,
+                    confidence,
+                    importance,
+                    json.dumps(tags or []),
+                    embedding,
+                    now,
+                    now,
+                ],
+            )
+
+        return memory_id
+
+    def get_memory(self, memory_id: str) -> Any | None:
+        """Get a memory by ID.
+
+        Args:
+            memory_id: The memory ID.
+
+        Returns:
+            Memory object if found, None otherwise.
+        """
+        import json
+        from datetime import datetime
+
+        from mu.intelligence.models import Memory, MemoryCategory
+
+        self._ensure_memory_schema()
+
+        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", [memory_id]).fetchone()
+
+        if not row:
+            return None
+
+        # Update access tracking
+        now = datetime.now(UTC).isoformat()
+        self.conn.execute(
+            "UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
+            [now, memory_id],
+        )
+
+        # row: id, category, content, context, source, confidence,
+        #      importance, tags, embedding, created_at, updated_at,
+        #      accessed_at, access_count
+        # Note: Return incremented access_count (row[12] + 1) since we just updated it
+        return Memory(
+            id=row[0],
+            category=MemoryCategory(row[1]),
+            content=row[2],
+            context=row[3] or "",
+            source=row[4] or "",
+            confidence=row[5] or 1.0,
+            importance=row[6] or 1,
+            tags=json.loads(row[7]) if row[7] else [],
+            embedding=row[8],
+            created_at=row[9] or "",
+            updated_at=row[10] or "",
+            accessed_at=now,  # Use the current timestamp we just set
+            access_count=(row[12] or 0) + 1,  # Reflect the increment
+        )
+
+    def recall_memories(
+        self,
+        query: str | None = None,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        min_importance: int = 0,
+        limit: int = 10,
+    ) -> list[Any]:
+        """Recall memories based on search criteria.
+
+        Args:
+            query: Optional text search in content/context.
+            category: Optional category filter.
+            tags: Optional tags filter (any match).
+            min_importance: Minimum importance level.
+            limit: Maximum number of results.
+
+        Returns:
+            List of Memory objects.
+        """
+        import json
+        from datetime import datetime
+
+        from mu.intelligence.models import Memory, MemoryCategory
+
+        self._ensure_memory_schema()
+
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if category:
+            conditions.append("category = ?")
+            params.append(category)
+
+        if min_importance > 0:
+            conditions.append("importance >= ?")
+            params.append(min_importance)
+
+        if query:
+            conditions.append("(content LIKE ? OR context LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+
+        if tags:
+            # Check if any tag matches
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f'%"{tag}"%')
+            conditions.append(f"({' OR '.join(tag_conditions)})")
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        sql = f"""
+            SELECT * FROM memories
+            WHERE {where_clause}
+            ORDER BY importance DESC, access_count DESC, updated_at DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        rows = self.conn.execute(sql, params).fetchall()
+
+        # Update access tracking for retrieved memories
+        now = datetime.now(UTC).isoformat()
+        memory_ids = [row[0] for row in rows]
+        if memory_ids:
+            placeholders = ", ".join(["?"] * len(memory_ids))
+            self.conn.execute(
+                f"UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
+                [now, *memory_ids],
+            )
+
+        memories = []
+        for row in rows:
+            memories.append(
+                Memory(
+                    id=row[0],
+                    category=MemoryCategory(row[1]),
+                    content=row[2],
+                    context=row[3] or "",
+                    source=row[4] or "",
+                    confidence=row[5] or 1.0,
+                    importance=row[6] or 1,
+                    tags=json.loads(row[7]) if row[7] else [],
+                    embedding=row[8],
+                    created_at=row[9] or "",
+                    updated_at=row[10] or "",
+                    accessed_at=row[11],
+                    access_count=row[12] or 0,
+                )
+            )
+
+        return memories
+
+    def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory.
+
+        Args:
+            memory_id: The memory ID to delete.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        self._ensure_memory_schema()
+        self.conn.execute("DELETE FROM memories WHERE id = ?", [memory_id])
+        return True
+
+    def memory_stats(self) -> dict[str, Any]:
+        """Get memory statistics.
+
+        Returns:
+            Dictionary with memory counts and categories.
+        """
+        self._ensure_memory_schema()
+
+        result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+        total = result[0] if result else 0
+
+        by_category: dict[str, int] = {}
+        rows = self.conn.execute(
+            "SELECT category, COUNT(*) FROM memories GROUP BY category"
+        ).fetchall()
+        for row in rows:
+            by_category[row[0]] = row[1]
+
+        return {
+            "total_memories": total,
+            "memories_by_category": by_category,
+        }
+
+    def has_memories(self) -> bool:
+        """Check if any memories exist.
+
+        Returns:
+            True if memories exist, False otherwise.
+        """
+        try:
+            self._ensure_memory_schema()
+            result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+            return result is not None and result[0] > 0
+        except Exception:
+            return False
+
+    # =========================================================================
     # Incremental Update Methods (for daemon mode)
     # =========================================================================
 
@@ -937,6 +1449,155 @@ class MUbase:
         result = self.conn.execute("DELETE FROM edges WHERE id = ?", [edge_id])
         return result.rowcount > 0 if hasattr(result, "rowcount") else True
 
+    # =========================================================================
+    # Codebase Statistics Methods
+    # =========================================================================
+
+    def _ensure_codebase_stats_schema(self) -> None:
+        """Create codebase_stats table if it doesn't exist."""
+        from mu.kernel.schema import CODEBASE_STATS_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM codebase_stats LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(CODEBASE_STATS_SCHEMA_SQL)
+
+    def _compute_and_store_language_stats(self, modules: list[ModuleDef]) -> None:
+        """Compute language statistics from modules and store in database.
+
+        Args:
+            modules: List of parsed ModuleDef objects.
+        """
+        import json
+        from collections import Counter
+        from datetime import datetime
+
+        # Count files by language
+        languages: Counter[str] = Counter()
+        ext_map = {
+            ".py": "Python",
+            ".ts": "TypeScript",
+            ".tsx": "TypeScript",
+            ".js": "JavaScript",
+            ".jsx": "JavaScript",
+            ".go": "Go",
+            ".rs": "Rust",
+            ".java": "Java",
+            ".cs": "C#",
+            ".rb": "Ruby",
+            ".php": "PHP",
+            ".swift": "Swift",
+            ".kt": "Kotlin",
+            ".scala": "Scala",
+            ".cpp": "C++",
+            ".c": "C",
+            ".h": "C/C++ Header",
+            ".hpp": "C++ Header",
+        }
+
+        for module in modules:
+            # Get extension from file path
+            if module.path:
+                ext = "." + module.path.rsplit(".", 1)[-1] if "." in module.path else ""
+                lang = ext_map.get(ext.lower())
+                if lang:
+                    languages[lang] += 1
+
+        # Calculate percentages
+        total = sum(languages.values())
+        percentages: dict[str, float] = {}
+        if total > 0:
+            for lang, count in languages.items():
+                percentages[lang] = round(count / total * 100, 2)
+
+        # Determine primary language
+        primary_language = languages.most_common(1)[0][0] if languages else None
+
+        # Store in database
+        self._ensure_codebase_stats_schema()
+        now = datetime.now(UTC).isoformat()
+
+        stats_data = {
+            "languages": dict(languages),
+            "percentages": percentages,
+            "primary_language": primary_language,
+            "total_files": total,
+        }
+
+        # Delete existing and insert new
+        self.conn.execute("DELETE FROM codebase_stats WHERE key = 'languages'")
+        self.conn.execute(
+            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
+            ["languages", json.dumps(stats_data), now],
+        )
+
+    def get_language_stats(self) -> dict[str, Any]:
+        """Get stored language statistics.
+
+        Returns:
+            Dictionary with language distribution:
+            {
+                "languages": {"Python": 100, "C#": 784, ...},
+                "percentages": {"Python": 11.3, "C#": 88.7, ...},
+                "primary_language": "C#",
+                "total_files": 884
+            }
+        """
+        import json
+
+        self._ensure_codebase_stats_schema()
+
+        row = self.conn.execute(
+            "SELECT value FROM codebase_stats WHERE key = 'languages'"
+        ).fetchone()
+
+        if row:
+            result: dict[str, Any] = json.loads(row[0])
+            return result
+
+        return {
+            "languages": {},
+            "percentages": {},
+            "primary_language": None,
+            "total_files": 0,
+        }
+
+    def set_codebase_stat(self, key: str, value: Any) -> None:
+        """Store a codebase statistic.
+
+        Args:
+            key: Statistic key.
+            value: Value (must be JSON-serializable).
+        """
+        import json
+        from datetime import datetime
+
+        self._ensure_codebase_stats_schema()
+        now = datetime.now(UTC).isoformat()
+
+        self.conn.execute("DELETE FROM codebase_stats WHERE key = ?", [key])
+        self.conn.execute(
+            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
+            [key, json.dumps(value), now],
+        )
+
+    def get_codebase_stat(self, key: str) -> Any | None:
+        """Get a stored codebase statistic.
+
+        Args:
+            key: Statistic key.
+
+        Returns:
+            The stored value, or None if not found.
+        """
+        import json
+
+        self._ensure_codebase_stats_schema()
+
+        row = self.conn.execute("SELECT value FROM codebase_stats WHERE key = ?", [key]).fetchone()
+
+        return json.loads(row[0]) if row else None
+
     def close(self) -> None:
         """Close database connection."""
         self.conn.close()
@@ -952,4 +1613,6 @@ class MUbase:
 
 __all__ = [
     "MUbase",
+    "MUbaseCorruptionError",
+    "MUbaseLockError",
 ]

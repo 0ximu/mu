@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any
 
 from mu.kernel.muql.ast import (
+    AggregateComparison,
     AnalysisType,
     AnalyzeQuery,
     BlameQuery,
@@ -210,6 +211,18 @@ class QueryPlanner:
                 sql_parts.append(f"WHERE {where_sql}")
                 params.extend(where_params)
 
+        # GROUP BY clause
+        if query.group_by:
+            group_fields = [g.name for g in query.group_by]
+            sql_parts.append(f"GROUP BY {', '.join(group_fields)}")
+
+        # HAVING clause
+        if query.having:
+            having_sql, having_params = self._build_where_clause(query.having)
+            if having_sql:
+                sql_parts.append(f"HAVING {having_sql}")
+                params.extend(having_params)
+
         # ORDER BY clause
         if query.order_by:
             order_parts = []
@@ -307,14 +320,20 @@ class QueryPlanner:
             elif select_field.aggregate:
                 agg = select_field.aggregate.value.upper()
                 if select_field.is_star:
-                    parts.append(f"{agg}(*)")
-                    columns.append(f"{agg.lower()}_star")
+                    col_alias = select_field.alias or f"{agg.lower()}_star"
+                    parts.append(f"{agg}(*) AS {col_alias}")
+                    columns.append(col_alias)
                 else:
-                    parts.append(f"{agg}({select_field.name})")
-                    columns.append(f"{agg.lower()}_{select_field.name}")
+                    col_alias = select_field.alias or f"{agg.lower()}_{select_field.name}"
+                    parts.append(f"{agg}({select_field.name}) AS {col_alias}")
+                    columns.append(col_alias)
             else:
-                parts.append(select_field.name)
-                columns.append(select_field.name)
+                if select_field.alias:
+                    parts.append(f"{select_field.name} AS {select_field.alias}")
+                    columns.append(select_field.alias)
+                else:
+                    parts.append(select_field.name)
+                    columns.append(select_field.name)
 
         return ", ".join(parts)
 
@@ -334,9 +353,12 @@ class QueryPlanner:
         parts: list[str] = []
         params: list[Any] = []
 
-        # Handle direct comparisons
+        # Handle direct comparisons (Comparison or AggregateComparison)
         for comp in condition.comparisons:
-            sql, param = self._comparison_to_sql(comp)
+            if isinstance(comp, AggregateComparison):
+                sql, param = self._aggregate_comparison_to_sql(comp)
+            else:
+                sql, param = self._comparison_to_sql(comp)
             parts.append(sql)
             params.extend(param)
 
@@ -386,6 +408,34 @@ class QueryPlanner:
                 return f"{field} {op} ?", [comp.value.value]
 
         return "1=1", []
+
+    def _aggregate_comparison_to_sql(self, comp: AggregateComparison) -> tuple[str, list[Any]]:
+        """Convert an aggregate comparison to SQL for HAVING clause.
+
+        Examples:
+            COUNT(*) > 10 -> "COUNT(*) > ?"
+            AVG(complexity) >= 5 -> "AVG(complexity) >= ?"
+        """
+        agg_name = comp.aggregate.value.upper()
+
+        # Build aggregate expression
+        if comp.field == "*":
+            agg_expr = f"{agg_name}(*)"
+        else:
+            agg_expr = f"{agg_name}({comp.field})"
+
+        # Map operator
+        op_map = {
+            ComparisonOperator.EQ: "=",
+            ComparisonOperator.NEQ: "!=",
+            ComparisonOperator.GT: ">",
+            ComparisonOperator.LT: "<",
+            ComparisonOperator.GTE: ">=",
+            ComparisonOperator.LTE: "<=",
+        }
+        op = op_map.get(comp.operator, "=")
+
+        return f"{agg_expr} {op} ?", [comp.value.value]
 
     # -------------------------------------------------------------------------
     # SHOW Query Planning
@@ -449,11 +499,12 @@ class QueryPlanner:
         """
         cond = query.condition
         node_type = query.node_type
+        limit = query.limit
 
         # Pattern matching queries can use SQL
         if cond.condition_type == FindConditionType.MATCHING:
             pattern = cond.pattern or ""
-            sql = self._build_find_matching_sql(node_type, pattern)
+            sql = self._build_find_matching_sql(node_type, pattern, limit)
             return SQLPlan(
                 sql=sql,
                 parameters=[f"%{pattern}%"],
@@ -466,7 +517,7 @@ class QueryPlanner:
             FindConditionType.WITH_ANNOTATION,
         ):
             pattern = cond.pattern or ""
-            sql = self._build_find_decorator_sql(node_type, pattern)
+            sql = self._build_find_decorator_sql(node_type, pattern, limit)
             return SQLPlan(
                 sql=sql,
                 parameters=[f"%{pattern}%"],
@@ -480,34 +531,50 @@ class QueryPlanner:
         return GraphPlan(
             operation=operation,
             target_node=target,
-            extra_args={"node_type": node_type.value},
+            extra_args={"node_type": node_type.value, "limit": limit},
         )
 
-    def _build_find_matching_sql(self, node_type: NodeTypeFilter, pattern: str) -> str:
+    def _build_find_matching_sql(
+        self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
+    ) -> str:
         """Build SQL for FIND ... MATCHING query."""
         type_filter = ""
         if node_type != NodeTypeFilter.NODES:
             type_filter = f"type = '{node_type.value}' AND "
 
+        # Apply limit (capped at MAX_LIMIT)
+        limit_clause = ""
+        if limit is not None:
+            effective_limit = min(limit, MAX_LIMIT)
+            limit_clause = f"\nLIMIT {effective_limit}"
+
         return f"""
-SELECT id, name, type, path
+SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}name LIKE ?
-ORDER BY name
+ORDER BY name{limit_clause}
 """
 
-    def _build_find_decorator_sql(self, node_type: NodeTypeFilter, pattern: str) -> str:
+    def _build_find_decorator_sql(
+        self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
+    ) -> str:
         """Build SQL for FIND ... WITH DECORATOR query."""
         type_filter = ""
         if node_type != NodeTypeFilter.NODES:
             type_filter = f"type = '{node_type.value}' AND "
 
+        # Apply limit (capped at MAX_LIMIT)
+        limit_clause = ""
+        if limit is not None:
+            effective_limit = min(limit, MAX_LIMIT)
+            limit_clause = f"\nLIMIT {effective_limit}"
+
         # Decorators are stored in node metadata
         return f"""
-SELECT id, name, type, path
+SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}metadata LIKE ?
-ORDER BY name
+ORDER BY name{limit_clause}
 """
 
     def _find_condition_to_operation(self, condition_type: FindConditionType) -> str:

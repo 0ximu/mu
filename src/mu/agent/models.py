@@ -166,6 +166,8 @@ class GraphSummary:
         classes: Number of class nodes.
         functions: Number of function nodes.
         top_level_modules: List of top-level module names.
+        primary_language: Dominant language in the codebase.
+        languages: File counts by language.
     """
 
     node_count: int = 0
@@ -174,6 +176,8 @@ class GraphSummary:
     classes: int = 0
     functions: int = 0
     top_level_modules: list[str] = field(default_factory=list)
+    primary_language: str | None = None
+    languages: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -184,6 +188,8 @@ class GraphSummary:
             "classes": self.classes,
             "functions": self.functions,
             "top_level_modules": self.top_level_modules,
+            "primary_language": self.primary_language,
+            "languages": self.languages,
         }
 
     def to_text(self) -> str:
@@ -195,6 +201,14 @@ class GraphSummary:
             f"- Classes: {self.classes}",
             f"- Functions: {self.functions}",
         ]
+        if self.primary_language:
+            lines.append(f"- Primary Language: {self.primary_language}")
+        if self.languages:
+            lang_str = ", ".join(
+                f"{lang}: {count}"
+                for lang, count in sorted(self.languages.items(), key=lambda x: -x[1])[:5]
+            )
+            lines.append(f"- Languages: {lang_str}")
         if self.top_level_modules:
             modules_str = ", ".join(self.top_level_modules[:10])
             if len(self.top_level_modules) > 10:

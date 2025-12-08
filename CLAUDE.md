@@ -53,7 +53,7 @@ uv run mu q "SELECT..."        # Short alias
 uv run mu kernel muql -i       # Interactive REPL
 
 # Kernel/Temporal
-uv run mu kernel init .        # Initialize .mubase
+uv run mu kernel init .        # Initialize .mu/mubase
 uv run mu kernel build .       # Build graph from codebase
 uv run mu kernel stats         # Show graph statistics
 uv run mu kernel snapshot      # Create snapshot at HEAD
@@ -97,12 +97,16 @@ uv run mu mcp test             # Test MCP tools
 # MCP Bootstrap Flow (for agents)
 # 1. mu_status() → get next_action
 # 2. mu_init(".") → create .murc.toml (if needed)
-# 3. mu_build(".") → build .mubase graph
+# 3. mu_build(".") → build .mu/mubase graph
 # 4. mu_context("question") → query works!
 # 5. mu_semantic_diff("main", "HEAD") → PR review
 
+# Migration (legacy files to .mu/ directory)
+uv run mu migrate              # Migrate .mubase, .mu-cache/, etc. to .mu/
+uv run mu migrate --dry-run    # Show what would be migrated
+
 # Architecture Contracts
-uv run mu contracts init       # Create .mu-contracts.yml template
+uv run mu contracts init       # Create .mu/contracts.yml template
 uv run mu contracts verify     # Verify architectural rules
 
 # MU Agent (code structure specialist)
@@ -113,6 +117,23 @@ uv run mu agent deps NODE      # Show dependencies
 uv run mu agent impact NODE    # Show impact analysis
 uv run mu agent cycles         # Detect circular dependencies
 ```
+
+## Data Directory Structure
+
+All MU data files are stored in the `.mu/` directory:
+
+```
+.mu/
+├── mubase          # Graph database (DuckDB)
+├── mubase.wal      # DuckDB write-ahead log
+├── cache/          # File and LLM response cache
+├── contracts.yml   # Architecture contracts
+└── daemon.pid      # Daemon process ID file
+
+.murc.toml          # Configuration (stays at project root)
+```
+
+Use `mu migrate` to move legacy files (`.mubase`, `.mu-cache/`, etc.) to the new structure.
 
 ## Pipeline
 

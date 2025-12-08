@@ -160,6 +160,69 @@ CREATE INDEX IF NOT EXISTS idx_edge_history_change ON edge_history(change_type);
 """
 
 
+# Memory schema - persistent cross-session learnings
+MEMORY_SCHEMA_SQL = """
+-- Memories table: persistent learnings across sessions
+CREATE TABLE IF NOT EXISTS memories (
+    id VARCHAR PRIMARY KEY,
+    category VARCHAR NOT NULL,
+    content TEXT NOT NULL,
+    context TEXT,
+    source VARCHAR,
+    confidence REAL DEFAULT 1.0,
+    importance INTEGER DEFAULT 1,
+    tags JSON,
+    embedding FLOAT[],
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL,
+    accessed_at VARCHAR,
+    access_count INTEGER DEFAULT 0
+);
+
+-- Indexes for efficient memory retrieval
+CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memories_access_count ON memories(access_count DESC);
+"""
+
+
+# Patterns schema - detected codebase patterns
+PATTERNS_SCHEMA_SQL = """
+-- Patterns table: detected codebase patterns
+CREATE TABLE IF NOT EXISTS patterns (
+    id VARCHAR PRIMARY KEY,
+    category VARCHAR NOT NULL,
+    name VARCHAR NOT NULL,
+    description TEXT,
+    frequency INTEGER DEFAULT 0,
+    confidence REAL DEFAULT 0.0,
+    examples JSON,
+    anti_patterns JSON,
+    related_patterns JSON,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+
+-- Indexes for pattern queries
+CREATE INDEX IF NOT EXISTS idx_patterns_category ON patterns(category);
+CREATE INDEX IF NOT EXISTS idx_patterns_name ON patterns(name);
+CREATE INDEX IF NOT EXISTS idx_patterns_frequency ON patterns(frequency DESC);
+"""
+
+
+# Codebase stats schema - language distribution and metrics
+CODEBASE_STATS_SCHEMA_SQL = """
+-- Codebase statistics computed during build
+CREATE TABLE IF NOT EXISTS codebase_stats (
+    key VARCHAR PRIMARY KEY,
+    value JSON NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+"""
+
+
 __all__ = [
     "ChangeType",
     "NodeType",
@@ -167,4 +230,7 @@ __all__ = [
     "SCHEMA_SQL",
     "EMBEDDINGS_SCHEMA_SQL",
     "TEMPORAL_SCHEMA_SQL",
+    "MEMORY_SCHEMA_SQL",
+    "PATTERNS_SCHEMA_SQL",
+    "CODEBASE_STATS_SCHEMA_SQL",
 ]

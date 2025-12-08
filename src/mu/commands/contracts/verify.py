@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import CONTRACTS_FILE, get_contracts_path, get_mubase_path
+
 
 @click.command("verify")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -14,7 +16,7 @@ import click
     "--contract-file",
     "-c",
     type=click.Path(exists=True, path_type=Path),
-    help="Contract file (default: .mu-contracts.yml)",
+    help=f"Contract file (default: .mu/{CONTRACTS_FILE})",
 )
 @click.option(
     "--format",
@@ -44,7 +46,7 @@ def contracts_verify(
 ) -> None:
     """Verify architectural contracts against codebase.
 
-    Loads contracts from .mu-contracts.yml (or specified file) and
+    Loads contracts from .mu/contracts.yml (or specified file) and
     verifies them against the MUbase graph database.
 
     \b
@@ -62,16 +64,16 @@ def contracts_verify(
     from mu.kernel import MUbase
     from mu.logging import console, print_error, print_info, print_success, print_warning
 
-    # Find .mubase
-    mubase_path = path.resolve() / ".mubase"
+    # Find mubase
+    mubase_path = get_mubase_path(path)
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No mubase found at {mubase_path}")
         print_info("Run 'mu kernel build' first to create the graph database")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     # Find contract file
     if contract_file is None:
-        contract_file = path.resolve() / ".mu-contracts.yml"
+        contract_file = get_contracts_path(path)
 
     if not contract_file.exists():
         print_error(f"Contract file not found: {contract_file}")

@@ -55,6 +55,9 @@ dmypy.json
 .mubase.wal
 .mu.pid
 
+# Rust
+mu-daemon/target/
+
 # OS
 .DS_Store
 Thumbs.db

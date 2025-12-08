@@ -83,5 +83,5 @@ class TestCacheConfig:
         """Test cache default values."""
         config = MUConfig()
         assert config.cache.enabled is True
-        assert config.cache.directory == ".mu-cache"
+        assert config.cache.directory == ".mu/cache"  # New location within .mu/
         assert config.cache.ttl_hours == 168  # 1 week

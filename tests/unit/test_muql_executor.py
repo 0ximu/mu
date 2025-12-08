@@ -708,7 +708,6 @@ class TestShowExecutor:
 class TestFindExecutor:
     """Tests for FIND query execution."""
 
-    @pytest.mark.xfail(reason="Known bug: FIND MATCHING SQL uses 'path' instead of 'file_path'")
     def test_find_matching_pattern(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -728,7 +727,6 @@ class TestFindExecutor:
         names = [row[1] for row in result.rows]  # name is usually second column
         assert any("parse" in str(name) for name in names)
 
-    @pytest.mark.xfail(reason="Known bug: FIND MATCHING SQL uses 'path' instead of 'file_path'")
     def test_find_matching_underscore_prefix(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -843,7 +841,6 @@ class TestPathExecutor:
 class TestAnalyzeExecutor:
     """Tests for ANALYZE query execution."""
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE SQL uses 'path' instead of 'file_path'")
     def test_analyze_complexity(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -858,7 +855,6 @@ class TestAnalyzeExecutor:
         # Should return nodes ordered by complexity
         assert "complexity" in result.columns
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE SQL uses 'path' instead of 'file_path'")
     def test_analyze_complexity_with_target(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -872,7 +868,6 @@ class TestAnalyzeExecutor:
 
         assert result.is_success
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE coupling SQL uses 'n.path' instead of 'n.file_path'")
     def test_analyze_coupling(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -884,7 +879,7 @@ class TestAnalyzeExecutor:
         result = executor.execute(plan)
 
         assert result.is_success
-        assert "path" in result.columns or "dependencies" in result.columns
+        assert "file_path" in result.columns or "dependencies" in result.columns
 
     def test_analyze_circular(
         self, executor: QueryExecutor, planner: QueryPlanner
@@ -900,7 +895,6 @@ class TestAnalyzeExecutor:
         # Our test data has no circular dependencies
         assert result.row_count == 0
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE unused SQL uses 'n.path' instead of 'n.file_path'")
     def test_analyze_unused(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -913,7 +907,6 @@ class TestAnalyzeExecutor:
 
         assert result.is_success
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE hotspots SQL uses 'n.path' instead of 'n.file_path'")
     def test_analyze_hotspots(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:
@@ -1074,7 +1067,6 @@ class TestExecutorParserIntegration:
 
         assert result.is_success
 
-    @pytest.mark.xfail(reason="Known bug: ANALYZE SQL uses 'path' instead of 'file_path'")
     def test_parse_and_execute_analyze(
         self, executor: QueryExecutor, planner: QueryPlanner
     ) -> None:

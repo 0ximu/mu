@@ -7,14 +7,19 @@ DuckDB lock conflicts from concurrent access.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 import httpx
 
+# Suppress httpx INFO logs by default (HTTP request logs pollute CLI output)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 __all__ = ["DaemonClient", "is_daemon_running", "forward_query"]
 
-DEFAULT_DAEMON_URL = "http://localhost:8765"
+DEFAULT_DAEMON_URL = "http://localhost:9120"
 DEFAULT_TIMEOUT = 0.5
 
 
@@ -39,6 +44,33 @@ class DaemonClient:
             base_url=self.base_url,
             timeout=httpx.Timeout(self.timeout, connect=self.timeout),
         )
+
+    def _unwrap_response(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Unwrap response from Rust or Python daemon format.
+
+        The Rust daemon wraps all responses in:
+        {"success": bool, "data": {...}, "error": str|null, "duration_ms": int}
+
+        The Python daemon wraps responses in:
+        {"success": bool, "result": {...}, "error": str|null}
+
+        Args:
+            data: Raw response data.
+
+        Returns:
+            Unwrapped data dict.
+
+        Raises:
+            DaemonError: If success is False.
+        """
+        # Check if this is a wrapped response (Rust or Python daemon)
+        if "success" in data:
+            if not data.get("success"):
+                raise DaemonError(data.get("error", "Request failed"))
+            # Rust daemon uses "data", Python daemon uses "result"
+            return cast(dict[str, Any], data.get("data") or data.get("result", data))
+        # Some endpoints return data directly without wrapper
+        return data
 
     def is_running(self) -> bool:
         """Check if the daemon is running.
@@ -80,14 +112,13 @@ class DaemonClient:
             )
             response.raise_for_status()
             data = cast(dict[str, Any], response.json())
-            if not data.get("success"):
-                raise DaemonError(data.get("error", "Query failed"))
-            result = data.get("result", {})
-            return cast(dict[str, Any], result)
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Query failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Query error: {e}") from e
 
@@ -107,9 +138,12 @@ class DaemonClient:
             params = {"cwd": cwd} if cwd else {}
             response = self._client.get("/status", params=params)
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Status request failed: {e}") from e
 
@@ -148,9 +182,12 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Context request failed: {e}") from e
 
@@ -171,7 +208,8 @@ class DaemonClient:
             Impact result with node_id, impacted_nodes, count.
         """
         try:
-            payload: dict[str, Any] = {"node_id": node_id}
+            # Rust daemon uses 'node', Python daemon used 'node_id'
+            payload: dict[str, Any] = {"node": node_id}
             if edge_types:
                 payload["edge_types"] = edge_types
             if cwd:
@@ -182,11 +220,22 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list, normalize to expected dict format
+            if isinstance(result, list):
+                return {
+                    "node_id": node_id,
+                    "impacted_nodes": result,
+                    "count": len(result),
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Impact request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Impact error: {e}") from e
 
@@ -207,7 +256,8 @@ class DaemonClient:
             Ancestors result with node_id, ancestor_nodes, count.
         """
         try:
-            payload: dict[str, Any] = {"node_id": node_id}
+            # Rust daemon uses 'node', Python daemon used 'node_id'
+            payload: dict[str, Any] = {"node": node_id}
             if edge_types:
                 payload["edge_types"] = edge_types
             if cwd:
@@ -218,11 +268,22 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list, normalize to expected dict format
+            if isinstance(result, list):
+                return {
+                    "node_id": node_id,
+                    "ancestor_nodes": result,
+                    "count": len(result),
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Ancestors request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Ancestors error: {e}") from e
 
@@ -252,13 +313,98 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list of cycles, normalize to expected dict format
+            if isinstance(result, list):
+                total_nodes = sum(len(cycle) for cycle in result)
+                return {
+                    "cycles": result,
+                    "cycle_count": len(result),
+                    "total_nodes_in_cycles": total_nodes,
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Cycles request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Cycles error: {e}") from e
+
+    def node(self, node_id: str, cwd: str | None = None) -> dict[str, Any]:
+        """Get a node by ID.
+
+        Args:
+            node_id: Node ID (e.g., "mod:src/cli.py", "cls:src/auth.py:AuthService").
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Node information dict with id, name, type, file_path, line_start, line_end.
+
+        Raises:
+            DaemonError: If request fails or node not found.
+        """
+        try:
+            # URL-encode the node_id since it may contain special characters
+            import urllib.parse
+
+            encoded_id = urllib.parse.quote(node_id, safe="")
+            params = {"cwd": cwd} if cwd else {}
+            response = self._client.get(
+                f"/node/{encoded_id}",
+                params=params,
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Node request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
+        except Exception as e:
+            raise DaemonError(f"Node error: {e}") from e
+
+    def find_node(
+        self,
+        name: str,
+        cwd: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Find a node by name (fuzzy match).
+
+        Uses MUQL to search for nodes by name pattern.
+
+        Args:
+            name: Node name to search for.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            First matching node info, or None if not found.
+        """
+        try:
+            # First try exact name match
+            query = f"SELECT * FROM nodes WHERE name = '{name}' LIMIT 1"
+            result = self.query(query, cwd=cwd)
+            if result.get("rows"):
+                row = result["rows"][0]
+                cols = result.get("columns", [])
+                return dict(zip(cols, row, strict=False))
+
+            # Fall back to pattern match
+            query = f"SELECT * FROM nodes WHERE name LIKE '%{name}%' ORDER BY CASE WHEN name = '{name}' THEN 0 ELSE 1 END LIMIT 1"
+            result = self.query(query, cwd=cwd)
+            if result.get("rows"):
+                row = result["rows"][0]
+                cols = result.get("columns", [])
+                return dict(zip(cols, row, strict=False))
+
+            return None
+        except DaemonError:
+            return None
 
     def close(self) -> None:
         """Close the HTTP client."""

@@ -12,12 +12,14 @@ from mu.mcp.server import (
     DepsResult,
     NodeInfo,
     QueryResult,
+    ReviewDiffOutput,
+    SemanticDiffOutput,
+    ViolationInfo,
     create_server,
     mu_context,
     mu_deps,
-    mu_node,
     mu_query,
-    mu_search,
+    mu_review_diff,
     mu_status,
 )
 
@@ -125,7 +127,7 @@ class TestMuQuery:
         mock_get_client.side_effect = DaemonError("Daemon not running")
         mock_find_mubase.return_value = None
 
-        with pytest.raises(DaemonError, match="No .mubase found"):
+        with pytest.raises(DaemonError, match=r"No \.mu/mubase found"):
             mu_query("SELECT * FROM functions")
 
 
@@ -166,7 +168,7 @@ class TestMuContext:
         mock_get_client.side_effect = DaemonError("Daemon not running")
         mock_find_mubase.return_value = None
 
-        with pytest.raises(DaemonError, match="No .mubase found"):
+        with pytest.raises(DaemonError, match=r"No \.mu/mubase found"):
             mu_context("How does auth work?")
 
 
@@ -215,90 +217,6 @@ class TestMuDeps:
         # Should use SHOW dependents query
         call_args = mock_client.query.call_args[0][0]
         assert "dependents" in call_args.lower()
-
-
-class TestMuNode:
-    """Tests for mu_node tool."""
-
-    @patch("mu.mcp.server._get_client")
-    def test_node_found(self, mock_get_client: MagicMock) -> None:
-        """Test node lookup when node exists."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name", "file_path", "line_start", "complexity"],
-            "rows": [["func:test", "function", "test", "src/test.py", 10, 5]],
-            "row_count": 1,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
-
-        result = mu_node("func:test")
-
-        assert result.id == "func:test"
-        assert result.type == "function"
-        assert result.name == "test"
-        assert result.file_path == "src/test.py"
-
-    @patch("mu.mcp.server._get_client")
-    def test_node_not_found(self, mock_get_client: MagicMock) -> None:
-        """Test node lookup raises error when node not found."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name"],
-            "rows": [],
-            "row_count": 0,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
-
-        with pytest.raises(ValueError, match="Node not found"):
-            mu_node("nonexistent")
-
-
-class TestMuSearch:
-    """Tests for mu_search tool."""
-
-    @patch("mu.mcp.server._get_client")
-    def test_search_by_pattern(self, mock_get_client: MagicMock) -> None:
-        """Test search with name pattern."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name", "file_path", "line_start", "complexity"],
-            "rows": [
-                ["func:test_auth", "function", "test_auth", "tests/test_auth.py", 1, 10],
-                ["func:test_login", "function", "test_login", "tests/test_auth.py", 20, 5],
-            ],
-            "row_count": 2,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
-
-        result = mu_search("%test%", limit=10)
-
-        assert result.row_count == 2
-        assert len(result.rows) == 2
-
-    @patch("mu.mcp.server._get_client")
-    def test_search_with_type_filter(self, mock_get_client: MagicMock) -> None:
-        """Test search with node type filter."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name"],
-            "rows": [["class:UserService", "class", "UserService"]],
-            "row_count": 1,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
-
-        result = mu_search("%Service%", node_type="class")
-
-        # Verify query includes type filter
-        call_args = mock_client.query.call_args[0][0]
-        assert "type = 'class'" in call_args
 
 
 class TestMuStatus:
@@ -351,3 +269,209 @@ class TestServerCreation:
         from mu.mcp.server import mcp
 
         assert server is mcp
+
+
+class TestReviewDiffOutput:
+    """Tests for ReviewDiffOutput dataclass."""
+
+    def test_review_diff_output_creation(self) -> None:
+        """Test ReviewDiffOutput dataclass creation with all fields."""
+        output = ReviewDiffOutput(
+            base_ref="main",
+            head_ref="HEAD",
+            changes=[{"entity_name": "test", "change_type": "added"}],
+            breaking_changes=[],
+            has_breaking_changes=False,
+            total_changes=1,
+            violations=[],
+            patterns_checked=["snake_case_functions"],
+            files_checked=["src/test.py"],
+            error_count=0,
+            warning_count=0,
+            info_count=0,
+            patterns_valid=True,
+            review_summary="# Code Review: main → HEAD\n\n✅ Looks good!",
+            review_time_ms=100.0,
+        )
+        assert output.base_ref == "main"
+        assert output.head_ref == "HEAD"
+        assert output.total_changes == 1
+        assert output.patterns_valid is True
+        assert output.has_breaking_changes is False
+
+    def test_review_diff_output_with_violations(self) -> None:
+        """Test ReviewDiffOutput with pattern violations."""
+        violations = [
+            ViolationInfo(
+                file_path="src/test.py",
+                line_start=10,
+                line_end=10,
+                severity="warning",
+                rule="snake_case_functions",
+                message="Function uses camelCase",
+                suggestion="Use snake_case",
+                pattern_category="naming",
+            ),
+        ]
+        output = ReviewDiffOutput(
+            base_ref="develop",
+            head_ref="feature-branch",
+            changes=[],
+            breaking_changes=[],
+            has_breaking_changes=False,
+            total_changes=0,
+            violations=violations,
+            patterns_checked=["snake_case_functions"],
+            files_checked=["src/test.py"],
+            error_count=0,
+            warning_count=1,
+            info_count=0,
+            patterns_valid=True,
+            review_summary="Review with warnings",
+            review_time_ms=50.0,
+        )
+        assert len(output.violations) == 1
+        assert output.warning_count == 1
+        assert output.violations[0].rule == "snake_case_functions"
+
+
+class TestMuReviewDiff:
+    """Tests for mu_review_diff tool."""
+
+    @patch("mu.mcp.server.mu_semantic_diff")
+    def test_review_diff_basic(self, mock_semantic_diff: MagicMock) -> None:
+        """Test basic review diff without pattern validation."""
+        # Mock semantic diff result
+        mock_semantic_diff.return_value = SemanticDiffOutput(
+            base_ref="main",
+            head_ref="HEAD",
+            changes=[
+                {"entity_name": "new_func", "change_type": "added", "is_breaking": False}
+            ],
+            breaking_changes=[],
+            summary_text="1 change",
+            has_breaking_changes=False,
+            total_changes=1,
+        )
+
+        result = mu_review_diff("main", "HEAD", validate_patterns=False)
+
+        assert result.base_ref == "main"
+        assert result.head_ref == "HEAD"
+        assert result.total_changes == 1
+        assert result.has_breaking_changes is False
+        # No validation run
+        assert result.patterns_valid is True
+        assert len(result.violations) == 0
+        assert "Looks good" in result.review_summary
+
+    @patch("mu.mcp.server.mu_semantic_diff")
+    def test_review_diff_with_breaking_changes(
+        self, mock_semantic_diff: MagicMock
+    ) -> None:
+        """Test review diff detects breaking changes."""
+        mock_semantic_diff.return_value = SemanticDiffOutput(
+            base_ref="main",
+            head_ref="HEAD",
+            changes=[
+                {
+                    "entity_name": "removed_func",
+                    "change_type": "removed",
+                    "is_breaking": True,
+                }
+            ],
+            breaking_changes=[
+                {
+                    "entity_name": "removed_func",
+                    "change_type": "removed",
+                    "is_breaking": True,
+                }
+            ],
+            summary_text="1 breaking change",
+            has_breaking_changes=True,
+            total_changes=1,
+        )
+
+        result = mu_review_diff("main", "HEAD", validate_patterns=False)
+
+        assert result.has_breaking_changes is True
+        assert len(result.breaking_changes) == 1
+        assert "Breaking Changes" in result.review_summary
+        assert "Review breaking changes" in result.review_summary
+
+    @patch("subprocess.run")
+    @patch("mu.mcp.server._find_mubase")
+    @patch("mu.mcp.server.mu_semantic_diff")
+    def test_review_diff_with_pattern_validation(
+        self,
+        mock_semantic_diff: MagicMock,
+        mock_find_mubase: MagicMock,
+        mock_subprocess: MagicMock,
+    ) -> None:
+        """Test review diff with pattern validation enabled."""
+        # Mock semantic diff
+        mock_semantic_diff.return_value = SemanticDiffOutput(
+            base_ref="main",
+            head_ref="HEAD",
+            changes=[],
+            breaking_changes=[],
+            summary_text="No changes",
+            has_breaking_changes=False,
+            total_changes=0,
+        )
+
+        # Mock no mubase found (skip validation)
+        mock_find_mubase.return_value = None
+
+        result = mu_review_diff("main", "HEAD", validate_patterns=True)
+
+        # Should still succeed but with no files validated
+        assert result.patterns_valid is True
+        assert len(result.files_checked) == 0
+
+    @patch("mu.mcp.server.mu_semantic_diff")
+    def test_review_diff_summary_generation(
+        self, mock_semantic_diff: MagicMock
+    ) -> None:
+        """Test review summary is properly generated."""
+        mock_semantic_diff.return_value = SemanticDiffOutput(
+            base_ref="develop",
+            head_ref="feature-x",
+            changes=[
+                {"entity_name": "add1", "change_type": "added"},
+                {"entity_name": "add2", "change_type": "added"},
+                {"entity_name": "mod1", "change_type": "modified"},
+            ],
+            breaking_changes=[],
+            summary_text="3 changes",
+            has_breaking_changes=False,
+            total_changes=3,
+        )
+
+        result = mu_review_diff("develop", "feature-x", validate_patterns=False)
+
+        # Check summary contains expected sections
+        assert "Code Review: develop → feature-x" in result.review_summary
+        assert "Semantic Changes" in result.review_summary
+        assert "Total changes: 3" in result.review_summary
+        assert "Added: 2" in result.review_summary
+        assert "Recommendation" in result.review_summary
+
+    @patch("mu.mcp.server.mu_semantic_diff")
+    def test_review_diff_invalid_category(
+        self, mock_semantic_diff: MagicMock
+    ) -> None:
+        """Test review diff raises error for invalid pattern category."""
+        mock_semantic_diff.return_value = SemanticDiffOutput(
+            base_ref="main",
+            head_ref="HEAD",
+            changes=[],
+            breaking_changes=[],
+            summary_text="",
+            has_breaking_changes=False,
+            total_changes=0,
+        )
+
+        # Invalid category should raise ValueError
+        with pytest.raises(ValueError, match="Invalid pattern_category"):
+            mu_review_diff("main", "HEAD", pattern_category="invalid_category")

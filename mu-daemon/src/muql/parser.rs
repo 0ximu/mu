@@ -34,6 +34,8 @@ pub struct SelectQuery {
     pub fields: Vec<SelectField>,
     pub node_type: NodeTypeFilter,
     pub where_clause: Option<Condition>,
+    pub group_by: Vec<String>,
+    pub having_clause: Option<Condition>,
     pub order_by: Vec<OrderField>,
     pub limit: Option<usize>,
 }
@@ -42,6 +44,7 @@ pub struct SelectQuery {
 pub struct SelectField {
     pub name: String,
     pub aggregate: Option<AggregateFunc>,
+    pub alias: Option<String>,
     pub is_star: bool,
 }
 
@@ -228,6 +231,10 @@ fn parse_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     match statement.as_rule() {
         Rule::select_query => Ok(Query::Select(parse_select_query(statement)?)),
         Rule::show_query => Ok(Query::Show(parse_show_query(statement)?)),
+        Rule::show_tables_query => Ok(Query::Describe(DescribeQuery {
+            target: DescribeTarget::Tables,
+        })),
+        Rule::show_columns_query => Ok(Query::Describe(parse_show_columns_query(statement)?)),
         Rule::find_query => Ok(Query::Find(parse_find_query(statement)?)),
         Rule::find_cycles_query => Ok(Query::FindCycles(parse_find_cycles_query(statement)?)),
         Rule::path_query => Ok(Query::Path(parse_path_query(statement)?)),
@@ -241,6 +248,8 @@ fn parse_select_query(pair: pest::iterators::Pair<Rule>) -> Result<SelectQuery, 
     let mut fields = Vec::new();
     let mut node_type = NodeTypeFilter::Nodes;
     let mut where_clause = None;
+    let mut group_by = Vec::new();
+    let mut having_clause = None;
     let mut order_by = Vec::new();
     let mut limit = None;
 
@@ -254,6 +263,12 @@ fn parse_select_query(pair: pest::iterators::Pair<Rule>) -> Result<SelectQuery, 
             }
             Rule::where_clause => {
                 where_clause = Some(parse_where_clause(inner)?);
+            }
+            Rule::group_by_clause => {
+                group_by = parse_group_by_clause(inner)?;
+            }
+            Rule::having_clause => {
+                having_clause = Some(parse_having_clause(inner)?);
             }
             Rule::order_clause => {
                 order_by = parse_order_clause(inner)?;
@@ -269,6 +284,8 @@ fn parse_select_query(pair: pest::iterators::Pair<Rule>) -> Result<SelectQuery, 
         fields,
         node_type,
         where_clause,
+        group_by,
+        having_clause,
         order_by,
         limit,
     })
@@ -283,6 +300,7 @@ fn parse_select_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<SelectFiel
                 fields.push(SelectField {
                     name: "*".to_string(),
                     aggregate: None,
+                    alias: None,
                     is_star: true,
                 });
             }
@@ -299,41 +317,54 @@ fn parse_select_list(pair: pest::iterators::Pair<Rule>) -> Result<Vec<SelectFiel
 }
 
 fn parse_field(pair: pest::iterators::Pair<Rule>) -> Result<SelectField, ParseError> {
-    let inner = pair.into_inner().next()
-        .ok_or_else(|| ParseError::Syntax("Empty field".to_string()))?;
+    let mut agg = None;
+    let mut name = String::new();
+    let mut alias = None;
+    let mut is_star = false;
 
-    match inner.as_rule() {
-        Rule::aggregate_fn => {
-            let mut agg = None;
-            let mut name = String::new();
-
-            for part in inner.into_inner() {
-                match part.as_rule() {
-                    Rule::COUNT => agg = Some(AggregateFunc::Count),
-                    Rule::AVG => agg = Some(AggregateFunc::Avg),
-                    Rule::MAX => agg = Some(AggregateFunc::Max),
-                    Rule::MIN => agg = Some(AggregateFunc::Min),
-                    Rule::SUM => agg = Some(AggregateFunc::Sum),
-                    Rule::STAR => name = "*".to_string(),
-                    Rule::identifier => name = part.as_str().to_string(),
-                    _ => {}
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::aggregate_fn => {
+                for part in inner.into_inner() {
+                    match part.as_rule() {
+                        Rule::COUNT => agg = Some(AggregateFunc::Count),
+                        Rule::AVG => agg = Some(AggregateFunc::Avg),
+                        Rule::MAX => agg = Some(AggregateFunc::Max),
+                        Rule::MIN => agg = Some(AggregateFunc::Min),
+                        Rule::SUM => agg = Some(AggregateFunc::Sum),
+                        Rule::STAR => {
+                            name = "*".to_string();
+                            is_star = true;
+                        }
+                        Rule::identifier => name = part.as_str().to_string(),
+                        _ => {}
+                    }
                 }
             }
-
-            let is_star = name == "*";
-            Ok(SelectField {
-                name,
-                aggregate: agg,
-                is_star,
-            })
+            Rule::identifier => {
+                name = inner.as_str().to_string();
+            }
+            Rule::alias_clause => {
+                for part in inner.into_inner() {
+                    if part.as_rule() == Rule::identifier {
+                        alias = Some(part.as_str().to_string());
+                    }
+                }
+            }
+            _ => {}
         }
-        Rule::identifier => Ok(SelectField {
-            name: inner.as_str().to_string(),
-            aggregate: None,
-            is_star: false,
-        }),
-        _ => Err(ParseError::Syntax(format!("Unknown field type: {:?}", inner.as_rule()))),
     }
+
+    if name.is_empty() {
+        return Err(ParseError::Syntax("Empty field".to_string()));
+    }
+
+    Ok(SelectField {
+        name,
+        aggregate: agg,
+        alias,
+        is_star,
+    })
 }
 
 fn parse_node_type(pair: pest::iterators::Pair<Rule>) -> Result<NodeTypeFilter, ParseError> {
@@ -392,6 +423,25 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Comparison, Par
     for inner in pair.into_inner() {
         match inner.as_rule() {
             Rule::identifier => field = inner.as_str().to_string(),
+            Rule::aggregate_fn => {
+                // Handle aggregate functions in comparisons (for HAVING clause)
+                let mut agg_name = String::new();
+                let mut agg_field = String::new();
+
+                for part in inner.into_inner() {
+                    match part.as_rule() {
+                        Rule::COUNT => agg_name = "COUNT".to_string(),
+                        Rule::AVG => agg_name = "AVG".to_string(),
+                        Rule::MAX => agg_name = "MAX".to_string(),
+                        Rule::MIN => agg_name = "MIN".to_string(),
+                        Rule::SUM => agg_name = "SUM".to_string(),
+                        Rule::STAR => agg_field = "*".to_string(),
+                        Rule::identifier => agg_field = part.as_str().to_string(),
+                        _ => {}
+                    }
+                }
+                field = format!("{}({})", agg_name, agg_field);
+            }
             Rule::comparison_op => {
                 op = match inner.as_str() {
                     "=" => ComparisonOp::Eq,
@@ -483,6 +533,29 @@ fn parse_limit_clause(pair: pest::iterators::Pair<Rule>) -> Result<usize, ParseE
         }
     }
     Ok(100) // Default
+}
+
+fn parse_group_by_clause(pair: pest::iterators::Pair<Rule>) -> Result<Vec<String>, ParseError> {
+    let mut fields = Vec::new();
+
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::group_field {
+            for part in inner.into_inner() {
+                if part.as_rule() == Rule::identifier {
+                    fields.push(part.as_str().to_string());
+                }
+            }
+        }
+    }
+
+    Ok(fields)
+}
+
+fn parse_having_clause(pair: pest::iterators::Pair<Rule>) -> Result<Condition, ParseError> {
+    let inner = pair.into_inner().next()
+        .ok_or_else(|| ParseError::Syntax("Empty having clause".to_string()))?;
+
+    parse_condition(inner)
 }
 
 fn parse_show_query(pair: pest::iterators::Pair<Rule>) -> Result<ShowQuery, ParseError> {
@@ -743,6 +816,23 @@ fn parse_describe_query(pair: pest::iterators::Pair<Rule>) -> Result<DescribeQue
     Ok(DescribeQuery { target })
 }
 
+fn parse_show_columns_query(pair: pest::iterators::Pair<Rule>) -> Result<DescribeQuery, ParseError> {
+    // SHOW COLUMNS FROM <node_type> -> DescribeQuery with Columns target
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::node_type {
+            let nt = parse_node_type(inner)?;
+            return Ok(DescribeQuery {
+                target: DescribeTarget::Columns(nt),
+            });
+        }
+    }
+
+    // Fallback to Tables if no node_type found (shouldn't happen with valid grammar)
+    Ok(DescribeQuery {
+        target: DescribeTarget::Tables,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -792,6 +882,133 @@ mod tests {
                 assert!(f.edge_types.is_none());
             }
             _ => panic!("Expected FindCycles query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by() {
+        let q = parse("SELECT type, COUNT(*) FROM nodes GROUP BY type").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert_eq!(s.fields.len(), 2);
+                assert_eq!(s.fields[0].name, "type");
+                assert!(s.fields[1].aggregate.is_some());
+                assert_eq!(s.group_by.len(), 1);
+                assert_eq!(s.group_by[0], "type");
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_group_by_multiple() {
+        let q = parse("SELECT file_path, type, COUNT(*) FROM functions GROUP BY file_path, type").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert_eq!(s.group_by.len(), 2);
+                assert_eq!(s.group_by[0], "file_path");
+                assert_eq!(s.group_by[1], "type");
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_having() {
+        let q = parse("SELECT type, COUNT(*) FROM nodes GROUP BY type HAVING COUNT(*) > 10").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert!(!s.group_by.is_empty());
+                assert!(s.having_clause.is_some());
+                let having = s.having_clause.unwrap();
+                assert_eq!(having.comparisons.len(), 1);
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_alias() {
+        let q = parse("SELECT name AS function_name FROM functions").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert_eq!(s.fields[0].name, "name");
+                assert_eq!(s.fields[0].alias, Some("function_name".to_string()));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_aggregate_alias() {
+        let q = parse("SELECT COUNT(*) AS total FROM classes").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert!(s.fields[0].aggregate.is_some());
+                assert_eq!(s.fields[0].alias, Some("total".to_string()));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_complex_query() {
+        let q = parse("SELECT file_path, AVG(complexity) AS avg_complexity FROM functions WHERE complexity > 5 GROUP BY file_path HAVING AVG(complexity) > 10 ORDER BY avg_complexity DESC LIMIT 20").unwrap();
+        match q {
+            Query::Select(s) => {
+                assert_eq!(s.fields.len(), 2);
+                assert_eq!(s.fields[1].alias, Some("avg_complexity".to_string()));
+                assert!(s.where_clause.is_some());
+                assert_eq!(s.group_by.len(), 1);
+                assert!(s.having_clause.is_some());
+                assert_eq!(s.order_by.len(), 1);
+                assert!(s.order_by[0].descending);
+                assert_eq!(s.limit, Some(20));
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_tables() {
+        let q = parse("SHOW TABLES").unwrap();
+        match q {
+            Query::Describe(d) => {
+                assert!(matches!(d.target, DescribeTarget::Tables));
+            }
+            _ => panic!("Expected Describe query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_columns() {
+        let q = parse("SHOW COLUMNS FROM functions").unwrap();
+        match q {
+            Query::Describe(d) => {
+                match d.target {
+                    DescribeTarget::Columns(nt) => {
+                        assert_eq!(nt, NodeTypeFilter::Functions);
+                    }
+                    _ => panic!("Expected Columns target"),
+                }
+            }
+            _ => panic!("Expected Describe query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_columns_classes() {
+        let q = parse("SHOW COLUMNS FROM classes").unwrap();
+        match q {
+            Query::Describe(d) => {
+                match d.target {
+                    DescribeTarget::Columns(nt) => {
+                        assert_eq!(nt, NodeTypeFilter::Classes);
+                    }
+                    _ => panic!("Expected Columns target"),
+                }
+            }
+            _ => panic!("Expected Describe query"),
         }
     }
 }

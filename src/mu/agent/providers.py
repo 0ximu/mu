@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
-from mu.agent.tools import TOOL_DEFINITIONS, execute_tool, format_tool_result
+from mu.agent.tools import TOOL_DEFINITIONS
 
 # OpenAI-format tool definitions (converted from Anthropic format)
 OPENAI_TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -67,6 +67,12 @@ class LLMProvider(ABC):
         """Format an assistant message for the provider's API."""
         pass
 
+    @property
+    @abstractmethod
+    def tool_definitions(self) -> list[dict[str, Any]]:
+        """Return the tool definitions in the provider's format."""
+        pass
+
 
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude provider."""
@@ -80,7 +86,7 @@ class AnthropicProvider(LLMProvider):
             api_key = os.environ.get("ANTHROPIC_API_KEY")
             if not api_key:
                 raise ValueError("ANTHROPIC_API_KEY not set")
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic  # type: ignore[import-not-found,unused-ignore]
 
             self._client = anthropic.Anthropic(api_key=api_key)
         return self._client
@@ -162,7 +168,7 @@ class OpenAIProvider(LLMProvider):
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("OPENAI_API_KEY not set")
-            import openai  # type: ignore[import-not-found]
+            import openai  # type: ignore[import-not-found,unused-ignore]
 
             self._client = openai.OpenAI(api_key=api_key)
         return self._client

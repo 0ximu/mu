@@ -9,6 +9,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from mu.paths import CACHE_DIR, MU_DIR
+
 
 class ScannerConfig(BaseModel):
     """Scanner configuration."""
@@ -26,7 +28,7 @@ class ScannerConfig(BaseModel):
             "*.min.js",
             "*.bundle.js",
             "*.lock",
-            ".mu-cache/",
+            f"{MU_DIR}/",  # .mu/ directory
         ],
         description="Glob patterns to ignore during scanning",
     )
@@ -150,8 +152,8 @@ class CacheConfig(BaseModel):
         description="Enable file and LLM response caching",
     )
     directory: str = Field(
-        default=".mu-cache",
-        description="Cache directory path",
+        default=f"{MU_DIR}/{CACHE_DIR}",
+        description="Cache directory path (relative to project root)",
     )
     ttl_hours: int = Field(
         default=168,
@@ -264,7 +266,7 @@ class MUConfig(BaseSettings):
 
 def get_default_config_toml() -> str:
     """Generate default .murc.toml content."""
-    return """# MU Configuration
+    return f"""# MU Configuration
 # https://github.com/dominaite/mu
 
 [mu]
@@ -283,7 +285,7 @@ ignore = [
     "*.min.js",
     "*.bundle.js",
     "*.lock",
-    ".mu-cache/",
+    "{MU_DIR}/",  # MU data directory
 ]
 include_hidden = false
 max_file_size_kb = 1000
@@ -321,7 +323,7 @@ shell_safe = false
 
 [cache]
 enabled = true
-directory = ".mu-cache"
+directory = "{MU_DIR}/{CACHE_DIR}"  # Cache within .mu/ directory
 ttl_hours = 168  # 1 week
 
 [embeddings]

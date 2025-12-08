@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 import click
 
+from mu.paths import get_mubase_path
+
 if TYPE_CHECKING:
     from mu.cli import MUContext
 
@@ -17,7 +19,7 @@ if TYPE_CHECKING:
     "--output",
     "-o",
     type=click.Path(path_type=Path),
-    help="Output .mubase file (default: {path}/.mubase)",
+    help="Output .mubase file (default: {path}/.mu/mubase)",
 )
 @click.pass_obj
 def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
@@ -36,7 +38,7 @@ def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
         ctx.config = MUConfig()
 
     root_path = path.resolve()
-    mubase_path = output or (root_path / ".mubase")
+    mubase_path = output or get_mubase_path(root_path)
 
     # Scan codebase
     print_info(f"Scanning {root_path}...")

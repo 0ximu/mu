@@ -5,6 +5,7 @@ Uses Lark for parsing and transforms parse trees into AST dataclasses.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from lark import Lark, Token, Transformer
 from lark.exceptions import LarkError, UnexpectedCharacters, UnexpectedToken
 
 from mu.kernel.muql.ast import (
+    AggregateComparison,
     AggregateFunction,
     AnalysisType,
     AnalyzeQuery,
@@ -26,6 +28,7 @@ from mu.kernel.muql.ast import (
     FindCondition,
     FindConditionType,
     FindQuery,
+    GroupByField,
     HistoryQuery,
     NodeRef,
     NodeTypeFilter,
@@ -117,18 +120,25 @@ class MUQLTransformer(Transformer[Token, Any]):
         return Comparison(field=str(field), operator=op, value=value)
 
     def in_comparison(self, items: list[Any]) -> Comparison:
-        field, values = items
+        # items: [IDENTIFIER, value_list] - IN_KW is filtered out by Lark
+        field = items[0]
+        values = items[-1]  # value_list is always last
         return Comparison(field=str(field), operator=ComparisonOperator.IN, value=values)
 
     def not_in_comparison(self, items: list[Any]) -> Comparison:
-        field, values = items
+        # items: [IDENTIFIER, NOT_KW, value_list] - NOT_KW token may be present
+        # Extract field (first item) and values (last item, which is the value_list)
+        field = items[0]
+        values = items[-1]  # value_list is always last
         return Comparison(field=str(field), operator=ComparisonOperator.NOT_IN, value=values)
 
     def contains_comparison(self, items: list[Any]) -> Comparison:
-        field, value = items
+        # items: [IDENTIFIER, value] - CONTAINS_KW is filtered out by Lark
+        field = items[0]
+        value = items[-1]  # value is always last
         return Comparison(field=str(field), operator=ComparisonOperator.CONTAINS, value=value)
 
-    def grouped_condition(self, items: list[Any]) -> Comparison:
+    def grouped_condition(self, items: list[Any]) -> Comparison | AggregateComparison:
         condition = items[0]
         if isinstance(condition, Condition) and condition.comparisons:
             return condition.comparisons[0]
@@ -137,13 +147,74 @@ class MUQLTransformer(Transformer[Token, Any]):
         )
 
     # -------------------------------------------------------------------------
+    # Aggregate Expressions (for HAVING clause)
+    # -------------------------------------------------------------------------
+
+    def agg_count_star(self, items: list[Any]) -> tuple[AggregateFunction, str]:
+        """COUNT(*) aggregate expression."""
+        return (AggregateFunction.COUNT, "*")
+
+    def agg_count_field(self, items: list[Token]) -> tuple[AggregateFunction, str]:
+        """COUNT(field) aggregate expression."""
+        # Find IDENTIFIER token (skip COUNT_KW)
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                return (AggregateFunction.COUNT, str(item))
+        return (AggregateFunction.COUNT, "*")
+
+    def agg_avg_field(self, items: list[Token]) -> tuple[AggregateFunction, str]:
+        """AVG(field) aggregate expression."""
+        # Find IDENTIFIER token (skip AVG_KW)
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                return (AggregateFunction.AVG, str(item))
+        return (AggregateFunction.AVG, "*")
+
+    def agg_max_field(self, items: list[Token]) -> tuple[AggregateFunction, str]:
+        """MAX(field) aggregate expression."""
+        # Find IDENTIFIER token (skip MAX_KW)
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                return (AggregateFunction.MAX, str(item))
+        return (AggregateFunction.MAX, "*")
+
+    def agg_min_field(self, items: list[Token]) -> tuple[AggregateFunction, str]:
+        """MIN(field) aggregate expression."""
+        # Find IDENTIFIER token (skip MIN_KW)
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                return (AggregateFunction.MIN, str(item))
+        return (AggregateFunction.MIN, "*")
+
+    def agg_sum_field(self, items: list[Token]) -> tuple[AggregateFunction, str]:
+        """SUM(field) aggregate expression."""
+        # Find IDENTIFIER token (skip SUM_KW)
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                return (AggregateFunction.SUM, str(item))
+        return (AggregateFunction.SUM, "*")
+
+    def aggregate_expr(
+        self, items: list[tuple[AggregateFunction, str]]
+    ) -> tuple[AggregateFunction, str]:
+        """Pass through aggregate expression tuple."""
+        return items[0]
+
+    def aggregate_comparison(self, items: list[Any]) -> AggregateComparison:
+        """Transform aggregate comparison like COUNT(*) > 10."""
+        # items: [aggregate_expr (tuple), comparison_op, value]
+        agg_tuple, op, value = items
+        agg_func, field = agg_tuple
+        return AggregateComparison(aggregate=agg_func, field=field, operator=op, value=value)
+
+    # -------------------------------------------------------------------------
     # Conditions (AND/OR)
     # -------------------------------------------------------------------------
 
     def and_condition(self, items: list[Any]) -> Condition:
-        flat_comparisons: list[Comparison] = []
+        flat_comparisons: list[Comparison | AggregateComparison] = []
         for item in items:
-            if isinstance(item, Comparison):
+            if isinstance(item, (Comparison, AggregateComparison)):
                 flat_comparisons.append(item)
             elif isinstance(item, Condition):
                 flat_comparisons.extend(item.comparisons)
@@ -158,32 +229,77 @@ class MUQLTransformer(Transformer[Token, Any]):
     # SELECT Fields
     # -------------------------------------------------------------------------
 
-    def field(self, items: list[Token]) -> SelectField:
-        return SelectField(name=str(items[0]))
+    def _extract_alias(self, items: list[Any]) -> str | None:
+        """Extract alias from items if AS_KW is present."""
+        # Look for AS_KW followed by IDENTIFIER
+        for i, item in enumerate(items):
+            if isinstance(item, Token) and item.type == "AS_KW" and i + 1 < len(items):
+                next_item = items[i + 1]
+                if isinstance(next_item, Token) and next_item.type == "IDENTIFIER":
+                    return str(next_item)
+        return None
 
-    def count_star(self, items: list[Token]) -> SelectField:
-        return SelectField(name="*", aggregate=AggregateFunction.COUNT, is_star=True)
+    def named_field(self, items: list[Any]) -> SelectField:
+        # Items: [IDENTIFIER] or [IDENTIFIER, AS_KW, IDENTIFIER] (with possible Nones)
+        name = str(items[0])
+        alias = self._extract_alias(items)
+        return SelectField(name=name, alias=alias)
 
-    def count_field(self, items: list[Token]) -> SelectField:
-        # Items: [COUNT_KW, IDENTIFIER]
-        field_name = str(items[-1])  # Last item is the field name
-        return SelectField(name=field_name, aggregate=AggregateFunction.COUNT)
+    def count_star(self, items: list[Any]) -> SelectField:
+        # Items: [] or [AS_KW, IDENTIFIER] (with possible Nones)
+        alias = self._extract_alias(items)
+        return SelectField(name="*", aggregate=AggregateFunction.COUNT, is_star=True, alias=alias)
 
-    def avg_field(self, items: list[Token]) -> SelectField:
-        field_name = str(items[-1])
-        return SelectField(name=field_name, aggregate=AggregateFunction.AVG)
+    def count_field(self, items: list[Any]) -> SelectField:
+        # Items: [COUNT_KW, IDENTIFIER, None?, None?] or [COUNT_KW, IDENTIFIER, AS_KW, IDENTIFIER]
+        # Find the field name (first IDENTIFIER after COUNT_KW)
+        field_name = None
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                field_name = str(item)
+                break
+        alias = self._extract_alias(items)
+        return SelectField(name=field_name or "*", aggregate=AggregateFunction.COUNT, alias=alias)
 
-    def max_agg_field(self, items: list[Token]) -> SelectField:
-        field_name = str(items[-1])
-        return SelectField(name=field_name, aggregate=AggregateFunction.MAX)
+    def avg_field(self, items: list[Any]) -> SelectField:
+        # Items: [AVG_KW, IDENTIFIER, ...optional alias...]
+        field_name = None
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                field_name = str(item)
+                break
+        alias = self._extract_alias(items)
+        return SelectField(name=field_name or "*", aggregate=AggregateFunction.AVG, alias=alias)
 
-    def min_agg_field(self, items: list[Token]) -> SelectField:
-        field_name = str(items[-1])
-        return SelectField(name=field_name, aggregate=AggregateFunction.MIN)
+    def max_agg_field(self, items: list[Any]) -> SelectField:
+        # Items: [MAX_KW, IDENTIFIER, ...optional alias...]
+        field_name = None
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                field_name = str(item)
+                break
+        alias = self._extract_alias(items)
+        return SelectField(name=field_name or "*", aggregate=AggregateFunction.MAX, alias=alias)
 
-    def sum_field(self, items: list[Token]) -> SelectField:
-        field_name = str(items[-1])
-        return SelectField(name=field_name, aggregate=AggregateFunction.SUM)
+    def min_agg_field(self, items: list[Any]) -> SelectField:
+        # Items: [MIN_KW, IDENTIFIER, ...optional alias...]
+        field_name = None
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                field_name = str(item)
+                break
+        alias = self._extract_alias(items)
+        return SelectField(name=field_name or "*", aggregate=AggregateFunction.MIN, alias=alias)
+
+    def sum_field(self, items: list[Any]) -> SelectField:
+        # Items: [SUM_KW, IDENTIFIER, ...optional alias...]
+        field_name = None
+        for item in items:
+            if isinstance(item, Token) and item.type == "IDENTIFIER":
+                field_name = str(item)
+                break
+        alias = self._extract_alias(items)
+        return SelectField(name=field_name or "*", aggregate=AggregateFunction.SUM, alias=alias)
 
     def field_list(self, items: list[SelectField]) -> list[SelectField]:
         return items
@@ -242,6 +358,35 @@ class MUQLTransformer(Transformer[Token, Any]):
         return Condition(comparisons=[], operator="and")
 
     # -------------------------------------------------------------------------
+    # GROUP BY
+    # -------------------------------------------------------------------------
+
+    def group_field(self, items: list[Token]) -> GroupByField:
+        """Extract a GROUP BY field name."""
+        return GroupByField(name=str(items[0]))
+
+    def group_by_clause(self, items: list[Any]) -> list[GroupByField]:
+        """Transform GROUP BY clause to list of GroupByField."""
+        # items: [GROUP_KW, BY_KW, group_field, ...]
+        result: list[GroupByField] = []
+        for item in items:
+            if isinstance(item, GroupByField):
+                result.append(item)
+        return result
+
+    # -------------------------------------------------------------------------
+    # HAVING
+    # -------------------------------------------------------------------------
+
+    def having_clause(self, items: list[Any]) -> Condition:
+        """Transform HAVING clause to Condition."""
+        # items: [HAVING_KW, condition]
+        for item in items:
+            if isinstance(item, Condition):
+                return item
+        return Condition(comparisons=[], operator="and")
+
+    # -------------------------------------------------------------------------
     # Node Types
     # -------------------------------------------------------------------------
 
@@ -265,14 +410,19 @@ class MUQLTransformer(Transformer[Token, Any]):
     # -------------------------------------------------------------------------
 
     def select_query(self, items: list[Any]) -> SelectQuery:
-        # Items: [SELECT_KW, select_list, FROM_KW, node_type, where?, temporal?, order_by?, limit?]
+        # Items: [SELECT_KW, select_list, FROM_KW, node_type, where?, temporal?, group_by?, having?, order_by?, limit?]
         # Filter out keyword tokens and None values
         fields: list[SelectField] = []
         node_type: NodeTypeFilter = NodeTypeFilter.NODES
         where: Condition | None = None
         temporal: TemporalClause | None = None
+        group_by: list[GroupByField] = []
+        having: Condition | None = None
         order_by: list[OrderByField] = []
         limit: int | None = None
+
+        # Track if we've seen group_by to distinguish where from having
+        seen_group_by = False
 
         for item in items:
             if item is None:
@@ -285,12 +435,19 @@ class MUQLTransformer(Transformer[Token, Any]):
                     fields = item
                 elif item and isinstance(item[0], OrderByField):
                     order_by = item
+                elif item and isinstance(item[0], GroupByField):
+                    group_by = item
+                    seen_group_by = True
             elif isinstance(item, SelectField):
                 fields = [item]
             elif isinstance(item, NodeTypeFilter):
                 node_type = item
             elif isinstance(item, Condition):
-                where = item
+                # Condition can be WHERE or HAVING - HAVING comes after GROUP BY
+                if seen_group_by and having is None:
+                    having = item
+                else:
+                    where = item
             elif isinstance(item, TemporalClause):
                 temporal = item
             elif isinstance(item, int):
@@ -301,6 +458,8 @@ class MUQLTransformer(Transformer[Token, Any]):
             node_type=node_type,
             where=where,
             temporal=temporal,
+            group_by=group_by,
+            having=having,
             order_by=order_by,
             limit=limit,
         )
@@ -547,9 +706,10 @@ class MUQLTransformer(Transformer[Token, Any]):
         return FindCondition(condition_type=FindConditionType.MATCHING, pattern="")
 
     def find_query(self, items: list[Any]) -> FindQuery:
-        # Items: [FIND_KW, find_node_type, find_condition]
+        # Items: [FIND_KW, find_node_type, find_condition, limit_clause?]
         node_type: NodeTypeFilter = NodeTypeFilter.FUNCTIONS
         condition: FindCondition | None = None
+        limit: int | None = None
 
         for item in items:
             if item is None:
@@ -560,10 +720,13 @@ class MUQLTransformer(Transformer[Token, Any]):
                 node_type = item
             elif isinstance(item, FindCondition):
                 condition = item
+            elif isinstance(item, int):
+                limit = item
 
         return FindQuery(
             node_type=node_type,
             condition=condition or FindCondition(FindConditionType.MATCHING),
+            limit=limit,
         )
 
     # -------------------------------------------------------------------------
@@ -910,8 +1073,13 @@ class MUQLParser:
                 raise MUQLSyntaxError(f"Unexpected parse result: {type(result)}")
             return result
         except UnexpectedCharacters as e:
+            # Check for common mistake patterns
+            suggestion = self._suggest_fix(query, e.column)
+            error_msg = f"Unexpected character '{e.char}' at position {e.column}"
+            if suggestion:
+                error_msg += f"\n\n{suggestion}"
             raise MUQLSyntaxError(
-                f"Unexpected character '{e.char}' at position {e.column}",
+                error_msg,
                 line=e.line,
                 column=e.column,
             ) from e
@@ -919,13 +1087,95 @@ class MUQLParser:
             expected = ", ".join(sorted(e.expected)[:5])
             if len(e.expected) > 5:
                 expected += ", ..."
+            # Check for common mistake patterns
+            suggestion = self._suggest_fix(query, e.column if e.column else 0)
+            error_msg = f"Unexpected token '{e.token}'. Expected one of: {expected}"
+            if suggestion:
+                error_msg += f"\n\n{suggestion}"
             raise MUQLSyntaxError(
-                f"Unexpected token '{e.token}'. Expected one of: {expected}",
+                error_msg,
                 line=e.line,
                 column=e.column,
             ) from e
         except LarkError as e:
             raise MUQLSyntaxError(str(e)) from e
+
+    def _suggest_fix(self, query: str, position: int) -> str | None:
+        """Suggest a fix for common query mistakes.
+
+        Args:
+            query: The query string
+            position: Position where the error occurred
+
+        Returns:
+            A suggestion string or None
+        """
+        query_lower = query.lower().strip()
+
+        # Common pattern: type:function name:foo (key:value syntax from other tools)
+        if ":" in query and not query_lower.startswith(
+            ("select", "show", "find", "path", "analyze", "describe", "history", "blame")
+        ):
+            # Extract the key:value parts
+            parts = query.split()
+            filters = []
+            for part in parts:
+                if ":" in part:
+                    key, value = part.split(":", 1)
+                    filters.append(f"{key} = '{value}'")
+
+            if filters:
+                suggested = f"SELECT * FROM nodes WHERE {' AND '.join(filters)}"
+                return (
+                    f"💡 It looks like you're using key:value syntax.\n"
+                    f"MUQL uses SQL-like syntax. Try:\n"
+                    f"  {suggested}\n\n"
+                    f"Common query examples:\n"
+                    f"  SELECT * FROM functions WHERE name LIKE '%auth%'\n"
+                    f"  SELECT * FROM classes WHERE complexity > 20\n"
+                    f"  FIND functions MATCHING 'test_%'\n"
+                    f"  SHOW dependencies OF MyClass DEPTH 2"
+                )
+
+        # Pattern: just a name without query keyword
+        if not any(
+            query_lower.startswith(kw)
+            for kw in ["select", "show", "find", "path", "analyze", "describe", "history", "blame"]
+        ):
+            return (
+                f"💡 MUQL queries must start with a keyword.\n\n"
+                f"Common query formats:\n"
+                f"  SELECT * FROM functions WHERE name = '{query.strip()}'\n"
+                f"  FIND functions MATCHING '{query.strip()}'\n"
+                f"  SHOW dependencies OF {query.strip()}\n\n"
+                f"Use 'mu q --examples' to see more examples."
+            )
+
+        # Pattern: common SQL mistakes
+        if "where type =" in query_lower or "where type=" in query_lower:
+            return (
+                "💡 Use FROM clause to filter by type, not WHERE.\n\n"
+                "Correct:\n"
+                "  SELECT * FROM functions WHERE name LIKE '%auth%'\n"
+                "  SELECT * FROM classes WHERE complexity > 20"
+            )
+
+        # Pattern: invalid table name after FROM
+        from_match = re.search(r"\bfrom\s+(\w+)", query_lower)
+        if from_match:
+            table_name = from_match.group(1)
+            valid_tables = ["functions", "classes", "modules", "nodes"]
+            if table_name not in valid_tables:
+                return (
+                    f"💡 Invalid table '{table_name}'.\n\n"
+                    f"Valid tables are: {', '.join(valid_tables)}\n\n"
+                    f"Examples:\n"
+                    f"  SELECT * FROM functions WHERE complexity > 20\n"
+                    f"  SELECT * FROM classes WHERE name LIKE '%Service%'\n"
+                    f"  SELECT * FROM modules"
+                )
+
+        return None
 
 
 # =============================================================================

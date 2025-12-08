@@ -9,7 +9,9 @@
 use anyhow::Result;
 use clap::Parser;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -22,7 +24,7 @@ mod storage;
 mod watcher;
 
 use build::BuildPipeline;
-use server::{create_router, AppState};
+use server::{create_router, AppState, ProjectManager};
 use storage::MUbase;
 
 /// MU code intelligence daemon
@@ -94,11 +96,25 @@ async fn main() -> Result<()> {
 
     // Create shared state
     let (event_tx, _) = broadcast::channel(1000);
+    let mubase = Arc::new(RwLock::new(mubase));
+    let graph = Arc::new(RwLock::new(graph));
+
+    // Create project manager for multi-project support
+    let projects = Arc::new(ProjectManager::new(
+        mubase.clone(),
+        graph.clone(),
+        mubase_path.clone(),
+        root.clone(),
+    ));
+
     let state = AppState {
-        mubase: Arc::new(RwLock::new(mubase)),
-        graph: Arc::new(RwLock::new(graph)),
+        mubase,
+        graph,
         watcher_tx: event_tx.clone(),
         root: root.clone(),
+        projects,
+        start_time: Instant::now(),
+        ws_connections: Arc::new(AtomicUsize::new(0)),
     };
 
     // Build graph if requested

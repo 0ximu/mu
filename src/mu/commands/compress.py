@@ -38,6 +38,13 @@ if TYPE_CHECKING:
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--no-cache", is_flag=True, help="Disable caching (process all files fresh)")
+@click.option(
+    "--detail",
+    "-d",
+    type=click.Choice(["low", "medium", "high"]),
+    default="medium",
+    help="Output detail level: low (minimal), medium (balanced), high (verbose with deps)",
+)
 @click.pass_obj
 def compress(
     ctx: MUContext,
@@ -52,10 +59,17 @@ def compress(
     format: str,
     yes: bool,
     no_cache: bool,
+    detail: str,
 ) -> None:
     """Compress source code into MU format.
 
     Transforms source code into token-efficient semantic representation.
+
+    \b
+    Detail levels:
+      low    - Function signatures only
+      medium - Signatures + types + key dependencies (default)
+      high   - Full context including docstrings and all dependencies
     """
     import asyncio
 
@@ -135,6 +149,7 @@ def compress(
         f"{format}:llm={ctx.config.llm.enabled}"
         f":redact={ctx.config.security.redact_secrets}"
         f":shell_safe={shell_safe}"
+        f":detail={detail}"
     )
 
     cached = cache_manager.get_codebase_result(codebase_hash, cache_format_key)
@@ -227,18 +242,46 @@ def compress(
         if total_secrets_found > 0:
             print_info(f"Redacted {total_secrets_found} potential secrets")
 
-    # Step 3: Apply transformation rules
-    rules = TransformationRules(
-        strip_stdlib_imports=True,
-        strip_relative_imports=False,
-        strip_dunder_methods=True,
-        strip_property_getters=True,
-        strip_empty_methods=True,
-        include_docstrings=False,
-        include_decorators=True,
-        include_type_annotations=True,
-        complexity_threshold_for_llm=ctx.config.reducer.complexity_threshold,
-    )
+    # Step 3: Apply transformation rules based on detail level
+    if detail == "low":
+        # Minimal output - signatures only
+        rules = TransformationRules(
+            strip_stdlib_imports=True,
+            strip_relative_imports=True,
+            strip_dunder_methods=True,
+            strip_property_getters=True,
+            strip_empty_methods=True,
+            include_docstrings=False,
+            include_decorators=False,
+            include_type_annotations=False,
+            complexity_threshold_for_llm=ctx.config.reducer.complexity_threshold,
+        )
+    elif detail == "high":
+        # Verbose output - include everything
+        rules = TransformationRules(
+            strip_stdlib_imports=False,
+            strip_relative_imports=False,
+            strip_dunder_methods=False,
+            strip_property_getters=False,
+            strip_empty_methods=False,
+            include_docstrings=True,
+            include_decorators=True,
+            include_type_annotations=True,
+            complexity_threshold_for_llm=ctx.config.reducer.complexity_threshold,
+        )
+    else:
+        # Medium (default) - balanced
+        rules = TransformationRules(
+            strip_stdlib_imports=True,
+            strip_relative_imports=False,
+            strip_dunder_methods=True,
+            strip_property_getters=True,
+            strip_empty_methods=True,
+            include_docstrings=False,
+            include_decorators=True,
+            include_type_annotations=True,
+            complexity_threshold_for_llm=ctx.config.reducer.complexity_threshold,
+        )
 
     print_info("Applying transformation rules...")
     reduced = reduce_codebase(parsed_modules, path, rules)

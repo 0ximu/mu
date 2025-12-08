@@ -20,13 +20,14 @@ import click
 
 
 def _get_mubase_path(path: Path) -> Path:
-    """Resolve and validate .mubase path."""
+    """Resolve and validate .mu/mubase path."""
     from mu.errors import ExitCode
     from mu.logging import print_error, print_info
+    from mu.paths import get_mubase_path
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
     return mubase_path
@@ -167,24 +168,38 @@ def impact(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_warning
-    from mu.mcp.server import mu_impact as mcp_impact
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
-            # Use MCP tool which routes through daemon
-            edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_impact(node, edge_type_list)
+            # Resolve node to full ID if it's a short name
+            resolved_node = node
+            if not node.startswith(("mod:", "cls:", "fn:")):
+                found = client.find_node(node, cwd=str(path.resolve()))
+                if found:
+                    resolved_node = found.get("id", node)
 
-            title = f"Impact of {result.node_id} ({result.count} nodes)"
-            output = _format_node_list(result.impacted_nodes, title, output_format, no_color)
+            edge_type_list = list(edge_types) if edge_types else None
+            result = client.impact(
+                resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
+            )
+
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                impacted = data
+            else:
+                impacted = data if isinstance(data, list) else []
+
+            title = f"Impact of {resolved_node} ({len(impacted)} nodes)"
+            output = _format_node_list(impacted, title, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
         except Exception as e:
-            print_warning(f"MCP tool failed, falling back to local: {e}")
+            print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
     _impact_local(node, path, edge_types, output_format, no_color)
@@ -198,23 +213,33 @@ def _impact_local(
     no_color: bool,
 ) -> None:
     """Execute impact analysis in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    import sys
+
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+    root_path = mubase_path.parent
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed
-        resolved_node = _resolve_node(db, node)
+        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
+        resolved_node = _resolve_node(db, node, root_path)
         if not resolved_node:
             print_error(f"Node not found: {node}")
             print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py', 'cls:src/file.py:ClassName')"
+                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
             )
             sys.exit(1)
 
@@ -285,23 +310,38 @@ def ancestors(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_warning
-    from mu.mcp.server import mu_ancestors as mcp_ancestors
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
-            edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_ancestors(node, edge_type_list)
+            # Resolve node to full ID if it's a short name
+            resolved_node = node
+            if not node.startswith(("mod:", "cls:", "fn:")):
+                found = client.find_node(node, cwd=str(path.resolve()))
+                if found:
+                    resolved_node = found.get("id", node)
 
-            title = f"Ancestors of {result.node_id} ({result.count} nodes)"
-            output = _format_node_list(result.ancestor_nodes, title, output_format, no_color)
+            edge_type_list = list(edge_types) if edge_types else None
+            result = client.ancestors(
+                resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
+            )
+
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                ancestor_nodes = data
+            else:
+                ancestor_nodes = data if isinstance(data, list) else []
+
+            title = f"Ancestors of {resolved_node} ({len(ancestor_nodes)} nodes)"
+            output = _format_node_list(ancestor_nodes, title, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
         except Exception as e:
-            print_warning(f"MCP tool failed, falling back to local: {e}")
+            print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
     _ancestors_local(node, path, edge_types, output_format, no_color)
@@ -315,23 +355,31 @@ def _ancestors_local(
     no_color: bool,
 ) -> None:
     """Execute ancestors analysis in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+    root_path = mubase_path.parent
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed
-        resolved_node = _resolve_node(db, node)
+        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
+        resolved_node = _resolve_node(db, node, root_path)
         if not resolved_node:
             print_error(f"Node not found: {node}")
             print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py', 'cls:src/file.py:ClassName')"
+                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
             )
             sys.exit(1)
 
@@ -398,18 +446,26 @@ def cycles(
     """
     from mu.client import DaemonClient, DaemonError
     from mu.logging import console, print_info, print_warning
-    from mu.mcp.server import mu_cycles as mcp_cycles
 
-    # Try daemon/MCP first (no lock)
+    # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
             edge_type_list = list(edge_types) if edge_types else None
-            result = mcp_cycles(edge_type_list)
+            result = client.cycles(edge_types=edge_type_list, cwd=str(path.resolve()))
 
-            print_info(f"Analyzed graph: {result.total_nodes_in_cycles} nodes in cycles")
+            # Handle daemon response format
+            data = result.get("data", result)
+            if isinstance(data, list):
+                detected_cycles = data
+                total_nodes = sum(len(c) for c in detected_cycles)
+            else:
+                detected_cycles = []
+                total_nodes = 0
 
-            output = _format_cycles(result.cycles, output_format, no_color)
+            print_info(f"Analyzed graph: {total_nodes} nodes in cycles")
+
+            output = _format_cycles(detected_cycles, output_format, no_color)
             console.print(output)
             return
         except DaemonError as e:
@@ -428,13 +484,20 @@ def _cycles_local(
     no_color: bool,
 ) -> None:
     """Execute cycle detection in local mode (direct MUbase access)."""
-    from mu.kernel import MUbase
+    from mu.errors import ExitCode
+    from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
-    from mu.logging import console, print_info
+    from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
@@ -454,25 +517,73 @@ def _cycles_local(
         db.close()
 
 
-def _resolve_node(db: Any, node_ref: str) -> str | None:
+def _resolve_node(db: Any, node_ref: str, root_path: Path | None = None) -> str | None:
     """Resolve a node reference to a full node ID.
 
     Handles:
     - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
     - Simple names: MUbase, AuthService
+    - File paths: src/hooks/useTransactions.ts -> mod:...
     - Partial matches: cli.py -> mod:src/cli.py
+
+    Args:
+        db: MUbase instance
+        node_ref: Node reference (ID, name, or file path)
+        root_path: Project root path for resolving relative paths
     """
     # If it already looks like a full node ID, verify and return
     if node_ref.startswith(("mod:", "cls:", "fn:")):
         node = db.get_node(node_ref)
         return node_ref if node else None
 
-    # Try exact name match
+    # Try exact name match first
     nodes = db.find_by_name(node_ref)
     if nodes:
         return str(nodes[0].id)
 
-    # Try pattern match
+    # Check if it looks like a file path (contains / or \ or ends with known extension)
+    looks_like_path = (
+        "/" in node_ref
+        or "\\" in node_ref
+        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+    )
+
+    if looks_like_path:
+        # Try to resolve as file path
+        ref_path = Path(node_ref)
+
+        # If absolute path, try to make it relative to root
+        if ref_path.is_absolute() and root_path:
+            try:
+                ref_path = ref_path.relative_to(root_path)
+            except ValueError:
+                pass  # Not relative to root, use as-is
+
+        # Normalize path separators
+        normalized_path = str(ref_path).replace("\\", "/")
+
+        # Try exact file_path match via SQL
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+            [normalized_path],
+        )
+        if result:
+            return str(result[0][0])
+
+        # Try matching with path suffix (for partial paths)
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+            [f"%{normalized_path}"],
+        )
+        if result:
+            return str(result[0][0])
+
+        # For paths like "src/foo.ts", also try constructing the node ID directly
+        possible_id = f"mod:{normalized_path}"
+        if db.get_node(possible_id):
+            return possible_id
+
+    # Try pattern match on name
     nodes = db.find_by_name(f"%{node_ref}%")
     if nodes:
         # Prefer exact name matches

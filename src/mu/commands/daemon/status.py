@@ -6,6 +6,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_daemon_pid_path
+
 
 @click.command("status")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -26,7 +28,7 @@ def daemon_status(path: Path, as_json: bool) -> None:
     from mu.daemon.lifecycle import DaemonLifecycle
     from mu.logging import console, print_info
 
-    pid_file = path.resolve() / ".mu.pid"
+    pid_file = get_daemon_pid_path(path)
     config = DaemonConfig(pid_file=pid_file)
     lifecycle = DaemonLifecycle(pid_file=pid_file, config=config)
 

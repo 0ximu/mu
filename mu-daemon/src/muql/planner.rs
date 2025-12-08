@@ -76,7 +76,7 @@ fn plan_select(q: SelectQuery) -> ExecutionPlan {
         sql.push_str("id, type, name, file_path, line_start, line_end, complexity");
     } else {
         let field_strs: Vec<String> = q.fields.iter().map(|f| {
-            if let Some(agg) = &f.aggregate {
+            let expr = if let Some(agg) = &f.aggregate {
                 let agg_name = match agg {
                     AggregateFunc::Count => "COUNT",
                     AggregateFunc::Avg => "AVG",
@@ -91,6 +91,12 @@ fn plan_select(q: SelectQuery) -> ExecutionPlan {
                 }
             } else {
                 f.name.clone()
+            };
+            // Add alias if present
+            if let Some(alias) = &f.alias {
+                format!("{} AS {}", expr, alias)
+            } else {
+                expr
             }
         }).collect();
         sql.push_str(&field_strs.join(", "));
@@ -118,6 +124,21 @@ fn plan_select(q: SelectQuery) -> ExecutionPlan {
     if !conditions.is_empty() {
         sql.push_str(" WHERE ");
         sql.push_str(&conditions.join(" AND "));
+    }
+
+    // GROUP BY clause
+    if !q.group_by.is_empty() {
+        sql.push_str(" GROUP BY ");
+        sql.push_str(&q.group_by.join(", "));
+    }
+
+    // HAVING clause
+    if let Some(having) = &q.having_clause {
+        sql.push_str(" HAVING ");
+        let having_conds: Vec<String> = having.comparisons.iter()
+            .map(format_comparison)
+            .collect();
+        sql.push_str(&having_conds.join(" AND "));
     }
 
     // ORDER BY clause

@@ -178,10 +178,33 @@ class Comparison:
 
 
 @dataclass
+class AggregateComparison:
+    """A comparison with an aggregate function (for HAVING clauses).
+
+    Examples:
+        COUNT(*) > 10
+        AVG(complexity) >= 5
+    """
+
+    aggregate: AggregateFunction
+    field: str  # "*" for COUNT(*), field name for others
+    operator: ComparisonOperator
+    value: Value
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "aggregate": self.aggregate.value,
+            "field": self.field,
+            "operator": self.operator.value,
+            "value": self.value.to_dict(),
+        }
+
+
+@dataclass
 class Condition:
     """A boolean condition (AND/OR of comparisons)."""
 
-    comparisons: list[Comparison]
+    comparisons: list[Comparison | AggregateComparison]
     operator: str  # "and" or "or"
     nested: list[Condition] = field(default_factory=list)
 
@@ -205,12 +228,14 @@ class SelectField:
     name: str
     aggregate: AggregateFunction | None = None
     is_star: bool = False
+    alias: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "aggregate": self.aggregate.value if self.aggregate else None,
             "is_star": self.is_star,
+            "alias": self.alias,
         }
 
 
@@ -273,6 +298,16 @@ class TemporalClause:
 
 
 @dataclass
+class GroupByField:
+    """A field in a GROUP BY clause."""
+
+    name: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"name": self.name}
+
+
+@dataclass
 class SelectQuery:
     """A SELECT query.
 
@@ -281,6 +316,7 @@ class SelectQuery:
         SELECT name, complexity FROM functions WHERE complexity > 20
         SELECT COUNT(*) FROM classes
         SELECT * FROM functions AT "abc123"
+        SELECT type, COUNT(*) as count FROM nodes GROUP BY type
     """
 
     query_type: QueryType = field(default=QueryType.SELECT, init=False)
@@ -288,6 +324,8 @@ class SelectQuery:
     node_type: NodeTypeFilter = NodeTypeFilter.NODES
     where: Condition | None = None
     temporal: TemporalClause | None = None
+    group_by: list[GroupByField] = field(default_factory=list)
+    having: Condition | None = None
     order_by: list[OrderByField] = field(default_factory=list)
     limit: int | None = None
 
@@ -298,6 +336,8 @@ class SelectQuery:
             "node_type": self.node_type.value,
             "where": self.where.to_dict() if self.where else None,
             "temporal": self.temporal.to_dict() if self.temporal else None,
+            "group_by": [g.to_dict() for g in self.group_by],
+            "having": self.having.to_dict() if self.having else None,
             "order_by": [o.to_dict() for o in self.order_by],
             "limit": self.limit,
         }
@@ -350,6 +390,7 @@ class FindQuery:
         FIND functions CALLING parse_file
         FIND functions WITH DECORATOR "@async"
         FIND classes INHERITING BaseModel
+        FIND functions MATCHING "test_%" LIMIT 20
     """
 
     query_type: QueryType = field(default=QueryType.FIND, init=False)
@@ -357,12 +398,14 @@ class FindQuery:
     condition: FindCondition = field(
         default_factory=lambda: FindCondition(FindConditionType.MATCHING)
     )
+    limit: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "query_type": self.query_type.value,
             "node_type": self.node_type.value,
             "condition": self.condition.to_dict(),
+            "limit": self.limit,
         }
 
 
@@ -533,10 +576,12 @@ __all__ = [
     "Value",
     # Condition types
     "Comparison",
+    "AggregateComparison",
     "Condition",
     # Field types
     "SelectField",
     "OrderByField",
+    "GroupByField",
     # Node reference
     "NodeRef",
     # Temporal types

@@ -7,12 +7,14 @@ from pathlib import Path
 
 import click
 
+from mu.paths import ensure_mu_dir, get_contracts_path
+
 
 @click.command("init")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing file")
 def contracts_init(path: Path, force: bool) -> None:
-    """Create a template .mu-contracts.yml file.
+    """Create a template .mu/contracts.yml file.
 
     Creates a contract file with example rules that you can customize.
 
@@ -24,7 +26,7 @@ def contracts_init(path: Path, force: bool) -> None:
     from mu.errors import ExitCode
     from mu.logging import print_info, print_success, print_warning
 
-    contract_path = path.resolve() / ".mu-contracts.yml"
+    contract_path = get_contracts_path(path)
 
     if contract_path.exists() and not force:
         print_warning(f"Contract file already exists: {contract_path}")
@@ -90,10 +92,13 @@ contracts:
   #   expect: empty
 """
 
+    # Ensure .mu directory exists
+    ensure_mu_dir(path)
+
     contract_path.write_text(template)
     print_success(f"Created {contract_path}")
     print_info("\nNext steps:")
-    print_info("  1. Edit .mu-contracts.yml to add your rules")
+    print_info("  1. Edit .mu/contracts.yml to add your rules")
     print_info("  2. Run 'mu kernel build' to create the graph (if not done)")
     print_info("  3. Run 'mu contracts verify' to check contracts")
 

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import click
 
+from mu.paths import get_mubase_path
+
 if TYPE_CHECKING:
     from mu.cli import MUContext
 
@@ -91,10 +93,10 @@ def kernel_search(
     if ctx.config is None:
         ctx.config = MUConfig()
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel build' and 'mu kernel embed' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 

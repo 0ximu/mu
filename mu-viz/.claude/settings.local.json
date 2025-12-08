@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(find:*)",
+      "Bash(git checkout:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(gh pr view:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

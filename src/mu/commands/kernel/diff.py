@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("diff")
 @click.argument("from_commit", type=str)
@@ -28,10 +30,10 @@ def kernel_diff(from_commit: str, to_commit: str, path: Path, as_json: bool) -> 
     from mu.kernel.temporal import SnapshotManager, TemporalDiffer
     from mu.logging import console, print_error, print_info, print_success, print_warning
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     db = MUbase(mubase_path)
