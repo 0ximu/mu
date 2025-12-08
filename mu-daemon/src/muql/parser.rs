@@ -231,6 +231,10 @@ fn parse_query(pair: pest::iterators::Pair<Rule>) -> Result<Query, ParseError> {
     match statement.as_rule() {
         Rule::select_query => Ok(Query::Select(parse_select_query(statement)?)),
         Rule::show_query => Ok(Query::Show(parse_show_query(statement)?)),
+        Rule::show_tables_query => Ok(Query::Describe(DescribeQuery {
+            target: DescribeTarget::Tables,
+        })),
+        Rule::show_columns_query => Ok(Query::Describe(parse_show_columns_query(statement)?)),
         Rule::find_query => Ok(Query::Find(parse_find_query(statement)?)),
         Rule::find_cycles_query => Ok(Query::FindCycles(parse_find_cycles_query(statement)?)),
         Rule::path_query => Ok(Query::Path(parse_path_query(statement)?)),
@@ -812,6 +816,23 @@ fn parse_describe_query(pair: pest::iterators::Pair<Rule>) -> Result<DescribeQue
     Ok(DescribeQuery { target })
 }
 
+fn parse_show_columns_query(pair: pest::iterators::Pair<Rule>) -> Result<DescribeQuery, ParseError> {
+    // SHOW COLUMNS FROM <node_type> -> DescribeQuery with Columns target
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::node_type {
+            let nt = parse_node_type(inner)?;
+            return Ok(DescribeQuery {
+                target: DescribeTarget::Columns(nt),
+            });
+        }
+    }
+
+    // Fallback to Tables if no node_type found (shouldn't happen with valid grammar)
+    Ok(DescribeQuery {
+        target: DescribeTarget::Tables,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -945,6 +966,49 @@ mod tests {
                 assert_eq!(s.limit, Some(20));
             }
             _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_tables() {
+        let q = parse("SHOW TABLES").unwrap();
+        match q {
+            Query::Describe(d) => {
+                assert!(matches!(d.target, DescribeTarget::Tables));
+            }
+            _ => panic!("Expected Describe query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_columns() {
+        let q = parse("SHOW COLUMNS FROM functions").unwrap();
+        match q {
+            Query::Describe(d) => {
+                match d.target {
+                    DescribeTarget::Columns(nt) => {
+                        assert_eq!(nt, NodeTypeFilter::Functions);
+                    }
+                    _ => panic!("Expected Columns target"),
+                }
+            }
+            _ => panic!("Expected Describe query"),
+        }
+    }
+
+    #[test]
+    fn test_parse_show_columns_classes() {
+        let q = parse("SHOW COLUMNS FROM classes").unwrap();
+        match q {
+            Query::Describe(d) => {
+                match d.target {
+                    DescribeTarget::Columns(nt) => {
+                        assert_eq!(nt, NodeTypeFilter::Classes);
+                    }
+                    _ => panic!("Expected Columns target"),
+                }
+            }
+            _ => panic!("Expected Describe query"),
         }
     }
 }

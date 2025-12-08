@@ -15,8 +15,8 @@ This document tracks MUQL features available in the Python implementation but no
 | GROUP BY | ✅ | ✅ | N/A | - |
 | HAVING | ✅ | ✅ | N/A | - |
 | AS (column alias) | ✅ | ✅ | N/A | - |
-| SHOW TABLES | ✅ | ❌ | Yes | Low |
-| SHOW COLUMNS | ✅ | ❌ | Yes | Low |
+| SHOW TABLES | ✅ | ✅ | N/A | - |
+| SHOW COLUMNS | ✅ | ✅ | N/A | - |
 | HISTORY OF | ✅ | ❌ | Yes | Medium |
 | BLAME | ✅ | ❌ | Yes | Medium |
 | AT (temporal) | ✅ | ❌ | Yes | Low |
@@ -64,27 +64,16 @@ SELECT file_path, AVG(complexity) AS avg_complexity FROM functions GROUP BY file
 
 ---
 
-### 4. SHOW TABLES / SHOW COLUMNS (Low Priority)
+### 4. ~~SHOW TABLES / SHOW COLUMNS~~ ✅ IMPLEMENTED
 
-**Python Grammar:**
-```lark
-show_tables_query: SHOW_KW TABLES_KW
-show_columns_query: SHOW_KW COLUMNS_KW FROM_KW node_type
-```
+**Status:** Implemented in Rust daemon. Aliases to existing DESCRIBE functionality.
 
 **Example:**
 ```sql
-SHOW TABLES
-SHOW COLUMNS FROM functions
+SHOW TABLES                    -- Same as DESCRIBE TABLES
+SHOW COLUMNS FROM functions    -- Same as DESCRIBE COLUMNS FROM functions
+SHOW COLUMNS FROM classes      -- Same as DESCRIBE COLUMNS FROM classes
 ```
-
-**Current Workaround:** Use `DESCRIBE TABLES` or `DESCRIBE functions` (already implemented)
-
-**Fix Location:** `mu-daemon/src/muql/grammar.pest`
-
-**Implementation Notes:**
-- Simple alias to existing DESCRIBE functionality
-- Low priority since DESCRIBE works
 
 ---
 
@@ -169,10 +158,7 @@ FIND functions MUTATING user_state
 
 1. **GROUP BY + HAVING** - Implemented with aggregate expression support in conditions
 2. **AS (alias)** - Implemented for both regular fields and aggregate functions
-
-### Quick Wins (1-2 hours each)
-
-1. **SHOW TABLES/COLUMNS** - Map to existing DESCRIBE handlers
+3. **SHOW TABLES/COLUMNS** - Aliases to existing DESCRIBE functionality
 
 ### Medium Effort (4-8 hours each)
 
@@ -219,9 +205,8 @@ fn test_parse_group_by() {
 
 Until remaining gaps are fixed, users can:
 
-1. **SHOW TABLES** - Use `DESCRIBE TABLES` instead
-2. **CONTAINS** - Use `LIKE '%value%'` instead
-3. **Temporal** - Use Python daemon or direct MUbase queries
+1. **CONTAINS** - Use `LIKE '%value%'` instead
+2. **Temporal** - Use Python daemon or direct MUbase queries
 
 ---
 

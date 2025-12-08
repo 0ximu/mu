@@ -9,6 +9,8 @@ query = { SOI ~ statement ~ EOI }
 
 statement = {
     select_query
+    | show_tables_query
+    | show_columns_query
     | show_query
     | find_cycles_query
     | find_query
@@ -137,7 +139,7 @@ analysis_type = {
 for_clause = { FOR ~ node_ref }
 
 // =============================================================================
-// DESCRIBE Query
+// DESCRIBE Query (and SHOW TABLES/COLUMNS aliases)
 // =============================================================================
 
 describe_query = { DESCRIBE ~ describe_target }
@@ -146,6 +148,10 @@ describe_target = {
     | COLUMNS ~ FROM ~ node_type
     | node_type
 }
+
+// SHOW TABLES / SHOW COLUMNS - aliases for DESCRIBE
+show_tables_query = { SHOW ~ TABLES }
+show_columns_query = { SHOW ~ COLUMNS ~ FROM ~ node_type }
 
 // =============================================================================
 // Identifiers and Keywords

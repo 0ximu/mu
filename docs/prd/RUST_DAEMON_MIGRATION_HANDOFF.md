@@ -154,3 +154,92 @@ curl "http://localhost:9120/node/mod:src/cli.py/neighbors?direction=outgoing"
 - Response format is slightly different (Rust wraps in `ApiResponse` with `success`, `data`, `error`, `duration_ms`)
 - Python client may need minor updates to handle response format
 - Contract verification endpoint was skipped (low priority)
+
+---
+
+## Phase 5: Cleanup & Testing ✅
+
+**Date:** 2025-12-08
+
+### Python Daemon Removal ✅
+
+**Deleted files:**
+- `src/mu/daemon/server.py` - Python FastAPI server
+- `src/mu/daemon/worker.py` - Graph update worker
+- `src/mu/daemon/watcher.py` - File watcher
+- `src/mu/daemon/events.py` - Event types
+- `tests/daemon/test_contracts_endpoint.py` - Python daemon endpoint tests
+
+**Kept files:**
+- `src/mu/daemon/config.py` - CLI configuration
+- `src/mu/daemon/lifecycle.py` - Process management (now Rust-only)
+- `src/mu/daemon/__init__.py` - Public exports (updated)
+
+### Code Updates ✅
+
+**lifecycle.py:**
+- Removed `_start_python_daemon()` method
+- Removed `use_python` parameter from `start_background()`
+- Updated `start_foreground()` to use Rust binary
+- Removed unused `sys` import
+
+**daemon/start.py:**
+- Removed `--python` CLI flag
+- Updated to use Rust daemon exclusively
+
+**daemon/__init__.py:**
+- Simplified exports to `DaemonConfig`, `DaemonLifecycle`, `find_rust_daemon_binary`
+- Updated module docstring for Rust daemon on port 9120
+
+### Test Updates ✅
+
+**tests/unit/test_daemon.py:**
+- Complete rewrite to test lifecycle management only
+- Tests for `DaemonConfig`, `DaemonLifecycle`, `find_rust_daemon_binary`
+- Tests for start_background/start_foreground error cases
+- All 20 daemon tests pass
+
+**Overall test results:**
+- 1647 tests passing
+- No regressions
+
+### Documentation Updates ✅
+
+**src/mu/daemon/CLAUDE.md:**
+- Updated architecture diagram
+- Documented Rust daemon HTTP API
+- Added migration notes
+- Updated test class documentation
+
+### Verification
+
+```bash
+# All tests pass
+uv run pytest tests/unit/ -q  # 1647 passed
+
+# Type checking passes
+uv run mypy src/mu/daemon/  # Success: no issues found
+
+# Linting passes
+uv run ruff check src/mu/daemon/  # All checks passed
+
+# Daemon imports work
+uv run python -c "from mu.daemon import DaemonConfig, DaemonLifecycle; print('OK')"
+```
+
+---
+
+## Phase 6: Release (Remaining)
+
+1. **Build binary release** - `cargo build --release` ✅ (already built)
+2. **Package distribution** - Decide on PyPI wheel vs cargo install
+3. **Migration guide** - Document port change for users
+4. **Changelog update** - Note breaking changes
+
+## Phase 4 Note (Registry - Deferred)
+
+Phase 4 (Daemon Registry) tasks for `~/.mu/daemons.json` were not implemented. Can be added later:
+- `mu daemon list` command
+- `mu daemon stop --all` command
+- Global registry for multi-project support
+- Heartbeat mechanism

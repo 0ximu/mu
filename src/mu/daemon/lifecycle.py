@@ -144,9 +144,7 @@ class DaemonLifecycle:
 
         # Rust daemon takes the project root, not the mubase path directly
         project_root = (
-            mubase_path.parent.parent
-            if mubase_path.name == "mubase"
-            else mubase_path.parent
+            mubase_path.parent.parent if mubase_path.name == "mubase" else mubase_path.parent
         )
 
         # Build command arguments
@@ -223,13 +221,16 @@ class DaemonLifecycle:
         """
         # Rust daemon takes the project root, not the mubase path directly
         # It will find/create .mu/mubase itself
-        project_root = mubase_path.parent.parent if mubase_path.name == "mubase" else mubase_path.parent
+        project_root = (
+            mubase_path.parent.parent if mubase_path.name == "mubase" else mubase_path.parent
+        )
 
         # Build command arguments
         cmd = [
             str(binary_path),
             str(project_root),
-            "--port", str(cfg.port),
+            "--port",
+            str(cfg.port),
             "--build",  # Build graph on startup
         ]
 
