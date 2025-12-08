@@ -112,7 +112,9 @@ def compress(
         print_info("Local-only mode: using Ollama, no data sent externally")
 
     # Initialize cache manager
-    cache_manager = CacheManager(ctx.config.cache, path.resolve())
+    # Use parent directory for cache when compressing a single file
+    cache_base = path.resolve().parent if path.is_file() else path.resolve()
+    cache_manager = CacheManager(ctx.config.cache, cache_base)
 
     # Step 1: Scan codebase
     print_info(f"Scanning {path}...")
@@ -151,11 +153,16 @@ def compress(
     skipped_files: dict[str, list[str]] = {}  # language -> [paths]
     failed_files: list[tuple[str, str]] = []  # (path, error)
 
+    # Determine base path for constructing file paths
+    # When compressing a single file, path.is_file() is True and file_info.path is just the filename
+    is_single_file = path.is_file()
+
     with create_progress() as progress:
         task = progress.add_task("Parsing files...", total=len(scan_result.files))
 
         for file_info in scan_result.files:
-            file_path = path / file_info.path
+            # For single file, use the original path directly; for directories, join with relative path
+            file_path = path if is_single_file else path / file_info.path
             result = parse_file(file_path, file_info.language)
 
             if result.success and result.module is not None:

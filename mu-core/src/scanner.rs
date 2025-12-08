@@ -251,9 +251,11 @@ pub fn scan_directory(
             count_lines_flag,
         )
     })
+    .map_err(|e| pyo3::exceptions::PyFileNotFoundError::new_err(e))
 }
 
 /// Internal implementation without Python GIL.
+/// Returns Result<ScanResult, String> for use in both Python and pure Rust contexts.
 fn scan_directory_internal(
     root_path: &str,
     extensions: Option<Vec<String>>,
@@ -261,15 +263,12 @@ fn scan_directory_internal(
     follow_symlinks: bool,
     compute_hashes: bool,
     count_lines_flag: bool,
-) -> PyResult<ScanResult> {
+) -> Result<ScanResult, String> {
     let start = Instant::now();
     let root = Path::new(root_path);
 
     if !root.exists() {
-        return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
-            "Path does not exist: {}",
-            root_path
-        )));
+        return Err(format!("Path does not exist: {}", root_path));
     }
 
     // Build extension filter set
@@ -417,7 +416,6 @@ pub fn scan_directory_sync(
         compute_hashes,
         count_lines_flag,
     )
-    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
