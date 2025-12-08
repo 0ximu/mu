@@ -31,12 +31,22 @@ from mu.kernel.context.models import (
     ExtractionConfig,
     ScoredNode,
 )
+from mu.kernel.context.omega import (
+    OmegaConfig,
+    OmegaContextExtractor,
+    OmegaManifest,
+    OmegaResult,
+)
 from mu.kernel.context.smart import SmartContextExtractor
 
 __all__ = [
     "ContextResult",
     "ExtractionConfig",
     "ExtractedEntity",
+    "OmegaConfig",
+    "OmegaContextExtractor",
+    "OmegaManifest",
+    "OmegaResult",
     "ScoredNode",
     "SmartContextExtractor",
 ]
