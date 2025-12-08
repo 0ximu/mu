@@ -391,6 +391,269 @@ class CodeExample:
         }
 
 
+class MacroTier(Enum):
+    """Tiers of macro stability for prompt cache optimization.
+
+    Macros are ordered by tier in output to maximize prompt cache hits:
+    CORE (always same) → STANDARD (common) → SYNTHESIZED (dynamic).
+    """
+
+    CORE = "core"
+    """Built-in macros, always available (module, class, defn, data)."""
+
+    STANDARD = "standard"
+    """Common cross-codebase macros (api, component, test, hook)."""
+
+    SYNTHESIZED = "synthesized"
+    """Dynamically generated per-codebase macros."""
+
+
+@dataclass
+class MacroDefinition:
+    """A macro definition for pattern compression in OMEGA format.
+
+    This is the critical interface for pattern-to-lisp translation.
+    Macros compress repeated code patterns into concise S-expressions.
+
+    Example:
+        A macro for API endpoints:
+        >>> macro = MacroDefinition(
+        ...     name="api",
+        ...     tier=MacroTier.STANDARD,
+        ...     signature=["method", "path", "name", "params"],
+        ...     description="REST API endpoint handler",
+        ...     pattern_source="http_method_handlers",
+        ...     frequency=42,
+        ...     expansion_template='(defn {name} [{params}] -> Response ...)',
+        ...     token_savings=15,
+        ... )
+        >>> macro.apply({"method": "GET", "path": "/users", "name": "get_users", "params": []})
+        '(api GET "/users" get_users [])'
+    """
+
+    name: str
+    """Macro name (e.g., 'api', 'component', 'hook')."""
+
+    tier: MacroTier
+    """Stability tier of this macro."""
+
+    signature: list[str]
+    """Parameter names in order (e.g., ['method', 'path', 'name', 'params'])."""
+
+    description: str
+    """Human-readable description of what this macro represents."""
+
+    pattern_source: str
+    """Name of the pattern that generated this macro."""
+
+    frequency: int
+    """How many nodes this macro compresses."""
+
+    expansion_template: str
+    """Template showing what this macro expands to.
+
+    Example for 'api' macro:
+        (defn {name} [{params}] -> Response
+          :decorators [app.{method}("{path}")])
+    """
+
+    token_savings: int = 0
+    """Estimated tokens saved by using this macro."""
+
+    def to_lisp_def(self) -> str:
+        """Generate the Lisp defmacro form.
+
+        Returns:
+            S-expression defining this macro.
+
+        Example:
+            (defmacro api [method path name params]
+              "REST API endpoint handler")
+        """
+        params = " ".join(self.signature)
+        return f'(defmacro {self.name} [{params}]\n  "{self.description}")'
+
+    def apply(self, node_data: dict[str, Any]) -> str:
+        """Apply this macro to a node, producing compressed S-expr.
+
+        Args:
+            node_data: Dictionary with keys matching signature params.
+
+        Returns:
+            Macro invocation S-expression.
+
+        Example:
+            Input: {"method": "GET", "path": "/users", "name": "get_users", "params": []}
+            Output: (api GET "/users" get_users [])
+        """
+        args = []
+        for param in self.signature:
+            value = node_data.get(param, "_")
+            if isinstance(value, str) and " " in value:
+                args.append(f'"{value}"')
+            elif isinstance(value, list):
+                args.append(f"[{' '.join(str(v) for v in value)}]")
+            else:
+                args.append(str(value))
+        return f"({self.name} {' '.join(args)})"
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "name": self.name,
+            "tier": self.tier.value,
+            "signature": self.signature,
+            "description": self.description,
+            "pattern_source": self.pattern_source,
+            "frequency": self.frequency,
+            "expansion_template": self.expansion_template,
+            "token_savings": self.token_savings,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MacroDefinition:
+        """Create MacroDefinition from dictionary.
+
+        Args:
+            data: Dictionary with macro definition fields.
+
+        Returns:
+            MacroDefinition instance.
+        """
+        return cls(
+            name=data["name"],
+            tier=MacroTier(data["tier"]),
+            signature=data["signature"],
+            description=data["description"],
+            pattern_source=data["pattern_source"],
+            frequency=data["frequency"],
+            expansion_template=data.get("expansion_template", ""),
+            token_savings=data.get("token_savings", 0),
+        )
+
+
+@dataclass
+class SynthesisResult:
+    """Result of macro synthesis from codebase patterns.
+
+    Contains generated macro definitions and synthesis statistics.
+    The get_header() method produces a stable macro header optimized
+    for prompt caching by ordering macros: CORE → STANDARD → SYNTHESIZED.
+
+    Example:
+        >>> result = SynthesisResult(
+        ...     macros=[api_macro, service_macro],
+        ...     total_patterns_analyzed=50,
+        ...     patterns_converted=2,
+        ...     estimated_compression=0.35,
+        ...     synthesis_time_ms=125.5,
+        ... )
+        >>> print(result.get_header())
+        ;; MU-Lisp Macro Definitions
+        ;; Standard (cross-codebase)
+        (defmacro api [method path name params]
+          "REST API endpoint handler")
+        ...
+    """
+
+    macros: list[MacroDefinition] = field(default_factory=list)
+    """Generated macro definitions."""
+
+    total_patterns_analyzed: int = 0
+    """Number of patterns considered during synthesis."""
+
+    patterns_converted: int = 0
+    """Number of patterns that became macros."""
+
+    estimated_compression: float = 0.0
+    """Estimated compression ratio (0.0 - 1.0, where 0.35 = 35% reduction)."""
+
+    synthesis_time_ms: float = 0.0
+    """Time taken for synthesis in milliseconds."""
+
+    def get_header(self) -> str:
+        """Generate the macro header for context injection.
+
+        Returns stable core macros first, then standard, then synthesized.
+        This ordering optimizes for prompt caching - stable content at
+        the start means higher cache hit rates.
+
+        Returns:
+            Formatted macro definitions as Lisp comments and defmacro forms.
+        """
+        lines = [";; MU-Lisp Macro Definitions"]
+
+        # Group by tier for stable ordering
+        core = [m for m in self.macros if m.tier == MacroTier.CORE]
+        standard = [m for m in self.macros if m.tier == MacroTier.STANDARD]
+        synthesized = [m for m in self.macros if m.tier == MacroTier.SYNTHESIZED]
+
+        if core:
+            lines.append(";; Core (built-in)")
+            for m in core:
+                lines.append(m.to_lisp_def())
+
+        if standard:
+            lines.append("\n;; Standard (cross-codebase)")
+            for m in standard:
+                lines.append(m.to_lisp_def())
+
+        if synthesized:
+            lines.append("\n;; Synthesized (this codebase)")
+            for m in synthesized:
+                lines.append(m.to_lisp_def())
+
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "macros": [m.to_dict() for m in self.macros],
+            "total_patterns_analyzed": self.total_patterns_analyzed,
+            "patterns_converted": self.patterns_converted,
+            "estimated_compression": round(self.estimated_compression, 3),
+            "synthesis_time_ms": round(self.synthesis_time_ms, 2),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SynthesisResult:
+        """Create SynthesisResult from dictionary.
+
+        Args:
+            data: Dictionary with synthesis result fields.
+
+        Returns:
+            SynthesisResult instance.
+        """
+        return cls(
+            macros=[MacroDefinition.from_dict(m) for m in data.get("macros", [])],
+            total_patterns_analyzed=data.get("total_patterns_analyzed", 0),
+            patterns_converted=data.get("patterns_converted", 0),
+            estimated_compression=data.get("estimated_compression", 0.0),
+            synthesis_time_ms=data.get("synthesis_time_ms", 0.0),
+        )
+
+    @property
+    def macro_count(self) -> int:
+        """Total number of macros."""
+        return len(self.macros)
+
+    @property
+    def core_count(self) -> int:
+        """Number of core macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.CORE)
+
+    @property
+    def standard_count(self) -> int:
+        """Number of standard macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.STANDARD)
+
+    @property
+    def synthesized_count(self) -> int:
+        """Number of synthesized macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.SYNTHESIZED)
+
+
 class MemoryCategory(Enum):
     """Categories of cross-session memories."""
 
@@ -777,6 +1040,8 @@ __all__ = [
     "FileContext",
     "GeneratedFile",
     "GenerateResult",
+    "MacroDefinition",
+    "MacroTier",
     "Memory",
     "MemoryCategory",
     "Pattern",
@@ -786,6 +1051,7 @@ __all__ = [
     "ProactiveWarning",
     "RecallResult",
     "Suggestion",
+    "SynthesisResult",
     "TaskAnalysis",
     "TaskContextResult",
     "TaskType",

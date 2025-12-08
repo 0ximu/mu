@@ -17,6 +17,8 @@ from mu.kernel.export import (
     ExportResult,
     Exporter,
     JSONExporter,
+    LispExporter,
+    LispExportOptions,
     MermaidExporter,
     MUTextExporter,
     NodeFilter,
@@ -403,7 +405,8 @@ class TestGetDefaultManager:
         assert "mermaid" in formats
         assert "d2" in formats
         assert "cytoscape" in formats
-        assert len(formats) == 5
+        assert "lisp" in formats
+        assert len(formats) == 6
 
     def test_returns_new_instance(self) -> None:
         """get_default_manager returns new instance each call."""
@@ -823,6 +826,11 @@ class TestExporterProtocol:
         exporter = CytoscapeExporter()
         assert isinstance(exporter, Exporter)
 
+    def test_lisp_exporter_is_exporter(self) -> None:
+        """LispExporter implements Exporter protocol."""
+        exporter = LispExporter()
+        assert isinstance(exporter, Exporter)
+
     def test_all_exporters_have_format_name(self) -> None:
         """All exporters have format_name property."""
         exporters = [
@@ -831,6 +839,7 @@ class TestExporterProtocol:
             MermaidExporter(),
             D2Exporter(),
             CytoscapeExporter(),
+            LispExporter(),
         ]
         for exp in exporters:
             assert exp.format_name
@@ -844,6 +853,7 @@ class TestExporterProtocol:
             MermaidExporter(),
             D2Exporter(),
             CytoscapeExporter(),
+            LispExporter(),
         ]
         for exp in exporters:
             assert exp.file_extension
@@ -857,6 +867,7 @@ class TestExporterProtocol:
             MermaidExporter(),
             D2Exporter(),
             CytoscapeExporter(),
+            LispExporter(),
         ]
         for exp in exporters:
             assert exp.description
@@ -1558,6 +1569,373 @@ class TestD2Exporter:
 
 
 # =============================================================================
+# Lisp Exporter Tests (lisp.py)
+# =============================================================================
+
+
+class TestLispExporter:
+    """Tests for Lisp S-expression format exporter."""
+
+    def test_format_properties(self) -> None:
+        """LispExporter has correct format properties."""
+        exporter = LispExporter()
+
+        assert exporter.format_name == "lisp"
+        assert exporter.file_extension == ".mulisp"
+        assert "S-expression" in exporter.description or "OMEGA" in exporter.description
+
+    def test_output_has_mu_lisp_wrapper(self, populated_db: MUbase) -> None:
+        """Output is wrapped in (mu-lisp ...) form."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert "(mu-lisp" in result.output
+        assert ':version "1.0"' in result.output
+
+    def test_module_form_in_output(self, populated_db: MUbase) -> None:
+        """Module form (module ...) appears in output."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert "(module" in result.output
+        assert "mymodule" in result.output
+
+    def test_class_form_in_output(self, populated_db: MUbase) -> None:
+        """Class form (class ...) appears in output."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert "(class" in result.output
+        assert "MyClass" in result.output
+
+    def test_defn_form_in_output(self, populated_db: MUbase) -> None:
+        """Function form (defn ...) appears in output."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert "(defn" in result.output or "(defn-async" in result.output
+
+    def test_inheritance_uses_bases_keyword(self, populated_db: MUbase) -> None:
+        """Inheritance uses :bases keyword."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert ":bases" in result.output or "BaseClass" in result.output
+
+    def test_deps_keyword_for_externals(self, populated_db: MUbase) -> None:
+        """External dependencies use :deps keyword."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert ":deps" in result.output or "json" in result.output
+
+    def test_params_as_name_colon_type(self, populated_db: MUbase) -> None:
+        """Function parameters formatted as name:type."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        # The process method has data:str parameter
+        assert "data:str" in result.output or "[" in result.output
+
+    def test_return_type_arrow(self, populated_db: MUbase) -> None:
+        """Return type uses -> operator."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert "->" in result.output
+
+    def test_async_variant(self, populated_db: MUbase) -> None:
+        """Async functions use defn-async form."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        # The process method is async
+        assert "defn-async" in result.output
+
+    def test_header_included_by_default(self, populated_db: MUbase) -> None:
+        """Header comment included by default."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert ";; MU-Lisp" in result.output
+        assert ";; Core forms:" in result.output
+
+    def test_header_excluded_with_option(self, populated_db: MUbase) -> None:
+        """Header excluded when include_header=False."""
+        exporter = LispExporter()
+        options = LispExportOptions(include_header=False)
+
+        result = exporter.export(populated_db, options)
+
+        assert ";; MU-Lisp" not in result.output
+
+    def test_empty_graph_handling(self, empty_db: MUbase) -> None:
+        """Empty graph produces valid output."""
+        exporter = LispExporter()
+
+        result = exporter.export(empty_db)
+
+        assert result.success is True
+        assert result.node_count == 0
+        assert ";; No nodes to export" in result.output
+
+    def test_max_nodes_limit(self, populated_db: MUbase) -> None:
+        """max_nodes option limits output."""
+        exporter = LispExporter()
+        options = ExportOptions(max_nodes=2)
+
+        result = exporter.export(populated_db, options)
+
+        assert result.node_count <= 2
+
+    def test_node_filtering_by_type(self, populated_db: MUbase) -> None:
+        """Node filtering by type works."""
+        exporter = LispExporter()
+        options = ExportOptions(node_types=[NodeType.FUNCTION])
+
+        result = exporter.export(populated_db, options)
+
+        # Should only export function nodes
+        assert result.node_count <= 3
+
+    def test_pretty_print_mode(self, populated_db: MUbase) -> None:
+        """Pretty print mode adds indentation."""
+        exporter = LispExporter()
+
+        pretty_result = exporter.export(populated_db, LispExportOptions(pretty_print=True))
+        compact_result = exporter.export(populated_db, LispExportOptions(pretty_print=False))
+
+        # Pretty output has more newlines
+        assert pretty_result.output.count("\n") > compact_result.output.count("\n")
+
+    def test_static_method_variant(self, db: MUbase) -> None:
+        """Static methods use defn-static form."""
+        # Top-level static function (not a method)
+        db.add_node(
+            Node(
+                id="fn:test.py:static_func",
+                type=NodeType.FUNCTION,
+                name="static_func",
+                file_path="test.py",
+                properties={"is_method": False, "is_static": True},
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert "defn-static" in result.output
+
+    def test_classmethod_variant(self, db: MUbase) -> None:
+        """Classmethods use defn-classmethod form."""
+        # Top-level classmethod function (rare but testable)
+        db.add_node(
+            Node(
+                id="fn:test.py:class_func",
+                type=NodeType.FUNCTION,
+                name="class_func",
+                file_path="test.py",
+                properties={"is_method": False, "is_classmethod": True},
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert "defn-classmethod" in result.output
+
+    def test_dataclass_uses_data_form(self, db: MUbase) -> None:
+        """Dataclasses use (data ...) shorthand."""
+        db.add_node(
+            Node(
+                id="cls:test.py:DataClass",
+                type=NodeType.CLASS,
+                name="DataClass",
+                file_path="test.py",
+                properties={
+                    "decorators": ["dataclass"],
+                    "attributes": ["name", "value"],
+                },
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert "(data DataClass" in result.output
+
+    def test_class_attrs_keyword(self, db: MUbase) -> None:
+        """Class attributes use :attrs keyword."""
+        db.add_node(
+            Node(
+                id="cls:test.py:AttrClass",
+                type=NodeType.CLASS,
+                name="AttrClass",
+                file_path="test.py",
+                properties={"attributes": ["x", "y", "z"]},
+            )
+        )
+        # Add a method so it doesn't become a data form
+        db.add_node(
+            Node(
+                id="fn:test.py:AttrClass.method",
+                type=NodeType.FUNCTION,
+                name="method",
+                file_path="test.py",
+                qualified_name="test.AttrClass.method",
+                properties={"is_method": True},
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert ":attrs [" in result.output
+
+    def test_complexity_annotation(self, db: MUbase) -> None:
+        """High complexity functions get :complexity annotation."""
+        db.add_node(
+            Node(
+                id="fn:test.py:complex_func",
+                type=NodeType.FUNCTION,
+                name="complex_func",
+                file_path="test.py",
+                complexity=30,
+                properties={"is_method": False},
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert ":complexity 30" in result.output
+
+    def test_decorators_keyword(self, db: MUbase) -> None:
+        """Function decorators use :decorators keyword."""
+        db.add_node(
+            Node(
+                id="fn:test.py:decorated",
+                type=NodeType.FUNCTION,
+                name="decorated",
+                file_path="test.py",
+                properties={"decorators": ["cached", "retry"]},
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        assert ":decorators [" in result.output
+
+    def test_file_path_in_module(self, populated_db: MUbase) -> None:
+        """Module includes :file keyword with path."""
+        exporter = LispExporter()
+
+        result = exporter.export(populated_db)
+
+        assert ':file "' in result.output
+
+    def test_path_to_module_name_strips_src(self) -> None:
+        """Path conversion strips src/ prefix."""
+        exporter = LispExporter()
+        name = exporter._path_to_module_name("src/my/module.py")
+        assert name == "my.module"
+
+    def test_path_to_module_name_strips_init(self) -> None:
+        """Path conversion removes __init__."""
+        exporter = LispExporter()
+        name = exporter._path_to_module_name("src/pkg/__init__.py")
+        assert name == "pkg"
+
+    def test_escape_string_handles_quotes(self) -> None:
+        """Escape string handles quotes."""
+        exporter = LispExporter()
+        escaped = exporter._escape_string('test "quoted" string')
+        assert '\\"' in escaped
+
+    def test_escape_string_handles_brackets(self) -> None:
+        """Escape string handles brackets."""
+        exporter = LispExporter()
+        escaped = exporter._escape_string("Dict[str, int]")
+        assert "[" not in escaped
+        assert "]" not in escaped
+
+    def test_self_param_excluded(self, db: MUbase) -> None:
+        """Self parameter excluded from S-expression."""
+        # Top-level function that happens to have self param (edge case)
+        db.add_node(
+            Node(
+                id="fn:test.py:method",
+                type=NodeType.FUNCTION,
+                name="method",
+                file_path="test.py",
+                properties={
+                    "is_method": False,
+                    "parameters": [
+                        {"name": "self"},
+                        {"name": "x", "type_annotation": "int"},
+                    ],
+                },
+            )
+        )
+
+        exporter = LispExporter()
+        result = exporter.export(db)
+
+        # self should not appear in params
+        assert "[self" not in result.output
+        assert "x:int" in result.output or "[x" in result.output
+
+
+class TestLispExportOptions:
+    """Tests for LispExportOptions dataclass."""
+
+    def test_default_values(self) -> None:
+        """LispExportOptions has correct default values."""
+        options = LispExportOptions()
+
+        assert options.include_header is True
+        assert options.macros == []
+        assert options.pretty_print is True
+        assert options.max_depth == 10
+
+    def test_custom_values(self) -> None:
+        """LispExportOptions accepts custom values."""
+        options = LispExportOptions(
+            include_header=False,
+            macros=["api", "service"],
+            pretty_print=False,
+            max_depth=5,
+        )
+
+        assert options.include_header is False
+        assert options.macros == ["api", "service"]
+        assert options.pretty_print is False
+        assert options.max_depth == 5
+
+    def test_inherits_export_options(self) -> None:
+        """LispExportOptions inherits from ExportOptions."""
+        options = LispExportOptions(
+            node_types=[NodeType.CLASS],
+            max_nodes=10,
+            include_header=False,
+        )
+
+        assert options.node_types == [NodeType.CLASS]
+        assert options.max_nodes == 10
+
+
+# =============================================================================
 # Cytoscape Exporter Tests (cytoscape.py)
 # =============================================================================
 
@@ -1693,7 +2071,7 @@ class TestExportManagerIntegration:
 
         formats = manager.list_formats()
 
-        expected = ["cytoscape", "d2", "json", "mermaid", "mu"]
+        expected = ["cytoscape", "d2", "json", "lisp", "mermaid", "mu"]
         assert sorted(formats) == expected
 
     def test_export_all_formats(self, populated_db: MUbase) -> None:

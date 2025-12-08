@@ -213,11 +213,12 @@ def get_default_manager() -> ExportManager:
     """Get an ExportManager with all default exporters registered.
 
     Returns:
-        ExportManager with MU, JSON, Mermaid, D2, and Cytoscape exporters.
+        ExportManager with MU, JSON, Mermaid, D2, Cytoscape, and Lisp exporters.
     """
     from mu.kernel.export.cytoscape import CytoscapeExporter
     from mu.kernel.export.d2 import D2Exporter
     from mu.kernel.export.json_export import JSONExporter
+    from mu.kernel.export.lisp import LispExporter
     from mu.kernel.export.mermaid import MermaidExporter
     from mu.kernel.export.mu_text import MUTextExporter
 
@@ -227,6 +228,7 @@ def get_default_manager() -> ExportManager:
     manager.register(MermaidExporter())
     manager.register(D2Exporter())
     manager.register(CytoscapeExporter())
+    manager.register(LispExporter())
     return manager
 
 
