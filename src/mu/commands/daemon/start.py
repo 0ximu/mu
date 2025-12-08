@@ -12,7 +12,7 @@ from mu.paths import get_daemon_pid_path, get_mubase_path
 
 @click.command("start")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option("--port", "-p", type=int, default=8765, help="Server port")
+@click.option("--port", "-p", type=int, default=9120, help="Server port")
 @click.option("--host", type=str, default="127.0.0.1", help="Server host")
 @click.option(
     "--watch",
@@ -27,12 +27,19 @@ from mu.paths import get_daemon_pid_path, get_mubase_path
     default=100,
     help="Debounce delay in milliseconds",
 )
+@click.option(
+    "--python",
+    is_flag=True,
+    default=False,
+    help="Use Python daemon instead of Rust (for debugging)",
+)
 def daemon_start(
     path: Path,
     port: int,
     host: str,
     watch: tuple[Path, ...],
     debounce: int,
+    python: bool,
 ) -> None:
     """Start MU daemon in background.
 
@@ -74,8 +81,9 @@ def daemon_start(
         return
 
     try:
-        pid = lifecycle.start_background(mubase_path, config)
-        print_success(f"MU daemon started on http://{host}:{port}")
+        pid = lifecycle.start_background(mubase_path, config, use_python=python)
+        daemon_type = "Python" if python else "Rust"
+        print_success(f"MU daemon ({daemon_type}) started on http://{host}:{port}")
         print_info(f"PID: {pid}")
         print_info(f"PID file: {config.pid_file}")
     except RuntimeError as e:

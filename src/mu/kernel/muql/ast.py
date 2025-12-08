@@ -390,6 +390,7 @@ class FindQuery:
         FIND functions CALLING parse_file
         FIND functions WITH DECORATOR "@async"
         FIND classes INHERITING BaseModel
+        FIND functions MATCHING "test_%" LIMIT 20
     """
 
     query_type: QueryType = field(default=QueryType.FIND, init=False)
@@ -397,12 +398,14 @@ class FindQuery:
     condition: FindCondition = field(
         default_factory=lambda: FindCondition(FindConditionType.MATCHING)
     )
+    limit: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "query_type": self.query_type.value,
             "node_type": self.node_type.value,
             "condition": self.condition.to_dict(),
+            "limit": self.limit,
         }
 
 

@@ -8,8 +8,10 @@
 
 mod http;
 pub mod mcp;
+pub mod projects;
 pub mod state;
 mod websocket;
 
 pub use http::create_router;
+pub use projects::ProjectManager;
 pub use state::{AppState, GraphEvent};

@@ -32,8 +32,8 @@ class DaemonConfig(BaseModel):
         description="Server host to bind to",
     )
     port: int = Field(
-        default=8765,
-        description="Server port",
+        default=9120,
+        description="Server port (Rust daemon default)",
     )
     watch_paths: list[Path] = Field(
         default_factory=list,

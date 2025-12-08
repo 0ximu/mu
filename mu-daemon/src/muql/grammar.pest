@@ -24,16 +24,19 @@ statement = {
 select_query = {
     SELECT ~ select_list ~ FROM ~ node_type ~
     where_clause? ~
+    group_by_clause? ~
+    having_clause? ~
     order_clause? ~
     limit_clause?
 }
 
 select_list = { STAR | field_list }
 field_list = { field ~ ("," ~ field)* }
-field = { aggregate_fn | identifier }
+field = { aggregate_fn ~ alias_clause? | identifier ~ alias_clause? }
 aggregate_fn = {
     (COUNT | AVG | MAX | MIN | SUM) ~ "(" ~ (STAR | identifier) ~ ")"
 }
+alias_clause = { AS ~ identifier }
 
 node_type = { FUNCTIONS | CLASSES | MODULES | NODES }
 
@@ -43,7 +46,8 @@ or_condition = { and_condition ~ (OR ~ and_condition)* }
 and_condition = { comparison ~ (AND ~ comparison)* }
 
 comparison = {
-    identifier ~ comparison_op ~ value
+    aggregate_fn ~ comparison_op ~ value
+    | identifier ~ comparison_op ~ value
     | identifier ~ LIKE ~ string_value
     | identifier ~ IN ~ "(" ~ value_list ~ ")"
     | identifier ~ NOT ~ IN ~ "(" ~ value_list ~ ")"
@@ -55,6 +59,11 @@ value = { string_value | number_value | TRUE | FALSE | NULL }
 value_list = { value ~ ("," ~ value)* }
 string_value = @{ "'" ~ (!"'" ~ ANY)* ~ "'" | "\"" ~ (!"\"" ~ ANY)* ~ "\"" }
 number_value = @{ "-"? ~ ASCII_DIGIT+ }
+
+group_by_clause = { GROUP ~ BY ~ group_field ~ ("," ~ group_field)* }
+group_field = { identifier }
+
+having_clause = { HAVING ~ condition }
 
 order_clause = { ORDER ~ BY ~ order_field ~ ("," ~ order_field)* }
 order_field = { identifier ~ (ASC | DESC)? }
@@ -158,6 +167,9 @@ BY = _{ ^"by" }
 ASC = { ^"asc" }
 DESC = { ^"desc" }
 LIMIT = _{ ^"limit" }
+GROUP = _{ ^"group" }
+HAVING = _{ ^"having" }
+AS = _{ ^"as" }
 TRUE = { ^"true" }
 FALSE = { ^"false" }
 NULL = { ^"null" }

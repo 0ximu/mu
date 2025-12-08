@@ -64,7 +64,10 @@ class MUbase:
             MUbaseCorruptionError: If the database or WAL file is corrupted
             MUbaseLockError: If the database is locked and read_only=False
         """
-        if path is None:
+        # Handle special :memory: case for in-memory DuckDB (used in tests)
+        if path is not None and str(path) == ":memory:":
+            self.path = Path(":memory:")
+        elif path is None:
             # Default: .mu/mubase in current directory
             self.path = get_mu_dir() / MUBASE_FILE
         else:
@@ -81,7 +84,8 @@ class MUbase:
         self.read_only = read_only
 
         # Ensure parent directory exists (create .mu/ if needed)
-        if not read_only:
+        # Skip for :memory: (in-memory DuckDB) to avoid creating literal ":memory:" directory
+        if not read_only and str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
         try:

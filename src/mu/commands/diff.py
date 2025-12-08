@@ -113,11 +113,14 @@ def diff(
                 if version_scan_result.stats.total_files == 0:
                     return None, []
 
-                # Parse
+                # Parse - use file_info.path (relative) as display_path to avoid
+                # temp worktree paths appearing in diff output
                 version_modules: list[ModuleDef] = []
                 for file_info in version_scan_result.files:
-                    file_path = version_path / file_info.path
-                    parse_result = parse_file(file_path, file_info.language)
+                    full_path = version_path / file_info.path
+                    parse_result = parse_file(
+                        full_path, file_info.language, display_path=file_info.path
+                    )
                     if parse_result.success and parse_result.module is not None:
                         version_modules.append(parse_result.module)
 

@@ -1,15 +1,16 @@
 """Daemon lifecycle management.
 
 Handles starting, stopping, and checking status of the MU daemon process.
+Uses the Rust mu-daemon binary exclusively.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import shutil
 import signal
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -24,10 +25,41 @@ logger = logging.getLogger(__name__)
 STATUS_TIMEOUT = 2.0
 
 # Maximum time to wait for daemon startup
-STARTUP_TIMEOUT = 10.0
+# Rust daemon needs more time for large codebases with --build
+STARTUP_TIMEOUT = 30.0
 
 # Maximum time to wait for daemon shutdown
 SHUTDOWN_TIMEOUT = 5.0
+
+
+def find_rust_daemon_binary() -> Path | None:
+    """Find the mu-daemon Rust binary.
+
+    Search order:
+    1. mu-daemon in PATH (installed via cargo install)
+    2. Development build: mu-daemon/target/release/mu-daemon
+    3. Development build: mu-daemon/target/debug/mu-daemon
+
+    Returns:
+        Path to binary if found, None otherwise.
+    """
+    # Check PATH first (cargo install puts it in ~/.cargo/bin)
+    path_binary = shutil.which("mu-daemon")
+    if path_binary:
+        return Path(path_binary)
+
+    # Check development builds relative to this file
+    # Structure: src/mu/daemon/lifecycle.py -> mu-daemon/target/
+    project_root = Path(__file__).parent.parent.parent.parent
+    release_binary = project_root / "mu-daemon" / "target" / "release" / "mu-daemon"
+    if release_binary.exists():
+        return release_binary
+
+    debug_binary = project_root / "mu-daemon" / "target" / "debug" / "mu-daemon"
+    if debug_binary.exists():
+        return debug_binary
+
+    return None
 
 
 class DaemonLifecycle:
@@ -93,29 +125,50 @@ class DaemonLifecycle:
         mubase_path: Path,
         config: DaemonConfig | None = None,
     ) -> None:
-        """Run daemon in foreground (for debugging).
+        """Run Rust daemon in foreground (for debugging).
 
         Args:
-            mubase_path: Path to .mubase file
+            mubase_path: Path to .mubase file (used to find project root)
             config: Optional daemon configuration override
+
+        Raises:
+            RuntimeError: If Rust daemon binary not found
         """
-        import uvicorn
-
-        from mu.daemon.server import create_app
-
         cfg = config or self.config
+
+        rust_binary = find_rust_daemon_binary()
+        if not rust_binary:
+            raise RuntimeError(
+                "Rust daemon binary not found. Build it with: cd mu-daemon && cargo build --release"
+            )
+
+        # Rust daemon takes the project root, not the mubase path directly
+        project_root = (
+            mubase_path.parent.parent
+            if mubase_path.name == "mubase"
+            else mubase_path.parent
+        )
+
+        # Build command arguments
+        cmd = [
+            str(rust_binary),
+            str(project_root),
+            "--port",
+            str(cfg.port),
+            "--build",  # Build graph on startup
+        ]
+
+        if cfg.host != "127.0.0.1":
+            cmd.extend(["--host", cfg.host])
+
+        logger.info(f"Starting Rust daemon: {' '.join(cmd)}")
 
         # Write PID file
         self._write_pid()
 
         try:
-            app = create_app(mubase_path, cfg)
-            uvicorn.run(
-                app,
-                host=cfg.host,
-                port=cfg.port,
-                log_level="info",
-            )
+            # Run in foreground (blocking)
+            subprocess.run(cmd, check=True)
         finally:
             self._cleanup_pid()
 
@@ -124,19 +177,17 @@ class DaemonLifecycle:
         mubase_path: Path,
         config: DaemonConfig | None = None,
     ) -> int:
-        """Start daemon in background.
-
-        Uses subprocess to spawn a new Python process running the daemon.
+        """Start Rust daemon in background.
 
         Args:
-            mubase_path: Path to .mubase file
+            mubase_path: Path to .mubase file (used to find project root)
             config: Optional daemon configuration override
 
         Returns:
             PID of the background process
 
         Raises:
-            RuntimeError: If daemon fails to start
+            RuntimeError: If daemon fails to start or Rust binary not found
         """
         cfg = config or self.config
 
@@ -145,89 +196,84 @@ class DaemonLifecycle:
         if running:
             raise RuntimeError(f"Daemon already running (PID {pid})")
 
-        # Build command to run daemon
-        # We use a subprocess that imports and runs the daemon
-        python_path = sys.executable
-        mubase_path_str = str(mubase_path.resolve())
+        # Find Rust daemon binary
+        rust_binary = find_rust_daemon_binary()
+        if not rust_binary:
+            raise RuntimeError(
+                "Rust daemon binary not found. Build it with: cd mu-daemon && cargo build --release"
+            )
 
-        daemon_script = f"""
-import sys
-import os
-import logging
+        return self._start_rust_daemon(mubase_path, cfg, rust_binary)
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+    def _start_rust_daemon(
+        self,
+        mubase_path: Path,
+        cfg: DaemonConfig,
+        binary_path: Path,
+    ) -> int:
+        """Start the Rust mu-daemon binary.
 
-# Add parent to path if needed
-sys.path.insert(0, "{Path(__file__).parent.parent.parent.parent}")
+        Args:
+            mubase_path: Path to .mubase file (used to find project root)
+            cfg: Daemon configuration
+            binary_path: Path to the mu-daemon binary
 
-from pathlib import Path
-from mu.daemon.config import DaemonConfig
-from mu.daemon.server import create_app
-import uvicorn
+        Returns:
+            PID of the daemon process
+        """
+        # Rust daemon takes the project root, not the mubase path directly
+        # It will find/create .mu/mubase itself
+        project_root = mubase_path.parent.parent if mubase_path.name == "mubase" else mubase_path.parent
 
-mubase_path = Path("{mubase_path_str}")
-config = DaemonConfig(
-    host="{cfg.host}",
-    port={cfg.port},
-    debounce_ms={cfg.debounce_ms},
-    max_connections={cfg.max_connections},
-)
+        # Build command arguments
+        cmd = [
+            str(binary_path),
+            str(project_root),
+            "--port", str(cfg.port),
+            "--build",  # Build graph on startup
+        ]
 
-# Write PID
-pid_file = Path("{str(self.pid_file.resolve())}")
-pid_file.write_text(str(os.getpid()))
+        if cfg.host != "127.0.0.1":
+            cmd.extend(["--host", cfg.host])
 
-try:
-    app = create_app(mubase_path, config)
-    uvicorn.run(app, host=config.host, port=config.port, log_level="warning")
-finally:
-    try:
-        pid_file.unlink()
-    except:
-        pass
-"""
+        logger.debug(f"Starting Rust daemon: {' '.join(cmd)}")
 
         # Start subprocess
         process = subprocess.Popen(
-            [python_path, "-c", daemon_script],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,  # Detach from parent
         )
+
+        # Write PID file ourselves since Rust daemon doesn't manage it
+        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
+        self.pid_file.write_text(str(process.pid))
 
         # Wait for daemon to start
         start_time = time.time()
         while time.time() - start_time < STARTUP_TIMEOUT:
             time.sleep(0.2)
 
-            # Check if PID file was created
-            if self.pid_file.exists():
-                try:
-                    pid = int(self.pid_file.read_text().strip())
-                    # Verify process is running
-                    os.kill(pid, 0)
-
-                    # Try to connect to status endpoint
-                    try:
-                        response = httpx.get(
-                            f"http://{cfg.host}:{cfg.port}/status",
-                            timeout=STATUS_TIMEOUT,
-                        )
-                        if response.status_code == 200:
-                            logger.info(f"Daemon started successfully (PID {pid})")
-                            return pid
-                    except httpx.RequestError:
-                        # Server not ready yet
-                        pass
-                except (ValueError, OSError):
-                    pass
-
-            # Check if process died
+            # Check if process is still running
             if process.poll() is not None:
-                raise RuntimeError("Daemon process exited unexpectedly")
+                self._cleanup_stale_pid()
+                raise RuntimeError("Rust daemon process exited unexpectedly")
 
-        raise RuntimeError(f"Daemon failed to start within {STARTUP_TIMEOUT}s")
+            # Try to connect to status endpoint
+            try:
+                response = httpx.get(
+                    f"http://{cfg.host}:{cfg.port}/status",
+                    timeout=STATUS_TIMEOUT,
+                )
+                if response.status_code == 200:
+                    logger.info(f"Rust daemon started successfully (PID {process.pid})")
+                    return process.pid
+            except httpx.RequestError:
+                # Server not ready yet
+                pass
+
+        raise RuntimeError(f"Rust daemon failed to start within {STARTUP_TIMEOUT}s")
 
     def stop(self) -> bool:
         """Stop running daemon.
@@ -344,4 +390,5 @@ finally:
 
 __all__ = [
     "DaemonLifecycle",
+    "find_rust_daemon_binary",
 ]

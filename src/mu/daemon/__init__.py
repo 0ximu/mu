@@ -1,6 +1,6 @@
-"""MU Daemon - Real-time file watching and HTTP/WebSocket API.
+"""MU Daemon - Real-time code intelligence daemon.
 
-Provides a long-running daemon that:
+Provides a long-running Rust daemon (mu-daemon) that:
 - Watches filesystem for code changes and updates the graph incrementally
 - Serves HTTP API for queries (status, nodes, MUQL, context, export)
 - Provides WebSocket for real-time change notifications
@@ -10,7 +10,7 @@ Example:
     Start the daemon from CLI:
 
         $ mu daemon start .
-        MU daemon started on http://127.0.0.1:8765
+        MU daemon started on http://127.0.0.1:9120
         PID: 12345
 
         $ mu daemon status
@@ -27,41 +27,30 @@ Example:
         >>> from mu.daemon import DaemonConfig, DaemonLifecycle
         >>> from pathlib import Path
         >>>
-        >>> config = DaemonConfig(port=8765, watch_paths=[Path(".")])
-        >>> lifecycle = DaemonLifecycle()
-        >>> lifecycle.start_foreground(config, Path(".mubase"))
+        >>> config = DaemonConfig(port=9120)
+        >>> lifecycle = DaemonLifecycle(config=config)
+        >>> lifecycle.start_background(Path(".mu/mubase"))
 
-API Endpoints:
+API Endpoints (Rust daemon on port 9120):
     GET /status           - Daemon status and statistics
     GET /nodes/{id}       - Get node by ID
     GET /nodes/{id}/neighbors - Get neighboring nodes
     POST /query           - Execute MUQL query
     POST /context         - Extract smart context for question
+    POST /impact          - Downstream impact analysis
+    POST /ancestors       - Upstream dependency analysis
+    POST /cycles          - Circular dependency detection
     GET /export           - Export graph in various formats
-    WS /live              - WebSocket for real-time updates
+    WS /ws                - WebSocket for real-time updates
 """
 
 from mu.daemon.config import DaemonConfig
-from mu.daemon.events import FileChange, GraphEvent, UpdateQueue
-from mu.daemon.lifecycle import DaemonLifecycle
-from mu.daemon.server import ConnectionManager, create_app
-from mu.daemon.watcher import FileWatcher
-from mu.daemon.worker import GraphWorker
+from mu.daemon.lifecycle import DaemonLifecycle, find_rust_daemon_binary
 
 __all__ = [
     # Configuration
     "DaemonConfig",
-    # Events
-    "FileChange",
-    "GraphEvent",
-    "UpdateQueue",
     # Lifecycle
     "DaemonLifecycle",
-    # Server
-    "create_app",
-    "ConnectionManager",
-    # Watcher
-    "FileWatcher",
-    # Worker
-    "GraphWorker",
+    "find_rust_daemon_binary",
 ]

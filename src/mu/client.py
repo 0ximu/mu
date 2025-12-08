@@ -19,7 +19,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 __all__ = ["DaemonClient", "is_daemon_running", "forward_query"]
 
-DEFAULT_DAEMON_URL = "http://localhost:8765"
+DEFAULT_DAEMON_URL = "http://localhost:9120"
 DEFAULT_TIMEOUT = 0.5
 
 
@@ -44,6 +44,33 @@ class DaemonClient:
             base_url=self.base_url,
             timeout=httpx.Timeout(self.timeout, connect=self.timeout),
         )
+
+    def _unwrap_response(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Unwrap response from Rust or Python daemon format.
+
+        The Rust daemon wraps all responses in:
+        {"success": bool, "data": {...}, "error": str|null, "duration_ms": int}
+
+        The Python daemon wraps responses in:
+        {"success": bool, "result": {...}, "error": str|null}
+
+        Args:
+            data: Raw response data.
+
+        Returns:
+            Unwrapped data dict.
+
+        Raises:
+            DaemonError: If success is False.
+        """
+        # Check if this is a wrapped response (Rust or Python daemon)
+        if "success" in data:
+            if not data.get("success"):
+                raise DaemonError(data.get("error", "Request failed"))
+            # Rust daemon uses "data", Python daemon uses "result"
+            return cast(dict[str, Any], data.get("data") or data.get("result", data))
+        # Some endpoints return data directly without wrapper
+        return data
 
     def is_running(self) -> bool:
         """Check if the daemon is running.
@@ -85,14 +112,13 @@ class DaemonClient:
             )
             response.raise_for_status()
             data = cast(dict[str, Any], response.json())
-            if not data.get("success"):
-                raise DaemonError(data.get("error", "Query failed"))
-            result = data.get("result", {})
-            return cast(dict[str, Any], result)
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Query failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Query error: {e}") from e
 
@@ -112,9 +138,12 @@ class DaemonClient:
             params = {"cwd": cwd} if cwd else {}
             response = self._client.get("/status", params=params)
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Status request failed: {e}") from e
 
@@ -153,9 +182,12 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Context request failed: {e}") from e
 
@@ -176,7 +208,8 @@ class DaemonClient:
             Impact result with node_id, impacted_nodes, count.
         """
         try:
-            payload: dict[str, Any] = {"node_id": node_id}
+            # Rust daemon uses 'node', Python daemon used 'node_id'
+            payload: dict[str, Any] = {"node": node_id}
             if edge_types:
                 payload["edge_types"] = edge_types
             if cwd:
@@ -187,11 +220,22 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list, normalize to expected dict format
+            if isinstance(result, list):
+                return {
+                    "node_id": node_id,
+                    "impacted_nodes": result,
+                    "count": len(result),
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Impact request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Impact error: {e}") from e
 
@@ -212,7 +256,8 @@ class DaemonClient:
             Ancestors result with node_id, ancestor_nodes, count.
         """
         try:
-            payload: dict[str, Any] = {"node_id": node_id}
+            # Rust daemon uses 'node', Python daemon used 'node_id'
+            payload: dict[str, Any] = {"node": node_id}
             if edge_types:
                 payload["edge_types"] = edge_types
             if cwd:
@@ -223,11 +268,22 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list, normalize to expected dict format
+            if isinstance(result, list):
+                return {
+                    "node_id": node_id,
+                    "ancestor_nodes": result,
+                    "count": len(result),
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Ancestors request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Ancestors error: {e}") from e
 
@@ -257,11 +313,23 @@ class DaemonClient:
                 timeout=30.0,
             )
             response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list of cycles, normalize to expected dict format
+            if isinstance(result, list):
+                total_nodes = sum(len(cycle) for cycle in result)
+                return {
+                    "cycles": result,
+                    "cycle_count": len(result),
+                    "total_nodes_in_cycles": total_nodes,
+                }
+            return result
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Cycles request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
             raise DaemonError(f"Cycles error: {e}") from e
 
@@ -291,16 +359,14 @@ class DaemonClient:
             )
             response.raise_for_status()
             data = cast(dict[str, Any], response.json())
-            if not data.get("success"):
-                raise DaemonError(data.get("error", "Node not found"))
-            return cast(dict[str, Any], data.get("data", {}))
+            return self._unwrap_response(data)
         except httpx.ConnectError as e:
             raise DaemonError(f"Daemon not available: {e}") from e
         except httpx.HTTPStatusError as e:
             raise DaemonError(f"Node request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
         except Exception as e:
-            if isinstance(e, DaemonError):
-                raise
             raise DaemonError(f"Node error: {e}") from e
 
     def find_node(

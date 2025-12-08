@@ -127,7 +127,7 @@ class TestMuQuery:
         mock_get_client.side_effect = DaemonError("Daemon not running")
         mock_find_mubase.return_value = None
 
-        with pytest.raises(DaemonError, match="No .mubase found"):
+        with pytest.raises(DaemonError, match=r"No \.mu/mubase found"):
             mu_query("SELECT * FROM functions")
 
 
@@ -168,7 +168,7 @@ class TestMuContext:
         mock_get_client.side_effect = DaemonError("Daemon not running")
         mock_find_mubase.return_value = None
 
-        with pytest.raises(DaemonError, match="No .mubase found"):
+        with pytest.raises(DaemonError, match=r"No \.mu/mubase found"):
             mu_context("How does auth work?")
 
 

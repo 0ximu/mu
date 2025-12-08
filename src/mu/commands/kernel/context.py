@@ -96,6 +96,11 @@ def kernel_context(
     from mu.kernel.context.export import ContextExporter
     from mu.logging import console, print_error, print_info, print_success, print_warning
 
+    # Validate input before any database access
+    if not question or not question.strip():
+        print_error("Question cannot be empty")
+        sys.exit(ExitCode.CONFIG_ERROR)
+
     mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():

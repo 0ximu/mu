@@ -499,11 +499,12 @@ class QueryPlanner:
         """
         cond = query.condition
         node_type = query.node_type
+        limit = query.limit
 
         # Pattern matching queries can use SQL
         if cond.condition_type == FindConditionType.MATCHING:
             pattern = cond.pattern or ""
-            sql = self._build_find_matching_sql(node_type, pattern)
+            sql = self._build_find_matching_sql(node_type, pattern, limit)
             return SQLPlan(
                 sql=sql,
                 parameters=[f"%{pattern}%"],
@@ -516,7 +517,7 @@ class QueryPlanner:
             FindConditionType.WITH_ANNOTATION,
         ):
             pattern = cond.pattern or ""
-            sql = self._build_find_decorator_sql(node_type, pattern)
+            sql = self._build_find_decorator_sql(node_type, pattern, limit)
             return SQLPlan(
                 sql=sql,
                 parameters=[f"%{pattern}%"],
@@ -530,34 +531,50 @@ class QueryPlanner:
         return GraphPlan(
             operation=operation,
             target_node=target,
-            extra_args={"node_type": node_type.value},
+            extra_args={"node_type": node_type.value, "limit": limit},
         )
 
-    def _build_find_matching_sql(self, node_type: NodeTypeFilter, pattern: str) -> str:
+    def _build_find_matching_sql(
+        self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
+    ) -> str:
         """Build SQL for FIND ... MATCHING query."""
         type_filter = ""
         if node_type != NodeTypeFilter.NODES:
             type_filter = f"type = '{node_type.value}' AND "
 
+        # Apply limit (capped at MAX_LIMIT)
+        limit_clause = ""
+        if limit is not None:
+            effective_limit = min(limit, MAX_LIMIT)
+            limit_clause = f"\nLIMIT {effective_limit}"
+
         return f"""
 SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}name LIKE ?
-ORDER BY name
+ORDER BY name{limit_clause}
 """
 
-    def _build_find_decorator_sql(self, node_type: NodeTypeFilter, pattern: str) -> str:
+    def _build_find_decorator_sql(
+        self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
+    ) -> str:
         """Build SQL for FIND ... WITH DECORATOR query."""
         type_filter = ""
         if node_type != NodeTypeFilter.NODES:
             type_filter = f"type = '{node_type.value}' AND "
+
+        # Apply limit (capped at MAX_LIMIT)
+        limit_clause = ""
+        if limit is not None:
+            effective_limit = min(limit, MAX_LIMIT)
+            limit_clause = f"\nLIMIT {effective_limit}"
 
         # Decorators are stored in node metadata
         return f"""
 SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}metadata LIKE ?
-ORDER BY name
+ORDER BY name{limit_clause}
 """
 
     def _find_condition_to_operation(self, condition_type: FindConditionType) -> str:

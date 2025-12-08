@@ -25,10 +25,13 @@ pub async fn websocket_handler(
 async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
+    // Track connection
+    state.ws_connect();
+
     // Subscribe to graph events
     let mut event_rx = state.subscribe();
 
-    info!("WebSocket client connected");
+    info!("WebSocket client connected (total: {})", state.ws_connection_count());
 
     // Spawn task to forward events to WebSocket
     let send_task = tokio::spawn(async move {
@@ -90,7 +93,6 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
                 // Could handle commands here in the future
             }
             Message::Close(_) => {
-                info!("WebSocket client disconnected");
                 break;
             }
             _ => {}
@@ -98,5 +100,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>) {
     }
 
     // Clean up
+    state.ws_disconnect();
+    info!("WebSocket client disconnected (total: {})", state.ws_connection_count());
     send_task.abort();
 }

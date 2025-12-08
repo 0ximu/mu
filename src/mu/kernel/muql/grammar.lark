@@ -142,7 +142,7 @@ edge_type_list: edge_type_value ("," edge_type_value)*
 // FIND Query - Pattern-based search
 // =============================================================================
 
-find_query: FIND_KW find_node_type find_condition
+find_query: FIND_KW find_node_type find_condition [limit_clause]
 
 find_node_type: FUNCTIONS_KW -> find_functions
               | CLASSES_KW -> find_classes

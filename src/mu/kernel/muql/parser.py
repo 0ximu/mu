@@ -5,6 +5,7 @@ Uses Lark for parsing and transforms parse trees into AST dataclasses.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -705,9 +706,10 @@ class MUQLTransformer(Transformer[Token, Any]):
         return FindCondition(condition_type=FindConditionType.MATCHING, pattern="")
 
     def find_query(self, items: list[Any]) -> FindQuery:
-        # Items: [FIND_KW, find_node_type, find_condition]
+        # Items: [FIND_KW, find_node_type, find_condition, limit_clause?]
         node_type: NodeTypeFilter = NodeTypeFilter.FUNCTIONS
         condition: FindCondition | None = None
+        limit: int | None = None
 
         for item in items:
             if item is None:
@@ -718,10 +720,13 @@ class MUQLTransformer(Transformer[Token, Any]):
                 node_type = item
             elif isinstance(item, FindCondition):
                 condition = item
+            elif isinstance(item, int):
+                limit = item
 
         return FindQuery(
             node_type=node_type,
             condition=condition or FindCondition(FindConditionType.MATCHING),
+            limit=limit,
         )
 
     # -------------------------------------------------------------------------
@@ -1154,6 +1159,21 @@ class MUQLParser:
                 "  SELECT * FROM functions WHERE name LIKE '%auth%'\n"
                 "  SELECT * FROM classes WHERE complexity > 20"
             )
+
+        # Pattern: invalid table name after FROM
+        from_match = re.search(r"\bfrom\s+(\w+)", query_lower)
+        if from_match:
+            table_name = from_match.group(1)
+            valid_tables = ["functions", "classes", "modules", "nodes"]
+            if table_name not in valid_tables:
+                return (
+                    f"💡 Invalid table '{table_name}'.\n\n"
+                    f"Valid tables are: {', '.join(valid_tables)}\n\n"
+                    f"Examples:\n"
+                    f"  SELECT * FROM functions WHERE complexity > 20\n"
+                    f"  SELECT * FROM classes WHERE name LIKE '%Service%'\n"
+                    f"  SELECT * FROM modules"
+                )
 
         return None
 

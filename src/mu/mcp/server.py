@@ -428,7 +428,8 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
                 raise ValueError(f"Node not found: {node_id}")
 
             # Determine root path
-            root_path = mubase_path.parent if mubase_path else Path.cwd()
+            # mubase_path is .mu/mubase, so parent.parent gets the project root
+            root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
             return _extract_source(node_data, resolved_id, root_path)
 
     except DaemonError:
@@ -442,7 +443,8 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
     from mu.kernel import MUbase
 
     db = MUbase(mubase_path)
-    root_path = mubase_path.parent
+    # mubase_path is .mu/mubase, so parent.parent gets the project root
+    root_path = mubase_path.parent.parent
     try:
         resolved_id = _resolve_node_id(db, node_id, root_path)
         node = db.get_node(resolved_id)
@@ -952,10 +954,14 @@ def mu_semantic_diff(
         if scan_result.stats.total_files == 0:
             return None, []
 
+        # Use file_info.path (relative) as display_path to avoid
+        # temp worktree paths appearing in diff output
         modules: list[ModuleDef] = []
         for file_info in scan_result.files:
-            file_path = version_path / file_info.path
-            parse_result = parse_file(file_path, file_info.language)
+            full_path = version_path / file_info.path
+            parse_result = parse_file(
+                full_path, file_info.language, display_path=file_info.path
+            )
             if parse_result.success and parse_result.module is not None:
                 modules.append(parse_result.module)
 
@@ -1519,7 +1525,8 @@ def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult
         from mu.kernel.graph import GraphManager
 
         db = MUbase(mubase_path)
-        root_path = mubase_path.parent
+        # mubase_path is .mu/mubase, so parent.parent gets the project root
+        root_path = mubase_path.parent.parent
         try:
             gm = GraphManager(db.conn)
             gm.load()
@@ -1585,7 +1592,8 @@ def mu_ancestors(node_id: str, edge_types: list[str] | None = None) -> Ancestors
         from mu.kernel.graph import GraphManager
 
         db = MUbase(mubase_path)
-        root_path = mubase_path.parent
+        # mubase_path is .mu/mubase, so parent.parent gets the project root
+        root_path = mubase_path.parent.parent
         try:
             gm = GraphManager(db.conn)
             gm.load()
@@ -2008,7 +2016,8 @@ def mu_warn(target: str) -> WarningsOutput:
     from mu.intelligence.warnings import ProactiveWarningGenerator
     from mu.kernel import MUbase
 
-    db = MUbase(mubase_path)
+    # Use read_only=True to avoid lock conflicts when daemon is running
+    db = MUbase(mubase_path, read_only=True)
     try:
         generator = ProactiveWarningGenerator(db, root_path=mubase_path.parent)
         result = generator.analyze(target)
@@ -2202,7 +2211,8 @@ def mu_task_context(
     from mu.intelligence import TaskContextConfig, TaskContextExtractor
     from mu.kernel import MUbase
 
-    db = MUbase(mubase_path)
+    # Use read_only=True to avoid lock conflicts when daemon is running
+    db = MUbase(mubase_path, read_only=True)
     try:
         config = TaskContextConfig(
             max_tokens=max_tokens,
@@ -2334,19 +2344,21 @@ def mu_related(
     mubase_path = _find_mubase()
 
     # MUbase is optional for this tool - conventions work without it
+    # Use read_only=True to avoid lock conflicts when daemon is running
     db = None
     if mubase_path:
         from mu.kernel import MUbase
 
         try:
-            db = MUbase(mubase_path)
+            db = MUbase(mubase_path, read_only=True)
         except Exception:
             pass
 
     try:
         from mu.intelligence import RelatedFilesDetector
 
-        root_path = mubase_path.parent if mubase_path else Path.cwd()
+        # mubase_path is .mu/mubase, so parent.parent gets the project root
+        root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
         detector = RelatedFilesDetector(db=db, root_path=root_path)
 
         result = detector.detect(
@@ -2501,13 +2513,20 @@ def mu_remember(
 
     from mu.intelligence import MemoryCategory, MemoryManager
     from mu.kernel import MUbase
+    from mu.kernel.mubase import MUbaseLockError
 
     # Validate category
     valid_categories = [c.value for c in MemoryCategory]
     if category not in valid_categories:
         raise ValueError(f"Invalid category: {category}. Valid categories: {valid_categories}")
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path)
+    except MUbaseLockError:
+        raise DaemonError(
+            "Database is locked by the daemon. Stop the daemon first with 'mu daemon stop' "
+            "to store memories, or use mu_recall (read-only) instead."
+        ) from None
     try:
         manager = MemoryManager(db)
 
@@ -2604,7 +2623,8 @@ def mu_recall(
         if category not in valid_categories:
             raise ValueError(f"Invalid category: {category}. Valid categories: {valid_categories}")
 
-    db = MUbase(mubase_path)
+    # Use read_only=True to avoid lock conflicts when daemon is running
+    db = MUbase(mubase_path, read_only=True)
     try:
         manager = MemoryManager(db)
         result = manager.recall(
@@ -2727,19 +2747,21 @@ def mu_why(
     mubase_path = _find_mubase()
 
     # MUbase is optional for this tool - works without it for file paths
+    # Use read_only=True to avoid lock conflicts when daemon is running
     db = None
     if mubase_path:
         from mu.kernel import MUbase
 
         try:
-            db = MUbase(mubase_path)
+            db = MUbase(mubase_path, read_only=True)
         except Exception:
             pass
 
     try:
         from mu.intelligence import WhyAnalyzer
 
-        root_path = mubase_path.parent if mubase_path else Path.cwd()
+        # mubase_path is .mu/mubase, so parent.parent gets the project root
+        root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
         analyzer = WhyAnalyzer(db=db, root_path=root_path)
 
         result = analyzer.analyze(
