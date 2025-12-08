@@ -611,6 +611,63 @@ class SemanticDiffOutput:
     total_changes: int
 
 
+@dataclass
+class ReviewDiffOutput:
+    """Result of mu_review_diff - semantic diff with pattern validation.
+
+    Combines semantic diff analysis with pattern validation to provide
+    a comprehensive code review for changes between git refs.
+    """
+
+    base_ref: str
+    """Base git reference (e.g., 'main', 'HEAD~1')."""
+
+    head_ref: str
+    """Head git reference (e.g., 'feature-branch', 'HEAD')."""
+
+    # Semantic diff section
+    changes: list[dict[str, Any]]
+    """All semantic changes (added/removed/modified entities)."""
+
+    breaking_changes: list[dict[str, Any]]
+    """Breaking changes that may affect downstream code."""
+
+    has_breaking_changes: bool
+    """Whether any breaking changes were detected."""
+
+    total_changes: int
+    """Total number of semantic changes."""
+
+    # Pattern validation section
+    violations: list[ViolationInfo]
+    """Pattern violations found in changed files."""
+
+    patterns_checked: list[str]
+    """Names of patterns that were validated against."""
+
+    files_checked: list[str]
+    """Files that were validated."""
+
+    error_count: int
+    """Number of error-level violations (should fix)."""
+
+    warning_count: int
+    """Number of warning-level violations (consider fixing)."""
+
+    info_count: int
+    """Number of info-level suggestions."""
+
+    patterns_valid: bool
+    """Whether all changes pass pattern validation (no errors)."""
+
+    # Summary
+    review_summary: str
+    """Human-readable review summary with recommendations."""
+
+    review_time_ms: float
+    """Total time for review (diff + validation) in milliseconds."""
+
+
 @mcp.tool()
 def mu_bootstrap(path: str = ".", force: bool = False) -> BootstrapResult:
     """Bootstrap MU for a codebase in one step.
@@ -938,6 +995,267 @@ def mu_semantic_diff(
             has_breaking_changes=len(breaking_changes) > 0,
             total_changes=len(changes),
         )
+
+
+@mcp.tool()
+def mu_review_diff(
+    base_ref: str,
+    head_ref: str,
+    path: str = ".",
+    validate_patterns: bool = True,
+    pattern_category: str | None = None,
+) -> ReviewDiffOutput:
+    """Perform a comprehensive code review of changes between git refs.
+
+    Combines semantic diff analysis with pattern validation to provide
+    actionable review feedback. This is the recommended tool for PR reviews.
+
+    **Analysis includes:**
+    - Semantic changes: Added/removed/modified functions, classes, methods
+    - Breaking change detection: Removed public APIs, signature changes
+    - Pattern validation: Check new code follows codebase conventions
+    - Review summary: Human-readable feedback with recommendations
+
+    Args:
+        base_ref: Base git ref (e.g., "main", "develop", "HEAD~5")
+        head_ref: Head git ref (e.g., "HEAD", "feature-branch")
+        path: Path to codebase (default: current directory)
+        validate_patterns: Whether to run pattern validation (default True)
+        pattern_category: Optional category to validate (all if None).
+                         Valid: naming, architecture, testing, imports,
+                         error_handling, api, async, logging
+
+    Returns:
+        ReviewDiffOutput with comprehensive review including:
+        - Semantic changes and breaking change warnings
+        - Pattern violations with fix suggestions
+        - Overall review summary and recommendations
+
+    Examples:
+        # Review PR against main
+        mu_review_diff("main", "HEAD")
+
+        # Review last 3 commits
+        mu_review_diff("HEAD~3", "HEAD")
+
+        # Review with naming conventions only
+        mu_review_diff("develop", "feature-branch", pattern_category="naming")
+
+        # Skip pattern validation (just semantic diff)
+        mu_review_diff("main", "HEAD", validate_patterns=False)
+
+    Use Cases:
+        - PR review: Automated review before merge
+        - Pre-commit: Check your changes before committing
+        - Code audit: Review large changes for issues
+        - Learning: Understand what patterns to follow
+    """
+    import subprocess
+    import time
+
+    start_time = time.time()
+    root_path = Path(path).resolve()
+
+    # Step 1: Get semantic diff
+    diff_result = mu_semantic_diff(base_ref, head_ref, path)
+
+    # Initialize validation results
+    violations: list[ViolationInfo] = []
+    patterns_checked: list[str] = []
+    files_checked: list[str] = []
+    error_count = 0
+    warning_count = 0
+    info_count = 0
+    patterns_valid = True
+
+    # Step 2: Get changed files from git and validate patterns
+    if validate_patterns:
+        mubase_path = _find_mubase()
+        if mubase_path:
+            from mu.intelligence import PatternCategory
+            from mu.intelligence.validator import ChangeValidator
+            from mu.kernel import MUbase
+
+            # Validate category if provided
+            cat_enum = None
+            if pattern_category:
+                try:
+                    cat_enum = PatternCategory(pattern_category)
+                except ValueError:
+                    valid_cats = [c.value for c in PatternCategory]
+                    raise ValueError(
+                        f"Invalid pattern_category: {pattern_category}. Valid: {valid_cats}"
+                    ) from None
+
+            # Get changed files from git
+            try:
+                result = subprocess.run(
+                    ["git", "diff", "--name-only", base_ref, head_ref],
+                    capture_output=True,
+                    text=True,
+                    cwd=root_path,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    changed_files = [
+                        f.strip()
+                        for f in result.stdout.strip().splitlines()
+                        if f.strip()
+                    ]
+
+                    # Filter to only files that still exist (not deleted)
+                    existing_files = [
+                        f for f in changed_files if (root_path / f).exists()
+                    ]
+
+                    if existing_files:
+                        db = MUbase(mubase_path)
+                        try:
+                            validator = ChangeValidator(db)
+                            validation_result = validator.validate(
+                                files=existing_files, category=cat_enum
+                            )
+
+                            # Convert violations to output format
+                            violations = [
+                                ViolationInfo(
+                                    file_path=v.file_path,
+                                    line_start=v.line_start,
+                                    line_end=v.line_end,
+                                    severity=v.severity.value,
+                                    rule=v.rule,
+                                    message=v.message,
+                                    suggestion=v.suggestion,
+                                    pattern_category=v.pattern_category,
+                                )
+                                for v in validation_result.violations
+                            ]
+
+                            patterns_checked = validation_result.patterns_checked
+                            files_checked = validation_result.files_checked
+                            error_count = validation_result.error_count
+                            warning_count = validation_result.warning_count
+                            info_count = validation_result.info_count
+                            patterns_valid = validation_result.valid
+                        finally:
+                            db.close()
+            except (subprocess.SubprocessError, FileNotFoundError):
+                pass  # Git not available or not in a repo
+
+    # Step 3: Generate review summary
+    summary_parts = []
+
+    # Header
+    summary_parts.append(f"# Code Review: {base_ref} → {head_ref}")
+    summary_parts.append("")
+
+    # Semantic changes summary
+    summary_parts.append("## Semantic Changes")
+    if diff_result.total_changes == 0:
+        summary_parts.append("No semantic changes detected.")
+    else:
+        summary_parts.append(f"- Total changes: {diff_result.total_changes}")
+
+        # Group by change type
+        added = [c for c in diff_result.changes if c.get("change_type") == "added"]
+        removed = [c for c in diff_result.changes if c.get("change_type") == "removed"]
+        modified = [
+            c
+            for c in diff_result.changes
+            if c.get("change_type") not in ("added", "removed")
+        ]
+
+        if added:
+            summary_parts.append(f"- Added: {len(added)}")
+        if removed:
+            summary_parts.append(f"- Removed: {len(removed)}")
+        if modified:
+            summary_parts.append(f"- Modified: {len(modified)}")
+
+    summary_parts.append("")
+
+    # Breaking changes warning
+    if diff_result.has_breaking_changes:
+        summary_parts.append("## ⚠️ Breaking Changes Detected")
+        for bc in diff_result.breaking_changes[:5]:  # Limit to first 5
+            entity = bc.get("entity_name", "unknown")
+            change_type = bc.get("change_type", "modified")
+            summary_parts.append(f"- **{entity}**: {change_type}")
+        if len(diff_result.breaking_changes) > 5:
+            summary_parts.append(
+                f"  ... and {len(diff_result.breaking_changes) - 5} more"
+            )
+        summary_parts.append("")
+
+    # Pattern validation summary
+    if validate_patterns:
+        summary_parts.append("## Pattern Validation")
+        if not files_checked:
+            summary_parts.append("No files to validate (no .mubase or no changed files).")
+        elif patterns_valid and not violations:
+            summary_parts.append("✅ All changes follow codebase patterns.")
+        else:
+            if error_count > 0:
+                summary_parts.append(f"❌ {error_count} error(s) - should fix before merge")
+            if warning_count > 0:
+                summary_parts.append(f"⚠️ {warning_count} warning(s) - consider fixing")
+            if info_count > 0:
+                summary_parts.append(f"ℹ️ {info_count} suggestion(s)")
+
+            # Top violations
+            if violations:
+                summary_parts.append("")
+                summary_parts.append("### Key Issues:")
+                for v in violations[:3]:  # Top 3
+                    summary_parts.append(f"- **{v.rule}** ({v.file_path}:{v.line_start or '?'})")
+                    summary_parts.append(f"  {v.message}")
+                    if v.suggestion:
+                        summary_parts.append(f"  → {v.suggestion}")
+        summary_parts.append("")
+
+    # Recommendation
+    summary_parts.append("## Recommendation")
+    if diff_result.has_breaking_changes:
+        summary_parts.append(
+            "⚠️ **Review breaking changes carefully** before merging. "
+            "Ensure downstream code is updated."
+        )
+    elif error_count > 0:
+        summary_parts.append(
+            "❌ **Address pattern violations** before merging. "
+            "New code should follow established conventions."
+        )
+    elif warning_count > 0:
+        summary_parts.append(
+            "⚠️ **Consider addressing warnings** for consistency. "
+            "Changes are otherwise acceptable."
+        )
+    else:
+        summary_parts.append("✅ **Looks good!** No blocking issues found.")
+
+    review_summary = "\n".join(summary_parts)
+    review_time_ms = (time.time() - start_time) * 1000
+
+    return ReviewDiffOutput(
+        base_ref=base_ref,
+        head_ref=head_ref,
+        # Semantic diff
+        changes=diff_result.changes,
+        breaking_changes=diff_result.breaking_changes,
+        has_breaking_changes=diff_result.has_breaking_changes,
+        total_changes=diff_result.total_changes,
+        # Pattern validation
+        violations=violations,
+        patterns_checked=patterns_checked,
+        files_checked=files_checked,
+        error_count=error_count,
+        warning_count=warning_count,
+        info_count=info_count,
+        patterns_valid=patterns_valid,
+        # Summary
+        review_summary=review_summary,
+        review_time_ms=review_time_ms,
+    )
 
 
 # =============================================================================
@@ -1955,6 +2273,429 @@ def mu_related(
             db.close()
 
 
+# =============================================================================
+# Cross-Session Memory Tools (F6)
+# =============================================================================
+
+
+@dataclass
+class MemoryInfo:
+    """Information about a stored memory."""
+
+    id: str
+    category: str
+    content: str
+    context: str
+    source: str
+    confidence: float
+    importance: int
+    tags: list[str]
+    created_at: str
+    updated_at: str
+    access_count: int
+
+
+@dataclass
+class RememberResult:
+    """Result of mu_remember - memory storage."""
+
+    memory_id: str
+    category: str
+    content: str
+    importance: int
+    is_update: bool
+    message: str
+
+
+@dataclass
+class RecallOutput:
+    """Result of mu_recall - memory retrieval."""
+
+    memories: list[MemoryInfo]
+    query: str
+    category: str | None
+    total_matches: int
+    recall_time_ms: float
+
+
+@mcp.tool()
+def mu_remember(
+    content: str,
+    category: str = "learning",
+    context: str = "",
+    source: str = "",
+    importance: int = 2,
+    tags: list[str] | None = None,
+) -> RememberResult:
+    """Store a memory for future recall across sessions.
+
+    Saves learnings, decisions, preferences, and context that should
+    persist across agent sessions. Memories are automatically deduplicated
+    based on content - storing the same content updates the existing memory.
+
+    Args:
+        content: The memory content to store. Should be concise and actionable.
+        category: Memory category. Valid values:
+                  - preference: User preferences (coding style, tool choices)
+                  - decision: Architectural/design decisions with rationale
+                  - context: Project context that persists across sessions
+                  - learning: Learned patterns or insights about the codebase
+                  - pitfall: Known issues, gotchas, or things to avoid
+                  - convention: Team or project conventions
+                  - todo: Deferred tasks or ideas for later
+                  - reference: Reference information (docs, links, examples)
+        context: Optional context about when/why this was learned.
+        source: Optional source (file path, conversation, etc.).
+        importance: Importance level 1-5 (1=low, 5=essential). Default: 2.
+        tags: Optional list of tags for categorization and search.
+
+    Returns:
+        RememberResult with memory ID and confirmation.
+
+    Examples:
+        # Store a user preference
+        mu_remember(
+            "User prefers snake_case for Python function names",
+            category="preference",
+            importance=3,
+            tags=["python", "naming"]
+        )
+
+        # Store an architectural decision
+        mu_remember(
+            "Using PostgreSQL over MySQL for better JSON support",
+            category="decision",
+            context="Discussed during architecture review",
+            importance=4,
+            tags=["database", "architecture"]
+        )
+
+        # Store a pitfall discovered during debugging
+        mu_remember(
+            "Never use datetime.now() in tests - use freezegun instead",
+            category="pitfall",
+            source="tests/test_scheduler.py",
+            importance=3,
+            tags=["testing", "datetime"]
+        )
+
+        # Store a TODO for later
+        mu_remember(
+            "Consider adding rate limiting to the API endpoints",
+            category="todo",
+            importance=2,
+            tags=["api", "security"]
+        )
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import MemoryCategory, MemoryManager
+    from mu.kernel import MUbase
+
+    # Validate category
+    valid_categories = [c.value for c in MemoryCategory]
+    if category not in valid_categories:
+        raise ValueError(f"Invalid category: {category}. Valid categories: {valid_categories}")
+
+    db = MUbase(mubase_path)
+    try:
+        manager = MemoryManager(db)
+
+        # Check if this would be an update
+        import hashlib
+
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
+        existing_id = f"mem:{category}:{content_hash}"
+        is_update = db.get_memory(existing_id) is not None
+
+        memory_id = manager.remember(
+            content=content,
+            category=category,
+            context=context,
+            source=source,
+            importance=importance,
+            tags=tags,
+        )
+
+        action = "Updated" if is_update else "Stored"
+        return RememberResult(
+            memory_id=memory_id,
+            category=category,
+            content=content,
+            importance=importance,
+            is_update=is_update,
+            message=f"{action} memory [{category}] with importance {importance}",
+        )
+    finally:
+        db.close()
+
+
+@mcp.tool()
+def mu_recall(
+    query: str | None = None,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    min_importance: int = 0,
+    limit: int = 10,
+) -> RecallOutput:
+    """Recall memories based on search criteria.
+
+    Retrieves stored memories that match the given criteria. Memories are
+    returned sorted by importance and access frequency. Each recall
+    updates the memory's access count and timestamp.
+
+    Args:
+        query: Optional text search in content and context.
+        category: Optional category filter. Valid values:
+                  preference, decision, context, learning, pitfall,
+                  convention, todo, reference
+        tags: Optional list of tags to filter by (matches any tag).
+        min_importance: Minimum importance level (0-5, 0 = all). Default: 0.
+        limit: Maximum number of memories to return. Default: 10.
+
+    Returns:
+        RecallOutput with matching memories.
+
+    Examples:
+        # Recall all memories
+        mu_recall()
+
+        # Search for specific content
+        mu_recall(query="database")
+
+        # Get all decisions
+        mu_recall(category="decision")
+
+        # Get high-importance memories
+        mu_recall(min_importance=4)
+
+        # Search by tags
+        mu_recall(tags=["testing", "python"])
+
+        # Combined search
+        mu_recall(query="API", category="pitfall", min_importance=2)
+
+    Use Cases:
+        - Start of session: Recall important context and preferences
+        - Before coding: Check for relevant pitfalls and conventions
+        - Architecture work: Review past decisions
+        - Planning: Check TODOs and deferred items
+    """
+    mubase_path = _find_mubase()
+    if not mubase_path:
+        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+
+    from mu.intelligence import MemoryCategory, MemoryManager
+    from mu.kernel import MUbase
+
+    # Validate category if provided
+    if category:
+        valid_categories = [c.value for c in MemoryCategory]
+        if category not in valid_categories:
+            raise ValueError(f"Invalid category: {category}. Valid categories: {valid_categories}")
+
+    db = MUbase(mubase_path)
+    try:
+        manager = MemoryManager(db)
+        result = manager.recall(
+            query=query,
+            category=category,
+            tags=tags,
+            min_importance=min_importance,
+            limit=limit,
+        )
+
+        memories_info = [
+            MemoryInfo(
+                id=m.id,
+                category=m.category.value,
+                content=m.content,
+                context=m.context,
+                source=m.source,
+                confidence=m.confidence,
+                importance=m.importance,
+                tags=m.tags,
+                created_at=m.created_at,
+                updated_at=m.updated_at,
+                access_count=m.access_count,
+            )
+            for m in result.memories
+        ]
+
+        return RecallOutput(
+            memories=memories_info,
+            query=query or "",
+            category=category,
+            total_matches=result.total_matches,
+            recall_time_ms=result.recall_time_ms,
+        )
+    finally:
+        db.close()
+
+
+# =============================================================================
+# Why Layer Tools (F7) - Git history analysis for code rationale
+# =============================================================================
+
+
+@dataclass
+class CommitInfoOutput:
+    """Information about a git commit."""
+
+    hash: str
+    full_hash: str
+    author: str
+    author_email: str
+    date: str
+    message: str
+    full_message: str
+    files_changed: list[str]
+    issue_refs: list[str]
+    pr_refs: list[str]
+
+
+@dataclass
+class WhyOutput:
+    """Result of mu_why - git history analysis for code rationale."""
+
+    target: str
+    target_type: str
+    file_path: str
+    line_start: int | None
+    line_end: int | None
+    origin_commit: CommitInfoOutput | None
+    origin_reason: str
+    total_commits: int
+    recent_commits: list[CommitInfoOutput]
+    evolution_summary: str
+    primary_author: str
+    contributors: list[dict[str, Any]]
+    issue_refs: list[str]
+    pr_refs: list[str]
+    frequently_changed_with: list[str]
+    analysis_time_ms: float
+
+
+@mcp.tool()
+def mu_why(
+    target: str,
+    max_commits: int = 20,
+    include_cochanges: bool = True,
+) -> WhyOutput:
+    """Analyze git history to understand why code exists.
+
+    Answers "Why does this code exist?" by analyzing git history:
+    - Origin commit and reason for creation
+    - Evolution over time (commits, contributors)
+    - Issue/PR references from commit messages
+    - Files that frequently change together
+
+    Args:
+        target: What to analyze. Can be:
+                - Node name: "AuthService", "login"
+                - Node ID: "cls:src/auth.py:AuthService"
+                - File path: "src/auth.py"
+                - File with lines: "src/auth.py:10-50"
+        max_commits: Maximum commits to analyze (default 20)
+        include_cochanges: Include co-change analysis (default True)
+
+    Returns:
+        WhyOutput with origin, evolution, and context information
+
+    Examples:
+        - mu_why("AuthService") - Why does AuthService exist?
+        - mu_why("src/auth.py") - History of the auth module
+        - mu_why("src/auth.py:10-50") - History of specific lines
+        - mu_why("cls:src/auth.py:AuthService") - Using node ID
+
+    Use Cases:
+        - Understanding unfamiliar code: "Why was this written this way?"
+        - Code archaeology: Finding the original intent
+        - Blame context: Understanding who to ask about code
+        - Change impact: What else typically changes with this code
+    """
+    mubase_path = _find_mubase()
+
+    # MUbase is optional for this tool - works without it for file paths
+    db = None
+    if mubase_path:
+        from mu.kernel import MUbase
+
+        try:
+            db = MUbase(mubase_path)
+        except Exception:
+            pass
+
+    try:
+        from mu.intelligence import WhyAnalyzer
+
+        root_path = mubase_path.parent if mubase_path else Path.cwd()
+        analyzer = WhyAnalyzer(db=db, root_path=root_path)
+
+        result = analyzer.analyze(
+            target,
+            max_commits=max_commits,
+            include_cochanges=include_cochanges,
+        )
+
+        # Convert origin commit
+        origin_commit_output = None
+        if result.origin_commit:
+            origin_commit_output = CommitInfoOutput(
+                hash=result.origin_commit.hash,
+                full_hash=result.origin_commit.full_hash,
+                author=result.origin_commit.author,
+                author_email=result.origin_commit.author_email,
+                date=result.origin_commit.date.isoformat() if result.origin_commit.date else "",
+                message=result.origin_commit.message,
+                full_message=result.origin_commit.full_message,
+                files_changed=result.origin_commit.files_changed,
+                issue_refs=result.origin_commit.issue_refs,
+                pr_refs=result.origin_commit.pr_refs,
+            )
+
+        # Convert recent commits
+        recent_commits_output = [
+            CommitInfoOutput(
+                hash=c.hash,
+                full_hash=c.full_hash,
+                author=c.author,
+                author_email=c.author_email,
+                date=c.date.isoformat() if c.date else "",
+                message=c.message,
+                full_message=c.full_message,
+                files_changed=c.files_changed,
+                issue_refs=c.issue_refs,
+                pr_refs=c.pr_refs,
+            )
+            for c in result.recent_commits
+        ]
+
+        return WhyOutput(
+            target=result.target,
+            target_type=result.target_type,
+            file_path=result.file_path,
+            line_start=result.line_start,
+            line_end=result.line_end,
+            origin_commit=origin_commit_output,
+            origin_reason=result.origin_reason,
+            total_commits=result.total_commits,
+            recent_commits=recent_commits_output,
+            evolution_summary=result.evolution_summary,
+            primary_author=result.primary_author,
+            contributors=result.contributors,
+            issue_refs=result.issue_refs,
+            pr_refs=result.pr_refs,
+            frequently_changed_with=result.frequently_changed_with,
+            analysis_time_ms=result.analysis_time_ms,
+        )
+    finally:
+        if db:
+            db.close()
+
+
 def _resolve_node_id(db: Any, node_ref: str) -> str:
     """Resolve a node reference to a full node ID.
 
@@ -2090,10 +2831,17 @@ __all__ = [
     "mu_warn",
     "mu_task_context",
     "mu_related",
+    # Cross-Session Memory
+    "mu_remember",
+    "mu_recall",
+    # Why Layer
+    "mu_why",
     # Compression
     "mu_compress",
     # Diff
     "mu_semantic_diff",
+    # Diff Review
+    "mu_review_diff",
     # Data types
     "NodeInfo",
     "QueryResult",
@@ -2109,6 +2857,7 @@ __all__ = [
     "GenerateOutput",
     "BootstrapResult",
     "SemanticDiffOutput",
+    "ReviewDiffOutput",
     "CompressOutput",
     "AskResult",
     "TaskFileContext",
@@ -2119,4 +2868,9 @@ __all__ = [
     "WarningsOutput",
     "RelatedFileInfo",
     "RelatedFilesOutput",
+    "MemoryInfo",
+    "RememberResult",
+    "RecallOutput",
+    "CommitInfoOutput",
+    "WhyOutput",
 ]

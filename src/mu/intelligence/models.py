@@ -391,6 +391,144 @@ class CodeExample:
         }
 
 
+class MemoryCategory(Enum):
+    """Categories of cross-session memories."""
+
+    PREFERENCE = "preference"
+    """User preferences and settings (e.g., coding style, tool choices)."""
+
+    DECISION = "decision"
+    """Architectural or design decisions and their rationale."""
+
+    CONTEXT = "context"
+    """Project context that persists across sessions."""
+
+    LEARNING = "learning"
+    """Learned patterns or insights about the codebase."""
+
+    PITFALL = "pitfall"
+    """Known issues, gotchas, or things to avoid."""
+
+    CONVENTION = "convention"
+    """Team or project conventions."""
+
+    TODO = "todo"
+    """Deferred tasks or ideas for later."""
+
+    REFERENCE = "reference"
+    """Reference information (docs, links, examples)."""
+
+
+@dataclass
+class Memory:
+    """A persistent memory stored across sessions.
+
+    Memories capture learnings, decisions, preferences, and context
+    that should persist across agent sessions.
+    """
+
+    id: str
+    """Unique memory identifier."""
+
+    category: MemoryCategory
+    """Category of this memory."""
+
+    content: str
+    """The actual memory content."""
+
+    context: str = ""
+    """Optional additional context about when/why this was learned."""
+
+    source: str = ""
+    """Where this memory came from (file, conversation, etc.)."""
+
+    confidence: float = 1.0
+    """Confidence in this memory (0.0 - 1.0)."""
+
+    importance: int = 1
+    """Importance level (1-5, higher = more important)."""
+
+    tags: list[str] = field(default_factory=list)
+    """Tags for categorization and search."""
+
+    embedding: list[float] | None = None
+    """Optional vector embedding for semantic search."""
+
+    created_at: str = ""
+    """ISO timestamp when memory was created."""
+
+    updated_at: str = ""
+    """ISO timestamp when memory was last updated."""
+
+    accessed_at: str | None = None
+    """ISO timestamp when memory was last accessed."""
+
+    access_count: int = 0
+    """Number of times this memory has been recalled."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "category": self.category.value,
+            "content": self.content,
+            "context": self.context,
+            "source": self.source,
+            "confidence": round(self.confidence, 3),
+            "importance": self.importance,
+            "tags": self.tags,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "accessed_at": self.accessed_at,
+            "access_count": self.access_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Memory:
+        """Create Memory from dictionary."""
+        return cls(
+            id=data["id"],
+            category=MemoryCategory(data["category"]),
+            content=data["content"],
+            context=data.get("context", ""),
+            source=data.get("source", ""),
+            confidence=data.get("confidence", 1.0),
+            importance=data.get("importance", 1),
+            tags=data.get("tags", []),
+            embedding=data.get("embedding"),
+            created_at=data.get("created_at", ""),
+            updated_at=data.get("updated_at", ""),
+            accessed_at=data.get("accessed_at"),
+            access_count=data.get("access_count", 0),
+        )
+
+
+@dataclass
+class RecallResult:
+    """Result of memory recall operation."""
+
+    memories: list[Memory] = field(default_factory=list)
+    """Retrieved memories sorted by relevance."""
+
+    query: str = ""
+    """The query used for recall."""
+
+    total_matches: int = 0
+    """Total number of matching memories."""
+
+    recall_time_ms: float = 0.0
+    """Time taken for recall in milliseconds."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "memories": [m.to_dict() for m in self.memories],
+            "query": self.query,
+            "total_matches": self.total_matches,
+            "recall_time_ms": round(self.recall_time_ms, 2),
+        }
+
+
 class WarningCategory(Enum):
     """Categories of proactive warnings."""
 
@@ -639,11 +777,14 @@ __all__ = [
     "FileContext",
     "GeneratedFile",
     "GenerateResult",
+    "Memory",
+    "MemoryCategory",
     "Pattern",
     "PatternCategory",
     "PatternExample",
     "PatternsResult",
     "ProactiveWarning",
+    "RecallResult",
     "Suggestion",
     "TaskAnalysis",
     "TaskContextResult",

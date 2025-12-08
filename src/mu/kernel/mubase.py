@@ -6,6 +6,7 @@ recursive dependency queries.
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -845,6 +846,441 @@ class MUbase:
                 unique.append(node)
 
         return unique
+
+    # =========================================================================
+    # Pattern Storage Methods
+    # =========================================================================
+
+    def _ensure_patterns_schema(self) -> None:
+        """Create patterns table if it doesn't exist."""
+        from mu.kernel.schema import PATTERNS_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM patterns LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(PATTERNS_SCHEMA_SQL)
+
+    def save_patterns(self, patterns: list[Any]) -> None:
+        """Save patterns to the database.
+
+        Args:
+            patterns: List of Pattern objects to save.
+        """
+        from datetime import datetime
+
+        self._ensure_patterns_schema()
+
+        # Clear existing patterns
+        self.conn.execute("DELETE FROM patterns")
+
+        now = datetime.now(UTC).isoformat()
+        for pattern in patterns:
+            import json
+
+            self.conn.execute(
+                """
+                INSERT INTO patterns
+                (id, category, name, description, frequency, confidence,
+                 examples, anti_patterns, related_patterns, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    f"pat:{pattern.category.value}:{pattern.name}",
+                    pattern.category.value,
+                    pattern.name,
+                    pattern.description,
+                    pattern.frequency,
+                    pattern.confidence,
+                    json.dumps([e.to_dict() for e in pattern.examples]),
+                    json.dumps(pattern.anti_patterns),
+                    json.dumps(getattr(pattern, "related_patterns", [])),
+                    now,
+                    now,
+                ],
+            )
+
+    def get_patterns(self, category: str | None = None) -> list[Any]:
+        """Get stored patterns.
+
+        Args:
+            category: Optional category filter.
+
+        Returns:
+            List of Pattern objects.
+        """
+        import json
+
+        from mu.intelligence.models import Pattern, PatternCategory, PatternExample
+
+        self._ensure_patterns_schema()
+
+        if category:
+            rows = self.conn.execute(
+                "SELECT * FROM patterns WHERE category = ? ORDER BY frequency DESC",
+                [category],
+            ).fetchall()
+        else:
+            rows = self.conn.execute("SELECT * FROM patterns ORDER BY frequency DESC").fetchall()
+
+        patterns = []
+        for row in rows:
+            # row: id, category, name, description, frequency, confidence,
+            #      examples, anti_patterns, related_patterns, created_at, updated_at
+            examples_data = json.loads(row[6]) if row[6] else []
+            examples = [
+                PatternExample(
+                    file_path=e.get("file_path", ""),
+                    line_start=e.get("line_start", 0),
+                    line_end=e.get("line_end", 0),
+                    code_snippet=e.get("code_snippet", ""),
+                    annotation=e.get("annotation", ""),
+                )
+                for e in examples_data
+            ]
+            patterns.append(
+                Pattern(
+                    name=row[2],
+                    category=PatternCategory(row[1]),
+                    description=row[3] or "",
+                    frequency=row[4] or 0,
+                    confidence=row[5] or 0.0,
+                    examples=examples,
+                    anti_patterns=json.loads(row[7]) if row[7] else [],
+                    related_patterns=json.loads(row[8]) if row[8] else [],
+                )
+            )
+        return patterns
+
+    def has_patterns(self) -> bool:
+        """Check if patterns are stored in the database.
+
+        Returns:
+            True if patterns exist, False otherwise.
+        """
+        try:
+            self._ensure_patterns_schema()
+            result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
+            return result is not None and result[0] > 0
+        except Exception:
+            return False
+
+    def patterns_stats(self) -> dict[str, Any]:
+        """Get pattern statistics.
+
+        Returns:
+            Dictionary with pattern counts and categories.
+        """
+        self._ensure_patterns_schema()
+
+        result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
+        total = result[0] if result else 0
+
+        by_category: dict[str, int] = {}
+        rows = self.conn.execute(
+            "SELECT category, COUNT(*) FROM patterns GROUP BY category"
+        ).fetchall()
+        for row in rows:
+            by_category[row[0]] = row[1]
+
+        return {
+            "total_patterns": total,
+            "patterns_by_category": by_category,
+        }
+
+    # =========================================================================
+    # Memory Storage Methods (Cross-Session Learnings)
+    # =========================================================================
+
+    def _ensure_memory_schema(self) -> None:
+        """Create memory table if it doesn't exist."""
+        from mu.kernel.schema import MEMORY_SCHEMA_SQL
+
+        try:
+            self.conn.execute("SELECT 1 FROM memories LIMIT 1")
+        except duckdb.CatalogException:
+            self.conn.execute(MEMORY_SCHEMA_SQL)
+
+    def save_memory(
+        self,
+        content: str,
+        category: str,
+        context: str = "",
+        source: str = "",
+        confidence: float = 1.0,
+        importance: int = 1,
+        tags: list[str] | None = None,
+        embedding: list[float] | None = None,
+    ) -> str:
+        """Save a memory to the database.
+
+        Args:
+            content: The memory content.
+            category: Memory category (preference, decision, context, etc.).
+            context: Optional additional context.
+            source: Where this memory came from.
+            confidence: Confidence level (0.0 - 1.0).
+            importance: Importance level (1-5).
+            tags: Optional list of tags.
+            embedding: Optional vector embedding.
+
+        Returns:
+            The memory ID.
+        """
+        import hashlib
+        import json
+        from datetime import datetime
+
+        self._ensure_memory_schema()
+
+        # Generate ID from content hash
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
+        memory_id = f"mem:{category}:{content_hash}"
+
+        now = datetime.now(UTC).isoformat()
+
+        # Check if memory already exists (update if so)
+        existing = self.conn.execute(
+            "SELECT id, access_count FROM memories WHERE id = ?", [memory_id]
+        ).fetchone()
+
+        if existing:
+            # Update existing memory
+            self.conn.execute(
+                """
+                UPDATE memories SET
+                    content = ?, context = ?, source = ?,
+                    confidence = ?, importance = ?, tags = ?,
+                    embedding = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                [
+                    content,
+                    context,
+                    source,
+                    confidence,
+                    importance,
+                    json.dumps(tags or []),
+                    embedding,
+                    now,
+                    memory_id,
+                ],
+            )
+        else:
+            # Insert new memory
+            self.conn.execute(
+                """
+                INSERT INTO memories
+                (id, category, content, context, source, confidence,
+                 importance, tags, embedding, created_at, updated_at,
+                 accessed_at, access_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
+                """,
+                [
+                    memory_id,
+                    category,
+                    content,
+                    context,
+                    source,
+                    confidence,
+                    importance,
+                    json.dumps(tags or []),
+                    embedding,
+                    now,
+                    now,
+                ],
+            )
+
+        return memory_id
+
+    def get_memory(self, memory_id: str) -> Any | None:
+        """Get a memory by ID.
+
+        Args:
+            memory_id: The memory ID.
+
+        Returns:
+            Memory object if found, None otherwise.
+        """
+        import json
+        from datetime import datetime
+
+        from mu.intelligence.models import Memory, MemoryCategory
+
+        self._ensure_memory_schema()
+
+        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", [memory_id]).fetchone()
+
+        if not row:
+            return None
+
+        # Update access tracking
+        now = datetime.now(UTC).isoformat()
+        self.conn.execute(
+            "UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
+            [now, memory_id],
+        )
+
+        # row: id, category, content, context, source, confidence,
+        #      importance, tags, embedding, created_at, updated_at,
+        #      accessed_at, access_count
+        # Note: Return incremented access_count (row[12] + 1) since we just updated it
+        return Memory(
+            id=row[0],
+            category=MemoryCategory(row[1]),
+            content=row[2],
+            context=row[3] or "",
+            source=row[4] or "",
+            confidence=row[5] or 1.0,
+            importance=row[6] or 1,
+            tags=json.loads(row[7]) if row[7] else [],
+            embedding=row[8],
+            created_at=row[9] or "",
+            updated_at=row[10] or "",
+            accessed_at=now,  # Use the current timestamp we just set
+            access_count=(row[12] or 0) + 1,  # Reflect the increment
+        )
+
+    def recall_memories(
+        self,
+        query: str | None = None,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        min_importance: int = 0,
+        limit: int = 10,
+    ) -> list[Any]:
+        """Recall memories based on search criteria.
+
+        Args:
+            query: Optional text search in content/context.
+            category: Optional category filter.
+            tags: Optional tags filter (any match).
+            min_importance: Minimum importance level.
+            limit: Maximum number of results.
+
+        Returns:
+            List of Memory objects.
+        """
+        import json
+        from datetime import datetime
+
+        from mu.intelligence.models import Memory, MemoryCategory
+
+        self._ensure_memory_schema()
+
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if category:
+            conditions.append("category = ?")
+            params.append(category)
+
+        if min_importance > 0:
+            conditions.append("importance >= ?")
+            params.append(min_importance)
+
+        if query:
+            conditions.append("(content LIKE ? OR context LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+
+        if tags:
+            # Check if any tag matches
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f'%"{tag}"%')
+            conditions.append(f"({' OR '.join(tag_conditions)})")
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        sql = f"""
+            SELECT * FROM memories
+            WHERE {where_clause}
+            ORDER BY importance DESC, access_count DESC, updated_at DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        rows = self.conn.execute(sql, params).fetchall()
+
+        # Update access tracking for retrieved memories
+        now = datetime.now(UTC).isoformat()
+        memory_ids = [row[0] for row in rows]
+        if memory_ids:
+            placeholders = ", ".join(["?"] * len(memory_ids))
+            self.conn.execute(
+                f"UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
+                [now, *memory_ids],
+            )
+
+        memories = []
+        for row in rows:
+            memories.append(
+                Memory(
+                    id=row[0],
+                    category=MemoryCategory(row[1]),
+                    content=row[2],
+                    context=row[3] or "",
+                    source=row[4] or "",
+                    confidence=row[5] or 1.0,
+                    importance=row[6] or 1,
+                    tags=json.loads(row[7]) if row[7] else [],
+                    embedding=row[8],
+                    created_at=row[9] or "",
+                    updated_at=row[10] or "",
+                    accessed_at=row[11],
+                    access_count=row[12] or 0,
+                )
+            )
+
+        return memories
+
+    def delete_memory(self, memory_id: str) -> bool:
+        """Delete a memory.
+
+        Args:
+            memory_id: The memory ID to delete.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        self._ensure_memory_schema()
+        self.conn.execute("DELETE FROM memories WHERE id = ?", [memory_id])
+        return True
+
+    def memory_stats(self) -> dict[str, Any]:
+        """Get memory statistics.
+
+        Returns:
+            Dictionary with memory counts and categories.
+        """
+        self._ensure_memory_schema()
+
+        result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+        total = result[0] if result else 0
+
+        by_category: dict[str, int] = {}
+        rows = self.conn.execute(
+            "SELECT category, COUNT(*) FROM memories GROUP BY category"
+        ).fetchall()
+        for row in rows:
+            by_category[row[0]] = row[1]
+
+        return {
+            "total_memories": total,
+            "memories_by_category": by_category,
+        }
+
+    def has_memories(self) -> bool:
+        """Check if any memories exist.
+
+        Returns:
+            True if memories exist, False otherwise.
+        """
+        try:
+            self._ensure_memory_schema()
+            result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
+            return result is not None and result[0] > 0
+        except Exception:
+            return False
 
     # =========================================================================
     # Incremental Update Methods (for daemon mode)

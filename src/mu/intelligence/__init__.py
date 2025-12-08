@@ -39,17 +39,21 @@ Usage:
 """
 
 from mu.intelligence.generator import CodeGenerator
+from mu.intelligence.memory import MemoryManager
 from mu.intelligence.models import (
     CodeExample,
     EntityType,
     FileContext,
     GeneratedFile,
     GenerateResult,
+    Memory,
+    MemoryCategory,
     Pattern,
     PatternCategory,
     PatternExample,
     PatternsResult,
     ProactiveWarning,
+    RecallResult,
     Suggestion,
     TaskAnalysis,
     TaskContextResult,
@@ -61,25 +65,26 @@ from mu.intelligence.models import (
 )
 from mu.intelligence.nl2muql import NL2MUQLTranslator, TranslationResult, translate
 from mu.intelligence.patterns import PatternDetector
-from mu.intelligence.task_context import (
-    TaskAnalyzer,
-    TaskContextConfig,
-    TaskContextExtractor,
-)
-from mu.intelligence.validator import (
-    ChangeValidator,
-    ChangedFile,
-    ValidationResult,
-    Violation,
-    ViolationSeverity,
-)
 from mu.intelligence.related import (
     ConventionPattern,
     RelatedFile,
     RelatedFilesDetector,
     RelatedFilesResult,
 )
+from mu.intelligence.task_context import (
+    TaskAnalyzer,
+    TaskContextConfig,
+    TaskContextExtractor,
+)
+from mu.intelligence.validator import (
+    ChangedFile,
+    ChangeValidator,
+    ValidationResult,
+    Violation,
+    ViolationSeverity,
+)
 from mu.intelligence.warnings import ProactiveWarningGenerator, WarningConfig
+from mu.intelligence.why import CommitInfo, WhyAnalyzer, WhyResult
 
 __all__ = [
     "ChangeValidator",
@@ -90,6 +95,9 @@ __all__ = [
     "FileContext",
     "GeneratedFile",
     "GenerateResult",
+    "Memory",
+    "MemoryCategory",
+    "MemoryManager",
     "NL2MUQLTranslator",
     "Pattern",
     "PatternCategory",
@@ -98,6 +106,7 @@ __all__ = [
     "PatternsResult",
     "ProactiveWarning",
     "ProactiveWarningGenerator",
+    "RecallResult",
     "RelatedFile",
     "RelatedFilesDetector",
     "RelatedFilesResult",
@@ -118,5 +127,8 @@ __all__ = [
     "WarningCategory",
     "WarningConfig",
     "WarningsResult",
+    "WhyAnalyzer",
+    "WhyResult",
+    "CommitInfo",
     "translate",
 ]
