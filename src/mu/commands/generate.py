@@ -8,6 +8,7 @@ from pathlib import Path
 import click
 
 from mu.logging import print_error, print_info, print_success, print_warning
+from mu.paths import get_mubase_path
 
 TEMPLATE_TYPES = [
     "hook",
@@ -89,14 +90,17 @@ def generate(
         mu generate test auth -t src/auth.py  # Test for specific module
         mu generate component UserProfile --dry-run  # Preview only
     """
+    import sys
+
+    from mu.errors import ExitCode
     from mu.intelligence import CodeGenerator, TemplateType
-    from mu.kernel import MUbase
+    from mu.kernel import MUbase, MUbaseLockError
 
     root_path = Path(path).resolve()
-    mubase_path = root_path / ".mubase"
+    mubase_path = get_mubase_path(root_path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu bootstrap' or 'mu kernel build .' first")
         raise SystemExit(1)
 
@@ -118,7 +122,13 @@ def generate(
     if target:
         options["target"] = target
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         generator = CodeGenerator(db)
         tt = TemplateType(template_type)

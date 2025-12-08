@@ -20,13 +20,14 @@ import click
 
 
 def _get_mubase_path(path: Path) -> Path:
-    """Resolve and validate .mubase path."""
+    """Resolve and validate .mu/mubase path."""
     from mu.errors import ExitCode
     from mu.logging import print_error, print_info
+    from mu.paths import get_mubase_path
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
     return mubase_path
@@ -180,7 +181,9 @@ def impact(
                     resolved_node = found.get("id", node)
 
             edge_type_list = list(edge_types) if edge_types else None
-            result = client.impact(resolved_node, edge_types=edge_type_list, cwd=str(path.resolve()))
+            result = client.impact(
+                resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
+            )
 
             # Handle daemon response format
             data = result.get("data", result)
@@ -218,22 +221,25 @@ def _impact_local(
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+    root_path = mubase_path.parent
 
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
-        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed
-        resolved_node = _resolve_node(db, node)
+        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
+        resolved_node = _resolve_node(db, node, root_path)
         if not resolved_node:
             print_error(f"Node not found: {node}")
             print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py', 'cls:src/file.py:ClassName')"
+                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
             )
             sys.exit(1)
 
@@ -317,7 +323,9 @@ def ancestors(
                     resolved_node = found.get("id", node)
 
             edge_type_list = list(edge_types) if edge_types else None
-            result = client.ancestors(resolved_node, edge_types=edge_type_list, cwd=str(path.resolve()))
+            result = client.ancestors(
+                resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
+            )
 
             # Handle daemon response format
             data = result.get("data", result)
@@ -353,22 +361,25 @@ def _ancestors_local(
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+    root_path = mubase_path.parent
 
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
-        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed
-        resolved_node = _resolve_node(db, node)
+        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
+        resolved_node = _resolve_node(db, node, root_path)
         if not resolved_node:
             print_error(f"Node not found: {node}")
             print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py', 'cls:src/file.py:ClassName')"
+                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
             )
             sys.exit(1)
 
@@ -483,7 +494,9 @@ def _cycles_local(
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
-        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
         gm = GraphManager(db.conn)
@@ -504,25 +517,73 @@ def _cycles_local(
         db.close()
 
 
-def _resolve_node(db: Any, node_ref: str) -> str | None:
+def _resolve_node(db: Any, node_ref: str, root_path: Path | None = None) -> str | None:
     """Resolve a node reference to a full node ID.
 
     Handles:
     - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
     - Simple names: MUbase, AuthService
+    - File paths: src/hooks/useTransactions.ts -> mod:...
     - Partial matches: cli.py -> mod:src/cli.py
+
+    Args:
+        db: MUbase instance
+        node_ref: Node reference (ID, name, or file path)
+        root_path: Project root path for resolving relative paths
     """
     # If it already looks like a full node ID, verify and return
     if node_ref.startswith(("mod:", "cls:", "fn:")):
         node = db.get_node(node_ref)
         return node_ref if node else None
 
-    # Try exact name match
+    # Try exact name match first
     nodes = db.find_by_name(node_ref)
     if nodes:
         return str(nodes[0].id)
 
-    # Try pattern match
+    # Check if it looks like a file path (contains / or \ or ends with known extension)
+    looks_like_path = (
+        "/" in node_ref
+        or "\\" in node_ref
+        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+    )
+
+    if looks_like_path:
+        # Try to resolve as file path
+        ref_path = Path(node_ref)
+
+        # If absolute path, try to make it relative to root
+        if ref_path.is_absolute() and root_path:
+            try:
+                ref_path = ref_path.relative_to(root_path)
+            except ValueError:
+                pass  # Not relative to root, use as-is
+
+        # Normalize path separators
+        normalized_path = str(ref_path).replace("\\", "/")
+
+        # Try exact file_path match via SQL
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+            [normalized_path],
+        )
+        if result:
+            return str(result[0][0])
+
+        # Try matching with path suffix (for partial paths)
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+            [f"%{normalized_path}"],
+        )
+        if result:
+            return str(result[0][0])
+
+        # For paths like "src/foo.ts", also try constructing the node ID directly
+        possible_id = f"mod:{normalized_path}"
+        if db.get_node(possible_id):
+            return possible_id
+
+    # Try pattern match on name
     nodes = db.find_by_name(f"%{node_ref}%")
     if nodes:
         # Prefer exact name matches

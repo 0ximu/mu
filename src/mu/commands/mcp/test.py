@@ -10,7 +10,9 @@ import click
 
 @click.command("test")
 @click.argument("tool_name", required=False)
-@click.option("--input", "-i", "input_json", help="JSON input for the tool (e.g., '{\"question\": \"...\"}'')")
+@click.option(
+    "--input", "-i", "input_json", help='JSON input for the tool (e.g., \'{"question": "..."}\'\')'
+)
 @click.option("--list", "-l", "list_tools", is_flag=True, help="List available MCP tools")
 def mcp_test(tool_name: str | None, input_json: str | None, list_tools: bool) -> None:
     """Test MCP tools without starting server.

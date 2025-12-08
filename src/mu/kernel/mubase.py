@@ -15,6 +15,7 @@ import duckdb
 from mu.kernel.builder import GraphBuilder
 from mu.kernel.models import Edge, Node
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
+from mu.paths import MUBASE_FILE, get_mu_dir
 
 if TYPE_CHECKING:
     from mu.kernel.embeddings.models import NodeEmbedding
@@ -51,19 +52,38 @@ class MUbase:
 
     VERSION = "1.0.0"
 
-    def __init__(self, path: Path | str = ".mubase", read_only: bool = False) -> None:
+    def __init__(self, path: Path | str | None = None, read_only: bool = False) -> None:
         """Initialize MUbase.
 
         Args:
-            path: Path to the .mubase file (created if doesn't exist)
+            path: Path to the mubase file. If None, uses .mu/mubase in cwd.
+                  Can be a full path or just a directory (mubase file inferred).
             read_only: If True, open in read-only mode (avoids lock conflicts)
 
         Raises:
             MUbaseCorruptionError: If the database or WAL file is corrupted
             MUbaseLockError: If the database is locked and read_only=False
         """
-        self.path = Path(path)
+        if path is None:
+            # Default: .mu/mubase in current directory
+            self.path = get_mu_dir() / MUBASE_FILE
+        else:
+            path = Path(path)
+            if path.is_dir():
+                # Directory provided - use .mu/mubase within it
+                self.path = get_mu_dir(path) / MUBASE_FILE
+            elif path.name == MUBASE_FILE or path.suffix == ".mubase":
+                # Full path to mubase file provided
+                self.path = path
+            else:
+                # Assume it's a project root, use .mu/mubase
+                self.path = get_mu_dir(path) / MUBASE_FILE
         self.read_only = read_only
+
+        # Ensure parent directory exists (create .mu/ if needed)
+        if not read_only:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+
         try:
             self.conn = duckdb.connect(str(self.path), read_only=read_only)
             self._init_schema()
@@ -79,7 +99,7 @@ class MUbase:
                     f"Original error: {e}"
                 ) from e
             if "wal" in error_msg or "corrupt" in error_msg or "internal" in error_msg:
-                wal_file = self.path.with_suffix(".mubase.wal")
+                wal_file = self.path.parent / f"{self.path.name}.wal"
                 raise MUbaseCorruptionError(
                     f"Database appears corrupted: {e}\n\n"
                     f"To fix, remove the database files and rebuild:\n"

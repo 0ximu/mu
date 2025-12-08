@@ -243,5 +243,5 @@ class TestMCPIntegration:
 
         mock_find_mubase.return_value = None
 
-        with pytest.raises(DaemonError, match="No .mubase found"):
+        with pytest.raises(DaemonError, match="No .mu/mubase found"):
             mu_ask("test question")

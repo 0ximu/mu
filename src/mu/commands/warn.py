@@ -9,6 +9,7 @@ from typing import Any
 import click
 
 from mu.logging import print_error, print_info, print_success
+from mu.paths import get_mubase_path
 
 
 @click.command("warn")
@@ -43,19 +44,28 @@ def warn(target: str, output_json: bool) -> None:
         mu warn mod:src/payments.py  # Check by node ID
         mu warn src/api/ --json      # JSON output
     """
-    from mu.intelligence.warnings import ProactiveWarningGenerator
-    from mu.kernel import MUbase
+    import sys
 
-    # Find .mubase
+    from mu.errors import ExitCode
+    from mu.intelligence.warnings import ProactiveWarningGenerator
+    from mu.kernel import MUbase, MUbaseLockError
+
+    # Find .mu/mubase
     root_path = Path.cwd()
-    mubase_path = root_path / ".mubase"
+    mubase_path = get_mubase_path(root_path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu bootstrap' first")
         raise SystemExit(1)
 
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     try:
         generator = ProactiveWarningGenerator(db, root_path=root_path)
         result = generator.analyze(target)

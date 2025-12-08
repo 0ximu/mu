@@ -12,6 +12,8 @@ from pathlib import Path
 
 from watchfiles import Change, awatch
 
+from mu.paths import MU_DIR
+
 logger = logging.getLogger(__name__)
 
 # Supported file extensions for MU transformation
@@ -30,8 +32,7 @@ SKIP_DIRECTORIES = {
     ".env",
     "dist",
     "build",
-    ".mu-cache",
-    ".mubase",
+    MU_DIR,  # .mu/ directory (contains mubase, cache, etc.)
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",

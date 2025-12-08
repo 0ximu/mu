@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("snapshot")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -32,10 +34,10 @@ def kernel_snapshot(path: Path, commit: str | None, force: bool, as_json: bool) 
     from mu.kernel.temporal import SnapshotManager
     from mu.logging import console, print_error, print_info, print_success
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -86,10 +88,10 @@ def kernel_snapshots(path: Path, limit: int, as_json: bool) -> None:
     from mu.kernel.temporal import SnapshotManager
     from mu.logging import console, print_error, print_info
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     db = MUbase(mubase_path)

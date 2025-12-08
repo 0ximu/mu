@@ -10,6 +10,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mu.paths import get_daemon_pid_path
+
 
 class DaemonConfig(BaseModel):
     """Configuration for the MU daemon server.
@@ -42,8 +44,8 @@ class DaemonConfig(BaseModel):
         description="Debounce delay in milliseconds",
     )
     pid_file: Path = Field(
-        default=Path(".mu.pid"),
-        description="PID file path for daemon management",
+        default_factory=lambda: get_daemon_pid_path(),
+        description="PID file path for daemon management (default: .mu/daemon.pid)",
     )
     max_connections: int = Field(
         default=100,

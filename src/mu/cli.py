@@ -64,6 +64,8 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "kernel": ("mu.commands.kernel", "kernel"),
     "cache": ("mu.commands.cache", "cache"),
     "contracts": ("mu.commands.contracts", "contracts"),
+    # Utility commands
+    "migrate": ("mu.commands.migrate", "migrate"),
     # Legacy commands (kept for compatibility)
     "init": ("mu.commands.init_cmd", "init"),
     "scan": ("mu.commands.scan", "scan"),
@@ -142,7 +144,7 @@ def install_completion(shell: str | None = None) -> None:
 
     if shell == "zsh":
         # For zsh, add to .zshrc
-        completion_script = '_MU_COMPLETE=zsh_source mu'
+        completion_script = "_MU_COMPLETE=zsh_source mu"
         rc_file = os.path.expanduser("~/.zshrc")
         marker = "# mu shell completion"
 
@@ -159,7 +161,7 @@ def install_completion(shell: str | None = None) -> None:
 
     elif shell == "bash":
         # For bash, add to .bashrc
-        completion_script = '_MU_COMPLETE=bash_source mu'
+        completion_script = "_MU_COMPLETE=bash_source mu"
         rc_file = os.path.expanduser("~/.bashrc")
         marker = "# mu shell completion"
 
@@ -231,15 +233,15 @@ def main() -> None:
             print_info("The daemon may be running. Try one of these:")
             print_info("  1. Start daemon: mu daemon start")
             print_info("  2. Stop daemon:  mu daemon stop")
-        elif "no .mubase" in error_str or "mubase not found" in error_str:
-            print_error("No .mubase found.")
+        elif "no .mu/mubase" in error_str or "mubase not found" in error_str:
+            print_error("No .mu/mubase found.")
             print_info("")
             print_info("Run 'mu bootstrap' to initialize MU for this directory.")
         elif "corrupt" in error_str or "wal" in error_str:
             print_error("Database appears corrupted.")
             print_info("")
             print_info("Try removing and rebuilding:")
-            print_info("  rm .mubase*")
+            print_info("  rm -rf .mu/")
             print_info("  mu bootstrap")
         elif "api" in error_str and "key" in error_str:
             print_error("API key not configured.")
@@ -256,6 +258,7 @@ def main() -> None:
             print_info("")
             print_info("Full traceback (--debug mode):")
             import traceback
+
             traceback.print_exc()
         else:
             print_info("")

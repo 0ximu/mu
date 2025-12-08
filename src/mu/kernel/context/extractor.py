@@ -40,6 +40,8 @@ class EntityExtractor:
         ("qualified", re.compile(r"\b(\w+(?:\.\w+)+)\b"), 0.85),
         # File paths with extensions
         ("file_path", re.compile(r"\b([\w/]+\.(?:py|ts|js|go|java|rs|cs))\b"), 0.95),
+        # Lowercase words (3+ chars) - low confidence fallback for library names like "zustand"
+        ("lowercase_word", re.compile(r"\b([a-z]{3,})\b"), 0.4),
     ]
 
     # Common words to exclude from entity extraction
@@ -107,6 +109,24 @@ class EntityExtractor:
             "there",
             "still",
             "however",
+            # Additional common words
+            "file",
+            "files",
+            "code",
+            "function",
+            "class",
+            "method",
+            "module",
+            "like",
+            "use",
+            "used",
+            "using",
+            "make",
+            "made",
+            "get",
+            "set",
+            "call",
+            "called",
         }
     )
 

@@ -188,12 +188,45 @@ class SmartContextExtractor:
             if not matches:
                 matches = self._find_by_suffix(entity.name)
 
+            # For lowercase words without matches, try pattern match in file_path
+            # This helps find "zustand" -> files containing "zustand" in path/name
+            if not matches and entity.extraction_method == "lowercase_word":
+                matches = self._search_by_path_pattern(entity.name)
+
             for node in matches:
                 if node.id not in node_ids:
                     nodes.append(node)
                     node_ids.add(node.id)
 
         return nodes, node_ids
+
+    def _search_by_path_pattern(self, pattern: str) -> list[Node]:
+        """Search for nodes by pattern in file_path or node name.
+
+        Useful for finding files/modules related to a library name.
+        """
+        try:
+            # Search in file_path (e.g., "zustand" matches "hooks/useZustandStore.ts")
+            result = self.mubase.execute(
+                """
+                SELECT * FROM nodes
+                WHERE (file_path LIKE ? OR name LIKE ? OR qualified_name LIKE ?)
+                AND type IN ('module', 'class', 'function')
+                LIMIT 20
+                """,
+                [f"%{pattern}%", f"%{pattern}%", f"%{pattern}%"],
+            )
+            if result:
+                # Convert rows to Node objects
+                nodes = []
+                for row in result:
+                    node = self.mubase.get_node(row[0])  # First column is id
+                    if node:
+                        nodes.append(node)
+                return nodes
+        except Exception:
+            pass
+        return []
 
     def _find_by_suffix(self, suffix: str) -> list[Node]:
         """Find nodes whose name ends with the given suffix."""

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("stats")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -22,10 +24,10 @@ def kernel_stats(path: Path, as_json: bool) -> None:
     from mu.kernel import MUbase
     from mu.logging import console, print_error, print_info
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 

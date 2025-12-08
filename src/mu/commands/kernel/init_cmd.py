@@ -1,4 +1,4 @@
-"""MU kernel init command - Initialize .mubase graph database."""
+"""MU kernel init command - Initialize .mu/mubase graph database."""
 
 from __future__ import annotations
 
@@ -7,21 +7,23 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("init")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option("--force", "-f", is_flag=True, help="Overwrite existing .mubase file")
+@click.option("--force", "-f", is_flag=True, help="Overwrite existing .mu/mubase file")
 def kernel_init(path: Path, force: bool) -> None:
-    """Initialize a .mubase graph database.
+    """Initialize a .mu/mubase graph database.
 
-    Creates an empty .mubase file in the specified directory.
+    Creates an empty .mu/mubase file in the specified directory.
     Use 'mu kernel build' to populate it with your codebase.
     """
     from mu.errors import ExitCode
     from mu.kernel import MUbase
     from mu.logging import print_error, print_info, print_success, print_warning
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if mubase_path.exists() and not force:
         print_warning(f"Database already exists: {mubase_path}")

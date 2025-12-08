@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
+
+from mu.paths import find_mubase_path, get_mubase_path
 
 if TYPE_CHECKING:
     from mu.cli import MUContext
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
 
 @click.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
-@click.option("--force", "-f", is_flag=True, help="Force rebuild even if .mubase exists")
+@click.option("--force", "-f", is_flag=True, help="Force rebuild even if .mu/mubase exists")
 @click.option(
     "--embed/--no-embed",
     default=False,
@@ -36,7 +38,7 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
 
     \b
     1. Creates .murc.toml config if missing
-    2. Builds the .mubase code graph
+    2. Builds the .mu/mubase code graph
     3. Optionally generates embeddings
 
     Safe to run multiple times. Use --force to rebuild.
@@ -60,7 +62,7 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
     start_time = time.time()
     root_path = path.resolve()
     config_path = root_path / ".murc.toml"
-    mubase_path = root_path / ".mubase"
+    mubase_path = get_mubase_path(root_path)
 
     # Step 1: Ensure config exists
     if not config_path.exists():
@@ -210,12 +212,7 @@ def status(ctx: MUContext, as_json: bool) -> None:
     config_exists = (cwd / ".murc.toml").exists()
 
     # Find mubase
-    mubase_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / ".mubase"
-        if candidate.exists():
-            mubase_path = candidate
-            break
+    mubase_path = find_mubase_path(cwd)
 
     embeddings_exist = False
     stats = {}
@@ -265,13 +262,15 @@ def status(ctx: MUContext, as_json: bool) -> None:
 
             if not embeddings_exist:
                 next_action = "mu bootstrap --embed"
-                message = message or "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+                message = (
+                    message or "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+                )
             else:
                 next_action = None
                 message = message or "MU ready. All systems operational."
         else:
             next_action = "mu bootstrap"
-            message = "No .mubase found. Run 'mu bootstrap' to initialize."
+            message = "No .mu/mubase found. Run 'mu bootstrap' to initialize."
 
     result = {
         "daemon_running": daemon_running,
@@ -331,23 +330,18 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
 
     # Find mubase
     cwd = Path.cwd()
-    mubase_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / ".mubase"
-        if candidate.exists():
-            mubase_path = candidate
-            break
+    mubase_path = find_mubase_path(cwd)
 
     if not mubase_path:
-        print_error("No .mubase found. Run 'mu bootstrap' first.")
+        print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
     # Helper to read source from node data
     def _read_source(
-        node_data: dict,
+        node_data: dict[str, Any],
         resolved_id: str,
         root_path: Path,
-    ) -> dict:
+    ) -> dict[str, Any]:
         file_path_str = node_data.get("file_path")
         line_start = node_data.get("line_start")
         line_end = node_data.get("line_end")
@@ -452,7 +446,9 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         try:
             db = MUbase(mubase_path, read_only=True)
         except MUbaseLockError:
-            print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+            print_error(
+                "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            )
             sys.exit(ExitCode.CONFIG_ERROR)
 
         try:
@@ -498,7 +494,9 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         print_info("")
 
         # Context before (dimmed)
-        context_before_lines = result["context_before"].split("\n") if result["context_before"] else []
+        context_before_lines = (
+            result["context_before"].split("\n") if result["context_before"] else []
+        )
         source_lines = result["source"].split("\n") if result["source"] else []
         context_after_lines = result["context_after"].split("\n") if result["context_after"] else []
 
@@ -550,15 +548,10 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
 
     # Find mubase
     cwd = Path.cwd()
-    mubase_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / ".mubase"
-        if candidate.exists():
-            mubase_path = candidate
-            break
+    mubase_path = find_mubase_path(cwd)
 
     if not mubase_path:
-        print_error("No .mubase found. Run 'mu bootstrap' first.")
+        print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
     # Task context requires local features (not in daemon yet)
@@ -568,10 +561,10 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
         client = DaemonClient()
         if client.is_running():
             try:
-                result = client.context(question, max_tokens=max_tokens, cwd=str(cwd))
-                mu_text = result.get("mu_text", "")
-                token_count = result.get("token_count", 0)
-                nodes = result.get("nodes", [])
+                daemon_result = client.context(question, max_tokens=max_tokens, cwd=str(cwd))
+                mu_text = daemon_result.get("mu_text", "")
+                token_count = daemon_result.get("token_count", 0)
+                nodes = daemon_result.get("nodes", [])
 
                 if as_json:
                     click.echo(
@@ -599,7 +592,9 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
-        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
         sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
@@ -719,15 +714,10 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
 
     # Find mubase
     cwd = Path.cwd()
-    mubase_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / ".mubase"
-        if candidate.exists():
-            mubase_path = candidate
-            break
+    mubase_path = find_mubase_path(cwd)
 
     if not mubase_path:
-        print_error("No .mubase found. Run 'mu bootstrap' first.")
+        print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
     from mu.errors import ExitCode
@@ -736,7 +726,9 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
-        print_error("Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'.")
+        print_error(
+            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+        )
         sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
@@ -798,7 +790,9 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
                         score_pct = score * 100
                         click.echo(f"  {node.name} ({node.type.value}) - {score_pct:.1f}%")
                         if node.file_path:
-                            click.echo(click.style(f"    {node.file_path}:{node.line_start}", dim=True))
+                            click.echo(
+                                click.style(f"    {node.file_path}:{node.line_start}", dim=True)
+                            )
                 return
 
         # Keyword search fallback (no embeddings or embedding failed)
@@ -911,12 +905,7 @@ def related(
 
     # Find mubase for dependency analysis
     cwd = Path.cwd()
-    mubase_path = None
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / ".mubase"
-        if candidate.exists():
-            mubase_path = candidate
-            break
+    mubase_path = find_mubase_path(cwd)
 
     db = None
     if mubase_path and not no_deps:
@@ -924,7 +913,7 @@ def related(
             db = MUbase(mubase_path)
         except Exception:
             if ctx.verbosity == "verbose":
-                print_warning("Could not open .mubase for dependency analysis")
+                print_warning("Could not open .mu/mubase for dependency analysis")
 
     try:
         # Determine root path

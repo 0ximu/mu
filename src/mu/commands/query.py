@@ -7,6 +7,7 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
 
 MUQL_EXAMPLES = """
 MUQL Query Examples
@@ -89,11 +90,11 @@ def _execute_muql(
     if os.environ.get("MU_OFFLINE", "").lower() in ("1", "true", "yes"):
         offline = True
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
     truncate_paths = not full_paths
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel init' and 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -228,7 +229,9 @@ def _execute_muql_local(
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
 @click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
-@click.option("--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)")
+@click.option(
+    "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
+)
 def query(
     muql: str | None,
     path: Path,
@@ -283,7 +286,9 @@ def query(
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
 @click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
-@click.option("--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)")
+@click.option(
+    "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
+)
 def q(
     muql: str | None,
     path: Path,

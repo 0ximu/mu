@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_daemon_pid_path, get_mubase_path
+
 
 @click.command("run")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -46,9 +48,9 @@ def daemon_run(
     from mu.errors import ExitCode
     from mu.logging import print_error, print_info, print_warning
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
     if not mubase_path.exists():
-        print_error("No .mubase found. Run 'mu kernel build' first.")
+        print_error("No .mu/mubase found. Run 'mu kernel build' first.")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     # Build watch paths
@@ -59,7 +61,7 @@ def daemon_run(
         port=port,
         watch_paths=watch_paths,
         debounce_ms=debounce,
-        pid_file=path.resolve() / ".mu.pid",
+        pid_file=get_daemon_pid_path(path),
     )
 
     lifecycle = DaemonLifecycle(pid_file=config.pid_file, config=config)

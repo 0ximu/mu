@@ -14,6 +14,7 @@ from typing import Any, Literal
 from mcp.server.fastmcp import FastMCP
 
 from mu.client import DEFAULT_DAEMON_URL, DaemonClient, DaemonError
+from mu.paths import MU_DIR, MUBASE_FILE, find_mubase_path, get_mubase_path
 
 logger = logging.getLogger(__name__)
 
@@ -189,13 +190,8 @@ def _get_client() -> DaemonClient:
 
 
 def _find_mubase() -> Path | None:
-    """Find .mubase file in current directory or parents."""
-    current = Path.cwd()
-    for parent in [current, *current.parents]:
-        mubase = parent / ".mubase"
-        if mubase.exists():
-            return mubase
-    return None
+    """Find mubase file in current directory or parents."""
+    return find_mubase_path(Path.cwd())
 
 
 @mcp.tool()
@@ -234,7 +230,9 @@ def mu_query(query: str) -> QueryResult:
         # Try direct access if daemon not running
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu daemon start .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.muql import MUQLEngine
@@ -289,7 +287,9 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
         # Try direct access
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu daemon start .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.context import ExtractionConfig, SmartContextExtractor
@@ -333,7 +333,7 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
 
     # Helper to extract source from node data
     def _extract_source(
-        node_data: dict,
+        node_data: dict[str, Any],
         resolved_id: str,
         root_path: Path,
     ) -> ReadResult:
@@ -437,13 +437,14 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
 
     # Direct MUbase access fallback
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.kernel import MUbase
 
     db = MUbase(mubase_path)
+    root_path = mubase_path.parent
     try:
-        resolved_id = _resolve_node_id(db, node_id)
+        resolved_id = _resolve_node_id(db, node_id, root_path)
         node = db.get_node(resolved_id)
 
         if not node:
@@ -457,7 +458,7 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
             "node_type": node.type.value if hasattr(node.type, "value") else str(node.type),
         }
 
-        return _extract_source(node_data, resolved_id, mubase_path.parent)
+        return _extract_source(node_data, resolved_id, root_path)
     finally:
         db.close()
 
@@ -520,7 +521,9 @@ def mu_deps(node_name: str, depth: int = 2, direction: str = "outgoing") -> Deps
     except DaemonError:
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu daemon start .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.muql import MUQLEngine
@@ -581,8 +584,8 @@ def mu_status() -> dict[str, Any]:
     embeddings_exist = False
 
     if mubase_path:
-        # Check for embeddings
-        embeddings_db = mubase_path.parent / ".mu-embeddings.db"
+        # Check for embeddings (stored in same .mu/ directory)
+        embeddings_db = mubase_path.parent / "embeddings.db"
         embeddings_exist = embeddings_db.exists()
 
     try:
@@ -645,7 +648,7 @@ def mu_status() -> dict[str, Any]:
             "stats": {},
             "language_stats": {},
             "next_action": "mu_bootstrap",
-            "message": "No .mubase found. Run mu_bootstrap() to initialize MU.",
+            "message": f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() to initialize MU.",
         }
 
 
@@ -770,7 +773,7 @@ def mu_bootstrap(path: str = ".", force: bool = False) -> BootstrapResult:
     start_time = time.time()
     root_path = Path(path).resolve()
     config_path = root_path / ".murc.toml"
-    mubase_path = root_path / ".mubase"
+    mubase_path = get_mubase_path(root_path)
 
     # Step 1: Ensure config exists
     if not config_path.exists():
@@ -911,16 +914,37 @@ def mu_semantic_diff(
         include_type_annotations=True,
     )
 
-    def normalize_path(p: str, worktree_path: Path) -> str:
-        """Strip worktree prefix to get relative path."""
-        # Convert to Path for easier manipulation
-        p_path = Path(p)
-        worktree_str = str(worktree_path)
+    def normalize_path(p: str, *worktree_paths: Path) -> str:
+        """Strip worktree prefix to get relative path.
 
-        # If the path starts with the worktree path, strip it
-        if p.startswith(worktree_str):
-            rel = p_path.relative_to(worktree_path)
-            return str(rel)
+        Handles multiple worktree paths (for base and target versions)
+        and also strips any temp directory paths.
+        """
+        if not p:
+            return p
+
+        # Try each worktree path
+        for worktree_path in worktree_paths:
+            worktree_str = str(worktree_path)
+            if p.startswith(worktree_str):
+                p_path = Path(p)
+                try:
+                    rel = p_path.relative_to(worktree_path)
+                    return str(rel)
+                except ValueError:
+                    pass
+
+        # Also handle /var/folders/... type temp paths by detecting common patterns
+        # Pattern: /var/folders/.../worktree-XXX/actual/path
+        # or /tmp/mu-diff-.../worktree-XXX/actual/path
+        p_path = Path(p)
+        parts = p_path.parts
+        for i, part in enumerate(parts):
+            if part.startswith("worktree-") or part.startswith("mu-diff-"):
+                # Return everything after this part
+                if i + 1 < len(parts):
+                    return str(Path(*parts[i + 1 :]))
+
         return p
 
     def process_version(version_path: Path) -> tuple[Any, list[ModuleDef]]:
@@ -971,14 +995,14 @@ def mu_semantic_diff(
             pass
 
         if rust_result is not None:
-            # Normalize paths for Rust results - strip worktree prefix
+            # Normalize paths for Rust results - strip worktree prefix (try both paths)
             changes = [
                 {
                     "entity_type": c.entity_type,
                     "entity_name": c.entity_name,
                     "change_type": c.change_type,
                     "details": c.details,
-                    "module_path": normalize_path(c.module_path, target_path),
+                    "module_path": normalize_path(c.module_path, base_path, target_path),
                     "is_breaking": c.is_breaking,
                 }
                 for c in rust_result.changes
@@ -989,7 +1013,7 @@ def mu_semantic_diff(
                     "entity_name": c.entity_name,
                     "change_type": c.change_type,
                     "details": c.details,
-                    "module_path": normalize_path(c.module_path, target_path),
+                    "module_path": normalize_path(c.module_path, base_path, target_path),
                 }
                 for c in rust_result.breaking_changes
             ]
@@ -1012,8 +1036,8 @@ def mu_semantic_diff(
         breaking_changes = []
 
         for mod_diff in result.module_diffs:
-            # Normalize module path to strip worktree prefix
-            norm_path = normalize_path(mod_diff.path, target_path)
+            # Normalize module path to strip worktree prefix (try both paths)
+            norm_path = normalize_path(mod_diff.path, base_path, target_path)
 
             # Added functions
             for func_name in mod_diff.added_functions:
@@ -1487,18 +1511,21 @@ def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult
         # Fallback: direct MUbase access
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu kernel build .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.graph import GraphManager
 
         db = MUbase(mubase_path)
+        root_path = mubase_path.parent
         try:
             gm = GraphManager(db.conn)
             gm.load()
 
-            # Resolve node name to ID if needed
-            resolved_id = _resolve_node_id(db, node_id)
+            # Resolve node name to ID if needed (supports paths like src/foo.ts)
+            resolved_id = _resolve_node_id(db, node_id, root_path)
 
             if not gm.has_node(resolved_id):
                 raise ValueError(f"Node not found in graph: {resolved_id}")
@@ -1550,18 +1577,21 @@ def mu_ancestors(node_id: str, edge_types: list[str] | None = None) -> Ancestors
         # Fallback: direct MUbase access
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu kernel build .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.graph import GraphManager
 
         db = MUbase(mubase_path)
+        root_path = mubase_path.parent
         try:
             gm = GraphManager(db.conn)
             gm.load()
 
-            # Resolve node name to ID if needed
-            resolved_id = _resolve_node_id(db, node_id)
+            # Resolve node name to ID if needed (supports paths like src/foo.ts)
+            resolved_id = _resolve_node_id(db, node_id, root_path)
 
             if not gm.has_node(resolved_id):
                 raise ValueError(f"Node not found in graph: {resolved_id}")
@@ -1611,7 +1641,9 @@ def mu_cycles(edge_types: list[str] | None = None) -> CyclesResult:
         # Fallback: direct MUbase access
         mubase_path = _find_mubase()
         if not mubase_path:
-            raise DaemonError("No .mubase found. Run 'mu kernel build .' first.") from None
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
+            ) from None
 
         from mu.kernel import MUbase
         from mu.kernel.graph import GraphManager
@@ -1669,7 +1701,7 @@ def mu_patterns(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import PatternCategory, PatternDetector
     from mu.kernel import MUbase
@@ -1782,7 +1814,7 @@ def mu_generate(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import CodeGenerator, TemplateType
     from mu.kernel import MUbase
@@ -1861,7 +1893,7 @@ def mu_validate(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import PatternCategory
     from mu.intelligence.validator import ChangeValidator
@@ -1971,7 +2003,7 @@ def mu_warn(target: str) -> WarningsOutput:
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence.warnings import ProactiveWarningGenerator
     from mu.kernel import MUbase
@@ -2086,7 +2118,7 @@ def mu_ask(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import NL2MUQLTranslator
     from mu.kernel import MUbase
@@ -2165,7 +2197,7 @@ def mu_task_context(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import TaskContextConfig, TaskContextExtractor
     from mu.kernel import MUbase
@@ -2465,7 +2497,7 @@ def mu_remember(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import MemoryCategory, MemoryManager
     from mu.kernel import MUbase
@@ -2561,7 +2593,7 @@ def mu_recall(
     """
     mubase_path = _find_mubase()
     if not mubase_path:
-        raise DaemonError("No .mubase found. Run mu_bootstrap() first.") from None
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
 
     from mu.intelligence import MemoryCategory, MemoryManager
     from mu.kernel import MUbase
@@ -2772,23 +2804,76 @@ def mu_why(
             db.close()
 
 
-def _resolve_node_id(db: Any, node_ref: str) -> str:
+def _resolve_node_id(db: Any, node_ref: str, root_path: Path | None = None) -> str:
     """Resolve a node reference to a full node ID.
 
     Handles:
     - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
     - Simple names: MUbase, AuthService
+    - File paths: src/hooks/useTransactions.ts -> mod:...
+    - Absolute paths: /Users/.../src/auth.py -> mod:...
+
+    Args:
+        db: MUbase instance
+        node_ref: Node reference (ID, name, or file path)
+        root_path: Project root path for resolving relative paths
+
+    Returns:
+        Resolved node ID or original string if not found
     """
     # If it already looks like a full node ID, return it
     if node_ref.startswith(("mod:", "cls:", "fn:")):
         return node_ref
 
-    # Try exact name match
+    # Try exact name match first
     nodes = db.find_by_name(node_ref)
     if nodes:
         return str(nodes[0].id)
 
-    # Try pattern match
+    # Check if it looks like a file path (contains / or \ or ends with known extension)
+    looks_like_path = (
+        "/" in node_ref
+        or "\\" in node_ref
+        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+    )
+
+    if looks_like_path:
+        # Try to resolve as file path
+        ref_path = Path(node_ref)
+
+        # If absolute path, try to make it relative to root
+        if ref_path.is_absolute() and root_path:
+            try:
+                ref_path = ref_path.relative_to(root_path)
+            except ValueError:
+                pass  # Not relative to root, use as-is
+
+        # Normalize path separators
+        normalized_path = str(ref_path).replace("\\", "/")
+
+        # Try exact file_path match via SQL
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+            [normalized_path],
+        )
+        if result:
+            return str(result[0][0])
+
+        # Try matching with path suffix (for partial paths)
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+            [f"%{normalized_path}"],
+        )
+        if result:
+            return str(result[0][0])
+
+        # For paths like "src/foo.ts", also try constructing the node ID directly
+        # Module IDs are typically "mod:{file_path}" where file_path is relative
+        possible_id = f"mod:{normalized_path}"
+        if db.get_node(possible_id):
+            return possible_id
+
+    # Try pattern match on name
     nodes = db.find_by_name(f"%{node_ref}%")
     if nodes:
         # Prefer exact name matches
@@ -2898,11 +2983,13 @@ def test_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> dict[
                 "mu_semantic_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
                 "mu_review_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
             }
-            result = func(**defaults.get(tool_name, {}))
+            tool_defaults = defaults.get(tool_name, {})
+            result = func(**tool_defaults)  # type: ignore[arg-type]
 
         # Convert dataclass to dict if needed
         if hasattr(result, "__dataclass_fields__"):
             from dataclasses import asdict
+
             result = asdict(result)
 
         return {"ok": True, "result": result}

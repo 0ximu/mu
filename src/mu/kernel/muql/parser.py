@@ -1108,14 +1108,16 @@ class MUQLParser:
         query_lower = query.lower().strip()
 
         # Common pattern: type:function name:foo (key:value syntax from other tools)
-        if ":" in query and not query_lower.startswith(("select", "show", "find", "path", "analyze", "describe", "history", "blame")):
+        if ":" in query and not query_lower.startswith(
+            ("select", "show", "find", "path", "analyze", "describe", "history", "blame")
+        ):
             # Extract the key:value parts
             parts = query.split()
             filters = []
             for part in parts:
                 if ":" in part:
                     key, value = part.split(":", 1)
-                    filters.append(f'{key} = \'{value}\'')
+                    filters.append(f"{key} = '{value}'")
 
             if filters:
                 suggested = f"SELECT * FROM nodes WHERE {' AND '.join(filters)}"
@@ -1131,8 +1133,10 @@ class MUQLParser:
                 )
 
         # Pattern: just a name without query keyword
-        if not any(query_lower.startswith(kw) for kw in
-                   ["select", "show", "find", "path", "analyze", "describe", "history", "blame"]):
+        if not any(
+            query_lower.startswith(kw)
+            for kw in ["select", "show", "find", "path", "analyze", "describe", "history", "blame"]
+        ):
             return (
                 f"💡 MUQL queries must start with a keyword.\n\n"
                 f"Common query formats:\n"

@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_mubase_path
+
 
 @click.command("export")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -108,10 +110,10 @@ def kernel_export(
             print_info(f"  {fmt['name']:12} - {fmt['description']} ({fmt['extension']})")
         return
 
-    mubase_path = path.resolve() / ".mubase"
+    mubase_path = get_mubase_path(path)
 
     if not mubase_path.exists():
-        print_error(f"No .mubase found at {mubase_path}")
+        print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu kernel build' first to create the graph database")
         sys.exit(ExitCode.CONFIG_ERROR)
 

@@ -1209,7 +1209,9 @@ class TestDaemonLifecycleExtended:
 
         lifecycle = DaemonLifecycle()
 
-        assert lifecycle.pid_file.name == ".mu.pid"
+        # Default is now .mu/daemon.pid
+        assert lifecycle.pid_file.name == "daemon.pid"
+        assert lifecycle.pid_file.parent.name == ".mu"
 
 
 # =============================================================================
@@ -1773,8 +1775,11 @@ class TestDaemonConfigExtended:
 
     def test_pid_file_default(self) -> None:
         """Test default PID file path."""
+        from mu.paths import get_daemon_pid_path
+
         config = DaemonConfig()
-        assert config.pid_file == Path(".mu.pid")
+        # Default is now .mu/daemon.pid via get_daemon_pid_path()
+        assert config.pid_file == get_daemon_pid_path()
 
 
 # =============================================================================

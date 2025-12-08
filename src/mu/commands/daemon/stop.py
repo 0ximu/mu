@@ -6,6 +6,8 @@ from pathlib import Path
 
 import click
 
+from mu.paths import get_daemon_pid_path
+
 
 @click.command("stop")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
@@ -19,7 +21,7 @@ def daemon_stop(path: Path) -> None:
     from mu.daemon.lifecycle import DaemonLifecycle
     from mu.logging import print_info, print_success
 
-    pid_file = path.resolve() / ".mu.pid"
+    pid_file = get_daemon_pid_path(path)
     lifecycle = DaemonLifecycle(pid_file=pid_file)
 
     if lifecycle.stop():

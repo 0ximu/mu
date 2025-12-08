@@ -46,10 +46,12 @@ class DaemonLifecycle:
         """Initialize the lifecycle manager.
 
         Args:
-            pid_file: Path to PID file (default: .mu.pid in cwd)
+            pid_file: Path to PID file (default: .mu/daemon.pid in cwd)
             config: Optional daemon configuration
         """
-        self.pid_file = pid_file or Path.cwd() / ".mu.pid"
+        from mu.paths import get_daemon_pid_path
+
+        self.pid_file = pid_file or get_daemon_pid_path()
         self.config = config or DaemonConfig()
 
     def is_running(self) -> tuple[bool, int | None]:

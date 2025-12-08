@@ -4,7 +4,7 @@ Provides HTTP REST API and WebSocket endpoints for querying and
 receiving real-time updates from the code graph.
 
 Supports multi-project mode: clients can pass `cwd` to route requests
-to the appropriate .mubase based on working directory.
+to the appropriate mubase based on working directory.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from mu.daemon.watcher import FileWatcher
 from mu.daemon.worker import GraphWorker
 from mu.kernel import MUbase
 from mu.kernel.schema import NodeType
+from mu.paths import CONTRACTS_FILE, MU_DIR, MUBASE_FILE, find_mubase_path, get_contracts_path
 
 if TYPE_CHECKING:
     pass
@@ -39,25 +40,19 @@ logger = logging.getLogger(__name__)
 
 
 def find_mubase_for_path(path: Path) -> Path | None:
-    """Find the nearest .mubase file for a given path.
+    """Find the nearest mubase file for a given path.
 
-    Walks up the directory tree from `path` looking for .mubase.
+    Walks up the directory tree from `path` looking for .mu/mubase.
 
     Args:
         path: Starting path (file or directory)
 
     Returns:
-        Path to .mubase if found, None otherwise
+        Path to mubase if found, None otherwise
     """
     if path.is_file():
         path = path.parent
-
-    path = path.resolve()
-    for parent in [path, *path.parents]:
-        mubase = parent / ".mubase"
-        if mubase.exists():
-            return mubase
-    return None
+    return find_mubase_path(path)
 
 
 class ProjectManager:
@@ -98,8 +93,8 @@ class ProjectManager:
         mubase_path = find_mubase_for_path(cwd_path)
 
         if not mubase_path:
-            # No .mubase found - return default with a note
-            logger.debug(f"No .mubase found for {cwd}, using default")
+            # No mubase found - return default with a note
+            logger.debug(f"No {MU_DIR}/{MUBASE_FILE} found for {cwd}, using default")
             return self._default_mubase, self._default_path
 
         mubase_path = mubase_path.resolve()
@@ -132,23 +127,76 @@ class ProjectManager:
         return [str(p) for p in self._cache.keys()]
 
 
-def _resolve_node_id(db: Any, node_ref: str) -> str:
+def _resolve_node_id(db: Any, node_ref: str, root_path: Path | None = None) -> str:
     """Resolve a node reference to a full node ID.
 
     Handles:
     - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
     - Simple names: MUbase, AuthService
+    - File paths: src/hooks/useTransactions.ts -> mod:...
+    - Absolute paths: /Users/.../src/auth.py -> mod:...
+
+    Args:
+        db: MUbase instance
+        node_ref: Node reference (ID, name, or file path)
+        root_path: Project root path for resolving relative paths
+
+    Returns:
+        Resolved node ID or original string if not found
     """
     # If it already looks like a full node ID, return it
     if node_ref.startswith(("mod:", "cls:", "fn:")):
         return node_ref
 
-    # Try exact name match
+    # Try exact name match first
     nodes = db.find_by_name(node_ref)
     if nodes:
         return str(nodes[0].id)
 
-    # Try pattern match
+    # Check if it looks like a file path (contains / or \ or ends with known extension)
+    looks_like_path = (
+        "/" in node_ref
+        or "\\" in node_ref
+        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+    )
+
+    if looks_like_path:
+        # Try to resolve as file path
+        ref_path = Path(node_ref)
+
+        # If absolute path, try to make it relative to root
+        if ref_path.is_absolute() and root_path:
+            try:
+                ref_path = ref_path.relative_to(root_path)
+            except ValueError:
+                pass  # Not relative to root, use as-is
+
+        # Normalize path separators
+        normalized_path = str(ref_path).replace("\\", "/")
+
+        # Try exact file_path match via SQL
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+            [normalized_path],
+        )
+        if result:
+            return str(result[0][0])
+
+        # Try matching with path suffix (for partial paths)
+        result = db.execute(
+            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+            [f"%{normalized_path}"],
+        )
+        if result:
+            return str(result[0][0])
+
+        # For paths like "src/foo.ts", also try constructing the node ID directly
+        # Module IDs are typically "mod:{file_path}" where file_path is relative
+        possible_id = f"mod:{normalized_path}"
+        if db.get_node(possible_id):
+            return possible_id
+
+    # Try pattern match on name
     nodes = db.find_by_name(f"%{node_ref}%")
     if nodes:
         # Prefer exact name matches
@@ -274,7 +322,7 @@ class ContractsRequest(BaseModel):
 
     contracts_path: str | None = Field(
         default=None,
-        description="Path to contracts file (default: .mu-contracts.yml)",
+        description=f"Path to contracts file (default: {MU_DIR}/{CONTRACTS_FILE})",
     )
 
 
@@ -690,13 +738,14 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
             from mu.kernel.graph import GraphManager
 
             # Get project-specific mubase
-            mubase, _ = await state.projects.get_mubase(request.cwd)
+            mubase, mubase_path = await state.projects.get_mubase(request.cwd)
+            root_path = mubase_path.parent if mubase_path else None
 
             gm = GraphManager(mubase.conn)
             gm.load()
 
-            # Resolve node name to ID if needed
-            resolved_id = _resolve_node_id(mubase, request.node_id)
+            # Resolve node name to ID if needed (supports paths like src/foo.ts)
+            resolved_id = _resolve_node_id(mubase, request.node_id, root_path)
 
             if not gm.has_node(resolved_id):
                 raise HTTPException(status_code=404, detail=f"Node not found: {resolved_id}")
@@ -725,13 +774,14 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
             from mu.kernel.graph import GraphManager
 
             # Get project-specific mubase
-            mubase, _ = await state.projects.get_mubase(request.cwd)
+            mubase, mubase_path = await state.projects.get_mubase(request.cwd)
+            root_path = mubase_path.parent if mubase_path else None
 
             gm = GraphManager(mubase.conn)
             gm.load()
 
-            # Resolve node name to ID if needed
-            resolved_id = _resolve_node_id(mubase, request.node_id)
+            # Resolve node name to ID if needed (supports paths like src/foo.ts)
+            resolved_id = _resolve_node_id(mubase, request.node_id, root_path)
 
             if not gm.has_node(resolved_id):
                 raise HTTPException(status_code=404, detail=f"Node not found: {resolved_id}")
@@ -821,7 +871,11 @@ def create_app(mubase_path: Path, config: DaemonConfig) -> FastAPI:
         state: AppState = app.state.daemon
 
         # Determine contracts file path
-        contracts_path = Path(request.contracts_path or ".mu-contracts.yml")
+        contracts_path = (
+            Path(request.contracts_path)
+            if request.contracts_path
+            else get_contracts_path(state.mubase_path.parent)
+        )
         if not contracts_path.is_absolute():
             contracts_path = state.mubase_path.parent / contracts_path
 
