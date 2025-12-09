@@ -92,7 +92,8 @@ def mu_patterns(
         from mu.intelligence import PatternCategory, PatternDetector
         from mu.kernel import MUbase
 
-        db = MUbase(mubase_path, read_only=True)
+        # We need write access to save patterns, so don't use read_only mode
+        db = MUbase(mubase_path, read_only=False)
         try:
             # Check for cached patterns unless refresh requested
             if not refresh and db.has_patterns():

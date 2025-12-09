@@ -1,4 +1,7 @@
-"""MU daemon stop command - Stop running MU daemon."""
+"""MU daemon stop command - Stop running MU daemon.
+
+DEPRECATED: Use 'mu serve --stop' instead.
+"""
 
 from __future__ import annotations
 
@@ -9,15 +12,23 @@ import click
 from mu.paths import get_daemon_pid_path
 
 
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for daemon commands."""
+    click.secho(
+        "⚠️  'mu daemon stop' is deprecated. Use 'mu serve --stop' instead.",
+        fg="yellow",
+        err=True,
+    )
+
+
 @click.command("stop")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 def daemon_stop(path: Path) -> None:
-    """Stop running MU daemon.
+    """[DEPRECATED] Stop running MU daemon.
 
-    \b
-    Example:
-        mu daemon stop
+    Use 'mu serve --stop' instead.
     """
+    _show_deprecation_warning()
     from mu.daemon.lifecycle import DaemonLifecycle
     from mu.logging import print_info, print_success
 

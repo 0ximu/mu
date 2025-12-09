@@ -25,8 +25,14 @@ The extraction pipeline:
     6. MU export - generate formatted output
 """
 
+from mu.kernel.context.intent import (
+    ClassifiedIntent,
+    Intent,
+    IntentClassifier,
+)
 from mu.kernel.context.models import (
     ContextResult,
+    ExportConfig,
     ExtractedEntity,
     ExtractionConfig,
     ScoredNode,
@@ -38,9 +44,32 @@ from mu.kernel.context.omega import (
     OmegaResult,
 )
 from mu.kernel.context.smart import SmartContextExtractor
+from mu.kernel.context.strategies import (
+    DefaultStrategy,
+    ExtractionStrategy,
+    ImpactStrategy,
+    ListStrategy,
+    LocateStrategy,
+    NavigateStrategy,
+    get_strategy,
+)
 
 __all__ = [
+    # Intent classification
+    "ClassifiedIntent",
+    "Intent",
+    "IntentClassifier",
+    # Extraction strategies
+    "DefaultStrategy",
+    "ExtractionStrategy",
+    "ImpactStrategy",
+    "ListStrategy",
+    "LocateStrategy",
+    "NavigateStrategy",
+    "get_strategy",
+    # Context extraction
     "ContextResult",
+    "ExportConfig",
     "ExtractionConfig",
     "ExtractedEntity",
     "OmegaConfig",

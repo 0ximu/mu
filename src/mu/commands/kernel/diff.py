@@ -36,7 +36,15 @@ def kernel_diff(from_commit: str, to_commit: str, path: Path, as_json: bool) -> 
         print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         manager = SnapshotManager(db, path.resolve())

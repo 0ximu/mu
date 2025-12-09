@@ -12,7 +12,12 @@ from mu.mcp.tools._utils import find_mubase, get_client
 from mu.paths import MU_DIR, MUBASE_FILE
 
 
-def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
+def mu_context(
+    question: str,
+    max_tokens: int = 8000,
+    include_docstrings: bool = True,
+    include_line_numbers: bool = False,
+) -> ContextResult:
     """Extract smart context for a natural language question.
 
     Analyzes the question, finds relevant code nodes, and returns
@@ -26,6 +31,8 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
     Args:
         question: Natural language question about the codebase
         max_tokens: Maximum tokens in the output (default 8000)
+        include_docstrings: Include docstrings in output (default True)
+        include_line_numbers: Include line numbers for IDE use (default False)
 
     Returns:
         MU format context with token count
@@ -38,7 +45,13 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
     try:
         client = get_client()
         with client:
-            result = client.context(question, max_tokens=max_tokens, cwd=cwd)
+            result = client.context(
+                question,
+                max_tokens=max_tokens,
+                include_docstrings=include_docstrings,
+                include_line_numbers=include_line_numbers,
+                cwd=cwd,
+            )
 
         # Handle both Rust daemon and Python response formats
         mu_text = result.get("mu_text") or result.get("mu_output", "")
@@ -47,6 +60,9 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
             mu_text=mu_text,
             token_count=token_count,
             node_count=len(result.get("nodes", [])),
+            intent=result.get("intent"),
+            intent_confidence=result.get("intent_confidence", 0.0),
+            strategy_used=result.get("strategy_used", "default"),
         )
     except DaemonError:
         mubase_path = find_mubase()
@@ -60,13 +76,20 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
 
         db = MUbase(mubase_path, read_only=True)
         try:
-            cfg = ExtractionConfig(max_tokens=max_tokens)
+            cfg = ExtractionConfig(
+                max_tokens=max_tokens,
+                include_docstrings=include_docstrings,
+                include_line_numbers=include_line_numbers,
+            )
             extractor = SmartContextExtractor(db, cfg)
             ctx_result = extractor.extract(question)
             return ContextResult(
                 mu_text=ctx_result.mu_text,
                 token_count=ctx_result.token_count,
                 node_count=len(ctx_result.nodes),
+                intent=ctx_result.intent,
+                intent_confidence=ctx_result.intent_confidence,
+                strategy_used=ctx_result.strategy_used,
             )
         finally:
             db.close()
@@ -78,6 +101,8 @@ def mu_context_omega(
     include_synthesized: bool = True,
     max_synthesized_macros: int = 5,
     include_seed: bool = True,
+    include_docstrings: bool = True,
+    include_line_numbers: bool = False,
 ) -> OmegaContextOutput:
     """Extract OMEGA-compressed context for a natural language question.
 
@@ -98,6 +123,8 @@ def mu_context_omega(
         include_seed: Include macro definitions in full_output (default True).
                      Set to False on follow-up queries to save ~400 tokens
                      when the seed is already in the conversation context.
+        include_docstrings: Include docstrings in output (default True)
+        include_line_numbers: Include line numbers for IDE use (default False)
 
     Returns:
         OmegaContextOutput with seed, body, and compression metrics
@@ -134,6 +161,8 @@ def mu_context_omega(
                 include_synthesized=include_synthesized,
                 max_synthesized_macros=max_synthesized_macros,
                 include_seed=include_seed,
+                include_docstrings=include_docstrings,
+                include_line_numbers=include_line_numbers,
                 cwd=cwd,
             )
 
@@ -165,6 +194,8 @@ def mu_context_omega(
                 max_tokens=max_tokens,
                 include_synthesized=include_synthesized,
                 max_synthesized_macros=max_synthesized_macros,
+                include_docstrings=include_docstrings,
+                include_line_numbers=include_line_numbers,
             )
 
             extractor = OmegaContextExtractor(db, config)

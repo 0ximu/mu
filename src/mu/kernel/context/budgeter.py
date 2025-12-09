@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 import tiktoken
 
-from mu.kernel.context.models import ScoredNode
+from mu.kernel.context.models import ExportConfig, ScoredNode
 from mu.kernel.schema import NodeType
 
 if TYPE_CHECKING:
@@ -44,15 +44,18 @@ class TokenBudgeter:
         self,
         max_tokens: int,
         encoding: str = "cl100k_base",
+        export_config: ExportConfig | None = None,
     ) -> None:
         """Initialize the token budgeter.
 
         Args:
             max_tokens: Maximum tokens to allow in output.
             encoding: Tiktoken encoding name (default: cl100k_base for GPT-4).
+            export_config: Configuration for export options (docstrings, line numbers, etc.).
         """
         self.max_tokens = max_tokens
         self.encoding = tiktoken.get_encoding(encoding)
+        self.export_config = export_config or ExportConfig()
         self._token_cache: dict[str, int] = {}
 
     def count_tokens(self, text: str) -> int:
@@ -119,6 +122,18 @@ class TokenBudgeter:
             # Estimate based on file path length
             if node.file_path:
                 tokens += len(node.file_path.split("/")) * 2
+
+        # Docstring estimation
+        if self.export_config.include_docstrings:
+            docstring = props.get("docstring")
+            if docstring:
+                # Rough estimate: 1 token per 4 chars, capped at 50 tokens
+                doc_tokens = min(len(docstring) // 4, 50)
+                tokens += doc_tokens
+
+        # Line numbers overhead if enabled
+        if self.export_config.include_line_numbers:
+            tokens += 5  # :L123-456 approx
 
         # Cache and return
         self._token_cache[node.id] = tokens

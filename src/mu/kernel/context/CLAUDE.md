@@ -5,7 +5,9 @@ The context module provides intelligent context extraction from MUbase for answe
 ## Architecture
 
 ```
-Question → Entity Extraction → Seed Nodes
+Question → Intent Classification → Strategy Selection
+                  ↓
+           Entity Extraction → Seed Nodes
                   ↓
            Vector Search → Candidate Nodes
                   ↓
@@ -22,7 +24,9 @@ Question → Entity Extraction → Seed Nodes
 
 | File | Purpose |
 |------|---------|
-| `models.py` | `ContextResult`, `ExtractionConfig`, `ScoredNode`, `ExtractedEntity` |
+| `intent.py` | `IntentClassifier`, `Intent`, `ClassifiedIntent` - question intent classification |
+| `strategies.py` | `ExtractionStrategy`, `LocateStrategy`, `ImpactStrategy`, etc. - specialized extractors |
+| `models.py` | `ContextResult`, `ExtractionConfig`, `ExportConfig`, `ScoredNode`, `ExtractedEntity` |
 | `extractor.py` | `EntityExtractor` - regex-based entity extraction from questions |
 | `scorer.py` | `RelevanceScorer` - multi-signal relevance scoring |
 | `budgeter.py` | `TokenBudgeter` - tiktoken-based budget fitting |
@@ -30,6 +34,51 @@ Question → Entity Extraction → Seed Nodes
 | `smart.py` | `SmartContextExtractor` - orchestration facade |
 | `omega.py` | `OmegaContextExtractor`, `OmegaConfig`, `OmegaResult`, `OmegaManifest` |
 | `__init__.py` | Public API exports |
+
+## Intent Classification
+
+Questions are classified into intents which select specialized extraction strategies.
+
+### Intent Types
+
+| Intent | Trigger Patterns | Extraction Strategy |
+|--------|------------------|---------------------|
+| `EXPLAIN` | "how does", "explain", "walk me through" | Default pipeline with docstrings |
+| `IMPACT` | "what would break", "who uses", "depends on" | `ImpactStrategy` - get_dependents(depth=3) |
+| `LOCATE` | "where is", "find", "locate" | `LocateStrategy` - minimal, targeted results |
+| `LIST` | "list all", "show all", "what are the" | `ListStrategy` - query by node type |
+| `NAVIGATE` | "what calls", "dependencies of", "callers of" | `NavigateStrategy` - graph traversal |
+| `TEMPORAL` | "changed", "history", "who modified" | Query snapshots, node history |
+| `DEBUG` | "why is failing", "bug in", "error" | Include tests, error handlers |
+| `COMPARE` | "difference between", "compare", "vs" | Fetch both, side-by-side |
+| `UNKNOWN` | Fallback | Default `SmartContextExtractor` pipeline |
+
+### Confidence Levels
+
+- **HIGH (>0.8)**: Use specialized strategy
+- **MEDIUM (0.5-0.8)**: Use strategy with fallback
+- **LOW (<0.5)**: Use default pipeline
+
+### Example
+
+```python
+from mu.kernel.context import IntentClassifier, Intent
+
+classifier = IntentClassifier()
+
+# Classify a question
+result = classifier.classify("What would break if I deleted UserService?")
+print(result.intent)       # Intent.IMPACT
+print(result.confidence)   # 0.95
+print(result.entities)     # ["UserService"]
+
+# Result includes intent info
+extractor = SmartContextExtractor(db)
+ctx = extractor.extract("Where is validate_email defined?")
+print(ctx.intent)            # "locate"
+print(ctx.intent_confidence) # 0.92
+print(ctx.strategy_used)     # "locate"
+```
 
 ## Key Classes
 
@@ -235,9 +284,16 @@ mu kernel context "API endpoints" --scores
 
 # Copy to clipboard
 mu kernel context "parser logic" --copy
+
+# With enrichment options (docstrings, line numbers, imports)
+mu kernel context "auth service" --docstrings --line-numbers
+mu kernel context "user model" --no-docstrings  # Disable docstrings
+mu kernel context "API" --imports  # Include internal module imports
 ```
 
 ## Configuration Options
+
+### ExtractionConfig
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -252,6 +308,26 @@ mu kernel context "parser logic" --copy
 | `exclude_tests` | False | Filter out test files |
 | `vector_search_limit` | 20 | Max nodes from vector search |
 | `max_expansion_nodes` | 100 | Cap on graph expansion |
+| `include_docstrings` | True | Include docstrings in output |
+| `include_line_numbers` | False | Include line numbers for IDE integration |
+| `min_complexity_to_show` | 0 | Minimum complexity to show (0 = all) |
+
+### ExportConfig
+
+Controls MU text export enrichment:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `include_docstrings` | True | Include docstrings in output |
+| `max_docstring_lines` | 5 | Max lines for multi-line docstrings |
+| `truncate_docstring` | True | Add '...' if truncated |
+| `min_complexity_to_show` | 0 | Min complexity for annotation (0 = all) |
+| `include_line_numbers` | False | Add `:L{start}-{end}` suffixes |
+| `include_internal_imports` | True | Show internal module imports |
+| `include_import_aliases` | False | Show import aliases |
+| `max_attributes` | 15 | Max class attributes to show |
+| `include_language` | False | Add `@lang` tag for language |
+| `include_qualified_names` | False | Show fully qualified names |
 
 ## Anti-Patterns
 

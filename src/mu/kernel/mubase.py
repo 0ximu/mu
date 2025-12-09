@@ -593,10 +593,17 @@ class MUbase:
     # =========================================================================
 
     def _ensure_embeddings_schema(self) -> None:
-        """Create embeddings table if it doesn't exist."""
+        """Create embeddings table if it doesn't exist.
+
+        In read-only mode, just checks if table exists without creating.
+        """
         try:
             self.conn.execute("SELECT 1 FROM embeddings LIMIT 1")
         except duckdb.CatalogException:
+            if self.read_only:
+                # In read-only mode, we can't create the table
+                # Just let the caller handle the missing table
+                raise
             # Table doesn't exist, create it
             self.conn.execute(EMBEDDINGS_SCHEMA_SQL)
 
@@ -746,9 +753,24 @@ class MUbase:
         """Get embedding statistics.
 
         Returns:
-            Dictionary with embedding coverage and model info
+            Dictionary with embedding coverage and model info.
+            Returns empty stats if embeddings table doesn't exist.
         """
-        self._ensure_embeddings_schema()
+        try:
+            self._ensure_embeddings_schema()
+        except duckdb.CatalogException:
+            # Table doesn't exist (possibly in read-only mode)
+            node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
+            total_nodes = node_result[0] if node_result else 0
+            return {
+                "total_nodes": total_nodes,
+                "nodes_with_embeddings": 0,
+                "nodes_without_embeddings": total_nodes,
+                "coverage_percent": 0.0,
+                "coverage_by_type": {},
+                "model_distribution": {},
+                "dimensions": [],
+            }
 
         # Total nodes
         node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
@@ -928,12 +950,19 @@ class MUbase:
     # =========================================================================
 
     def _ensure_patterns_schema(self) -> None:
-        """Create patterns table if it doesn't exist."""
+        """Create patterns table if it doesn't exist.
+
+        In read-only mode, just checks if table exists without creating.
+        """
         from mu.kernel.schema import PATTERNS_SCHEMA_SQL
 
         try:
             self.conn.execute("SELECT 1 FROM patterns LIMIT 1")
         except duckdb.CatalogException:
+            if self.read_only:
+                # In read-only mode, we can't create the table
+                # Just let the caller handle the missing table
+                raise
             self.conn.execute(PATTERNS_SCHEMA_SQL)
 
     def save_patterns(self, patterns: list[Any]) -> None:
@@ -1045,8 +1074,16 @@ class MUbase:
 
         Returns:
             Dictionary with pattern counts and categories.
+            Returns empty stats if patterns table doesn't exist.
         """
-        self._ensure_patterns_schema()
+        try:
+            self._ensure_patterns_schema()
+        except duckdb.CatalogException:
+            # Table doesn't exist (possibly in read-only mode)
+            return {
+                "total_patterns": 0,
+                "patterns_by_category": {},
+            }
 
         result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
         total = result[0] if result else 0
@@ -1068,12 +1105,19 @@ class MUbase:
     # =========================================================================
 
     def _ensure_memory_schema(self) -> None:
-        """Create memory table if it doesn't exist."""
+        """Create memory table if it doesn't exist.
+
+        In read-only mode, just checks if table exists without creating.
+        """
         from mu.kernel.schema import MEMORY_SCHEMA_SQL
 
         try:
             self.conn.execute("SELECT 1 FROM memories LIMIT 1")
         except duckdb.CatalogException:
+            if self.read_only:
+                # In read-only mode, we can't create the table
+                # Just let the caller handle the missing table
+                raise
             self.conn.execute(MEMORY_SCHEMA_SQL)
 
     def save_memory(
@@ -1328,8 +1372,16 @@ class MUbase:
 
         Returns:
             Dictionary with memory counts and categories.
+            Returns empty stats if memories table doesn't exist.
         """
-        self._ensure_memory_schema()
+        try:
+            self._ensure_memory_schema()
+        except duckdb.CatalogException:
+            # Table doesn't exist (possibly in read-only mode)
+            return {
+                "total_memories": 0,
+                "memories_by_category": {},
+            }
 
         result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
         total = result[0] if result else 0
@@ -1455,12 +1507,19 @@ class MUbase:
     # =========================================================================
 
     def _ensure_codebase_stats_schema(self) -> None:
-        """Create codebase_stats table if it doesn't exist."""
+        """Create codebase_stats table if it doesn't exist.
+
+        In read-only mode, just checks if table exists without creating.
+        """
         from mu.kernel.schema import CODEBASE_STATS_SCHEMA_SQL
 
         try:
             self.conn.execute("SELECT 1 FROM codebase_stats LIMIT 1")
         except duckdb.CatalogException:
+            if self.read_only:
+                # In read-only mode, we can't create the table
+                # Just let the caller handle the missing table
+                raise
             self.conn.execute(CODEBASE_STATS_SCHEMA_SQL)
 
     def _compute_and_store_language_stats(self, modules: list[ModuleDef]) -> None:
@@ -1543,10 +1602,20 @@ class MUbase:
                 "primary_language": "C#",
                 "total_files": 884
             }
+            Returns empty stats if codebase_stats table doesn't exist.
         """
         import json
 
-        self._ensure_codebase_stats_schema()
+        try:
+            self._ensure_codebase_stats_schema()
+        except duckdb.CatalogException:
+            # Table doesn't exist (possibly in read-only mode)
+            return {
+                "languages": {},
+                "percentages": {},
+                "primary_language": None,
+                "total_files": 0,
+            }
 
         row = self.conn.execute(
             "SELECT value FROM codebase_stats WHERE key = 'languages'"
@@ -1593,7 +1662,11 @@ class MUbase:
         """
         import json
 
-        self._ensure_codebase_stats_schema()
+        try:
+            self._ensure_codebase_stats_schema()
+        except duckdb.CatalogException:
+            # Table doesn't exist (possibly in read-only mode)
+            return None
 
         row = self.conn.execute("SELECT value FROM codebase_stats WHERE key = ?", [key]).fetchone()
 

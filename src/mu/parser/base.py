@@ -147,7 +147,7 @@ def _rust_module_to_python(rust_module: Any, stored_path: str) -> ModuleDef:
 
     The Rust types are PyO3-bound and need conversion to Python dataclasses.
     """
-    from mu.parser.models import ClassDef, FunctionDef, ImportDef, ParameterDef
+    from mu.parser.models import CallSiteDef, ClassDef, FunctionDef, ImportDef, ParameterDef
 
     def convert_param(p: Any) -> ParameterDef:
         return ParameterDef(
@@ -158,7 +158,20 @@ def _rust_module_to_python(rust_module: Any, stored_path: str) -> ModuleDef:
             is_keyword=p.is_keyword,
         )
 
+    def convert_call_site(c: Any) -> CallSiteDef:
+        return CallSiteDef(
+            callee=c.callee,
+            line=c.line,
+            is_method_call=c.is_method_call,
+            receiver=c.receiver,
+        )
+
     def convert_func(f: Any) -> FunctionDef:
+        # Get call_sites if present (Rust parser provides this)
+        call_sites = []
+        if hasattr(f, "call_sites") and f.call_sites:
+            call_sites = [convert_call_site(c) for c in f.call_sites]
+
         return FunctionDef(
             name=f.name,
             decorators=list(f.decorators),
@@ -172,6 +185,7 @@ def _rust_module_to_python(rust_module: Any, stored_path: str) -> ModuleDef:
             docstring=f.docstring,
             body_complexity=f.body_complexity,
             body_source=f.body_source,
+            call_sites=call_sites,
             start_line=f.start_line,
             end_line=f.end_line,
         )

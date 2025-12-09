@@ -2,6 +2,9 @@
 
 Combines entity extraction, scoring, budgeting, and export into
 a cohesive API for intelligent context selection.
+
+Now includes intent classification to select specialized extraction
+strategies for different types of questions.
 """
 
 from __future__ import annotations
@@ -12,13 +15,16 @@ from typing import TYPE_CHECKING, Any
 from mu.kernel.context.budgeter import TokenBudgeter
 from mu.kernel.context.export import ContextExporter
 from mu.kernel.context.extractor import EntityExtractor
+from mu.kernel.context.intent import Intent, IntentClassifier
 from mu.kernel.context.models import (
     ContextResult,
+    ExportConfig,
     ExtractedEntity,
     ExtractionConfig,
     ScoredNode,
 )
 from mu.kernel.context.scorer import RelevanceScorer
+from mu.kernel.context.strategies import get_strategy
 from mu.kernel.schema import NodeType
 
 if TYPE_CHECKING:
@@ -27,32 +33,55 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Intents that have specialized strategies
+_STRATEGY_INTENTS = {Intent.LOCATE, Intent.IMPACT, Intent.NAVIGATE, Intent.LIST}
+
+# Minimum confidence to use a specialized strategy
+_MIN_STRATEGY_CONFIDENCE = 0.7
+
 
 class SmartContextExtractor:
     """Extract optimal context for answering questions about code.
 
     Orchestrates the full extraction pipeline:
-    1. Entity extraction from the question
-    2. Node matching by name and vector similarity
-    3. Graph expansion to include related nodes
-    4. Relevance scoring of all candidates
-    5. Token budgeting to fit output size
-    6. MU format export
+    1. Intent classification (NEW) - determines extraction strategy
+    2. Entity extraction from the question
+    3. Node matching by name and vector similarity
+    4. Graph expansion to include related nodes
+    5. Relevance scoring of all candidates
+    6. Token budgeting to fit output size
+    7. MU format export
+
+    For certain intents (LOCATE, IMPACT, NAVIGATE, LIST), specialized
+    strategies are used to provide more targeted context extraction.
     """
 
     def __init__(
         self,
         mubase: MUbase,
         config: ExtractionConfig | None = None,
+        *,
+        use_intent_classification: bool = True,
     ) -> None:
         """Initialize the smart context extractor.
 
         Args:
             mubase: The MUbase graph database.
             config: Extraction configuration (uses defaults if not provided).
+            use_intent_classification: Whether to use intent classification
+                to select specialized strategies. Default True.
         """
         self.mubase = mubase
         self.config = config or ExtractionConfig()
+        self.use_intent_classification = use_intent_classification
+
+        # Create export config based on extraction config
+        self.export_config = ExportConfig(
+            include_docstrings=self.config.include_docstrings,
+            include_line_numbers=self.config.include_line_numbers,
+            include_internal_imports=self.config.include_imports,
+            min_complexity_to_show=self.config.min_complexity_to_show,
+        )
 
         # Get all node names for entity extraction
         known_names = self._get_known_names()
@@ -60,8 +89,11 @@ class SmartContextExtractor:
         # Initialize components
         self.entity_extractor = EntityExtractor(known_names)
         self.scorer = RelevanceScorer(self.config, mubase)
-        self.budgeter = TokenBudgeter(self.config.max_tokens)
-        self.exporter = ContextExporter(mubase, include_scores=False)
+        self.budgeter = TokenBudgeter(self.config.max_tokens, export_config=self.export_config)
+        self.exporter = ContextExporter(
+            mubase, include_scores=False, export_config=self.export_config
+        )
+        self.intent_classifier = IntentClassifier()
 
     def extract(self, question: str) -> ContextResult:
         """Extract optimal context for answering a question.
@@ -78,9 +110,38 @@ class SmartContextExtractor:
             If you need async extraction, the vector search will be
             skipped and only entity/graph matching will be used.
         """
+        # Step 0: Classify intent (NEW)
+        classified_intent = self.intent_classifier.classify(question)
+        intent = classified_intent.intent
+        confidence = classified_intent.confidence
+
+        # Check if we should use a specialized strategy
+        use_specialized = (
+            self.use_intent_classification
+            and intent in _STRATEGY_INTENTS
+            and confidence >= _MIN_STRATEGY_CONFIDENCE
+        )
+
+        if use_specialized:
+            # Use specialized strategy for this intent
+            logger.debug(f"Using {intent.value} strategy (confidence: {confidence:.2f})")
+            strategy = get_strategy(intent)
+            result = strategy.extract(classified_intent, self.mubase, self.config)
+
+            # Add intent info to result
+            result.intent = intent.value
+            result.intent_confidence = confidence
+            result.strategy_used = result.extraction_stats.get("strategy_used", intent.value)
+
+            return result
+
+        # Fall through to default extraction pipeline
         stats: dict[str, Any] = {
             "question_length": len(question),
             "max_tokens": self.config.max_tokens,
+            "intent": intent.value,
+            "intent_confidence": confidence,
+            "strategy_used": "default",
         }
 
         # Step 1: Extract entities from question
@@ -142,6 +203,9 @@ class SmartContextExtractor:
                 token_count=estimated_tokens,
                 relevance_scores={},
                 extraction_stats=stats,
+                intent=intent.value,
+                intent_confidence=confidence,
+                strategy_used="default",
             )
 
         # Step 8: Export as MU format
@@ -159,6 +223,9 @@ class SmartContextExtractor:
             token_count=token_count,
             relevance_scores=relevance_scores,
             extraction_stats=stats,
+            intent=intent.value,
+            intent_confidence=confidence,
+            strategy_used="default",
         )
 
     def _get_known_names(self) -> set[str]:

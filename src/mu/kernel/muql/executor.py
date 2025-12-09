@@ -328,13 +328,11 @@ class QueryExecutor:
 
             if operation == "find_calling":
                 # Find functions that call the target
-                # NOTE: CALLS edges are not yet implemented in graph building.
-                # This query will return empty results until call graph extraction is added.
-                # The graph builder needs to extract function calls and create edges.
+                # Uses CALLS edges from call graph extraction (Rust parser)
                 result_ids = gm.ancestors(target, ["calls"])
             elif operation == "find_called_by":
                 # Find functions called by target
-                # NOTE: CALLS edges are not yet implemented in graph building.
+                # Uses CALLS edges from call graph extraction (Rust parser)
                 result_ids = gm.impact(target, ["calls"])
             elif operation == "find_importing":
                 # Find modules that import the target

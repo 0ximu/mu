@@ -118,7 +118,15 @@ def kernel_search(
             sys.exit(ExitCode.CONFIG_ERROR)
 
     # Open database
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     # Check if embeddings exist
     embed_stats = db.embedding_stats()

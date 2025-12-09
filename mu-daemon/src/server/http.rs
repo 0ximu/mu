@@ -297,6 +297,12 @@ async fn context(
 // Node Operations
 // =============================================================================
 
+#[derive(Deserialize)]
+struct NodeParams {
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
+}
+
 #[derive(Serialize)]
 struct NodeResponse {
     id: String,
@@ -311,10 +317,19 @@ struct NodeResponse {
 async fn get_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<NodeParams>,
 ) -> impl IntoResponse {
     let start = Instant::now();
 
-    let mubase = state.mubase.read().await;
+    // Get project-specific mubase
+    let mubase = match state.projects.get_mubase(params.cwd.as_deref()).await {
+        Ok(m) => m,
+        Err(e) => {
+            return ApiResponse::<NodeResponse>::err(e, start.elapsed().as_millis() as u64)
+        }
+    };
+
+    let mubase = mubase.read().await;
     match mubase.get_node(&id) {
         Ok(Some(node)) => {
             let data = NodeResponse {
@@ -339,6 +354,8 @@ async fn get_node(
 #[derive(Deserialize)]
 struct BatchNodesRequest {
     ids: Vec<String>,
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
 }
 
 async fn get_nodes_batch(
@@ -347,7 +364,15 @@ async fn get_nodes_batch(
 ) -> impl IntoResponse {
     let start = Instant::now();
 
-    let mubase = state.mubase.read().await;
+    // Get project-specific mubase
+    let mubase = match state.projects.get_mubase(req.cwd.as_deref()).await {
+        Ok(m) => m,
+        Err(e) => {
+            return ApiResponse::<Vec<NodeResponse>>::err(e, start.elapsed().as_millis() as u64)
+        }
+    };
+
+    let mubase = mubase.read().await;
     let mut nodes = Vec::new();
 
     for id in &req.ids {

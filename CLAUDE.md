@@ -19,7 +19,6 @@ src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
 src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
 src/mu/mcp/CLAUDE.md                  # MCP server for AI assistants
-src/mu/agent/CLAUDE.md                # MU Agent - code structure specialist
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 
@@ -50,17 +49,35 @@ uv run mu diff <base> <head>   # Semantic diff
 # MUQL Queries
 uv run mu query "SELECT..."    # Execute MUQL query
 uv run mu q "SELECT..."        # Short alias
-uv run mu kernel muql -i       # Interactive REPL
+uv run mu query -i             # Interactive REPL
 
-# Kernel/Temporal
-uv run mu kernel init .        # Initialize .mu/mubase
-uv run mu kernel build .       # Build graph from codebase
-uv run mu kernel stats         # Show graph statistics
+# Bootstrap & Status (recommended workflow)
+uv run mu bootstrap            # Initialize + build in one step
+uv run mu status               # Show status and next steps
+
+# Context & Search
+uv run mu context "question"   # Smart context extraction
+uv run mu context "question" --format omega  # OMEGA compressed context
+uv run mu search "query"       # Semantic search
+
+# Graph Reasoning
+uv run mu deps NODE            # Show dependencies
+uv run mu deps NODE -r         # Show what depends on NODE
+uv run mu impact NODE          # What breaks if I change NODE?
+uv run mu ancestors NODE       # What does NODE depend on?
+uv run mu cycles               # Detect circular dependencies
+
+# Services
+uv run mu serve                # Start daemon in background
+uv run mu serve --status       # Check daemon status
+uv run mu serve --stop         # Stop running daemon
+uv run mu serve -f             # Run in foreground (debugging)
+uv run mu serve --mcp          # Start MCP server (for Claude Code)
+
+# Advanced: Kernel Commands (power users)
 uv run mu kernel snapshot      # Create snapshot at HEAD
 uv run mu kernel history <node> # Show node history
 uv run mu kernel blame <node>  # Show blame info
-
-# Kernel/Export
 uv run mu kernel export --format mu       # Export as MU text
 uv run mu kernel export --format json     # Export as JSON
 uv run mu kernel export --format mermaid  # Export as Mermaid diagram
@@ -68,18 +85,7 @@ uv run mu kernel export --format d2       # Export as D2 diagram
 uv run mu kernel export --format cytoscape # Export for Cytoscape.js
 uv run mu kernel export --format lisp     # Export as S-expressions
 uv run mu kernel export --format omega    # Export with OMEGA compression
-
-# Semantic Search & Context
 uv run mu kernel embed .       # Generate embeddings
-uv run mu kernel search "query" # Natural language search
-uv run mu kernel context "question" # Smart context extraction
-uv run mu kernel context "question" --format omega  # OMEGA compressed context
-
-# Daemon (real-time updates)
-uv run mu daemon start .       # Start daemon in background
-uv run mu daemon status        # Check daemon status
-uv run mu daemon stop          # Stop running daemon
-uv run mu daemon run .         # Run in foreground (debugging)
 
 # Cache Management
 uv run mu cache stats          # Show cache statistics
@@ -111,14 +117,6 @@ uv run mu migrate --dry-run    # Show what would be migrated
 # Architecture Contracts
 uv run mu contracts init       # Create .mu/contracts.yml template
 uv run mu contracts verify     # Verify architectural rules
-
-# MU Agent (code structure specialist)
-uv run mu agent ask "question" # Ask about codebase structure
-uv run mu agent interactive    # Start interactive session
-uv run mu agent query "MUQL"   # Direct MUQL query (bypass LLM)
-uv run mu agent deps NODE      # Show dependencies
-uv run mu agent impact NODE    # Show impact analysis
-uv run mu agent cycles         # Detect circular dependencies
 ```
 
 ## Data Directory Structure
@@ -166,7 +164,28 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`client.py`**: Daemon communication client for programmatic MU integration
 - **`describe.py`**: CLI introspection and self-description (mu/json/markdown formats)
 - **`mcp/`**: MCP server exposing MU tools for Claude Code and other AI assistants
-- **`agent/`**: MU Agent - code structure specialist running on Haiku (60x cheaper)
+
+## CLI Structure
+
+Primary commands (visible in help):
+- Core: bootstrap, status, compress
+- Query: query/q, context, read, search
+- Graph: deps, impact, ancestors, cycles, related
+- Intelligence: patterns, warn, diff
+- Services: serve, mcp
+- Vibes: omg, grok, wtf, yolo, sus, vibe, zen
+- Advanced: kernel (export, history, snapshot, blame, embed, search, diff)
+
+Hidden commands (power users):
+- describe, view, migrate, man, llm, cache
+
+Deprecated (still work, removed in v2.0):
+- daemon start/stop/status/run -> use 'mu serve' with flags
+- kernel init, kernel build -> use bootstrap
+- kernel stats -> use status
+- kernel context -> use context
+- kernel muql -> use query
+- kernel deps -> use deps
 
 ## Supported Languages
 

@@ -118,7 +118,15 @@ def kernel_export(
         print_info("Run 'mu kernel build' first to create the graph database")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         # Parse node IDs
@@ -185,8 +193,7 @@ def kernel_export(
             # Print stats to stderr
             print_info(f"OMEGA export: {omega_result.compression_ratio:.2f}x compression")
             print_info(
-                f"  Tokens: {omega_result.total_tokens} "
-                f"(was {omega_result.original_tokens} sigils)"
+                f"  Tokens: {omega_result.total_tokens} (was {omega_result.original_tokens} sigils)"
             )
 
         else:

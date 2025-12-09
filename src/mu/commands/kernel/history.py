@@ -38,7 +38,15 @@ def kernel_history(node_name: str, path: Path, limit: int, as_json: bool) -> Non
         print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         # Find the node

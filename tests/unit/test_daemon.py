@@ -138,15 +138,74 @@ class TestDaemonLifecycle:
         assert status["pid"] == os.getpid()
         assert status["healthy"] is False
 
-    def test_write_pid(self, temp_pid_file: Path) -> None:
-        """Test _write_pid writes current PID."""
+    def test_write_pid_info(self, temp_pid_file: Path, tmp_path: Path) -> None:
+        """Test _write_pid_info writes JSON with full connection info."""
+        import json
+
         temp_pid_file.parent.mkdir(parents=True, exist_ok=True)
         lifecycle = DaemonLifecycle(pid_file=temp_pid_file)
 
-        lifecycle._write_pid()
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+
+        lifecycle._write_pid_info(
+            pid=12345,
+            port=9120,
+            host="127.0.0.1",
+            root=project_root,
+        )
 
         assert temp_pid_file.exists()
-        assert temp_pid_file.read_text() == str(os.getpid())
+        data = json.loads(temp_pid_file.read_text())
+        assert data["pid"] == 12345
+        assert data["port"] == 9120
+        assert data["host"] == "127.0.0.1"
+        assert data["root"] == str(project_root.resolve())
+        assert "started_at" in data
+
+    def test_read_pid_info_json(self, temp_pid_file: Path, tmp_path: Path) -> None:
+        """Test read_pid_info reads JSON PID file."""
+        import json
+
+        temp_pid_file.parent.mkdir(parents=True, exist_ok=True)
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+
+        data = {
+            "pid": 12345,
+            "port": 9120,
+            "host": "127.0.0.1",
+            "root": str(project_root.resolve()),
+            "started_at": "2024-01-01T00:00:00+00:00",
+        }
+        temp_pid_file.write_text(json.dumps(data))
+
+        lifecycle = DaemonLifecycle(pid_file=temp_pid_file)
+        pid_info = lifecycle.read_pid_info()
+
+        assert pid_info is not None
+        assert pid_info["pid"] == 12345
+        assert pid_info["port"] == 9120
+        assert pid_info["host"] == "127.0.0.1"
+        assert pid_info["root"] == str(project_root.resolve())
+
+    def test_read_pid_info_legacy(self, temp_pid_file: Path) -> None:
+        """Test read_pid_info returns None for legacy PID format."""
+        temp_pid_file.parent.mkdir(parents=True, exist_ok=True)
+        temp_pid_file.write_text("12345")
+
+        lifecycle = DaemonLifecycle(pid_file=temp_pid_file)
+        pid_info = lifecycle.read_pid_info()
+
+        # Legacy format doesn't have full info
+        assert pid_info is None
+
+    def test_read_pid_info_no_file(self, temp_pid_file: Path) -> None:
+        """Test read_pid_info returns None when no file."""
+        lifecycle = DaemonLifecycle(pid_file=temp_pid_file)
+        pid_info = lifecycle.read_pid_info()
+
+        assert pid_info is None
 
     def test_cleanup_pid(self, temp_pid_file: Path) -> None:
         """Test _cleanup_pid removes PID file."""
@@ -283,3 +342,89 @@ class TestDaemonLifecycleStartForeground:
         ):
             with pytest.raises(RuntimeError, match="Rust daemon binary not found"):
                 lifecycle.start_foreground(Path("/tmp/mubase"))
+
+
+# =============================================================================
+# TestClientPortDiscovery
+# =============================================================================
+
+
+class TestClientPortDiscovery:
+    """Tests for client port discovery from PID file."""
+
+    def test_get_daemon_url_for_project_json(self, tmp_path: Path) -> None:
+        """Test get_daemon_url_for_project reads JSON PID file."""
+        import json
+
+        from mu.client import get_daemon_url_for_project
+
+        # Create .mu/daemon.pid with JSON
+        mu_dir = tmp_path / ".mu"
+        mu_dir.mkdir()
+        pid_file = mu_dir / "daemon.pid"
+        pid_file.write_text(
+            json.dumps(
+                {
+                    "pid": 12345,
+                    "port": 9200,
+                    "host": "127.0.0.1",
+                    "root": str(tmp_path),
+                    "started_at": "2024-01-01T00:00:00+00:00",
+                }
+            )
+        )
+
+        url = get_daemon_url_for_project(tmp_path)
+        assert url == "http://127.0.0.1:9200"
+
+    def test_get_daemon_url_for_project_legacy(self, tmp_path: Path) -> None:
+        """Test get_daemon_url_for_project handles legacy PID file."""
+        from mu.client import DEFAULT_DAEMON_URL, get_daemon_url_for_project
+
+        # Create .mu/daemon.pid with just PID number (legacy format)
+        mu_dir = tmp_path / ".mu"
+        mu_dir.mkdir()
+        pid_file = mu_dir / "daemon.pid"
+        pid_file.write_text("12345")
+
+        url = get_daemon_url_for_project(tmp_path)
+        assert url == DEFAULT_DAEMON_URL
+
+    def test_get_daemon_url_for_project_no_file(self, tmp_path: Path) -> None:
+        """Test get_daemon_url_for_project returns None when no PID file."""
+        from mu.client import get_daemon_url_for_project
+
+        url = get_daemon_url_for_project(tmp_path)
+        assert url is None
+
+    def test_get_daemon_url_fallback(self, tmp_path: Path) -> None:
+        """Test get_daemon_url falls back to default."""
+        from mu.client import DEFAULT_DAEMON_URL, get_daemon_url
+
+        url = get_daemon_url(tmp_path)
+        assert url == DEFAULT_DAEMON_URL
+
+    def test_daemon_client_for_project(self, tmp_path: Path) -> None:
+        """Test DaemonClient.for_project factory method."""
+        import json
+
+        from mu.client import DaemonClient
+
+        # Create .mu/daemon.pid with JSON
+        mu_dir = tmp_path / ".mu"
+        mu_dir.mkdir()
+        pid_file = mu_dir / "daemon.pid"
+        pid_file.write_text(
+            json.dumps(
+                {
+                    "pid": 12345,
+                    "port": 9300,
+                    "host": "127.0.0.1",
+                    "root": str(tmp_path),
+                    "started_at": "2024-01-01T00:00:00+00:00",
+                }
+            )
+        )
+
+        client = DaemonClient.for_project(tmp_path)
+        assert client.base_url == "http://127.0.0.1:9300"

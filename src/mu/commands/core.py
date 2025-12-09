@@ -305,7 +305,14 @@ def status(ctx: MUContext, as_json: bool) -> None:
         daemon_running = True
         try:
             daemon_status = client.status(cwd=str(cwd))
+            # Daemon returns stats at top level with node_count/edge_count keys
             stats = daemon_status.get("stats", {})
+            if not stats:
+                # Extract from daemon's flat response format
+                stats = {
+                    "nodes": daemon_status.get("node_count", 0),
+                    "edges": daemon_status.get("edge_count", 0),
+                }
             if mubase_path:
                 embeddings_db = mubase_path.parent / ".mu-embeddings.db"
                 embeddings_exist = embeddings_db.exists()
@@ -529,7 +536,7 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
             db = MUbase(mubase_path, read_only=True)
         except MUbaseLockError:
             print_error(
-                "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+                "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
             )
             sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -651,7 +658,7 @@ def context(ctx: MUContext, question: str, max_tokens: int, as_json: bool) -> No
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -723,7 +730,7 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 

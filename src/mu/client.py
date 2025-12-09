@@ -7,8 +7,10 @@ DuckDB lock conflicts from concurrent access.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
@@ -17,10 +19,74 @@ import httpx
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-__all__ = ["DaemonClient", "is_daemon_running", "forward_query"]
+__all__ = [
+    "DaemonClient",
+    "is_daemon_running",
+    "forward_query",
+    "get_daemon_url",
+    "get_daemon_url_for_project",
+]
 
-DEFAULT_DAEMON_URL = "http://localhost:9120"
+DEFAULT_DAEMON_PORT = 9120
+DEFAULT_DAEMON_HOST = "127.0.0.1"
+DEFAULT_DAEMON_URL = f"http://{DEFAULT_DAEMON_HOST}:{DEFAULT_DAEMON_PORT}"
 DEFAULT_TIMEOUT = 2.0
+
+
+def get_daemon_url_for_project(project_root: Path | str | None = None) -> str | None:
+    """Get daemon URL for a specific project from its PID file.
+
+    Reads the daemon PID file to get the correct port/host for the project.
+    This enables multi-project support where each project has its own daemon.
+
+    Args:
+        project_root: Project root directory (default: current directory)
+
+    Returns:
+        Daemon URL (e.g., "http://127.0.0.1:9120") if PID file exists, None otherwise.
+    """
+    from mu.paths import get_daemon_pid_path
+
+    root = Path(project_root) if project_root else Path.cwd()
+    pid_file = get_daemon_pid_path(root)
+
+    if not pid_file.exists():
+        return None
+
+    try:
+        content = pid_file.read_text().strip()
+        data = json.loads(content)
+        # Must be a dict to contain our fields
+        if isinstance(data, dict):
+            host = data.get("host", DEFAULT_DAEMON_HOST)
+            port = data.get("port", DEFAULT_DAEMON_PORT)
+            return f"http://{host}:{port}"
+        # Parsed as integer (legacy format as JSON)
+        return DEFAULT_DAEMON_URL
+    except json.JSONDecodeError:
+        # Fall back to legacy format (just PID number) - use default URL
+        try:
+            int(content)  # Validate it's a legacy PID file
+            return DEFAULT_DAEMON_URL
+        except ValueError:
+            return None
+    except OSError:
+        return None
+
+
+def get_daemon_url(project_root: Path | str | None = None) -> str:
+    """Get daemon URL, preferring project-specific config.
+
+    Attempts to read from PID file first, falls back to default URL.
+
+    Args:
+        project_root: Optional project root for project-specific daemon.
+
+    Returns:
+        Daemon URL string.
+    """
+    url = get_daemon_url_for_project(project_root)
+    return url if url else DEFAULT_DAEMON_URL
 
 
 @dataclass
@@ -32,6 +98,9 @@ class DaemonClient:
         >>> if client.is_running():
         ...     result = client.query("SELECT * FROM functions LIMIT 10")
         ...     print(result)
+
+        # Project-specific daemon (reads port from .mu/daemon.pid)
+        >>> client = DaemonClient.for_project("/path/to/project")
     """
 
     base_url: str = DEFAULT_DAEMON_URL
@@ -44,6 +113,26 @@ class DaemonClient:
             base_url=self.base_url,
             timeout=httpx.Timeout(self.timeout, connect=self.timeout),
         )
+
+    @classmethod
+    def for_project(
+        cls,
+        project_root: Path | str | None = None,
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> DaemonClient:
+        """Create a client for a specific project.
+
+        Reads the daemon URL from the project's PID file if available.
+
+        Args:
+            project_root: Project root directory (default: current directory)
+            timeout: HTTP timeout in seconds.
+
+        Returns:
+            DaemonClient configured for the project's daemon.
+        """
+        url = get_daemon_url(project_root)
+        return cls(base_url=url, timeout=timeout)
 
     def _unwrap_response(self, data: dict[str, Any]) -> dict[str, Any]:
         """Unwrap response from Rust or Python daemon format.
@@ -172,6 +261,8 @@ class DaemonClient:
         question: str,
         max_tokens: int = 8000,
         exclude_tests: bool = False,
+        include_docstrings: bool = True,
+        include_line_numbers: bool = False,
         cwd: str | None = None,
     ) -> dict[str, Any]:
         """Get smart context for a question.
@@ -180,6 +271,8 @@ class DaemonClient:
             question: Natural language question.
             max_tokens: Maximum tokens in output.
             exclude_tests: Whether to exclude test files.
+            include_docstrings: Include docstrings in output.
+            include_line_numbers: Include line numbers for IDE use.
             cwd: Client working directory for multi-project routing.
 
         Returns:
@@ -193,6 +286,8 @@ class DaemonClient:
                 "question": question,
                 "max_tokens": max_tokens,
                 "exclude_tests": exclude_tests,
+                "include_docstrings": include_docstrings,
+                "include_line_numbers": include_line_numbers,
             }
             if cwd:
                 payload["cwd"] = cwd
@@ -411,6 +506,8 @@ class DaemonClient:
         include_synthesized: bool = True,
         max_synthesized_macros: int = 5,
         include_seed: bool = True,
+        include_docstrings: bool = True,
+        include_line_numbers: bool = False,
         cwd: str | None = None,
     ) -> dict[str, Any]:
         """Get OMEGA-compressed context for a question.
@@ -421,6 +518,8 @@ class DaemonClient:
             include_synthesized: Include codebase-specific macros.
             max_synthesized_macros: Max synthesized macros to use.
             include_seed: Include macro definitions in full_output.
+            include_docstrings: Include docstrings in output.
+            include_line_numbers: Include line numbers for IDE use.
             cwd: Client working directory for multi-project routing.
 
         Returns:
@@ -436,6 +535,8 @@ class DaemonClient:
                 "include_synthesized": include_synthesized,
                 "max_synthesized_macros": max_synthesized_macros,
                 "include_seed": include_seed,
+                "include_docstrings": include_docstrings,
+                "include_line_numbers": include_line_numbers,
             }
             if cwd:
                 payload["cwd"] = cwd
@@ -659,16 +760,24 @@ class DaemonError(Exception):
 # =============================================================================
 
 
-def is_daemon_running(url: str = DEFAULT_DAEMON_URL, retry: bool = True) -> bool:
+def is_daemon_running(
+    url: str | None = None,
+    project_root: Path | str | None = None,
+    retry: bool = True,
+) -> bool:
     """Check if the MU daemon is running.
 
     Args:
-        url: Daemon base URL.
+        url: Daemon base URL (overrides project_root).
+        project_root: Project root to read daemon URL from PID file.
         retry: Whether to retry with backoff on failure.
 
     Returns:
         True if daemon is running and responding.
     """
+    if url is None:
+        url = get_daemon_url(project_root)
+
     max_attempts = 3 if retry else 1
     backoff = 0.1  # Start with 100ms
 

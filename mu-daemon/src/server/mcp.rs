@@ -73,16 +73,25 @@ fn write_message(writer: &mut impl Write, msg: &impl Serialize) -> Result<()> {
 #[serde(tag = "method", content = "params")]
 enum McpRequest {
     #[serde(rename = "mu/status")]
-    Status,
+    Status {
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 
     #[serde(rename = "mu/query")]
-    Query { muql: String },
+    Query {
+        muql: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 
     #[serde(rename = "mu/context")]
     Context {
         question: String,
         #[serde(default = "default_max_tokens")]
         max_tokens: usize,
+        #[serde(default)]
+        cwd: Option<String>,
     },
 
     #[serde(rename = "mu/deps")]
@@ -90,32 +99,53 @@ enum McpRequest {
         node: String,
         #[serde(default = "default_depth")]
         depth: usize,
+        #[serde(default)]
+        cwd: Option<String>,
     },
 
     #[serde(rename = "mu/impact")]
-    Impact { node: String },
+    Impact {
+        node: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 
     #[serde(rename = "mu/ancestors")]
     Ancestors {
         node: String,
         #[serde(default = "default_depth")]
         depth: usize,
+        #[serde(default)]
+        cwd: Option<String>,
     },
 
     #[serde(rename = "mu/cycles")]
-    Cycles,
+    Cycles {
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 
     #[serde(rename = "mu/build")]
     Build {
         #[serde(default)]
         path: Option<String>,
+        #[serde(default)]
+        cwd: Option<String>,
     },
 
     #[serde(rename = "mu/node")]
-    Node { id: String },
+    Node {
+        id: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 
     #[serde(rename = "mu/search")]
-    Search { pattern: String },
+    Search {
+        pattern: String,
+        #[serde(default)]
+        cwd: Option<String>,
+    },
 }
 
 fn default_max_tokens() -> usize {
@@ -147,8 +177,13 @@ enum McpMessage {
 /// Handle an MCP request.
 async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
     match request {
-        McpRequest::Status => {
-            let graph = state.graph.read().await;
+        McpRequest::Status { cwd } => {
+            // Get project-specific graph if cwd provided
+            let (graph, _) = match state.projects.get_project(cwd.as_deref()).await {
+                Ok((_, graph, path)) => (graph, path),
+                Err(_) => (state.graph.clone(), state.projects.default_path().to_path_buf()),
+            };
+            let graph = graph.read().await;
             McpMessage::Success {
                 success: true,
                 data: serde_json::json!({
@@ -159,7 +194,9 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Query { muql } => {
+        McpRequest::Query { muql, cwd: _ } => {
+            // Note: MUQL execution uses default project for now
+            // Full cwd routing would require passing cwd through muql::execute
             match muql::execute(&muql, state).await {
                 Ok(result) => McpMessage::Success {
                     success: true,
@@ -175,7 +212,8 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Context { question, max_tokens } => {
+        McpRequest::Context { question, max_tokens, cwd: _ } => {
+            // Note: Context extraction uses default project for now
             let extractor = ContextExtractor::new(state);
             match extractor.extract(&question, max_tokens).await {
                 Ok(ctx) => McpMessage::Success {
@@ -192,7 +230,7 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Deps { node, depth } => {
+        McpRequest::Deps { node, depth, cwd: _ } => {
             let query = format!("SHOW dependencies OF '{}' DEPTH {}", node.replace('\'', "''"), depth);
             match muql::execute(&query, state).await {
                 Ok(result) => {
@@ -212,7 +250,7 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Impact { node } => {
+        McpRequest::Impact { node, cwd: _ } => {
             let query = format!("SHOW impact OF '{}'", node.replace('\'', "''"));
             match muql::execute(&query, state).await {
                 Ok(result) => {
@@ -232,7 +270,7 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Ancestors { node, depth } => {
+        McpRequest::Ancestors { node, depth, cwd: _ } => {
             let query = format!("SHOW ancestors OF '{}' DEPTH {}", node.replace('\'', "''"), depth);
             match muql::execute(&query, state).await {
                 Ok(result) => {
@@ -252,7 +290,7 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Cycles => {
+        McpRequest::Cycles { cwd: _ } => {
             match muql::execute("FIND CYCLES", state).await {
                 Ok(result) => McpMessage::Success {
                     success: true,
@@ -264,9 +302,11 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Build { path } => {
+        McpRequest::Build { path, cwd } => {
+            // Use cwd if path not provided
             let root = path
                 .map(std::path::PathBuf::from)
+                .or_else(|| cwd.map(std::path::PathBuf::from))
                 .unwrap_or_else(|| state.root.clone());
 
             let pipeline = BuildPipeline::new(state.clone());
@@ -285,8 +325,17 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Node { id } => {
-            let mubase = state.mubase.read().await;
+        McpRequest::Node { id, cwd } => {
+            // Get project-specific mubase
+            let mubase = match state.projects.get_mubase(cwd.as_deref()).await {
+                Ok(m) => m,
+                Err(e) => {
+                    return McpMessage::Error {
+                        message: e.to_string(),
+                    }
+                }
+            };
+            let mubase = mubase.read().await;
             match mubase.get_node(&id) {
                 Ok(Some(node)) => McpMessage::Success {
                     success: true,
@@ -309,7 +358,7 @@ async fn handle_request(request: McpRequest, state: &AppState) -> McpMessage {
             }
         }
 
-        McpRequest::Search { pattern } => {
+        McpRequest::Search { pattern, cwd: _ } => {
             let query = format!(
                 "SELECT * FROM nodes WHERE name LIKE '{}' LIMIT 50",
                 pattern.replace('\'', "''")

@@ -1,4 +1,7 @@
-"""MU kernel init command - Initialize .mu/mubase graph database."""
+"""MU kernel init command - Initialize .mu/mubase graph database.
+
+DEPRECATED: Use 'mu bootstrap' instead.
+"""
 
 from __future__ import annotations
 
@@ -10,15 +13,24 @@ import click
 from mu.paths import get_mubase_path
 
 
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for kernel init."""
+    click.secho(
+        "⚠️  'mu kernel init' is deprecated. Use 'mu bootstrap' instead.",
+        fg="yellow",
+        err=True,
+    )
+
+
 @click.command("init")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing .mu/mubase file")
 def kernel_init(path: Path, force: bool) -> None:
-    """Initialize a .mu/mubase graph database.
+    """[DEPRECATED] Initialize a .mu/mubase graph database.
 
-    Creates an empty .mu/mubase file in the specified directory.
-    Use 'mu kernel build' to populate it with your codebase.
+    Use 'mu bootstrap' instead - it handles both init and build in one step.
     """
+    _show_deprecation_warning()
     from mu.errors import ExitCode
     from mu.kernel import MUbase
     from mu.logging import print_error, print_info, print_success, print_warning

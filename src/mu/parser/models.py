@@ -27,6 +27,24 @@ class ParameterDef:
 
 
 @dataclass
+class CallSiteDef:
+    """A function call site within a function body."""
+
+    callee: str  # "validate_user" or "self.save"
+    line: int = 0
+    is_method_call: bool = False  # self.x() vs x()
+    receiver: str | None = None  # "self", "user_service", etc.
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "callee": self.callee,
+            "line": self.line,
+            "is_method_call": self.is_method_call,
+            "receiver": self.receiver,
+        }
+
+
+@dataclass
 class FunctionDef:
     """A function or method definition."""
 
@@ -42,6 +60,7 @@ class FunctionDef:
     docstring: str | None = None
     body_complexity: int = 0  # AST node count in body
     body_source: str | None = None  # Raw source code of function body (for LLM summarization)
+    call_sites: list[CallSiteDef] = field(default_factory=list)  # Function calls within body
     start_line: int = 0
     end_line: int = 0
 
@@ -63,6 +82,9 @@ class FunctionDef:
         # Only include body_source if present (avoid bloating JSON output)
         if self.body_source:
             result["body_source"] = self.body_source
+        # Only include call_sites if present
+        if self.call_sites:
+            result["call_sites"] = [c.to_dict() for c in self.call_sites]
         return result
 
 

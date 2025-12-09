@@ -1,4 +1,7 @@
-"""MU kernel context command - Extract optimal context for a question."""
+"""MU kernel context command - Extract optimal context for a question.
+
+DEPRECATED: Use 'mu context' instead.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,15 @@ from mu.paths import get_mubase_path
 
 if TYPE_CHECKING:
     from mu.cli import MUContext
+
+
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for kernel context."""
+    click.secho(
+        "⚠️  'mu kernel context' is deprecated. Use 'mu context' instead.",
+        fg="yellow",
+        err=True,
+    )
 
 
 @click.command("context")
@@ -56,6 +68,22 @@ if TYPE_CHECKING:
     help="Exclude test files from results",
 )
 @click.option(
+    "--docstrings/--no-docstrings",
+    default=True,
+    help="Include docstrings in output (default: enabled)",
+)
+@click.option(
+    "--line-numbers/--no-line-numbers",
+    default=False,
+    help="Include line numbers for IDE integration (default: disabled)",
+)
+@click.option(
+    "--imports/--no-imports",
+    "include_imports",
+    default=True,
+    help="Include internal module imports (default: enabled)",
+)
+@click.option(
     "--scores",
     is_flag=True,
     help="Include relevance scores in output",
@@ -81,23 +109,23 @@ def kernel_context(
     no_imports: bool,
     depth: int,
     exclude_tests: bool,
+    docstrings: bool,
+    line_numbers: bool,
+    include_imports: bool,
     scores: bool,
     copy: bool,
     offline: bool,
 ) -> None:
-    """Extract optimal context for a question.
+    """[DEPRECATED] Extract optimal context for a question.
 
-    Uses smart context extraction to find the most relevant code
-    for answering a natural language question about your codebase.
+    Use 'mu context' instead.
 
     \b
     Examples:
-        mu kernel context "How does authentication work?"
-        mu kernel context "What's in the CLI?" --max-tokens 2000
-        mu kernel context "database queries" --exclude-tests -v
-        mu kernel context "parser logic" --format json
-        mu kernel context "How does X work?" --offline  # Skip daemon
+        mu context "How does authentication work?"
+        mu context "What's in the CLI?" --max-tokens 2000
     """
+    _show_deprecation_warning()
     from mu.errors import ExitCode
     from mu.logging import print_error, print_info
 
@@ -155,6 +183,9 @@ def kernel_context(
         no_imports=no_imports,
         depth=depth,
         exclude_tests=exclude_tests,
+        docstrings=docstrings,
+        line_numbers=line_numbers,
+        include_imports=include_imports,
         scores=scores,
         copy=copy,
     )
@@ -280,6 +311,9 @@ def _execute_context_local(
     no_imports: bool,
     depth: int,
     exclude_tests: bool,
+    docstrings: bool,
+    line_numbers: bool,
+    include_imports: bool,
     scores: bool,
     copy: bool,
 ) -> None:
@@ -354,6 +388,8 @@ def _execute_context_local(
         config = ExtractionConfig(
             max_tokens=max_tokens,
             include_imports=not no_imports,
+            include_docstrings=docstrings,
+            include_line_numbers=line_numbers,
             expand_depth=depth,
             exclude_tests=exclude_tests,
         )

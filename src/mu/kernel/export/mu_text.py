@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from mu.kernel.context.models import ExportConfig
 from mu.kernel.export.base import ExportOptions, ExportResult
 from mu.kernel.models import Edge, Node
-from mu.kernel.schema import NodeType
+from mu.kernel.schema import EdgeType, NodeType
 
 if TYPE_CHECKING:
     from mu.kernel.mubase import MUbase
@@ -34,6 +35,14 @@ class MUTextExporter:
     # Operators
     OP_FLOW = "->"
     OP_MUTATION = "=>"
+
+    def __init__(self, export_config: ExportConfig | None = None) -> None:
+        """Initialize MU text exporter.
+
+        Args:
+            export_config: Configuration for export enrichment.
+        """
+        self.export_config = export_config or ExportConfig()
 
     @property
     def format_name(self) -> str:
@@ -196,6 +205,19 @@ class MUTextExporter:
         module_name = self._path_to_module_name(path)
         lines.append(f"{self.SIGIL_MODULE}module {module_name}")
 
+        # Language tag (optional, useful for multi-language codebases)
+        if self.export_config.include_language:
+            # Infer language from file extension
+            lang = self._infer_language(path)
+            if lang:
+                lines.append(f"  {self.SIGIL_METADATA}lang {lang}")
+
+        # Internal imports (IMPORTS edges)
+        if self.export_config.include_internal_imports:
+            internal_imports = self._get_internal_imports(path, mubase)
+            if internal_imports:
+                lines.append(f"  {self.SIGIL_METADATA}imports [{', '.join(internal_imports)}]")
+
         # Separate nodes by type
         classes: dict[str, Node] = {}
         functions: list[Node] = []
@@ -226,13 +248,23 @@ class MUTextExporter:
                 lines.append(f"  {self.SIGIL_ENTITY}{class_name}")
                 lines.append(f"    {self.SIGIL_ANNOTATION} (partial - selected methods only)")
                 for method in sorted(methods, key=lambda m: m.name):
-                    lines.append(self._export_function(method, indent=4))
+                    func_output = self._export_function(method, indent=4)
+                    # Handle multi-line output (for docstrings)
+                    if "\n" in func_output:
+                        lines.extend(func_output.split("\n"))
+                    else:
+                        lines.append(func_output)
 
         # Export top-level functions
         if functions:
             lines.append("")
             for func in sorted(functions, key=lambda f: f.name):
-                lines.append(self._export_function(func, indent=2))
+                func_output = self._export_function(func, indent=2)
+                # Handle multi-line output (for docstrings)
+                if "\n" in func_output:
+                    lines.extend(func_output.split("\n"))
+                else:
+                    lines.append(func_output)
 
         # Export external dependencies
         externals = [n for n in nodes if n.type == NodeType.EXTERNAL]
@@ -278,23 +310,40 @@ class MUTextExporter:
         if bases:
             parts.append(f" < {', '.join(bases)}")
 
+        # Line numbers (optional, useful for IDE integration)
+        if self.export_config.include_line_numbers and cls.line_start:
+            end_line = cls.line_end or cls.line_start
+            parts.append(f" :L{cls.line_start}-{end_line}")
+
         lines.append("".join(parts))
+
+        # Docstring (on next line after class declaration)
+        if self.export_config.include_docstrings:
+            docstring = self._get_docstring(cls)
+            if docstring:
+                lines.append(f'    "{docstring}"')
 
         # Complexity annotation
         if cls.complexity and cls.complexity >= 30:
-            lines.append(f"    {self.SIGIL_ANNOTATION} complexity:{cls.complexity}")
+            lines.append(f"    {self.SIGIL_ANNOTATION}complexity={cls.complexity}")
 
         # Attributes
         attrs = props.get("attributes", [])
         if attrs:
-            attrs_str = ", ".join(attrs[:10])
-            if len(attrs) > 10:
-                attrs_str += f" (+{len(attrs) - 10} more)"
+            max_attrs = self.export_config.max_attributes
+            attrs_str = ", ".join(attrs[:max_attrs])
+            if len(attrs) > max_attrs:
+                attrs_str += f" (+{len(attrs) - max_attrs} more)"
             lines.append(f"    {self.SIGIL_METADATA}attrs [{attrs_str}]")
 
         # Methods
         for method in sorted(methods, key=lambda m: m.name):
-            lines.append(self._export_function(method, indent=4))
+            func_output = self._export_function(method, indent=4)
+            # Handle multi-line output (for docstrings)
+            if "\n" in func_output:
+                lines.extend(func_output.split("\n"))
+            else:
+                lines.append(func_output)
 
         return lines
 
@@ -306,7 +355,7 @@ class MUTextExporter:
             indent: Number of spaces to indent.
 
         Returns:
-            Single line MU output.
+            Single or multi-line MU output.
         """
         props = func.properties
         prefix = " " * indent
@@ -347,16 +396,31 @@ class MUTextExporter:
         if return_type:
             parts.append(f" {self.OP_FLOW} {return_type}")
 
+        # Line numbers (inline after signature)
+        if self.export_config.include_line_numbers and func.line_start:
+            end_line = func.line_end or func.line_start
+            parts.append(f" :L{func.line_start}-{end_line}")
+
         # Decorators
         decorators = props.get("decorators", [])
         if decorators:
-            parts.append(f" {self.SIGIL_ANNOTATION} {', '.join(decorators)}")
+            parts.append(f" {self.SIGIL_ANNOTATION}{', '.join(decorators)}")
 
         # Complexity annotation for complex functions
-        if func.complexity and func.complexity >= 20:
-            parts.append(f" {self.SIGIL_ANNOTATION} complexity:{func.complexity}")
+        if func.complexity and func.complexity >= self.export_config.min_complexity_to_show:
+            parts.append(f" {self.SIGIL_ANNOTATION}complexity={func.complexity}")
 
-        return "".join(parts)
+        signature_line = "".join(parts)
+
+        # Docstring (on next line after signature)
+        if self.export_config.include_docstrings:
+            docstring = self._get_docstring(func)
+            if docstring:
+                # Return multi-line with docstring indented
+                docstring_line = f'{prefix}  "{docstring}"'
+                return f"{signature_line}\n{docstring_line}"
+
+        return signature_line
 
     def _path_to_module_name(self, path: str) -> str:
         """Convert a file path to module name.
@@ -412,6 +476,88 @@ class MUTextExporter:
             return parent.name
 
         return "Unknown"
+
+    def _get_docstring(self, node: Node) -> str | None:
+        """Extract and format docstring from node properties.
+
+        Args:
+            node: The node to extract docstring from.
+
+        Returns:
+            Formatted docstring or None if not available.
+        """
+        docstring = node.properties.get("docstring")
+        if not docstring or not isinstance(docstring, str):
+            return None
+
+        # Clean and truncate
+        lines = docstring.strip().split("\n")
+
+        if (
+            self.export_config.truncate_docstring
+            and len(lines) > self.export_config.max_docstring_lines
+        ):
+            lines = lines[: self.export_config.max_docstring_lines]
+            lines.append("...")
+
+        # For single-line, return as-is
+        if len(lines) == 1:
+            return str(lines[0])
+
+        # For multi-line, return first line (summary)
+        return str(lines[0])
+
+    def _get_internal_imports(self, module_path: str, mubase: MUbase) -> list[str]:
+        """Get internal module imports via IMPORTS edges.
+
+        Args:
+            module_path: The module file path.
+            mubase: The database for edge lookup.
+
+        Returns:
+            List of internal import module names.
+        """
+        # Build module node ID
+        module_id = f"mod:{module_path}"
+
+        # Get all edges from this module
+        edges = mubase.get_edges()
+        import_edges = [e for e in edges if e.source_id == module_id and e.type == EdgeType.IMPORTS]
+
+        # Get target module names
+        imports = []
+        for edge in import_edges:
+            target = mubase.get_node(edge.target_id)
+            if target:
+                # Convert file path to module name
+                imports.append(self._path_to_module_name(target.file_path or target.id))
+
+        return sorted(imports)
+
+    def _infer_language(self, path: str) -> str | None:
+        """Infer programming language from file extension.
+
+        Args:
+            path: File path.
+
+        Returns:
+            Language name or None.
+        """
+        ext_to_lang = {
+            ".py": "python",
+            ".ts": "typescript",
+            ".js": "javascript",
+            ".go": "go",
+            ".java": "java",
+            ".rs": "rust",
+            ".cs": "csharp",
+        }
+
+        for ext, lang in ext_to_lang.items():
+            if path.endswith(ext):
+                return lang
+
+        return None
 
 
 __all__ = ["MUTextExporter"]

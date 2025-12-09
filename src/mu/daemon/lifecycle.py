@@ -6,18 +6,30 @@ Uses the Rust mu-daemon binary exclusively.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import signal
 import subprocess
 import time
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 
 from mu.daemon.config import DaemonConfig
+
+
+class DaemonPidInfo(TypedDict):
+    """Information stored in daemon PID file."""
+
+    pid: int
+    port: int
+    host: str
+    root: str
+    started_at: str
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +108,18 @@ class DaemonLifecycle:
             return False, None
 
         try:
-            pid = int(self.pid_file.read_text().strip())
+            content = self.pid_file.read_text().strip()
+            # Try JSON format first (new format)
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    pid = data["pid"]
+                else:
+                    # JSON parsed as integer (rare but possible)
+                    pid = int(data)
+            except (json.JSONDecodeError, KeyError, TypeError):
+                # Fall back to plain integer (legacy format)
+                pid = int(content)
         except (ValueError, OSError):
             # Invalid or unreadable PID file
             self._cleanup_stale_pid()
@@ -110,6 +133,34 @@ class DaemonLifecycle:
             # Process doesn't exist, clean up stale PID file
             self._cleanup_stale_pid()
             return False, None
+
+    def read_pid_info(self) -> DaemonPidInfo | None:
+        """Read full daemon info from PID file.
+
+        Returns:
+            DaemonPidInfo if PID file exists and is valid JSON, None otherwise.
+        """
+        if not self.pid_file.exists():
+            return None
+
+        try:
+            content = self.pid_file.read_text().strip()
+            data = json.loads(content)
+            # Must be a dict to contain our fields
+            if not isinstance(data, dict):
+                return None
+            # Validate required fields
+            if all(k in data for k in ("pid", "port", "host", "root", "started_at")):
+                return DaemonPidInfo(
+                    pid=data["pid"],
+                    port=data["port"],
+                    host=data["host"],
+                    root=data["root"],
+                    started_at=data["started_at"],
+                )
+        except (json.JSONDecodeError, OSError, KeyError, TypeError):
+            pass
+        return None
 
     def _cleanup_stale_pid(self) -> None:
         """Remove stale PID file."""
@@ -161,8 +212,8 @@ class DaemonLifecycle:
 
         logger.info(f"Starting Rust daemon: {' '.join(cmd)}")
 
-        # Write PID file
-        self._write_pid()
+        # Write PID file with full connection info
+        self._write_pid_info(os.getpid(), cfg.port, cfg.host, project_root)
 
         try:
             # Run in foreground (blocking)
@@ -247,9 +298,8 @@ class DaemonLifecycle:
             start_new_session=True,  # Detach from parent
         )
 
-        # Write PID file ourselves since Rust daemon doesn't manage it
-        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
-        self.pid_file.write_text(str(process.pid))
+        # Write PID file with full connection info (JSON format)
+        self._write_pid_info(process.pid, cfg.port, cfg.host, project_root)
 
         # Wait for daemon to start
         start_time = time.time()
@@ -329,38 +379,61 @@ class DaemonLifecycle:
         """
         running, pid = self.is_running()
 
+        # Read full PID info if available (for port/host)
+        pid_info = self.read_pid_info()
+        host = pid_info["host"] if pid_info else self.config.host
+        port = pid_info["port"] if pid_info else self.config.port
+
         # Always check HTTP availability - daemon might be running without PID file
         http_available = False
         http_data: dict[str, Any] = {}
         try:
             response = httpx.get(
-                f"http://{self.config.host}:{self.config.port}/status",
+                f"http://{host}:{port}/status",
                 timeout=STATUS_TIMEOUT,
             )
             if response.status_code == 200:
                 http_available = True
-                http_data = response.json()
+                raw_data = response.json()
+                # Unwrap Rust daemon response format: {"success": true, "data": {...}}
+                if isinstance(raw_data, dict) and "data" in raw_data:
+                    http_data = raw_data["data"]
+                else:
+                    http_data = raw_data
         except httpx.RequestError:
             pass
 
         if running and http_available:
             # Best case: PID file exists and HTTP responds
             http_data["pid"] = pid
+            http_data["port"] = port
+            http_data["host"] = host
             http_data["healthy"] = True
+            if pid_info:
+                http_data["root"] = pid_info["root"]
+                http_data["started_at"] = pid_info["started_at"]
             return http_data
 
         if running and not http_available:
             # PID file exists but HTTP not responding
-            return {
+            result: dict[str, Any] = {
                 "status": "running",
                 "pid": pid,
+                "port": port,
+                "host": host,
                 "healthy": False,
                 "message": "Daemon process exists but not responding to HTTP",
             }
+            if pid_info:
+                result["root"] = pid_info["root"]
+                result["started_at"] = pid_info["started_at"]
+            return result
 
         if not running and http_available:
             # No PID file but something is serving on the port
             http_data["status"] = "running"
+            http_data["port"] = port
+            http_data["host"] = host
             http_data["healthy"] = True
             http_data["message"] = "Daemon running (no PID file - may have been started externally)"
             return http_data
@@ -368,16 +441,38 @@ class DaemonLifecycle:
         # Neither PID file nor HTTP available
         return {"status": "stopped"}
 
-    def _write_pid(self) -> None:
-        """Write current PID to file with secure permissions."""
-        pid = os.getpid()
-        self.pid_file.write_text(str(pid))
+    def _write_pid_info(
+        self,
+        pid: int,
+        port: int,
+        host: str,
+        root: Path,
+    ) -> None:
+        """Write PID file with full connection info (JSON format).
+
+        Args:
+            pid: Process ID of the daemon.
+            port: Port the daemon is listening on.
+            host: Host the daemon is bound to.
+            root: Project root directory.
+        """
+        self.pid_file.parent.mkdir(parents=True, exist_ok=True)
+
+        data: DaemonPidInfo = {
+            "pid": pid,
+            "port": port,
+            "host": host,
+            "root": str(root.resolve()),
+            "started_at": datetime.now(UTC).isoformat(),
+        }
+        self.pid_file.write_text(json.dumps(data, indent=2))
+
         # Set permissions to owner-only read/write (0600)
         try:
             os.chmod(self.pid_file, 0o600)
         except OSError:
             pass
-        logger.debug(f"Wrote PID {pid} to {self.pid_file}")
+        logger.debug(f"Wrote daemon info to {self.pid_file}: PID={pid}, port={port}")
 
     def _cleanup_pid(self) -> None:
         """Remove PID file."""
@@ -391,5 +486,6 @@ class DaemonLifecycle:
 
 __all__ = [
     "DaemonLifecycle",
+    "DaemonPidInfo",
     "find_rust_daemon_binary",
 ]

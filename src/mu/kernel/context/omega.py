@@ -85,6 +85,18 @@ class OmegaConfig:
     to the standard sigil-based MU format.
     """
 
+    include_docstrings: bool = True
+    """Include docstrings in S-expression output.
+
+    When True, docstrings are included as quoted strings in the output.
+    """
+
+    include_line_numbers: bool = False
+    """Include line numbers in output.
+
+    When True, line numbers are added to class and function definitions.
+    """
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -94,6 +106,8 @@ class OmegaConfig:
             "max_synthesized_macros": self.max_synthesized_macros,
             "enable_prompt_cache_optimization": self.enable_prompt_cache_optimization,
             "fallback_to_sigils": self.fallback_to_sigils,
+            "include_docstrings": self.include_docstrings,
+            "include_line_numbers": self.include_line_numbers,
         }
 
     @classmethod
@@ -805,6 +819,30 @@ class OmegaContextExtractor:
 
         return "\n".join(lines)
 
+    def _get_docstring(self, node: Node) -> str:
+        """Extract docstring from node properties.
+
+        Args:
+            node: The node to extract docstring from.
+
+        Returns:
+            Quoted docstring string or empty string if no docstring.
+        """
+        props = node.properties or {}
+        docstring = props.get("docstring", "")
+        if docstring:
+            # Clean and truncate docstring
+            docstring = docstring.strip()
+            # Escape quotes
+            docstring = docstring.replace('"', '\\"')
+            # Limit to first line or 100 chars
+            if "\n" in docstring:
+                docstring = docstring.split("\n")[0]
+            if len(docstring) > 100:
+                docstring = docstring[:97] + "..."
+            return f'"{docstring}"'
+        return ""
+
     def _class_to_schema_v2(
         self,
         node: Node,
@@ -846,62 +884,89 @@ class OmegaContextExtractor:
         # Format base class (first one or nil)
         parent = bases[0] if bases else "nil"
 
+        # Extract docstring
+        docstring = self._get_docstring(node)
+
         # Check if it's a service (ends with Service)
         if name_lower.endswith("service"):
-            return self._service_to_schema_v2(name, attr_list, methods)
+            return self._service_to_schema_v2(name, attr_list, methods, docstring)
 
         # Check if it's a dataclass/model
         if "dataclass" in decorators or name_lower.endswith("model"):
-            return self._model_to_schema_v2(name, attrs)
+            return self._model_to_schema_v2(name, attrs, docstring)
 
         # Check if it's a validator
         if name_lower.endswith("validator"):
             target = name[:-9] if name.endswith("Validator") else name
             rules = [str(a) for a in attrs[:5]]
-            return f"  (validator {name} {target} [{' '.join(rules)}])"
+            if docstring:
+                return f"  (validator {name} {target} [{' '.join(rules)}] {docstring})"
+            else:
+                return f"  (validator {name} {target} [{' '.join(rules)}])"
 
         # Default: plain class
-        return self._plain_class_to_schema_v2(name, parent, attr_list, methods)
+        return self._plain_class_to_schema_v2(name, parent, attr_list, methods, docstring)
 
-    def _service_to_schema_v2(self, name: str, deps: list[str], methods: list[Node]) -> str:
-        """Format a service class: (service Name [deps] (method ...) ...)"""
+    def _service_to_schema_v2(
+        self, name: str, deps: list[str], methods: list[Node], docstring: str = ""
+    ) -> str:
+        """Format a service class: (service Name [deps] "docstring" (method ...) ...)"""
         lines = []
         deps_str = " ".join(deps) if deps else ""
 
         if methods:
-            lines.append(f"  (service {name} [{deps_str}]")
+            # Service with methods
+            if docstring:
+                lines.append(f"  (service {name} [{deps_str}] {docstring}")
+            else:
+                lines.append(f"  (service {name} [{deps_str}]")
             for method in methods:
                 method_sexpr = self._method_to_schema_v2(method)
                 lines.append(f"    {method_sexpr}")
             lines.append("  )")
             return "\n".join(lines)
         else:
-            return f"  (service {name} [{deps_str}])"
+            # Service without methods
+            if docstring:
+                return f"  (service {name} [{deps_str}] {docstring})"
+            else:
+                return f"  (service {name} [{deps_str}])"
 
-    def _model_to_schema_v2(self, name: str, attrs: list[Any]) -> str:
-        """Format a model/dataclass: (model Name [field:type ...])"""
+    def _model_to_schema_v2(self, name: str, attrs: list[Any], docstring: str = "") -> str:
+        """Format a model/dataclass: (model Name [field:type ...] "docstring")"""
         fields = self._format_fields(attrs)
-        return f"  (model {name} [{fields}])"
+        if docstring:
+            return f"  (model {name} [{fields}] {docstring})"
+        else:
+            return f"  (model {name} [{fields}])"
 
     def _plain_class_to_schema_v2(
-        self, name: str, parent: str, attrs: list[str], methods: list[Node]
+        self, name: str, parent: str, attrs: list[str], methods: list[Node], docstring: str = ""
     ) -> str:
-        """Format a plain class: (class Name Parent [attrs] (method ...) ...)"""
+        """Format a plain class: (class Name Parent [attrs] "docstring" (method ...) ...)"""
         lines = []
         attrs_str = " ".join(attrs) if attrs else ""
 
         if methods:
-            lines.append(f"  (class {name} {parent} [{attrs_str}]")
+            # Class with methods
+            if docstring:
+                lines.append(f"  (class {name} {parent} [{attrs_str}] {docstring}")
+            else:
+                lines.append(f"  (class {name} {parent} [{attrs_str}]")
             for method in methods:
                 method_sexpr = self._method_to_schema_v2(method)
                 lines.append(f"    {method_sexpr}")
             lines.append("  )")
             return "\n".join(lines)
         else:
-            return f"  (class {name} {parent} [{attrs_str}])"
+            # Class without methods
+            if docstring:
+                return f"  (class {name} {parent} [{attrs_str}] {docstring})"
+            else:
+                return f"  (class {name} {parent} [{attrs_str}])"
 
     def _method_to_schema_v2(self, node: Node) -> str:
-        """Convert a method: (method Name [args] ReturnType Complexity)"""
+        """Convert a method: (method Name [args] ReturnType Complexity "docstring")"""
         props = node.properties or {}
         name = node.name or "unknown"
         return_type = props.get("return_type", "None") or "None"
@@ -910,10 +975,14 @@ class OmegaContextExtractor:
         params = props.get("parameters", [])
         args = self._format_params(params)
 
-        return f"(method {name} [{args}] {return_type} {complexity})"
+        docstring = self._get_docstring(node)
+        if docstring:
+            return f"(method {name} [{args}] {return_type} {complexity} {docstring})"
+        else:
+            return f"(method {name} [{args}] {return_type} {complexity})"
 
     def _function_to_schema_v2(self, node: Node) -> str:
-        """Convert a function: (function Name [args] ReturnType Complexity)
+        """Convert a function: (function Name [args] ReturnType Complexity "docstring")
 
         If function has HTTP decorators, use (api HttpVerb Path Handler [args])
         """
@@ -930,13 +999,18 @@ class OmegaContextExtractor:
                 path = self._extract_path_from_decorators(decorators)
                 params = props.get("parameters", [])
                 args = self._format_params(params)
+                # API endpoints don't include docstrings in OMEGA format
                 return f'(api {verb.upper()} "{path}" {name} [{args}])'
 
         # Regular function
         params = props.get("parameters", [])
         args = self._format_params(params)
 
-        return f"(function {name} [{args}] {return_type} {complexity})"
+        docstring = self._get_docstring(node)
+        if docstring:
+            return f"(function {name} [{args}] {return_type} {complexity} {docstring})"
+        else:
+            return f"(function {name} [{args}] {return_type} {complexity})"
 
     def _format_params(self, params: list[Any]) -> str:
         """Format function/method parameters as name:type pairs."""

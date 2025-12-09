@@ -7,13 +7,13 @@ Node and Edge objects for storage in the MUbase graph database.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mu.kernel.models import Edge, Node
 from mu.kernel.schema import EdgeType, NodeType
 
 if TYPE_CHECKING:
-    from mu.parser.models import ClassDef, FunctionDef, ModuleDef
+    from mu.parser.models import ClassDef, FunctionDef, ImportDef, ModuleDef
 
 
 class GraphBuilder:
@@ -33,6 +33,8 @@ class GraphBuilder:
         self._nodes: list[Node] = []
         self._edges: list[Edge] = []
         self._module_id_map: dict[str, str] = {}  # path -> node_id
+        self._function_id_map: dict[str, str] = {}  # qualified_name -> node_id
+        self._import_map: dict[str, dict[str, str]] = {}  # module_path -> {name -> import_module}
 
     def build(self, modules: list[ModuleDef]) -> tuple[list[Node], list[Edge]]:
         """Convert parsed modules to graph nodes and edges.
@@ -46,14 +48,21 @@ class GraphBuilder:
         self._nodes = []
         self._edges = []
         self._module_id_map = {}
+        self._function_id_map = {}
+        self._import_map = {}
 
-        # First pass: create all module nodes (needed for IMPORTS edges)
+        # First pass: create all module nodes and build import map
         for module in modules:
             self._create_module_node(module)
+            self._build_import_map(module)
 
         # Second pass: create class/function nodes and edges
         for module in modules:
             self._process_module_contents(module)
+
+        # Third pass: create CALLS edges (after all functions are registered)
+        for module in modules:
+            self._process_call_sites(module)
 
         return self._nodes, self._edges
 
@@ -194,6 +203,15 @@ class GraphBuilder:
 
         self._nodes.append(func_node)
 
+        # Register function for call resolution
+        self._function_id_map[func.name] = func_node_id
+        self._function_id_map[qualified_name] = func_node_id
+        # Also register by module.path:func_name for local resolution
+        if class_name:
+            self._function_id_map[f"{module.path}:{class_name}.{func.name}"] = func_node_id
+        else:
+            self._function_id_map[f"{module.path}:{func.name}"] = func_node_id
+
         # Parent CONTAINS Function
         self._edges.append(
             Edge(
@@ -203,6 +221,129 @@ class GraphBuilder:
                 type=EdgeType.CONTAINS,
             )
         )
+
+    def _build_import_map(self, module: ModuleDef) -> None:
+        """Build a map of imported names to their source modules."""
+        import_names: dict[str, str] = {}
+        for imp in module.imports:
+            if imp.is_dynamic:
+                continue
+            for name in imp.names:
+                # Map the imported name to the source module
+                import_names[name] = imp.module
+            # Handle 'import X as Y' style
+            if imp.alias:
+                import_names[imp.alias] = imp.module
+        self._import_map[module.path] = import_names
+
+    def _process_call_sites(self, module: ModuleDef) -> None:
+        """Create CALLS edges from function call sites."""
+        # Process module-level functions
+        for func in module.functions:
+            self._create_calls_edges(func, module, class_name=None)
+
+        # Process class methods
+        for cls in module.classes:
+            for method in cls.methods:
+                self._create_calls_edges(method, module, class_name=cls.name)
+
+    def _create_calls_edges(
+        self,
+        func: FunctionDef,
+        module: ModuleDef,
+        class_name: str | None,
+    ) -> None:
+        """Create CALLS edges for a function's call sites."""
+        # Get the source function node ID
+        if class_name:
+            source_func_id = f"fn:{module.path}:{class_name}.{func.name}"
+        else:
+            source_func_id = f"fn:{module.path}:{func.name}"
+
+        # Check if function has call_sites attribute (Rust parser provides this)
+        call_sites = getattr(func, "call_sites", None)
+        if not call_sites:
+            return
+
+        for call in call_sites:
+            target_id = self._resolve_callee(call, module, class_name)
+            if target_id:
+                edge_id = f"edge:{source_func_id}:calls:{target_id}:{call.line}"
+                # Avoid duplicate edges
+                if not any(e.id == edge_id for e in self._edges):
+                    self._edges.append(
+                        Edge(
+                            id=edge_id,
+                            source_id=source_func_id,
+                            target_id=target_id,
+                            type=EdgeType.CALLS,
+                            properties={"line": call.line},
+                        )
+                    )
+
+    def _resolve_callee(
+        self,
+        call: Any,  # CallSiteDef from Rust
+        module: ModuleDef,
+        class_name: str | None,
+    ) -> str | None:
+        """Resolve a call site to a target function node ID.
+
+        Resolution priority:
+        1. Method call on self -> same class
+        2. Local function in same module
+        3. Imported function from another module
+        4. Unresolved -> skip
+        """
+        callee_name = call.callee
+
+        # 1. Method call on self -> same class method
+        if call.is_method_call and call.receiver == "self" and class_name:
+            target_id = f"fn:{module.path}:{class_name}.{callee_name}"
+            if target_id in self._function_id_map.values():
+                return target_id
+
+        # 2. Local function in same module (module-level function)
+        local_id = f"fn:{module.path}:{callee_name}"
+        if local_id in self._function_id_map.values():
+            return local_id
+
+        # 3. Check if callee is an imported name
+        import_names = self._import_map.get(module.path, {})
+        if callee_name in import_names:
+            source_module = import_names[callee_name]
+            # Try to find the function in the imported module
+            resolved_module_id = self._resolve_import(source_module, module)
+            if resolved_module_id:
+                # Extract the path from module node ID (mod:path -> path)
+                target_module_path = resolved_module_id[4:]  # Remove "mod:" prefix
+                target_func_id = f"fn:{target_module_path}:{callee_name}"
+                if target_func_id in self._function_id_map.values():
+                    return target_func_id
+
+        # 4. Check for qualified calls like ClassName.method or module.func
+        if "." in callee_name:
+            parts = callee_name.split(".")
+            receiver = parts[0]
+            method = parts[-1]
+
+            # Could be a class method call - check classes in same module
+            class_method_id = f"fn:{module.path}:{receiver}.{method}"
+            if class_method_id in self._function_id_map.values():
+                return class_method_id
+
+            # Could be an imported module's function
+            if receiver in import_names:
+                source_module = import_names[receiver]
+                resolved_module_id = self._resolve_import(source_module, module)
+                if resolved_module_id:
+                    target_module_path = resolved_module_id[4:]
+                    target_func_id = f"fn:{target_module_path}:{method}"
+                    if target_func_id in self._function_id_map.values():
+                        return target_func_id
+
+        # Unresolved - skip
+        return None
 
     def _process_imports(self, module: ModuleDef, module_node_id: str) -> None:
         """Create IMPORTS edges for internal module dependencies.
@@ -279,10 +420,14 @@ class GraphBuilder:
             if path_as_module.endswith("." + import_path) or path_as_module == import_path:
                 return node_id
 
-            # Check path-based matching
+            # Check path-based matching (require segment boundary to avoid
+            # matching 'logging' to 'error_logging.py' or 're' to 'middleware.py')
             import_as_path = import_path.replace(".", "/")
-            if path.endswith(f"{import_as_path}.py") or path.endswith(
-                f"{import_as_path}/__init__.py"
+            if (
+                path.endswith(f"/{import_as_path}.py")
+                or path == f"{import_as_path}.py"
+                or path.endswith(f"/{import_as_path}/__init__.py")
+                or path == f"{import_as_path}/__init__.py"
             ):
                 return node_id
 

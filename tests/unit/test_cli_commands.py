@@ -24,7 +24,7 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "MU - Machine Understanding" in result.output
-        assert "semantic compression" in result.output.lower()
+        assert "Core Commands" in result.output
 
     def test_main_version(self, runner: CliRunner) -> None:
         """Test mu --version shows version."""
@@ -37,17 +37,19 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
 
-        # Top-level commands
+        # Top-level visible commands (hidden commands not checked here)
+        # Note: 'cache' and 'daemon' moved to hidden commands in Phase 2 cleanup
         expected_commands = [
-            "describe",
             "query",
             "q",
-            "view",
             "diff",
             "compress",
-            "cache",
-            "man",
-            "llm",
+            "serve",  # New unified server command
+            "deps",
+            "bootstrap",
+            "status",
+            "context",
+            "search",
         ]
         for cmd in expected_commands:
             assert cmd in result.output, f"Command '{cmd}' not found in help output"
@@ -57,8 +59,8 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
 
-        # Subgroups
-        expected_groups = ["kernel", "daemon", "mcp"]
+        # Visible subgroups (daemon moved to hidden in Phase 2 cleanup)
+        expected_groups = ["kernel", "mcp"]
         for group in expected_groups:
             assert group in result.output, f"Subgroup '{group}' not found in help output"
 
@@ -75,22 +77,19 @@ class TestKernelSubgroup:
         """Test mu kernel --help shows usage."""
         result = runner.invoke(cli, ["kernel", "--help"])
         assert result.exit_code == 0
-        assert "graph database" in result.output.lower()
+        # Updated in Phase 2: kernel is now for "advanced graph operations"
+        assert "graph operations" in result.output.lower()
 
     def test_kernel_subcommands_registered(self, runner: CliRunner) -> None:
-        """Test all kernel subcommands are registered."""
+        """Test visible kernel subcommands are registered."""
         result = runner.invoke(cli, ["kernel", "--help"])
         assert result.exit_code == 0
 
-        expected_subcommands = [
-            "init",
-            "build",
-            "stats",
-            "muql",
-            "deps",
+        # Visible kernel subcommands (after Phase 2 cleanup)
+        # Hidden: init, build, stats, muql, deps, context (deprecated)
+        expected_visible = [
             "embed",
             "search",
-            "context",
             "snapshot",
             "snapshots",
             "history",
@@ -98,8 +97,16 @@ class TestKernelSubgroup:
             "diff",
             "export",
         ]
-        for cmd in expected_subcommands:
+        for cmd in expected_visible:
             assert cmd in result.output, f"Kernel subcommand '{cmd}' not found"
+
+    def test_kernel_hidden_subcommands_work(self, runner: CliRunner) -> None:
+        """Test deprecated kernel subcommands still work (hidden but functional)."""
+        # Deprecated commands should still work but show in deprecation help
+        deprecated_commands = ["init", "build", "stats", "muql", "deps", "context"]
+        for cmd in deprecated_commands:
+            result = runner.invoke(cli, ["kernel", cmd, "--help"])
+            assert result.exit_code == 0, f"Deprecated command 'kernel {cmd}' should still work"
 
     def test_kernel_init_help(self, runner: CliRunner) -> None:
         """Test mu kernel init --help."""

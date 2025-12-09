@@ -79,6 +79,7 @@ def patterns(
     """
     import sys
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.intelligence import PatternCategory, PatternDetector
     from mu.kernel import MUbase, MUbaseLockError
@@ -91,11 +92,108 @@ def patterns(
         print_info("Run 'mu bootstrap' or 'mu kernel build .' first")
         raise SystemExit(1)
 
+    # Try daemon first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            daemon_result = client.patterns(
+                category=category,
+                refresh=refresh,
+                cwd=str(root_path),
+            )
+
+            patterns_list = daemon_result.get("patterns", [])
+            from_cache = not refresh  # Assume cached unless refresh requested
+
+            # Limit results
+            patterns_list = patterns_list[:limit]
+
+            if output_json:
+                output = {
+                    "patterns": patterns_list,
+                    "total": len(patterns_list),
+                    "from_cache": from_cache,
+                }
+                click.echo(json.dumps(output, indent=2))
+                return
+
+            # Display results
+            if not patterns_list:
+                print_warning("No patterns detected")
+                if category:
+                    print_info("Try without --category to see all patterns")
+                return
+
+            source = "(cached)" if from_cache else "(fresh analysis)"
+            print_success(f"Found {len(patterns_list)} patterns {source}\n")
+
+            for pattern in patterns_list:
+                # Handle both dict (from daemon) and object formats
+                cat_value = pattern.get("category", "unknown") if isinstance(pattern, dict) else pattern.category.value
+                name = pattern.get("name", "") if isinstance(pattern, dict) else pattern.name
+                description = pattern.get("description", "") if isinstance(pattern, dict) else pattern.description
+                frequency = pattern.get("frequency", 0) if isinstance(pattern, dict) else pattern.frequency
+                confidence = pattern.get("confidence", 0) if isinstance(pattern, dict) else pattern.confidence
+                anti_patterns = pattern.get("anti_patterns", []) if isinstance(pattern, dict) else pattern.anti_patterns
+                pattern_examples = pattern.get("examples", []) if isinstance(pattern, dict) else pattern.examples
+
+                # Header with category badge
+                cat_badge = f"[{cat_value}]"
+                click.echo(click.style(f"  {cat_badge}", fg="cyan") + f" {name}")
+
+                # Description and stats
+                click.echo(f"      {description}")
+                click.echo(
+                    click.style("      Frequency: ", dim=True)
+                    + f"{frequency}"
+                    + click.style("  Confidence: ", dim=True)
+                    + f"{confidence:.0%}"
+                )
+
+                # Anti-patterns
+                if anti_patterns:
+                    click.echo(click.style("      Avoid: ", fg="yellow") + anti_patterns[0])
+
+                # Examples (if requested)
+                if examples and pattern_examples:
+                    click.echo(click.style("      Examples:", dim=True))
+                    for ex in pattern_examples[:2]:
+                        if isinstance(ex, dict):
+                            loc = f"{ex.get('file_path', '')}:{ex.get('line_start', '')}"
+                            code_snippet = ex.get("code_snippet", "")
+                        else:
+                            loc = f"{ex.file_path}:{ex.line_start}"
+                            code_snippet = ex.code_snippet
+                        click.echo(f"        - {loc}")
+                        if code_snippet:
+                            first_line = code_snippet.split("\n")[0]
+                            if len(first_line) > 60:
+                                first_line = first_line[:57] + "..."
+                            click.echo(click.style(f"          {first_line}", dim=True))
+
+                click.echo()
+
+            # Summary by category
+            categories: dict[str, int] = {}
+            for p in patterns_list:
+                cat = p.get("category", "unknown") if isinstance(p, dict) else p.category.value
+                categories[cat] = categories.get(cat, 0) + 1
+
+            if len(categories) > 1:
+                summary = ", ".join(f"{cat}: {count}" for cat, count in sorted(categories.items()))
+                click.echo(click.style(f"Summary: {summary}", dim=True))
+
+            return
+        except DaemonError:
+            pass  # Fall through to local mode
+
+    # Local mode (daemon unavailable)
+    # We need write access to save patterns, so don't use read_only mode
     try:
-        db = MUbase(mubase_path, read_only=True)
+        db = MUbase(mubase_path, read_only=False)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
@@ -181,13 +279,13 @@ def patterns(
             click.echo()
 
         # Summary by category
-        categories: dict[str, int] = {}
+        local_categories: dict[str, int] = {}
         for p in result_patterns:
             cat = p.category.value
-            categories[cat] = categories.get(cat, 0) + 1
+            local_categories[cat] = local_categories.get(cat, 0) + 1
 
-        if len(categories) > 1:
-            summary = ", ".join(f"{cat}: {count}" for cat, count in sorted(categories.items()))
+        if len(local_categories) > 1:
+            summary = ", ".join(f"{cat}: {count}" for cat, count in sorted(local_categories.items()))
             click.echo(click.style(f"Summary: {summary}", dim=True))
 
     finally:

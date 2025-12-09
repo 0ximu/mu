@@ -13,6 +13,12 @@ class ContextResult:
     mu_text: str
     token_count: int
     node_count: int
+    intent: str | None = None
+    """Classified intent type (e.g., 'explain', 'impact', 'locate')."""
+    intent_confidence: float = 0.0
+    """Confidence score for the intent classification (0.0-1.0)."""
+    strategy_used: str = "default"
+    """Name of the extraction strategy used."""
 
 
 @dataclass

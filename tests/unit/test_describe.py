@@ -208,11 +208,11 @@ class TestDescribeCli:
         main = result.commands[0]
         assert main.name == "mu"
 
-        # Should have subcommands
+        # Should have visible subcommands (hidden commands excluded from describe)
         subcommand_names = [c.name for c in main.subcommands]
         assert "compress" in subcommand_names
         assert "query" in subcommand_names
-        assert "describe" in subcommand_names
+        assert "deps" in subcommand_names  # promoted from kernel deps
 
 
 class TestFormatMu:

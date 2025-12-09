@@ -10,8 +10,8 @@ import json
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
-from mu.kernel.context.models import ContextResult, ScoredNode
-from mu.kernel.schema import NodeType
+from mu.kernel.context.models import ContextResult, ExportConfig, ScoredNode
+from mu.kernel.schema import EdgeType, NodeType
 
 if TYPE_CHECKING:
     from mu.kernel.mubase import MUbase
@@ -39,15 +39,18 @@ class ContextExporter:
         self,
         mubase: MUbase,
         include_scores: bool = False,
+        export_config: ExportConfig | None = None,
     ) -> None:
         """Initialize the context exporter.
 
         Args:
             mubase: MUbase for looking up additional context.
             include_scores: Whether to include relevance score annotations.
+            export_config: Configuration for export enrichment (docstrings, line numbers, etc.).
         """
         self.mubase = mubase
         self.include_scores = include_scores
+        self.export_config = export_config or ExportConfig()
 
     def export_mu(self, scored_nodes: list[ScoredNode]) -> str:
         """Export scored nodes as MU format.
@@ -153,6 +156,12 @@ class ContextExporter:
         module_name = self._path_to_module_name(module_path)
         lines.append(f"{self.SIGIL_MODULE}module {module_name}")
 
+        # Internal imports section
+        internal_imports = self._get_internal_imports(module_path)
+        if internal_imports:
+            imports_str = ", ".join(internal_imports)
+            lines.append(f"{self.SIGIL_METADATA}imports [{imports_str}]")
+
         # Separate nodes by type
         classes: dict[str, ScoredNode] = {}
         functions: list[ScoredNode] = []
@@ -238,7 +247,20 @@ class ContextExporter:
         if bases:
             parts.append(f" < {', '.join(bases)}")
 
+        # Line numbers
+        if (
+            self.export_config.include_line_numbers
+            and props.get("line_start")
+            and props.get("line_end")
+        ):
+            parts.append(f":L{props['line_start']}-{props['line_end']}")
+
         lines.append("".join(parts))
+
+        # Docstring
+        docstring = self._get_docstring(node)
+        if docstring:
+            lines.append(f'  """{docstring}"""')
 
         # Score annotation
         if self.include_scores:
@@ -247,9 +269,10 @@ class ContextExporter:
         # Attributes
         attrs = props.get("attributes", [])
         if attrs:
-            attrs_str = ", ".join(attrs[:10])
-            if len(attrs) > 10:
-                attrs_str += f" (+{len(attrs) - 10} more)"
+            max_attrs = self.export_config.max_attributes
+            attrs_str = ", ".join(attrs[:max_attrs])
+            if len(attrs) > max_attrs:
+                attrs_str += f" (+{len(attrs) - max_attrs} more)"
             lines.append(f"  {self.SIGIL_METADATA}attrs [{attrs_str}]")
 
         # Methods
@@ -270,7 +293,7 @@ class ContextExporter:
             indent: Indentation level.
 
         Returns:
-            Single line MU output.
+            Single line MU output (or multiple lines if docstring included).
         """
         node = func_scored.node
         props = node.properties or {}
@@ -313,16 +336,31 @@ class ContextExporter:
         if return_type:
             parts.append(f" {self.OP_FLOW} {return_type}")
 
+        # Line numbers
+        if (
+            self.export_config.include_line_numbers
+            and props.get("line_start")
+            and props.get("line_end")
+        ):
+            parts.append(f":L{props['line_start']}-{props['line_end']}")
+
         # Complexity annotation
         complexity = node.complexity
-        if complexity >= 50:
+        if complexity >= self.export_config.min_complexity_to_show:
             parts.append(f" {self.SIGIL_ANNOTATION} complexity:{complexity}")
 
         # Score annotation
         if self.include_scores:
             parts.append(f" {self.SIGIL_ANNOTATION} relevance={func_scored.score:.2f}")
 
-        return "".join(parts)
+        result = "".join(parts)
+
+        # Add docstring on next line if available
+        docstring = self._get_docstring(node)
+        if docstring:
+            result += f'\n{prefix}  """{docstring}"""'
+
+        return result
 
     def _path_to_module_name(self, path: str) -> str:
         """Convert a file path to module name.
@@ -376,6 +414,72 @@ class ContextExporter:
             return parent.name
 
         return "Unknown"
+
+    def _get_docstring(self, node: Any) -> str | None:
+        """Extract and format docstring from node properties.
+
+        Args:
+            node: The node to extract docstring from.
+
+        Returns:
+            Formatted docstring or None if not present.
+        """
+        if not self.export_config.include_docstrings:
+            return None
+
+        props = node.properties if hasattr(node, "properties") else {}
+        docstring = props.get("docstring")
+        if not docstring or not isinstance(docstring, str):
+            return None
+
+        lines = docstring.strip().split("\n")
+
+        if (
+            self.export_config.truncate_docstring
+            and len(lines) > self.export_config.max_docstring_lines
+        ):
+            lines = lines[: self.export_config.max_docstring_lines]
+            lines.append("...")
+
+        if len(lines) == 1:
+            return str(lines[0])
+
+        # Return summary line for multi-line docstrings
+        return str(lines[0])
+
+    def _get_internal_imports(self, module_path: str) -> list[str]:
+        """Get internal module imports (IMPORTS edges) for a module.
+
+        Args:
+            module_path: Path to the module.
+
+        Returns:
+            List of imported module names.
+        """
+        if not self.export_config.include_internal_imports:
+            return []
+
+        # Query IMPORTS edges from this module
+        module_id = f"mod:{module_path}"
+        try:
+            # Get edges where this module is the source
+            edges = self.mubase.get_edges(source_id=module_id, edge_type=EdgeType.IMPORTS)
+
+            # Extract target module names
+            imports = []
+            for edge in edges:
+                target_node = self.mubase.get_node(edge.target_id)
+                if target_node and target_node.type == NodeType.MODULE:
+                    # Convert path to module name
+                    import_name = self._path_to_module_name(
+                        target_node.file_path or target_node.name
+                    )
+                    imports.append(import_name)
+
+            return sorted(imports)
+        except Exception:
+            # If query fails, return empty list
+            return []
 
 
 __all__ = ["ContextExporter"]

@@ -30,6 +30,8 @@ class EntityExtractor:
         ("quoted", re.compile(r'["\']([^"\']+)["\']'), 1.0),
         # CamelCase - class names, service names
         ("camel_case", re.compile(r"\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b"), 0.9),
+        # Acronym + CamelCase (e.g., MUbase, HTTPClient, XMLParser, IOError)
+        ("acronym_camel", re.compile(r"\b([A-Z]{2,}[a-z][a-z0-9]*(?:[A-Z][a-z0-9]+)*)\b"), 0.85),
         # PascalCase single word (e.g., User, Auth) - only if 4+ chars
         ("pascal_single", re.compile(r"\b([A-Z][a-z]{3,})\b"), 0.7),
         # CONSTANTS - configuration values

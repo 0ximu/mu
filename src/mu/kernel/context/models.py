@@ -53,6 +53,15 @@ class ExtractionConfig:
     max_expansion_nodes: int = 100
     """Cap on nodes during graph expansion to prevent explosion."""
 
+    include_docstrings: bool = True
+    """Whether to include docstrings in output."""
+
+    include_line_numbers: bool = False
+    """Whether to include line numbers in output."""
+
+    min_complexity_to_show: int = 0
+    """Minimum complexity to show (0 = show all)."""
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -67,6 +76,69 @@ class ExtractionConfig:
             "exclude_tests": self.exclude_tests,
             "vector_search_limit": self.vector_search_limit,
             "max_expansion_nodes": self.max_expansion_nodes,
+            "include_docstrings": self.include_docstrings,
+            "include_line_numbers": self.include_line_numbers,
+            "min_complexity_to_show": self.min_complexity_to_show,
+        }
+
+
+@dataclass
+class ExportConfig:
+    """Configuration for MU text export enrichment.
+
+    Controls what additional data is included in MU format output:
+    docstrings, line numbers, internal imports, and complexity thresholds.
+    """
+
+    # Docstrings
+    include_docstrings: bool = True
+    """Whether to include docstrings in the output."""
+
+    max_docstring_lines: int = 5
+    """Maximum lines to include from multi-line docstrings."""
+
+    truncate_docstring: bool = True
+    """Add '...' if docstring is truncated."""
+
+    # Complexity
+    min_complexity_to_show: int = 0
+    """Minimum complexity threshold for showing complexity annotation. Previously was 20, now show all."""
+
+    # Line numbers
+    include_line_numbers: bool = False
+    """Whether to include line numbers (opt-in for IDE integration)."""
+
+    # Imports
+    include_internal_imports: bool = True
+    """Whether to show internal module imports (not just external deps)."""
+
+    include_import_aliases: bool = False
+    """Whether to show import aliases."""
+
+    # Attributes
+    max_attributes: int = 15
+    """Maximum class attributes to show. Previously was 10."""
+
+    # Module metadata
+    include_language: bool = False
+    """Whether to include language tag for multi-language codebases."""
+
+    include_qualified_names: bool = False
+    """Whether to show fully qualified names."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "include_docstrings": self.include_docstrings,
+            "max_docstring_lines": self.max_docstring_lines,
+            "truncate_docstring": self.truncate_docstring,
+            "min_complexity_to_show": self.min_complexity_to_show,
+            "include_line_numbers": self.include_line_numbers,
+            "include_internal_imports": self.include_internal_imports,
+            "include_import_aliases": self.include_import_aliases,
+            "max_attributes": self.max_attributes,
+            "include_language": self.include_language,
+            "include_qualified_names": self.include_qualified_names,
         }
 
 
@@ -160,6 +232,16 @@ class ContextResult:
     extraction_stats: dict[str, Any] = field(default_factory=dict)
     """Debug/metrics info about the extraction process."""
 
+    # Intent classification fields (added for question intent classification)
+    intent: str | None = None
+    """Classified intent type (e.g., 'explain', 'impact', 'locate')."""
+
+    intent_confidence: float = 0.0
+    """Confidence score for the intent classification (0.0-1.0)."""
+
+    strategy_used: str = "default"
+    """Name of the extraction strategy used."""
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -168,11 +250,15 @@ class ContextResult:
             "token_count": self.token_count,
             "relevance_scores": self.relevance_scores,
             "extraction_stats": self.extraction_stats,
+            "intent": self.intent,
+            "intent_confidence": round(self.intent_confidence, 4),
+            "strategy_used": self.strategy_used,
         }
 
 
 __all__ = [
     "ContextResult",
+    "ExportConfig",
     "ExtractionConfig",
     "ExtractedEntity",
     "ScoredNode",

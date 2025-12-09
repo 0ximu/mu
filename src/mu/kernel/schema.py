@@ -34,8 +34,9 @@ class EdgeType(Enum):
     CONTAINS = "contains"  # Module→Class, Class→Function, Module→Function
     IMPORTS = "imports"  # Module→Module (internal dependencies)
     INHERITS = "inherits"  # Class→Class (inheritance)
+    CALLS = "calls"  # Function→Function (call graph)
 
-    # Future: CALLS, USES, MUTATES, IMPLEMENTS, ANNOTATED_WITH
+    # Future: USES, MUTATES, IMPLEMENTS, ANNOTATED_WITH
 
 
 # DuckDB schema for the .mubase file

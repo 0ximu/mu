@@ -147,7 +147,7 @@ def omg(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -315,7 +315,7 @@ def grok(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -387,6 +387,7 @@ def wtf(ctx: MUContext, target: str | None, commits: int, no_cochange: bool, as_
     """
     import json
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.intelligence import WhyAnalyzer
     from mu.kernel import MUbase, MUbaseLockError
@@ -404,19 +405,55 @@ def wtf(ctx: MUContext, target: str | None, commits: int, no_cochange: bool, as_
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    try:
-        db = MUbase(mubase_path, read_only=True)
-    except MUbaseLockError:
-        print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
-        )
-        sys.exit(ExitCode.CONFIG_ERROR)
+    # mubase_path is .mu/mubase, root is parent's parent
+    root_path = mubase_path.parent.parent
+
+    # Try daemon first - use it for node resolution if available
+    client = DaemonClient()
+    db = None
+    resolved_target = target
+
+    if client.is_running():
+        try:
+            # If target looks like a node name (not a file path), resolve it via daemon
+            if not (
+                "/" in target
+                or "\\" in target
+                or target.endswith((".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java"))
+                or ":" in target  # file:line_start-line_end format
+            ):
+                found = client.find_node(target, cwd=str(cwd))
+                if found and found.get("file_path"):
+                    # Got node info - construct a target that WhyAnalyzer can use
+                    found_file_path = found.get("file_path")
+                    line_start = found.get("line_start")
+                    line_end = found.get("line_end")
+                    if found_file_path and line_start and line_end:
+                        resolved_target = f"{found_file_path}:{line_start}-{line_end}"
+                    elif found_file_path:
+                        resolved_target = found_file_path
+        except DaemonError:
+            pass  # Fall through to local resolution
+
+    # If we couldn't resolve via daemon, try local db
+    if resolved_target == target:
+        try:
+            db = MUbase(mubase_path, read_only=True)
+        except MUbaseLockError:
+            # If we can't open db and couldn't resolve via daemon, error out
+            if "/" not in target and not target.endswith(
+                (".py", ".ts", ".tsx", ".js", ".go", ".rs", ".java")
+            ):
+                print_error(
+                    "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+                )
+                sys.exit(ExitCode.CONFIG_ERROR)
+            # Otherwise target looks like a file path, continue without db
 
     try:
-        root_path = mubase_path.parent
         analyzer = WhyAnalyzer(db=db, root_path=root_path)
         result = analyzer.analyze(
-            target,
+            resolved_target,
             max_commits=commits,
             include_cochanges=not no_cochange,
         )
@@ -490,7 +527,8 @@ def wtf(ctx: MUContext, target: str | None, commits: int, no_cochange: bool, as_
         click.echo(click.style(f"Analysis time: {result.analysis_time_ms:.1f}ms", dim=True))
 
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 @click.command(name="yolo")
@@ -610,7 +648,7 @@ def yolo(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -816,7 +854,7 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
@@ -916,6 +954,7 @@ def vibe(
     import json
     import subprocess
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.intelligence import PatternCategory, PatternDetector
     from mu.kernel import MUbase, MUbaseLockError
@@ -929,16 +968,32 @@ def vibe(
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    try:
-        db = MUbase(mubase_path, read_only=True)
-    except MUbaseLockError:
-        print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
-        )
-        sys.exit(ExitCode.CONFIG_ERROR)
+    # mubase_path is .mu/mubase, root is parent's parent
+    root_path = mubase_path.parent.parent
+
+    # Try daemon first (no lock)
+    client = DaemonClient()
+    db = None
+    patterns_from_daemon = None
+
+    if client.is_running():
+        try:
+            daemon_result = client.patterns(category=category, cwd=str(cwd))
+            patterns_from_daemon = daemon_result.get("patterns", [])
+        except DaemonError:
+            pass  # Fall through to local mode
+
+    # Only open db if we need it (daemon not available)
+    if patterns_from_daemon is None:
+        try:
+            db = MUbase(mubase_path, read_only=True)
+        except MUbaseLockError:
+            print_error(
+                "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+            )
+            sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
-        root_path = mubase_path.parent
 
         # Determine files to check
         files_to_check: list[str] = []
@@ -1002,17 +1057,31 @@ def vibe(
                 print_success("All good. The vibe is immaculate. ✨")
             return
 
-        # Get patterns
-        detector = PatternDetector(db)
-        category_enum = None
-        if category:
-            try:
-                category_enum = PatternCategory(category)
-            except ValueError:
-                print_error(f"Unknown category: {category}")
-                sys.exit(1)
+        # Get patterns (use daemon results if available, otherwise detect locally)
+        if patterns_from_daemon is not None:
+            patterns_list = patterns_from_daemon
+        else:
+            assert db is not None, "db should be available if daemon patterns not available"
+            detector = PatternDetector(db)
+            category_enum = None
+            if category:
+                try:
+                    category_enum = PatternCategory(category)
+                except ValueError:
+                    print_error(f"Unknown category: {category}")
+                    sys.exit(1)
 
-        patterns_result = detector.detect(category=category_enum)
+            patterns_result = detector.detect(category=category_enum)
+            patterns_list = [
+                {
+                    "name": p.name,
+                    "category": p.category.value,
+                    "description": p.description,
+                    "frequency": p.frequency,
+                    "confidence": p.confidence,
+                }
+                for p in patterns_result.patterns
+            ]
 
         # Simple pattern matching for files
         issues: list[dict[str, str]] = []
@@ -1027,10 +1096,18 @@ def vibe(
             # Check naming conventions
             if not category or category == "naming":
                 # Check file naming patterns
-                for pattern in patterns_result.patterns:
-                    if pattern.category == PatternCategory.NAMING:
+                for pattern in patterns_list:
+                    pattern_category = (
+                        pattern.get("category", "")
+                        if isinstance(pattern, dict)
+                        else pattern.category.value
+                    )
+                    pattern_name = (
+                        pattern.get("name", "") if isinstance(pattern, dict) else pattern.name
+                    )
+                    if pattern_category == "naming":
                         # Simple check: if pattern mentions test files, check test file naming
-                        if "test" in pattern.name.lower() and "test" in str(rel_path).lower():
+                        if "test" in pattern_name.lower() and "test" in str(rel_path).lower():
                             # Check if follows test naming pattern
                             if (
                                 not str(rel_path).startswith("tests/")
@@ -1042,7 +1119,7 @@ def vibe(
                                         "file": str(rel_path),
                                         "category": "naming",
                                         "message": "Test file not in tests/ directory",
-                                        "suggestion": f"Move to tests/ following pattern: {pattern.name}",
+                                        "suggestion": f"Move to tests/ following pattern: {pattern_name}",
                                     }
                                 )
 
@@ -1071,7 +1148,7 @@ def vibe(
                     {
                         "files_checked": len(files_to_check),
                         "issues": issues,
-                        "patterns_detected": len(patterns_result.patterns),
+                        "patterns_detected": len(patterns_list),
                     },
                     indent=2,
                 )
@@ -1104,25 +1181,26 @@ def vibe(
         sys.exit(1)
 
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 @click.command(name="zen")
-@click.option("--yes", "-y", "--force", "-f", is_flag=True, help="Skip confirmation prompt")
+@click.option("--yes", "-y", "--force", "-f", is_flag=True, help="Actually perform cleanup (default: dry-run)")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_obj
 def zen(ctx: MUContext, yes: bool, as_json: bool) -> None:
     """Cache cleanup. Achieve zen.
 
-    Removes cached data, orphan entries, and temporary files.
-    A fresh start for your codebase analysis.
+    Shows what would be cleaned (dry-run by default).
+    Use --yes to actually remove cached data, orphan entries, and temp files.
 
     \b
     Examples:
-        mu zen           # Clean with confirmation
-        mu zen --yes     # Clean without prompts
+        mu zen           # Show what would be cleaned (dry-run)
+        mu zen --yes     # Actually clean
         mu zen -y        # Short form
-        mu zen --json    # Output cleanup stats
+        mu zen --json    # Output stats as JSON
     """
     import json
     import shutil
@@ -1145,23 +1223,47 @@ def zen(ctx: MUContext, yes: bool, as_json: bool) -> None:
         "temp_files_removed": 0,
     }
 
-    # Confirmation unless --yes
-    if not yes and not as_json:
-        click.echo()
-        click.echo("This will clean:")
-        click.echo("  • Cache entries (LLM responses, file hashes)")
-        click.echo("  • Temporary files")
-        click.echo()
-        if not click.confirm("Proceed?", default=True):
-            click.echo(click.style("Zen postponed. 🧘", dim=True))
-            return
-
-    # Clear cache directory
+    # Calculate what would be cleaned
     cache_dir = mu_dir / "cache"
+    cache_size = 0
+    cache_files = 0
     if cache_dir.exists():
         cache_size = sum(f.stat().st_size for f in cache_dir.rglob("*") if f.is_file())
         cache_files = len(list(cache_dir.rglob("*")))
 
+    temp_files_to_clean: list[Path] = []
+    temp_patterns = ["*.tmp", "*.temp", ".mu-*.tmp"]
+    for pattern in temp_patterns:
+        temp_files_to_clean.extend(cwd.glob(pattern))
+
+    temp_size = sum(f.stat().st_size for f in temp_files_to_clean if f.exists())
+
+    total_items = cache_files + len(temp_files_to_clean)
+
+    # Dry-run mode (default): just show what would be cleaned
+    if not yes and not as_json:
+        click.echo()
+        click.echo(click.style("Would clean:", bold=True))
+        click.echo()
+        if cache_files > 0:
+            mb = cache_size / 1_000_000
+            click.echo(f"  • {cache_files:,} cached entries ({mb:.1f}MB)")
+        else:
+            click.echo(click.style("  • No cached entries", dim=True))
+        if temp_files_to_clean:
+            mb = temp_size / 1_000_000
+            click.echo(f"  • {len(temp_files_to_clean):,} temp files ({mb:.1f}MB)")
+        else:
+            click.echo(click.style("  • No temp files", dim=True))
+        click.echo()
+        if total_items > 0:
+            click.echo(click.style("Run with --yes to clean", dim=True))
+        else:
+            click.echo(click.style("Nothing to clean. Zen achieved. 🧘", dim=True))
+        return
+
+    # Actually perform cleanup (--yes mode)
+    if cache_dir.exists() and cache_files > 0:
         try:
             shutil.rmtree(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1170,17 +1272,14 @@ def zen(ctx: MUContext, yes: bool, as_json: bool) -> None:
         except Exception:
             pass
 
-    # Clear temp files
-    temp_patterns = ["*.tmp", "*.temp", ".mu-*.tmp"]
-    for pattern in temp_patterns:
-        for temp_file in cwd.glob(pattern):
-            try:
-                size = temp_file.stat().st_size
-                temp_file.unlink()
-                stats["temp_files_removed"] += 1
-                stats["bytes_freed"] += size
-            except Exception:
-                pass
+    for temp_file in temp_files_to_clean:
+        try:
+            size = temp_file.stat().st_size
+            temp_file.unlink()
+            stats["temp_files_removed"] += 1
+            stats["bytes_freed"] += size
+        except Exception:
+            pass
 
     # Also use CacheManager
     try:
