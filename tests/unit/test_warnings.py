@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -215,9 +214,7 @@ class TestProactiveWarningGenerator:
         assert result.target == "test_code.py"
         assert result.target_type == "file"
 
-    def test_security_check_by_name(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_security_check_by_name(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test security check triggers on security-related names."""
         # Create mock node with security-related name
         mock_node = MagicMock()
@@ -233,14 +230,10 @@ class TestProactiveWarningGenerator:
         result = generator.analyze("AuthService")
 
         # Should have security warning due to "auth" in name
-        security_warnings = [
-            w for w in result.warnings if w.category == WarningCategory.SECURITY
-        ]
+        security_warnings = [w for w in result.warnings if w.category == WarningCategory.SECURITY]
         assert len(security_warnings) > 0
 
-    def test_security_check_by_imports(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_security_check_by_imports(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test security check triggers on security imports."""
         # Create a file with security imports
         test_file = tmp_path / "crypto_utils.py"
@@ -256,9 +249,7 @@ def encrypt(data):
         generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
         result = generator.analyze("crypto_utils.py")
 
-        security_warnings = [
-            w for w in result.warnings if w.category == WarningCategory.SECURITY
-        ]
+        security_warnings = [w for w in result.warnings if w.category == WarningCategory.SECURITY]
         assert len(security_warnings) > 0
 
     def test_complexity_check(self, mock_db: MagicMock, tmp_path: Path) -> None:
@@ -282,9 +273,7 @@ def encrypt(data):
         assert len(complexity_warnings) > 0
         assert complexity_warnings[0].level == "error"
 
-    def test_complexity_warning_level(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_complexity_warning_level(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test complexity warning (not error) for moderate complexity."""
         mock_node = MagicMock()
         mock_node.id = "fn:code.py:moderate_func"
@@ -304,9 +293,7 @@ def encrypt(data):
         assert len(complexity_warnings) > 0
         assert complexity_warnings[0].level == "warn"
 
-    def test_deprecated_check(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_deprecated_check(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test deprecated warning triggers on deprecated marker."""
         # Create a file with deprecation marker
         test_file = tmp_path / "old_code.py"
@@ -345,9 +332,7 @@ def old_function():
         assert len(no_test_warnings) > 0
         assert no_test_warnings[0].category == WarningCategory.NO_TESTS
 
-    def test_no_tests_skip_test_files(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_no_tests_skip_test_files(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test that test files don't get no_tests warning."""
         # Create a test file
         test_file = tmp_path / "test_module.py"
@@ -356,14 +341,10 @@ def old_function():
         generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
         result = generator.analyze("test_module.py")
 
-        no_test_warnings = [
-            w for w in result.warnings if w.category == WarningCategory.NO_TESTS
-        ]
+        no_test_warnings = [w for w in result.warnings if w.category == WarningCategory.NO_TESTS]
         assert len(no_test_warnings) == 0
 
-    def test_risk_score_calculation(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_risk_score_calculation(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test risk score increases with warnings."""
         generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
 
@@ -397,19 +378,13 @@ def old_function():
         result = generator.analyze("auth.py")
 
         # Should have no security or no_tests warnings
-        security_warnings = [
-            w for w in result.warnings if w.category == WarningCategory.SECURITY
-        ]
-        no_tests_warnings = [
-            w for w in result.warnings if w.category == WarningCategory.NO_TESTS
-        ]
+        security_warnings = [w for w in result.warnings if w.category == WarningCategory.SECURITY]
+        no_tests_warnings = [w for w in result.warnings if w.category == WarningCategory.NO_TESTS]
 
         assert len(security_warnings) == 0
         assert len(no_tests_warnings) == 0
 
-    def test_summary_generation(
-        self, generator: ProactiveWarningGenerator
-    ) -> None:
+    def test_summary_generation(self, generator: ProactiveWarningGenerator) -> None:
         """Test summary message generation."""
         # No warnings
         summary = generator._generate_summary([], "test.py")
@@ -446,9 +421,7 @@ class TestStalenessCheck:
         db.get_children = MagicMock(return_value=[])
         return db
 
-    def test_staleness_disabled_without_git(
-        self, mock_db: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_staleness_disabled_without_git(self, mock_db: MagicMock, tmp_path: Path) -> None:
         """Test staleness check gracefully handles missing git."""
         config = WarningConfig(use_git_history=False)
 
@@ -485,3 +458,358 @@ class TestImpactCheck:
 
             assert len(warnings) > 0
             assert warnings[0].category == WarningCategory.HIGH_IMPACT
+
+
+class TestJavaScriptTestDetection:
+    """Tests for JavaScript/TypeScript test file detection."""
+
+    @pytest.fixture
+    def mock_db(self) -> MagicMock:
+        """Create a mock MUbase."""
+        db = MagicMock()
+        db.conn = MagicMock()
+        db.get_node = MagicMock(return_value=None)
+        db.find_by_name = MagicMock(return_value=[])
+        db.get_children = MagicMock(return_value=[])
+        return db
+
+    def test_typescript_finds_test_file(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test finds *.test.ts file pattern."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "utils.ts"
+        test_file = src_dir / "utils.test.ts"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_typescript_finds_spec_file(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test finds *.spec.ts file pattern."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "component.tsx"
+        test_file = src_dir / "component.spec.tsx"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_typescript_finds_tests_in_dunder_tests(
+        self, mock_db: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test finds tests in __tests__ directory."""
+        src_dir = tmp_path / "src"
+        test_dir = src_dir / "__tests__"
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "api.ts"
+        test_file = test_dir / "api.ts"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_javascript_warns_when_no_tests(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Verify warning when no JS/TS test file exists."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "module.js"
+        source_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 1
+        assert warnings[0].category == WarningCategory.NO_TESTS
+
+    def test_typescript_skips_test_files_themselves(
+        self, mock_db: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test files (ending with .test.ts) should not trigger no_tests warning."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        test_file = src_dir / "component.test.ts"
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(test_file, [])
+
+        assert len(warnings) == 0
+
+
+class TestGoTestDetection:
+    """Tests for Go test file detection."""
+
+    @pytest.fixture
+    def mock_db(self) -> MagicMock:
+        """Create a mock MUbase."""
+        db = MagicMock()
+        db.conn = MagicMock()
+        db.get_node = MagicMock(return_value=None)
+        db.find_by_name = MagicMock(return_value=[])
+        db.get_children = MagicMock(return_value=[])
+        return db
+
+    def test_go_finds_test_file(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test finds *_test.go file pattern."""
+        pkg_dir = tmp_path / "pkg" / "handlers"
+        pkg_dir.mkdir(parents=True)
+
+        source_file = pkg_dir / "user.go"
+        test_file = pkg_dir / "user_test.go"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_go_warns_when_no_tests(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Verify warning when no Go test file exists."""
+        pkg_dir = tmp_path / "pkg"
+        pkg_dir.mkdir(parents=True)
+
+        source_file = pkg_dir / "main.go"
+        source_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 1
+        assert warnings[0].category == WarningCategory.NO_TESTS
+
+    def test_go_skips_test_files_themselves(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test files (ending with _test.go) should not trigger no_tests warning."""
+        pkg_dir = tmp_path / "pkg"
+        pkg_dir.mkdir(parents=True)
+
+        test_file = pkg_dir / "handler_test.go"
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(test_file, [])
+
+        assert len(warnings) == 0
+
+
+class TestGenericTestDetection:
+    """Tests for generic/unknown language test file detection."""
+
+    @pytest.fixture
+    def mock_db(self) -> MagicMock:
+        """Create a mock MUbase."""
+        db = MagicMock()
+        db.conn = MagicMock()
+        db.get_node = MagicMock(return_value=None)
+        db.find_by_name = MagicMock(return_value=[])
+        db.get_children = MagicMock(return_value=[])
+        return db
+
+    def test_unknown_language_uses_generic_patterns(
+        self, mock_db: MagicMock, tmp_path: Path
+    ) -> None:
+        """Unknown file extensions should use generic test patterns."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        # .rb is Ruby, not in the explicit handlers
+        source_file = src_dir / "module.rb"
+        test_file = src_dir / "test_module.rb"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_unknown_language_finds_tests_pattern(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Unknown language finds Tests suffix pattern."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "Service.vb"
+        test_file = src_dir / "ServiceTests.vb"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_unknown_language_warns_when_no_tests(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Unknown language warns when no test file found."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "script.pl"
+        source_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 1
+        assert warnings[0].category == WarningCategory.NO_TESTS
+
+
+class TestCSharpTestDetection:
+    """Tests for C#/.NET test file detection - Dominaite regression tests."""
+
+    @pytest.fixture
+    def mock_db(self) -> MagicMock:
+        """Create a mock MUbase."""
+        db = MagicMock()
+        db.conn = MagicMock()
+        db.get_node = MagicMock(return_value=None)
+        db.find_by_name = MagicMock(return_value=[])
+        db.get_children = MagicMock(return_value=[])
+        return db
+
+    def test_csharp_finds_tests_in_sibling_test_project(
+        self, mock_db: MagicMock, tmp_path: Path
+    ) -> None:
+        """Dominaite regression: PayoutServiceTests.cs in *.Tests/ project."""
+        # Setup: src/Dominaite.Services/PayoutService.cs
+        #        src/Dominaite.Services.Tests/PayoutServiceTests.cs
+        src_dir = tmp_path / "src" / "Dominaite.Services"
+        test_dir = tmp_path / "src" / "Dominaite.Services.Tests"
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "PayoutService.cs"
+        test_file = test_dir / "PayoutServiceTests.cs"
+        source_file.touch()
+        test_file.touch()
+
+        # Test _check_tests directly
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_csharp_finds_tests_in_nested_directory(
+        self, mock_db: MagicMock, tmp_path: Path
+    ) -> None:
+        """Test file in subdirectory of .Tests project with mirrored structure."""
+        # Setup: src/Project/Services/UserService.cs
+        #        src/Project.Tests/Services/UserServiceTests.cs
+        src_dir = tmp_path / "src" / "Project" / "Services"
+        test_dir = tmp_path / "src" / "Project.Tests" / "Services"
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "UserService.cs"
+        test_file = test_dir / "UserServiceTests.cs"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_csharp_finds_tests_recursive_search(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test rglob finds tests in non-mirrored directory structure."""
+        # Setup: src/Project/PayoutService.cs
+        #        src/Project.Tests/Unit/Services/PayoutServiceTests.cs (different structure)
+        src_dir = tmp_path / "src" / "Project"
+        test_dir = tmp_path / "src" / "Project.Tests" / "Unit" / "Services"
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "PayoutService.cs"
+        test_file = test_dir / "PayoutServiceTests.cs"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file via rglob at {test_file}"
+
+    def test_csharp_warns_when_no_tests_exist(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Verify warning when no test file exists."""
+        # Setup: src/Project/Service.cs (no .Tests directory)
+        src_dir = tmp_path / "src" / "Project"
+        src_dir.mkdir(parents=True)
+
+        source_file = src_dir / "Service.cs"
+        source_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 1
+        assert warnings[0].category == WarningCategory.NO_TESTS
+
+    def test_csharp_skips_test_files_themselves(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Test files (ending with Tests.cs) should not trigger no_tests warning."""
+        # Setup: src/Project.Tests/PayoutServiceTests.cs
+        test_dir = tmp_path / "src" / "Project.Tests"
+        test_dir.mkdir(parents=True)
+
+        test_file = test_dir / "PayoutServiceTests.cs"
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(test_file, [])
+
+        # Should return empty - test files don't need tests
+        assert len(warnings) == 0
+
+    def test_csharp_handles_singular_test_suffix(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Handle FooTest.cs (singular) in addition to FooTests.cs (plural)."""
+        # Setup: src/Project/Foo.cs
+        #        src/Project.Tests/FooTest.cs (singular)
+        src_dir = tmp_path / "src" / "Project"
+        test_dir = tmp_path / "src" / "Project.Tests"
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "Foo.cs"
+        test_file = test_dir / "FooTest.cs"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
+
+    def test_csharp_deep_nested_project_structure(self, mock_db: MagicMock, tmp_path: Path) -> None:
+        """Handle deeply nested project structures."""
+        # Setup: src/Solution/Dominaite.Services/Handlers/Payments/PayoutService.cs
+        #        src/Solution/Dominaite.Services.Tests/Handlers/Payments/PayoutServiceTests.cs
+        src_dir = tmp_path / "src" / "Solution" / "Dominaite.Services" / "Handlers" / "Payments"
+        test_dir = (
+            tmp_path / "src" / "Solution" / "Dominaite.Services.Tests" / "Handlers" / "Payments"
+        )
+        src_dir.mkdir(parents=True)
+        test_dir.mkdir(parents=True)
+
+        source_file = src_dir / "PayoutService.cs"
+        test_file = test_dir / "PayoutServiceTests.cs"
+        source_file.touch()
+        test_file.touch()
+
+        generator = ProactiveWarningGenerator(mock_db, root_path=tmp_path)
+        warnings = generator._check_tests(source_file, [])
+
+        assert len(warnings) == 0, f"Should find test file at {test_file}"
