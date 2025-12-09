@@ -14,7 +14,6 @@ from mu.mcp.server import (
     QueryResult,
     ReviewDiffOutput,
     SemanticDiffOutput,
-    ViolationInfo,
     create_server,
     mu_context,
     mu_deps,
@@ -94,7 +93,7 @@ class TestDataModels:
 class TestMuQuery:
     """Tests for mu_query tool."""
 
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.graph.get_client")
     def test_query_via_daemon(self, mock_get_client: MagicMock) -> None:
         """Test query execution via daemon client."""
         mock_client = MagicMock()
@@ -118,8 +117,8 @@ class TestMuQuery:
         assert call_args[0][0] == "SELECT * FROM functions LIMIT 1"
         assert "cwd" in call_args[1]
 
-    @patch("mu.mcp.server._find_mubase")
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.graph.find_mubase")
+    @patch("mu.mcp.tools.graph.get_client")
     def test_query_fallback_to_direct(
         self, mock_get_client: MagicMock, mock_find_mubase: MagicMock
     ) -> None:
@@ -134,7 +133,7 @@ class TestMuQuery:
 class TestMuContext:
     """Tests for mu_context tool."""
 
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.context.get_client")
     def test_context_via_daemon(self, mock_get_client: MagicMock) -> None:
         """Test context extraction via daemon client."""
         mock_client = MagicMock()
@@ -159,8 +158,8 @@ class TestMuContext:
         assert call_args[1]["max_tokens"] == 4000
         assert "cwd" in call_args[1]
 
-    @patch("mu.mcp.server._find_mubase")
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.context.find_mubase")
+    @patch("mu.mcp.tools.context.get_client")
     def test_context_fallback_no_mubase(
         self, mock_get_client: MagicMock, mock_find_mubase: MagicMock
     ) -> None:
@@ -175,7 +174,7 @@ class TestMuContext:
 class TestMuDeps:
     """Tests for mu_deps tool."""
 
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.analysis.get_client")
     def test_deps_outgoing(self, mock_get_client: MagicMock) -> None:
         """Test dependency lookup for outgoing dependencies."""
         mock_client = MagicMock()
@@ -198,7 +197,7 @@ class TestMuDeps:
         assert len(result.dependencies) == 2
         assert result.dependencies[0].name == "utils"
 
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.analysis.get_client")
     def test_deps_incoming(self, mock_get_client: MagicMock) -> None:
         """Test dependency lookup for incoming dependencies (dependents)."""
         mock_client = MagicMock()
@@ -222,7 +221,7 @@ class TestMuDeps:
 class TestMuStatus:
     """Tests for mu_status tool."""
 
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.setup.get_client")
     def test_status_daemon_running(self, mock_get_client: MagicMock) -> None:
         """Test status when daemon is running."""
         mock_client = MagicMock()
@@ -242,8 +241,8 @@ class TestMuStatus:
         assert result["stats"]["nodes"] == 100
         assert result["connections"] == 2
 
-    @patch("mu.mcp.server._find_mubase")
-    @patch("mu.mcp.server._get_client")
+    @patch("mu.mcp.tools.setup.find_mubase")
+    @patch("mu.mcp.tools.setup.get_client")
     def test_status_daemon_not_running_no_mubase(
         self, mock_get_client: MagicMock, mock_find_mubase: MagicMock
     ) -> None:
@@ -290,7 +289,7 @@ class TestReviewDiffOutput:
             warning_count=0,
             info_count=0,
             patterns_valid=True,
-            review_summary="# Code Review: main → HEAD\n\n✅ Looks good!",
+            review_summary="# Code Review: main -> HEAD\n\nLooks good!",
             review_time_ms=100.0,
         )
         assert output.base_ref == "main"
@@ -299,20 +298,8 @@ class TestReviewDiffOutput:
         assert output.patterns_valid is True
         assert output.has_breaking_changes is False
 
-    def test_review_diff_output_with_violations(self) -> None:
-        """Test ReviewDiffOutput with pattern violations."""
-        violations = [
-            ViolationInfo(
-                file_path="src/test.py",
-                line_start=10,
-                line_end=10,
-                severity="warning",
-                rule="snake_case_functions",
-                message="Function uses camelCase",
-                suggestion="Use snake_case",
-                pattern_category="naming",
-            ),
-        ]
+    def test_review_diff_output_empty_violations(self) -> None:
+        """Test ReviewDiffOutput with empty violations (pattern validation removed)."""
         output = ReviewDiffOutput(
             base_ref="develop",
             head_ref="feature-branch",
@@ -320,25 +307,25 @@ class TestReviewDiffOutput:
             breaking_changes=[],
             has_breaking_changes=False,
             total_changes=0,
-            violations=violations,
-            patterns_checked=["snake_case_functions"],
-            files_checked=["src/test.py"],
+            violations=[],
+            patterns_checked=[],
+            files_checked=[],
             error_count=0,
-            warning_count=1,
+            warning_count=0,
             info_count=0,
             patterns_valid=True,
-            review_summary="Review with warnings",
+            review_summary="Review summary",
             review_time_ms=50.0,
         )
-        assert len(output.violations) == 1
-        assert output.warning_count == 1
-        assert output.violations[0].rule == "snake_case_functions"
+        assert len(output.violations) == 0
+        assert output.warning_count == 0
+        assert output.patterns_valid is True
 
 
 class TestMuReviewDiff:
     """Tests for mu_review_diff tool."""
 
-    @patch("mu.mcp.server.mu_semantic_diff")
+    @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_basic(self, mock_semantic_diff: MagicMock) -> None:
         """Test basic review diff without pattern validation."""
         # Mock semantic diff result
@@ -365,7 +352,7 @@ class TestMuReviewDiff:
         assert len(result.violations) == 0
         assert "Looks good" in result.review_summary
 
-    @patch("mu.mcp.server.mu_semantic_diff")
+    @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_with_breaking_changes(
         self, mock_semantic_diff: MagicMock
     ) -> None:
@@ -400,8 +387,8 @@ class TestMuReviewDiff:
         assert "Review breaking changes" in result.review_summary
 
     @patch("subprocess.run")
-    @patch("mu.mcp.server._find_mubase")
-    @patch("mu.mcp.server.mu_semantic_diff")
+    @patch("mu.mcp.tools.analysis.find_mubase")
+    @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_with_pattern_validation(
         self,
         mock_semantic_diff: MagicMock,
@@ -429,7 +416,7 @@ class TestMuReviewDiff:
         assert result.patterns_valid is True
         assert len(result.files_checked) == 0
 
-    @patch("mu.mcp.server.mu_semantic_diff")
+    @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_summary_generation(
         self, mock_semantic_diff: MagicMock
     ) -> None:
@@ -451,17 +438,17 @@ class TestMuReviewDiff:
         result = mu_review_diff("develop", "feature-x", validate_patterns=False)
 
         # Check summary contains expected sections
-        assert "Code Review: develop → feature-x" in result.review_summary
+        assert "Code Review: develop -> feature-x" in result.review_summary
         assert "Semantic Changes" in result.review_summary
         assert "Total changes: 3" in result.review_summary
         assert "Added: 2" in result.review_summary
         assert "Recommendation" in result.review_summary
 
-    @patch("mu.mcp.server.mu_semantic_diff")
-    def test_review_diff_invalid_category(
+    @patch("mu.mcp.tools.analysis.mu_semantic_diff")
+    def test_review_diff_with_category_ignored(
         self, mock_semantic_diff: MagicMock
     ) -> None:
-        """Test review diff raises error for invalid pattern category."""
+        """Test review diff ignores pattern_category (validation removed)."""
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="main",
             head_ref="HEAD",
@@ -472,6 +459,7 @@ class TestMuReviewDiff:
             total_changes=0,
         )
 
-        # Invalid category should raise ValueError
-        with pytest.raises(ValueError, match="Invalid pattern_category"):
-            mu_review_diff("main", "HEAD", pattern_category="invalid_category")
+        # Category is now ignored (no validation)
+        result = mu_review_diff("main", "HEAD", pattern_category="any_category")
+        assert result.base_ref == "main"
+        assert result.patterns_valid is True

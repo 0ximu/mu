@@ -1277,15 +1277,16 @@ class MUbase:
 
         rows = self.conn.execute(sql, params).fetchall()
 
-        # Update access tracking for retrieved memories
-        now = datetime.now(UTC).isoformat()
-        memory_ids = [row[0] for row in rows]
-        if memory_ids:
-            placeholders = ", ".join(["?"] * len(memory_ids))
-            self.conn.execute(
-                f"UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
-                [now, *memory_ids],
-            )
+        # Update access tracking for retrieved memories (skip in read-only mode)
+        if not self.read_only:
+            now = datetime.now(UTC).isoformat()
+            memory_ids = [row[0] for row in rows]
+            if memory_ids:
+                placeholders = ", ".join(["?"] * len(memory_ids))
+                self.conn.execute(
+                    f"UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
+                    [now, *memory_ids],
+                )
 
         memories = []
         for row in rows:

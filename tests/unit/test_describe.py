@@ -210,7 +210,6 @@ class TestDescribeCli:
 
         # Should have subcommands
         subcommand_names = [c.name for c in main.subcommands]
-        assert "scan" in subcommand_names
         assert "compress" in subcommand_names
         assert "query" in subcommand_names
         assert "describe" in subcommand_names

@@ -179,11 +179,14 @@ impl<'a> ContextExtractor<'a> {
                     }
                 }
 
-                // Prefer specific node types
+                // Prefer specific node types - functions and classes provide more useful context
+                // than just module headers
                 if node_id.starts_with("fn:") {
-                    score += 1.0; // Functions are often more relevant
+                    score += 3.0; // Functions are most relevant - they have the actual logic
                 } else if node_id.starts_with("cls:") {
-                    score += 0.5; // Classes too
+                    score += 2.0; // Classes provide good structural context
+                } else if node_id.starts_with("mod:") {
+                    score += 0.5; // Modules are less specific, lower priority
                 }
 
                 (node_id.clone(), score)
@@ -229,10 +232,31 @@ impl<'a> ContextExtractor<'a> {
                 if let Ok(Some(node)) = mubase.get_node(&id) {
                     match node.node_type {
                         NodeType::Module => {
-                            // Already shown as file header
+                            // Include module-level info: imports info and summary
+                            if let Some(ref props) = node.properties {
+                                if let Some(docstring) = props.get("docstring").and_then(|v| v.as_str()) {
+                                    let short_doc = if docstring.len() > 100 {
+                                        format!("{}...", &docstring[..100])
+                                    } else {
+                                        docstring.to_string()
+                                    };
+                                    output.push_str(&format!("  :: {}\n", short_doc.replace('\n', " ")));
+                                }
+                            }
                         }
                         NodeType::Class => {
                             output.push_str(&format!("  $ {}\n", node.name));
+                            // Include class docstring if available
+                            if let Some(ref props) = node.properties {
+                                if let Some(docstring) = props.get("docstring").and_then(|v| v.as_str()) {
+                                    let short_doc = if docstring.len() > 80 {
+                                        format!("{}...", &docstring[..80])
+                                    } else {
+                                        docstring.to_string()
+                                    };
+                                    output.push_str(&format!("    :: {}\n", short_doc.replace('\n', " ")));
+                                }
+                            }
                         }
                         NodeType::Function => {
                             let complexity = if node.complexity > 0 {

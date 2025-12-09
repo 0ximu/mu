@@ -406,7 +406,8 @@ class TestGetDefaultManager:
         assert "d2" in formats
         assert "cytoscape" in formats
         assert "lisp" in formats
-        assert len(formats) == 6
+        assert "omega" in formats
+        assert len(formats) == 7
 
     def test_returns_new_instance(self) -> None:
         """get_default_manager returns new instance each call."""
@@ -2071,7 +2072,7 @@ class TestExportManagerIntegration:
 
         formats = manager.list_formats()
 
-        expected = ["cytoscape", "d2", "json", "lisp", "mermaid", "mu"]
+        expected = ["cytoscape", "d2", "json", "lisp", "mermaid", "mu", "omega"]
         assert sorted(formats) == expected
 
     def test_export_all_formats(self, populated_db: MUbase) -> None:
@@ -2227,7 +2228,9 @@ class TestExportEdgeCases:
         for fmt in manager.list_formats():
             result = manager.export(db, fmt)
             assert result.success, f"Format {fmt} failed with circular deps"
-            assert result.edge_count == 2
+            # OMEGA format doesn't export edges (node-focused compression)
+            if fmt != "omega":
+                assert result.edge_count == 2
 
     def test_self_referencing_edge(self, db: MUbase) -> None:
         """Self-referencing edges are handled."""

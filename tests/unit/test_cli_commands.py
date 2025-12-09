@@ -39,9 +39,7 @@ class TestCLIHelp:
 
         # Top-level commands
         expected_commands = [
-            "init",
             "describe",
-            "scan",
             "query",
             "q",
             "view",
@@ -60,7 +58,7 @@ class TestCLIHelp:
         assert result.exit_code == 0
 
         # Subgroups
-        expected_groups = ["kernel", "daemon", "mcp", "contracts"]
+        expected_groups = ["kernel", "daemon", "mcp"]
         for group in expected_groups:
             assert group in result.output, f"Subgroup '{group}' not found in help output"
 
@@ -190,30 +188,6 @@ class TestMCPSubgroup:
         assert result.exit_code == 0
 
 
-class TestContractsSubgroup:
-    """Tests for the contracts subgroup."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_contracts_help(self, runner: CliRunner) -> None:
-        """Test mu contracts --help shows usage."""
-        result = runner.invoke(cli, ["contracts", "--help"])
-        assert result.exit_code == 0
-        assert "Architecture" in result.output or "contract" in result.output.lower()
-
-    def test_contracts_subcommands_registered(self, runner: CliRunner) -> None:
-        """Test all contracts subcommands are registered."""
-        result = runner.invoke(cli, ["contracts", "--help"])
-        assert result.exit_code == 0
-
-        expected_subcommands = ["init", "verify"]
-        for cmd in expected_subcommands:
-            assert cmd in result.output, f"Contracts subcommand '{cmd}' not found"
-
-
 class TestCacheGroup:
     """Tests for the cache command group."""
 
@@ -249,48 +223,6 @@ class TestCacheGroup:
         result = runner.invoke(cli, ["cache", "stats", "--help"])
         assert result.exit_code == 0
         assert "--json" in result.output
-
-
-class TestInitCommand:
-    """Tests for the init command."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_init_help(self, runner: CliRunner) -> None:
-        """Test mu init --help."""
-        result = runner.invoke(cli, ["init", "--help"])
-        assert result.exit_code == 0
-        assert ".murc.toml" in result.output
-        assert "--force" in result.output or "-f" in result.output
-
-    def test_init_creates_config(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init creates .murc.toml file."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            result = runner.invoke(cli, ["init"])
-            assert result.exit_code == 0
-            assert Path(".murc.toml").exists()
-            assert "Created" in result.output
-
-    def test_init_refuses_overwrite(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init refuses to overwrite existing config."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create initial config
-            Path(".murc.toml").write_text("[mu]\n")
-            result = runner.invoke(cli, ["init"])
-            assert result.exit_code != 0
-            assert "already exists" in result.output
-
-    def test_init_force_overwrites(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init --force overwrites existing config."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create initial config
-            Path(".murc.toml").write_text("[mu]\n")
-            result = runner.invoke(cli, ["init", "--force"])
-            assert result.exit_code == 0
-            assert "Created" in result.output
 
 
 class TestDescribeCommand:
@@ -334,46 +266,6 @@ class TestDescribeCommand:
         assert result.exit_code == 0
         # Should have markdown headers
         assert "# MU CLI Reference" in result.output
-
-
-class TestScanCommand:
-    """Tests for the scan command."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_scan_help(self, runner: CliRunner) -> None:
-        """Test mu scan --help."""
-        result = runner.invoke(cli, ["scan", "--help"])
-        assert result.exit_code == 0
-        assert "Analyze codebase" in result.output
-        assert "--output" in result.output or "-o" in result.output
-        assert "--format" in result.output or "-f" in result.output
-
-    def test_scan_current_directory(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu scan on a directory."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create a simple Python file
-            Path("test.py").write_text("def hello(): pass\n")
-            result = runner.invoke(cli, ["scan", "."])
-            assert result.exit_code == 0
-            assert "Scanned" in result.output
-
-    def test_scan_json_format(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu scan --format json produces JSON-like output."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            Path("test.py").write_text("def hello(): pass\n")
-            # Use quiet mode to suppress log messages
-            result = runner.invoke(cli, ["-q", "scan", ".", "--format", "json"])
-            assert result.exit_code == 0
-            # Check that output contains expected JSON keys
-            # Note: there may be formatting issues with rich console output
-            assert '"version"' in result.output
-            assert '"files"' in result.output
-            assert '"root"' in result.output
-            assert "test.py" in result.output
 
 
 class TestQueryCommand:
@@ -525,13 +417,6 @@ class TestLazyImports:
 
         assert mcp is not None
         assert hasattr(mcp, "commands")
-
-    def test_contracts_module_has_contracts_group(self) -> None:
-        """Test that contracts module has the contracts click group."""
-        from mu.commands.contracts import contracts
-
-        assert contracts is not None
-        assert hasattr(contracts, "commands")
 
 
 class TestVerbosityFlags:

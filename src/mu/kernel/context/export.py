@@ -167,7 +167,8 @@ class ContextExporter:
             elif node.type == NodeType.CLASS:
                 classes[node.name] = scored_node
             elif node.type == NodeType.FUNCTION:
-                if node.properties.get("is_method"):
+                props = node.properties or {}
+                if props.get("is_method"):
                     # Find the class this method belongs to
                     class_name = self._get_method_class_name(node)
                     methods_by_class[class_name].append(scored_node)
@@ -217,7 +218,7 @@ class ContextExporter:
         """
         lines: list[str] = []
         node = class_scored.node
-        props = node.properties
+        props = node.properties or {}
 
         # Class declaration
         parts = [self.SIGIL_ENTITY]
@@ -272,7 +273,7 @@ class ContextExporter:
             Single line MU output.
         """
         node = func_scored.node
-        props = node.properties
+        props = node.properties or {}
         prefix = " " * indent
 
         parts = [prefix, self.SIGIL_FUNCTION]

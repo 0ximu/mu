@@ -20,7 +20,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 __all__ = ["DaemonClient", "is_daemon_running", "forward_query"]
 
 DEFAULT_DAEMON_URL = "http://localhost:9120"
-DEFAULT_TIMEOUT = 0.5
+DEFAULT_TIMEOUT = 2.0
 
 
 @dataclass
@@ -72,21 +72,41 @@ class DaemonClient:
         # Some endpoints return data directly without wrapper
         return data
 
-    def is_running(self) -> bool:
+    def is_running(self, retry: bool = True) -> bool:
         """Check if the daemon is running.
+
+        Args:
+            retry: Whether to retry with backoff on failure.
 
         Returns:
             True if daemon is running and responding.
         """
-        try:
-            response = self._client.get("/status")
-            return response.status_code == 200
-        except httpx.ConnectError:
-            return False
-        except httpx.TimeoutException:
-            return False
-        except Exception:
-            return False
+        max_attempts = 3 if retry else 1
+        backoff = 0.1  # Start with 100ms
+
+        for attempt in range(max_attempts):
+            try:
+                response = self._client.get("/status")
+                return response.status_code == 200
+            except httpx.ConnectError:
+                if attempt < max_attempts - 1:
+                    import time
+
+                    time.sleep(backoff)
+                    backoff *= 2  # Exponential backoff
+                    continue
+                return False
+            except httpx.TimeoutException:
+                if attempt < max_attempts - 1:
+                    import time
+
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return False
+            except Exception:
+                return False
+        return False
 
     def query(self, muql: str, cwd: str | None = None) -> dict[str, Any]:
         """Execute a MUQL query via the daemon.
@@ -374,18 +394,44 @@ class DaemonClient:
         name: str,
         cwd: str | None = None,
     ) -> dict[str, Any] | None:
-        """Find a node by name (fuzzy match).
+        """Find a node by name or file path (fuzzy match).
 
-        Uses MUQL to search for nodes by name pattern.
+        Uses MUQL to search for nodes by name pattern or file_path.
 
         Args:
-            name: Node name to search for.
+            name: Node name or file path to search for.
             cwd: Client working directory for multi-project routing.
 
         Returns:
             First matching node info, or None if not found.
         """
         try:
+            # Check if it looks like a file path
+            looks_like_path = (
+                "/" in name
+                or "\\" in name
+                or name.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+            )
+
+            if looks_like_path:
+                # Normalize path separators
+                normalized = name.replace("\\", "/")
+                # Try by file_path (exact or suffix match)
+                query = f"SELECT * FROM nodes WHERE file_path = '{normalized}' AND type = 'module' LIMIT 1"
+                result = self.query(query, cwd=cwd)
+                if result.get("rows"):
+                    row = result["rows"][0]
+                    cols = result.get("columns", [])
+                    return dict(zip(cols, row, strict=False))
+
+                # Try suffix match
+                query = f"SELECT * FROM nodes WHERE file_path LIKE '%{normalized}' AND type = 'module' LIMIT 1"
+                result = self.query(query, cwd=cwd)
+                if result.get("rows"):
+                    row = result["rows"][0]
+                    cols = result.get("columns", [])
+                    return dict(zip(cols, row, strict=False))
+
             # First try exact name match
             query = f"SELECT * FROM nodes WHERE name = '{name}' LIMIT 1"
             result = self.query(query, cwd=cwd)
@@ -430,23 +476,37 @@ class DaemonError(Exception):
 # =============================================================================
 
 
-def is_daemon_running(url: str = DEFAULT_DAEMON_URL) -> bool:
+def is_daemon_running(url: str = DEFAULT_DAEMON_URL, retry: bool = True) -> bool:
     """Check if the MU daemon is running.
 
     Args:
         url: Daemon base URL.
+        retry: Whether to retry with backoff on failure.
 
     Returns:
         True if daemon is running and responding.
     """
-    try:
-        response = httpx.get(
-            f"{url}/status",
-            timeout=DEFAULT_TIMEOUT,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+    max_attempts = 3 if retry else 1
+    backoff = 0.1  # Start with 100ms
+
+    for attempt in range(max_attempts):
+        try:
+            response = httpx.get(
+                f"{url}/status",
+                timeout=DEFAULT_TIMEOUT,
+            )
+            return response.status_code == 200
+        except (httpx.ConnectError, httpx.TimeoutException):
+            if attempt < max_attempts - 1:
+                import time
+
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            return False
+        except Exception:
+            return False
+    return False
 
 
 def forward_query(muql: str, url: str = DEFAULT_DAEMON_URL) -> dict[str, Any]:

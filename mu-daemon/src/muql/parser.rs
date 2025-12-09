@@ -461,6 +461,13 @@ fn parse_comparison(pair: pest::iterators::Pair<Rule>) -> Result<Comparison, Par
             Rule::value => {
                 value = parse_value(inner)?;
             }
+            Rule::string_value => {
+                // Handle string_value directly (used by LIKE)
+                let s = inner.as_str();
+                // Remove quotes
+                let s = &s[1..s.len()-1];
+                value = Value::String(s.to_string());
+            }
             Rule::value_list => {
                 let values: Vec<Value> = inner
                     .into_inner()

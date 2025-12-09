@@ -50,7 +50,6 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "cycles": ("mu.commands.graph", "cycles"),
     # Intelligence Layer commands
     "patterns": ("mu.commands.patterns", "patterns"),
-    "generate": ("mu.commands.generate", "generate"),
     "warn": ("mu.commands.warn", "warn"),
     "related": ("mu.commands.core", "related"),
     # Output commands
@@ -63,12 +62,17 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     # Advanced/power-user commands
     "kernel": ("mu.commands.kernel", "kernel"),
     "cache": ("mu.commands.cache", "cache"),
-    "contracts": ("mu.commands.contracts", "contracts"),
     # Utility commands
     "migrate": ("mu.commands.migrate", "migrate"),
+    # Developer-friendly "vibes" commands (emotional design)
+    "omg": ("mu.commands.vibes", "omg"),  # OMEGA context extraction
+    "grok": ("mu.commands.vibes", "grok"),  # Smart context extraction
+    "wtf": ("mu.commands.vibes", "wtf"),  # Git history analysis
+    "yolo": ("mu.commands.vibes", "yolo"),  # Impact analysis
+    "sus": ("mu.commands.vibes", "sus"),  # Proactive warnings
+    "vibe": ("mu.commands.vibes", "vibe"),  # Pattern validation
+    "zen": ("mu.commands.vibes", "zen"),  # Cache cleanup
     # Legacy commands (kept for compatibility)
-    "init": ("mu.commands.init_cmd", "init"),
-    "scan": ("mu.commands.scan", "scan"),
     "view": ("mu.commands.view", "view"),
     "describe": ("mu.commands.describe", "describe"),
     "man": ("mu.commands.man", "man_command"),

@@ -1095,7 +1095,7 @@ class TestSmartContextExtractor:
         self, mock_vector: MagicMock, mock_mubase: MUbase
     ) -> None:
         """Extraction works in degraded mode without embeddings."""
-        mock_vector.return_value = ([], {})  # No vector results
+        mock_vector.return_value = ([], {}, "no_embeddings")  # No vector results
 
         extractor = SmartContextExtractor(mock_mubase)
         result = extractor.extract("How does AuthService work?")
@@ -1103,6 +1103,9 @@ class TestSmartContextExtractor:
         # Should still find entities
         assert result is not None
         assert len(result.nodes) > 0
+        # Stats should indicate vector search was skipped
+        assert result.extraction_stats.get("vector_search_used") is False
+        assert result.extraction_stats.get("vector_search_skipped") == "no_embeddings"
 
     def test_extract_expands_graph(self, mock_mubase: MUbase) -> None:
         """Graph expansion includes related nodes."""

@@ -28,6 +28,7 @@ Question → Entity Extraction → Seed Nodes
 | `budgeter.py` | `TokenBudgeter` - tiktoken-based budget fitting |
 | `export.py` | `ContextExporter` - MU format generation |
 | `smart.py` | `SmartContextExtractor` - orchestration facade |
+| `omega.py` | `OmegaContextExtractor`, `OmegaConfig`, `OmegaResult`, `OmegaManifest` |
 | `__init__.py` | Public API exports |
 
 ## Key Classes
@@ -132,6 +133,60 @@ mu_text = exporter.export_mu(selected_nodes)
 json_output = exporter.export_json(context_result)
 ```
 
+### `OmegaContextExtractor`
+
+OMEGA-enhanced context extraction with S-expression output and macro compression.
+
+```python
+from mu.kernel.context.omega import OmegaContextExtractor, OmegaConfig
+from mu.kernel import MUbase
+
+db = MUbase(".mubase")
+
+config = OmegaConfig(
+    max_tokens=8000,
+    header_budget_ratio=0.15,      # Max 15% for macro definitions
+    include_synthesized=True,       # Include codebase-specific macros
+    max_synthesized_macros=5,       # Limit synthesized macros
+    enable_prompt_cache_optimization=True,  # Order macros for cache
+)
+
+extractor = OmegaContextExtractor(db, config)
+result = extractor.extract("How does authentication work?")
+
+print(result.full_output)           # Complete OMEGA context
+print(f"Compression: {result.compression_ratio:.1f}x")
+print(f"Tokens saved: {result.tokens_saved}")
+```
+
+**OMEGA Output Structure:**
+
+```lisp
+;; MU-Lisp Macro Definitions (seed - stable, cacheable)
+(defmacro api [method path handler] "API endpoint definition")
+(defmacro service [name entity] "Service class pattern")
+
+;; Codebase Context (body - compressed content)
+(mu-lisp :version "1.0" :codebase "mu" :commit "abc123"
+  :core [module class defn data]
+  :standard [api service])
+
+(module "src/auth.py"
+  (class AuthService :bases [BaseService]
+    (defn authenticate [username:str password:str] -> User)))
+```
+
+**Key Properties:**
+
+| Property | Description |
+|----------|-------------|
+| `seed` | Macro definitions header (stable for caching) |
+| `body` | Compressed S-expression content |
+| `full_output` | Combined seed + body for LLM consumption |
+| `compression_ratio` | Tokens saved vs sigil format |
+| `tokens_saved` | Absolute token reduction |
+| `manifest` | `OmegaManifest` with macro metadata |
+
 ## MUbase Integration
 
 The `get_context_for_question()` method provides a convenient API:
@@ -161,6 +216,12 @@ mu kernel context "database queries" --max-tokens 4000 --verbose
 
 # JSON output
 mu kernel context "user validation" --format json
+
+# OMEGA format (S-expression with macro compression)
+mu kernel context "auth service" --format omega
+
+# OMEGA with verbose stats
+mu kernel context "database" --format omega --verbose
 
 # Exclude test files
 mu kernel context "error handling" --exclude-tests

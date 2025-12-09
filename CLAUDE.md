@@ -66,11 +66,14 @@ uv run mu kernel export --format json     # Export as JSON
 uv run mu kernel export --format mermaid  # Export as Mermaid diagram
 uv run mu kernel export --format d2       # Export as D2 diagram
 uv run mu kernel export --format cytoscape # Export for Cytoscape.js
+uv run mu kernel export --format lisp     # Export as S-expressions
+uv run mu kernel export --format omega    # Export with OMEGA compression
 
 # Semantic Search & Context
 uv run mu kernel embed .       # Generate embeddings
 uv run mu kernel search "query" # Natural language search
 uv run mu kernel context "question" # Smart context extraction
+uv run mu kernel context "question" --format omega  # OMEGA compressed context
 
 # Daemon (real-time updates)
 uv run mu daemon start .       # Start daemon in background
@@ -154,6 +157,9 @@ Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
 - **`ExportResult`**: Multi-format export output with error handling
 - **`DaemonConfig`**: Daemon server configuration
 - **`GraphEvent`**: Real-time graph change notifications
+- **`OmegaResult`**: OMEGA compressed context with seed (macros) + body (content)
+- **`OmegaConfig`**: OMEGA compression configuration (token budgets, macro settings)
+- **`OmegaManifest`**: Manifest describing macros used in OMEGA output
 
 ## Agent-Proofing Modules
 
@@ -181,6 +187,29 @@ Python, TypeScript, JavaScript, Go, Java, Rust, C#
 - `@` Dependencies
 - `::` Annotations
 - `->` Return, `=>` Mutation
+
+## OMEGA Format
+
+OMEGA (S-expression semantic compression) provides an alternative to sigil format:
+
+```lisp
+;; MU-Lisp Macro Definitions
+(defmacro api [method path handler] "API endpoint")
+
+;; Codebase Context
+(mu-lisp :version "1.0" :codebase "mu" :commit "abc1234"
+  :core [module class defn data]
+  :standard [api service])
+
+(module "src/auth.py"
+  (class AuthService :bases [BaseService]
+    (defn authenticate [username:str password:str] -> User)))
+```
+
+**OMEGA vs Sigils:**
+- S-expressions: LLM-native, parseable, macro-compressible
+- Sigils: Human-readable, compact, visual hierarchy
+- Use `--format omega` for context extraction, `--format mu` for human review
 
 ## Keeping Documentation Current
 

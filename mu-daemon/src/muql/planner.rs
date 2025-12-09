@@ -72,7 +72,10 @@ fn plan_select(q: SelectQuery) -> ExecutionPlan {
 
     // SELECT clause
     sql.push_str("SELECT ");
-    if q.fields.is_empty() || (q.fields.len() == 1 && q.fields[0].is_star) {
+    // Check for bare SELECT * (not COUNT(*) or other aggregates)
+    let is_bare_star = q.fields.is_empty()
+        || (q.fields.len() == 1 && q.fields[0].is_star && q.fields[0].aggregate.is_none());
+    if is_bare_star {
         sql.push_str("id, type, name, file_path, line_start, line_end, complexity");
     } else {
         let field_strs: Vec<String> = q.fields.iter().map(|f| {
@@ -199,20 +202,24 @@ fn format_value(value: &Value) -> String {
 fn plan_show(q: ShowQuery) -> ExecutionPlan {
     let depth = q.depth.min(MAX_DEPTH);
 
-    let op_type = match q.show_type {
-        ShowType::Dependencies | ShowType::Dependents => GraphOpType::Dependencies,
-        ShowType::Callers | ShowType::Callees => GraphOpType::Dependencies,
-        ShowType::Impact => GraphOpType::Impact,
-        ShowType::Ancestors => GraphOpType::Ancestors,
-        ShowType::Children | ShowType::Parents => GraphOpType::Children,
-        ShowType::Inheritance | ShowType::Implementations => GraphOpType::Dependencies,
+    let (op_type, edge_types) = match q.show_type {
+        ShowType::Dependencies => (GraphOpType::Dependencies, Some(vec!["imports".to_string()])),
+        ShowType::Dependents => (GraphOpType::Dependents, Some(vec!["imports".to_string()])),
+        ShowType::Callers => (GraphOpType::Dependents, Some(vec!["calls".to_string()])),
+        ShowType::Callees => (GraphOpType::Dependencies, Some(vec!["calls".to_string()])),
+        ShowType::Impact => (GraphOpType::Impact, None), // Follow all edges for impact
+        ShowType::Ancestors => (GraphOpType::Ancestors, None), // Follow all edges for ancestors
+        ShowType::Children => (GraphOpType::Children, Some(vec!["contains".to_string()])),
+        ShowType::Parents => (GraphOpType::Dependents, Some(vec!["contains".to_string()])),
+        ShowType::Inheritance => (GraphOpType::Dependencies, Some(vec!["inherits".to_string()])),
+        ShowType::Implementations => (GraphOpType::Dependents, Some(vec!["inherits".to_string()])),
     };
 
     ExecutionPlan::Graph(GraphOperation {
         op_type,
         target: q.target,
         depth,
-        edge_types: None,
+        edge_types,
     })
 }
 

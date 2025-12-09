@@ -46,6 +46,7 @@ from mu.kernel.export.json_export import JSONExporter
 from mu.kernel.export.lisp import LispExporter, LispExportOptions
 from mu.kernel.export.mermaid import MermaidExporter
 from mu.kernel.export.mu_text import MUTextExporter
+from mu.kernel.export.omega import OmegaExporter, OmegaExportOptions
 
 __all__ = [
     # Protocol and core classes
@@ -65,4 +66,6 @@ __all__ = [
     "CytoscapeExporter",
     "LispExporter",
     "LispExportOptions",
+    "OmegaExporter",
+    "OmegaExportOptions",
 ]

@@ -497,6 +497,161 @@ class MacroDefinition:
                 args.append(str(value))
         return f"({self.name} {' '.join(args)})"
 
+    def matches(self, node: Any) -> bool:
+        """Check if this macro can compress the given node.
+
+        Args:
+            node: A Node object from the kernel.
+
+        Returns:
+            True if this macro applies to the node.
+        """
+        from mu.kernel.schema import NodeType
+
+        node_name = (node.name or "").lower()
+        node_props = node.properties or {}
+        decorators = node_props.get("decorators", [])
+        decorators_str = str(decorators).lower()
+
+        if self.name == "api":
+            # API endpoints have HTTP method decorators
+            if node.type != NodeType.FUNCTION:
+                return False
+            return any(
+                method in decorators_str
+                for method in ["get", "post", "put", "delete", "patch", "route"]
+            )
+
+        elif self.name == "hook":
+            # React hooks start with "use"
+            if node.type != NodeType.FUNCTION:
+                return False
+            return node_name.startswith("use")
+
+        elif self.name == "test":
+            # Test functions start with "test" or are in test files
+            if node.type != NodeType.FUNCTION:
+                return False
+            file_path = (node.file_path or "").lower()
+            return node_name.startswith("test") or "/test" in file_path
+
+        elif self.name == "service":
+            # Service classes end with "Service"
+            if node.type != NodeType.CLASS:
+                return False
+            return node_name.endswith("service")
+
+        elif self.name == "repo":
+            # Repository classes
+            if node.type != NodeType.CLASS:
+                return False
+            return "repository" in node_name or "repo" in node_name
+
+        elif self.name == "model":
+            # Data models/dataclasses
+            if node.type != NodeType.CLASS:
+                return False
+            return "dataclass" in decorators_str or node_name.endswith("model")
+
+        elif self.name == "component":
+            # UI components (PascalCase, not services)
+            if node.type != NodeType.CLASS:
+                return False
+            return (
+                node.name
+                and node.name[0].isupper()
+                and not node_name.endswith("service")
+                and not node_name.endswith("repository")
+            )
+
+        return False
+
+    def extract_node_data(self, node: Any) -> dict[str, Any]:
+        """Extract data from a node to fill macro signature params.
+
+        Args:
+            node: A Node object from the kernel.
+
+        Returns:
+            Dictionary with keys matching signature params.
+        """
+        props = node.properties or {}
+        data: dict[str, Any] = {"name": node.name}
+
+        if self.name == "api":
+            # Extract HTTP method and path from decorators
+            decorators = props.get("decorators", [])
+            method = "GET"
+            path = "/"
+            for dec in decorators:
+                dec_lower = str(dec).lower()
+                for m in ["get", "post", "put", "delete", "patch"]:
+                    if m in dec_lower:
+                        method = m.upper()
+                        # Try to extract path from decorator
+                        import re
+
+                        path_match = re.search(r'["\']([^"\']+)["\']', str(dec))
+                        if path_match:
+                            path = path_match.group(1)
+                        break
+            data["method"] = method
+            data["path"] = path
+            # Extract params
+            params = props.get("parameters", [])
+            param_strs = []
+            for p in params:
+                if isinstance(p, dict):
+                    pname = p.get("name", "?")
+                    ptype = p.get("type_annotation", "")
+                    if pname not in ("self", "cls"):
+                        param_strs.append(f"{pname}:{ptype}" if ptype else pname)
+            data["params"] = param_strs
+
+        elif self.name == "hook":
+            # Extract hook name (strip "use" prefix for compression)
+            name = node.name or ""
+            if name.lower().startswith("use"):
+                data["name"] = name[3:]  # Strip "use"
+            data["deps"] = []  # Could extract from params
+            data["returns"] = props.get("return_type", "Any")
+
+        elif self.name == "test":
+            # Extract test name (strip "test_" prefix)
+            name = node.name or ""
+            if name.lower().startswith("test_"):
+                data["name"] = name[5:]
+            elif name.lower().startswith("test"):
+                data["name"] = name[4:]
+            data["target"] = ""  # Could infer from file path
+
+        elif self.name == "service":
+            # Extract service name (strip "Service" suffix)
+            name = node.name or ""
+            if name.endswith("Service"):
+                data["name"] = name[:-7]
+            data["deps"] = props.get("attributes", [])[:3]  # First 3 attrs as deps
+            data["methods"] = []
+
+        elif self.name == "repo":
+            # Extract repository entity
+            name = node.name or ""
+            if name.endswith("Repository"):
+                data["name"] = name[:-10]
+            elif name.endswith("Repo"):
+                data["name"] = name[:-4]
+            data["entity"] = data["name"]
+
+        elif self.name == "model":
+            # Extract model fields
+            data["fields"] = props.get("attributes", [])[:5]  # First 5 attrs
+
+        elif self.name == "component":
+            # Extract component props
+            data["props"] = []
+
+        return data
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -536,13 +691,16 @@ class MacroDefinition:
 class SynthesisResult:
     """Result of macro synthesis from codebase patterns.
 
-    Contains generated macro definitions and synthesis statistics.
+    Contains generated macro definitions, synthesis statistics, and
+    the node→macro mapping for O(1) compression lookups.
+
     The get_header() method produces a stable macro header optimized
     for prompt caching by ordering macros: CORE → STANDARD → SYNTHESIZED.
 
     Example:
         >>> result = SynthesisResult(
         ...     macros=[api_macro, service_macro],
+        ...     node_macro_map={"fn:src/api.py:get_users": api_macro},
         ...     total_patterns_analyzed=50,
         ...     patterns_converted=2,
         ...     estimated_compression=0.35,
@@ -559,6 +717,20 @@ class SynthesisResult:
     macros: list[MacroDefinition] = field(default_factory=list)
     """Generated macro definitions."""
 
+    node_macro_map: dict[str, MacroDefinition] = field(default_factory=dict)
+    """Mapping from node ID to applicable macro for O(1) lookup.
+
+    This is the key optimization: instead of O(N*M) matching during export,
+    the synthesizer pre-computes which macro applies to each node.
+
+    Example:
+        {
+            "fn:src/api/users.py:get_users": api_macro,
+            "fn:src/api/users.py:create_user": api_macro,
+            "cls:src/services/auth.py:AuthService": service_macro,
+        }
+    """
+
     total_patterns_analyzed: int = 0
     """Number of patterns considered during synthesis."""
 
@@ -570,6 +742,9 @@ class SynthesisResult:
 
     synthesis_time_ms: float = 0.0
     """Time taken for synthesis in milliseconds."""
+
+    nodes_mapped: int = 0
+    """Number of nodes that have macro mappings (for stats)."""
 
     def get_header(self) -> str:
         """Generate the macro header for context injection.
@@ -606,13 +781,21 @@ class SynthesisResult:
         return "\n".join(lines)
 
     def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
+        """Convert to dictionary for JSON serialization.
+
+        Note: node_macro_map is serialized as {node_id: macro_name} for space
+        efficiency. Use from_dict() to reconstruct.
+        """
         return {
             "macros": [m.to_dict() for m in self.macros],
+            "node_macro_map": {
+                node_id: macro.name for node_id, macro in self.node_macro_map.items()
+            },
             "total_patterns_analyzed": self.total_patterns_analyzed,
             "patterns_converted": self.patterns_converted,
             "estimated_compression": round(self.estimated_compression, 3),
             "synthesis_time_ms": round(self.synthesis_time_ms, 2),
+            "nodes_mapped": self.nodes_mapped,
         }
 
     @classmethod
@@ -625,12 +808,23 @@ class SynthesisResult:
         Returns:
             SynthesisResult instance.
         """
+        macros = [MacroDefinition.from_dict(m) for m in data.get("macros", [])]
+        macro_lookup = {m.name: m for m in macros}
+
+        # Reconstruct node_macro_map from serialized {node_id: macro_name}
+        node_macro_map: dict[str, MacroDefinition] = {}
+        for node_id, macro_name in data.get("node_macro_map", {}).items():
+            if macro_name in macro_lookup:
+                node_macro_map[node_id] = macro_lookup[macro_name]
+
         return cls(
-            macros=[MacroDefinition.from_dict(m) for m in data.get("macros", [])],
+            macros=macros,
+            node_macro_map=node_macro_map,
             total_patterns_analyzed=data.get("total_patterns_analyzed", 0),
             patterns_converted=data.get("patterns_converted", 0),
             estimated_compression=data.get("estimated_compression", 0.0),
             synthesis_time_ms=data.get("synthesis_time_ms", 0.0),
+            nodes_mapped=data.get("nodes_mapped", 0),
         )
 
     @property

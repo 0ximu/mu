@@ -1543,8 +1543,8 @@ class TestAgentIntegration:
         }
         mock_daemon_class.return_value = mock_mu_client
 
-        # Mock tool use response
-        mock_tool_content = MagicMock()
+        # Mock tool use response - use spec to prevent auto-creating .text attribute
+        mock_tool_content = MagicMock(spec=["type", "id", "name", "input"])
         mock_tool_content.type = "tool_use"
         mock_tool_content.id = "tool_123"
         mock_tool_content.name = "mu_query"
@@ -1577,7 +1577,9 @@ class TestAgentIntegration:
 
         with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
             with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
-                agent = MUAgent()
+                # Use Anthropic model to trigger AnthropicProvider
+                config = AgentConfig(model="claude-haiku-4-5-20251001")
+                agent = MUAgent(config)
                 response = agent.ask("Find auth classes")
 
                 assert response.success is True

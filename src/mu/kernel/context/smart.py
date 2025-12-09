@@ -6,6 +6,7 @@ a cohesive API for intelligent context selection.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from mu.kernel.context.budgeter import TokenBudgeter
@@ -23,6 +24,8 @@ from mu.kernel.schema import NodeType
 if TYPE_CHECKING:
     from mu.kernel.models import Node
     from mu.kernel.mubase import MUbase
+
+logger = logging.getLogger(__name__)
 
 
 class SmartContextExtractor:
@@ -90,8 +93,11 @@ class SmartContextExtractor:
         stats["named_nodes_found"] = len(seed_nodes)
 
         # Step 3: Vector search for semantic matches (if embeddings available)
-        vector_nodes, vector_scores = self._vector_search(question)
+        vector_nodes, vector_scores, vector_skip_reason = self._vector_search(question)
         stats["vector_matches"] = len(vector_nodes)
+        stats["vector_search_used"] = vector_skip_reason is None
+        if vector_skip_reason:
+            stats["vector_search_skipped"] = vector_skip_reason
 
         # Merge seed nodes with vector results
         all_candidates = self._merge_candidates(seed_nodes, vector_nodes)
@@ -127,10 +133,13 @@ class SmartContextExtractor:
 
         # Handle empty results
         if not selected:
+            fallback_msg = f":: No relevant context found for: {question}"
+            # Estimate tokens: ~4 chars per token for English text
+            estimated_tokens = len(fallback_msg) // 4
             return ContextResult(
-                mu_text=f":: No relevant context found for: {question}",
+                mu_text=fallback_msg,
                 nodes=[],
-                token_count=0,
+                token_count=estimated_tokens,
                 relevance_scores={},
                 extraction_stats=stats,
             )
@@ -236,36 +245,52 @@ class SmartContextExtractor:
     def _vector_search(
         self,
         question: str,
-    ) -> tuple[list[Node], dict[str, float]]:
+    ) -> tuple[list[Node], dict[str, float], str | None]:
         """Search for semantically similar nodes.
 
         Args:
             question: The question to search for.
 
         Returns:
-            Tuple of (matching nodes, node_id -> similarity score).
+            Tuple of (matching nodes, node_id -> similarity score, skip_reason or None).
+            skip_reason is set when vector search was skipped (e.g., no embeddings, no API key).
         """
         # Check if embeddings are available
         try:
             embed_stats = self.mubase.embedding_stats()
             if embed_stats.get("nodes_with_embeddings", 0) == 0:
-                return [], {}
-        except Exception:
-            return [], {}
+                logger.debug("Vector search skipped: no embeddings in database")
+                return [], {}, "no_embeddings"
+        except Exception as e:
+            logger.debug(f"Vector search skipped: failed to check embeddings: {e}")
+            return [], {}, "embeddings_check_failed"
 
         # Import embedding service lazily to avoid circular imports
         try:
             from mu.kernel.embeddings import EmbeddingService
         except ImportError:
-            return [], {}
+            logger.debug("Vector search skipped: embeddings module not available")
+            return [], {}, "embeddings_module_unavailable"
 
         # Create embedding service for query
         try:
             import asyncio
+            import os
 
             from mu.config import MUConfig
 
             config = MUConfig()
+
+            # Check for API key if using OpenAI provider
+            if config.embeddings.provider == "openai":
+                api_key_env = config.embeddings.openai.api_key_env
+                if not os.environ.get(api_key_env):
+                    logger.debug(
+                        f"Vector search skipped: {api_key_env} not set. "
+                        "Set the environment variable or use local embeddings."
+                    )
+                    return [], {}, "no_api_key"
+
             service = EmbeddingService(config=config.embeddings)
 
             # Get query embedding
@@ -276,7 +301,8 @@ class SmartContextExtractor:
 
             if not query_embedding:
                 asyncio.run(service.close())
-                return [], {}
+                logger.debug("Vector search skipped: failed to generate query embedding")
+                return [], {}, "query_embedding_failed"
 
             # Perform vector search
             results = self.mubase.vector_search(
@@ -290,11 +316,13 @@ class SmartContextExtractor:
             nodes = [node for node, _ in results]
             scores = {node.id: score for node, score in results}
 
-            return nodes, scores
+            logger.debug(f"Vector search found {len(nodes)} results")
+            return nodes, scores, None
 
-        except Exception:
+        except Exception as e:
             # Vector search failed, continue without it
-            return [], {}
+            logger.debug(f"Vector search skipped: {e}")
+            return [], {}, f"error: {e}"
 
     def _merge_candidates(
         self,

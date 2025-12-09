@@ -16,9 +16,9 @@ from mu.paths import get_mubase_path
     "--format",
     "-f",
     "export_format",
-    type=click.Choice(["mu", "json", "mermaid", "d2", "cytoscape"]),
+    type=click.Choice(["mu", "json", "mermaid", "d2", "cytoscape", "lisp", "omega"]),
     default="mu",
-    help="Export format",
+    help="Export format (omega for S-expression with macro compression)",
 )
 @click.option(
     "--output",
@@ -95,6 +95,7 @@ def kernel_export(
         mu kernel export . --format mermaid --types class,function
         mu kernel export . --format d2 --max-nodes 50 --direction down
         mu kernel export . --format cytoscape -o viz.cyjs
+        mu kernel export . --format lisp > system.mulisp
         mu kernel export . --list-formats
     """
     from mu.errors import ExitCode
@@ -160,9 +161,38 @@ def kernel_export(
             extra=extra,
         )
 
-        # Export
-        manager = get_default_manager()
-        result = manager.export(db, export_format, options)
+        # Handle omega format specially (uses OmegaContextExtractor)
+        if export_format == "omega":
+            from mu.kernel.context.omega import OmegaConfig, OmegaContextExtractor
+
+            # OMEGA export uses the whole codebase as context
+            omega_config = OmegaConfig(max_tokens=100000)  # High limit for export
+            extractor = OmegaContextExtractor(db, omega_config)
+
+            # Use a generic question to get full codebase context
+            omega_result = extractor.extract("What is in this codebase?")
+
+            # Create an ExportResult-like object
+            from mu.kernel.export.base import ExportResult
+
+            result = ExportResult(
+                output=omega_result.full_output,
+                format="omega",
+                node_count=omega_result.nodes_included,
+                edge_count=0,
+            )
+
+            # Print stats to stderr
+            print_info(f"OMEGA export: {omega_result.compression_ratio:.2f}x compression")
+            print_info(
+                f"  Tokens: {omega_result.total_tokens} "
+                f"(was {omega_result.original_tokens} sigils)"
+            )
+
+        else:
+            # Export using standard manager
+            manager = get_default_manager()
+            result = manager.export(db, export_format, options)
 
         if not result.success:
             print_error(f"Export failed: {result.error}")

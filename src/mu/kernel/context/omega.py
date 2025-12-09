@@ -481,13 +481,16 @@ class OmegaContextExtractor:
             )
 
         # Step 2: Synthesize macros from codebase patterns
+        # This now includes the pre-computed node→macro map
         synthesis_result = self._synthesize_macros()
         stats["macros_synthesized"] = len(synthesis_result.macros)
+        stats["nodes_mapped"] = synthesis_result.nodes_mapped
 
         # Step 3: Select macros applicable to this context
+        # Filter to only macros that apply to nodes in our context
         selected_macros = self._select_macros_for_context(
             context_result.nodes,
-            synthesis_result.macros,
+            synthesis_result,
         )
         stats["macros_selected"] = len(selected_macros)
 
@@ -497,7 +500,8 @@ class OmegaContextExtractor:
         stats["seed_tokens"] = seed_tokens
 
         # Step 5: Generate body (compressed S-expression content)
-        body = self._generate_body(context_result.nodes, selected_macros)
+        # Uses O(1) map lookup for compression
+        body = self._generate_body(context_result.nodes, synthesis_result.node_macro_map)
         body_tokens = self._count_tokens(body)
         stats["body_tokens"] = body_tokens
 
@@ -568,20 +572,21 @@ class OmegaContextExtractor:
             # TaskContextExtractor not available, fall back to question-based
             return self.extract(task)
 
-        # Step 2: Synthesize macros
+        # Step 2: Synthesize macros (includes pre-computed node→macro map)
         synthesis_result = self._synthesize_macros()
         stats["macros_synthesized"] = len(synthesis_result.macros)
+        stats["nodes_mapped"] = synthesis_result.nodes_mapped
 
-        # Step 3: Select macros
-        selected_macros = self._select_macros_for_context(nodes, synthesis_result.macros)
+        # Step 3: Select macros applicable to this context
+        selected_macros = self._select_macros_for_context(nodes, synthesis_result)
         stats["macros_selected"] = len(selected_macros)
 
         # Step 4: Generate seed
         seed = self._generate_seed(selected_macros)
         seed_tokens = self._count_tokens(seed)
 
-        # Step 5: Generate body
-        body = self._generate_body(nodes, selected_macros)
+        # Step 5: Generate body (uses O(1) map lookup)
+        body = self._generate_body(nodes, synthesis_result.node_macro_map)
         body_tokens = self._count_tokens(body)
 
         # Calculate metrics
@@ -628,27 +633,28 @@ class OmegaContextExtractor:
     def _select_macros_for_context(
         self,
         nodes: list[Node],
-        available_macros: list[MacroDefinition],
+        synthesis_result: SynthesisResult,
     ) -> list[MacroDefinition]:
         """Select macros that are applicable to the context nodes.
 
-        Only includes macros that would actually be used in the output,
-        avoiding header bloat from unused definitions.
+        Uses the pre-computed node_macro_map for O(1) lookup instead of
+        re-matching each node against each macro.
 
         Args:
             nodes: Nodes to be included in context.
-            available_macros: All available macro definitions.
+            synthesis_result: Result containing macros and node_macro_map.
 
         Returns:
             List of macros that will be used in the output.
         """
         used_macros: dict[str, MacroDefinition] = {}
 
+        # O(1) lookup per node using pre-computed map
         for node in nodes:
-            # Find the best macro for each node
-            macro = self.synthesizer.get_applicable_macros(node, available_macros)
-            if macro and macro.name not in used_macros:
-                used_macros[macro.name] = macro
+            if node.id in synthesis_result.node_macro_map:
+                macro = synthesis_result.node_macro_map[node.id]
+                if macro.name not in used_macros:
+                    used_macros[macro.name] = macro
 
         # Sort by tier for prompt cache optimization
         if self.config.enable_prompt_cache_optimization:
@@ -665,79 +671,301 @@ class OmegaContextExtractor:
         return list(used_macros.values())
 
     def _generate_seed(self, macros: list[MacroDefinition]) -> str:
-        """Generate the seed (macro definitions header).
+        """Generate the seed (schema definitions header).
 
-        The seed is designed for prompt cache efficiency:
-        - Core macros first (most stable)
-        - Standard macros second
-        - Synthesized macros last (most variable)
+        Uses OMG SCHEMA v2.0 for strict positional typing.
+        The schema header is emitted ONCE at the top and provides
+        fixed, deterministic parsing rules for LLMs.
 
         Args:
-            macros: Selected macro definitions.
+            macros: Selected macro definitions (currently unused for Schema v2.0).
 
         Returns:
-            S-expression macro definitions header.
+            OMG SCHEMA v2.0 header.
         """
-        if not macros:
-            return ""
+        from mu.kernel.export.omega import OMG_SCHEMA_HEADER
 
-        lines = [";; MU-Lisp Macro Definitions"]
-
-        for macro in macros:
-            # Generate defmacro form
-            params = " ".join(macro.signature)
-            defmacro = f'(defmacro {macro.name} [{params}] "{macro.description}")'
-            lines.append(defmacro)
-
-        return "\n".join(lines)
+        return OMG_SCHEMA_HEADER
 
     def _generate_body(
         self,
         nodes: list[Node],
-        macros: list[MacroDefinition],
+        node_macro_map: dict[str, MacroDefinition],
     ) -> str:
-        """Generate the body (compressed S-expression content).
+        """Generate the body using Schema v2.0 strict positional format.
 
-        Uses LispExporter for base S-expression output, then applies
-        macro compression where applicable.
+        Uses schema-compliant forms:
+        - (module Name FilePath ...)
+        - (service Name [deps] ...)
+        - (class Name Parent [attrs] ...)
+        - (method Name [args] ReturnType Complexity)
+        - (function Name [args] ReturnType Complexity)
 
         Args:
             nodes: Nodes to include in the body.
-            macros: Macros available for compression.
+            node_macro_map: Pre-computed mapping (unused in Schema v2.0).
 
         Returns:
-            Compressed S-expression body.
+            Schema v2.0 compliant S-expression body.
         """
-        from mu.kernel.export.lisp import LispExportOptions
+        from collections import defaultdict
+
+        from mu.kernel.schema import NodeType
 
         if not nodes:
             return ""
 
-        # Get node IDs for export filtering
-        node_ids = [n.id for n in nodes]
+        # Group nodes by module for structured output
+        by_module: dict[str, list[Node]] = defaultdict(list)
+        for node in nodes:
+            module_path = node.file_path or "unknown"
+            by_module[module_path].append(node)
 
-        # Export as Lisp S-expressions
-        options = LispExportOptions(
-            node_ids=node_ids,
-            include_header=False,  # We generate our own header
-            pretty_print=True,
-        )
+        lines: list[str] = []
 
-        result = self.lisp_exporter.export(self.mubase, options)
+        for module_path, module_nodes in sorted(by_module.items()):
+            # Generate module name from path
+            module_name = self._path_to_module_name(module_path)
 
-        if not result.success:
-            # Fall back to simple output
-            return f";; Export failed: {result.error}"
+            # Separate nodes by type for structured output
+            classes = [n for n in module_nodes if n.type == NodeType.CLASS]
+            functions = [
+                n for n in module_nodes
+                if n.type == NodeType.FUNCTION and not (n.properties or {}).get("is_method")
+            ]
 
-        body = result.output
+            # Build module content
+            module_content: list[str] = []
 
-        # Apply macro compression
-        # For now, we rely on the Lisp exporter's output format
-        # Future enhancement: Apply macro substitutions inline
-        # e.g., replace (defn authenticate [...] -> User :decorators [app.post("/login")])
-        #       with (api "post" "/login" "authenticate" ...)
+            # Process classes with Schema v2.0 format
+            for cls in classes:
+                class_sexpr = self._class_to_schema_v2(cls)
+                module_content.append(class_sexpr)
 
-        return body
+            # Process top-level functions
+            for func in functions:
+                func_sexpr = self._function_to_schema_v2(func)
+                module_content.append(f"  {func_sexpr}")
+
+            # Build module S-expression: (module Name FilePath ...)
+            if module_content:
+                lines.append(f'(module {module_name} "{module_path}"')
+                lines.extend(module_content)
+                lines.append(")")
+            else:
+                lines.append(f'(module {module_name} "{module_path}")')
+
+        return "\n".join(lines)
+
+    def _class_to_schema_v2(self, node: Node) -> str:
+        """Convert a class node to Schema v2.0 format.
+
+        Determines if class is a service, model, validator, or plain class.
+        """
+        from mu.kernel.schema import NodeType
+
+        props = node.properties or {}
+        name = node.name or "Unknown"
+        bases = props.get("bases", [])
+        attrs = props.get("attributes", [])
+        decorators = str(props.get("decorators", [])).lower()
+
+        # Get methods for this class
+        children = self.mubase.get_children(node.id)
+        methods = [c for c in children if c.type == NodeType.FUNCTION]
+
+        # Determine class type based on naming/decorators
+        name_lower = name.lower()
+
+        # Format attributes as dependency list
+        attr_list = self._format_attrs(attrs)
+
+        # Format base class (first one or nil)
+        parent = bases[0] if bases else "nil"
+
+        # Check if it's a service (ends with Service)
+        if name_lower.endswith("service"):
+            return self._service_to_schema_v2(name, attr_list, methods)
+
+        # Check if it's a dataclass/model
+        if "dataclass" in decorators or name_lower.endswith("model"):
+            return self._model_to_schema_v2(name, attrs)
+
+        # Check if it's a validator
+        if name_lower.endswith("validator"):
+            target = name[:-9] if name.endswith("Validator") else name
+            rules = [str(a) for a in attrs[:5]]
+            return f"  (validator {name} {target} [{' '.join(rules)}])"
+
+        # Default: plain class
+        return self._plain_class_to_schema_v2(name, parent, attr_list, methods)
+
+    def _service_to_schema_v2(
+        self, name: str, deps: list[str], methods: list[Node]
+    ) -> str:
+        """Format a service class: (service Name [deps] (method ...) ...)"""
+        lines = []
+        deps_str = " ".join(deps) if deps else ""
+
+        if methods:
+            lines.append(f"  (service {name} [{deps_str}]")
+            for method in methods:
+                method_sexpr = self._method_to_schema_v2(method)
+                lines.append(f"    {method_sexpr}")
+            lines.append("  )")
+            return "\n".join(lines)
+        else:
+            return f"  (service {name} [{deps_str}])"
+
+    def _model_to_schema_v2(self, name: str, attrs: list[Any]) -> str:
+        """Format a model/dataclass: (model Name [field:type ...])"""
+        fields = self._format_fields(attrs)
+        return f"  (model {name} [{fields}])"
+
+    def _plain_class_to_schema_v2(
+        self, name: str, parent: str, attrs: list[str], methods: list[Node]
+    ) -> str:
+        """Format a plain class: (class Name Parent [attrs] (method ...) ...)"""
+        lines = []
+        attrs_str = " ".join(attrs) if attrs else ""
+
+        if methods:
+            lines.append(f"  (class {name} {parent} [{attrs_str}]")
+            for method in methods:
+                method_sexpr = self._method_to_schema_v2(method)
+                lines.append(f"    {method_sexpr}")
+            lines.append("  )")
+            return "\n".join(lines)
+        else:
+            return f"  (class {name} {parent} [{attrs_str}])"
+
+    def _method_to_schema_v2(self, node: Node) -> str:
+        """Convert a method: (method Name [args] ReturnType Complexity)"""
+        props = node.properties or {}
+        name = node.name or "unknown"
+        return_type = props.get("return_type", "None") or "None"
+        complexity = props.get("complexity", 0) or node.complexity or 0
+
+        params = props.get("parameters", [])
+        args = self._format_params(params)
+
+        return f"(method {name} [{args}] {return_type} {complexity})"
+
+    def _function_to_schema_v2(self, node: Node) -> str:
+        """Convert a function: (function Name [args] ReturnType Complexity)
+
+        If function has HTTP decorators, use (api HttpVerb Path Handler [args])
+        """
+        props = node.properties or {}
+        name = node.name or "unknown"
+        return_type = props.get("return_type", "None") or "None"
+        complexity = props.get("complexity", 0) or node.complexity or 0
+        decorators = props.get("decorators", [])
+        decorators_str = str(decorators).lower()
+
+        # Check for API endpoint (HTTP method decorators)
+        for verb in ["get", "post", "put", "delete", "patch"]:
+            if verb in decorators_str:
+                path = self._extract_path_from_decorators(decorators)
+                params = props.get("parameters", [])
+                args = self._format_params(params)
+                return f'(api {verb.upper()} "{path}" {name} [{args}])'
+
+        # Regular function
+        params = props.get("parameters", [])
+        args = self._format_params(params)
+
+        return f"(function {name} [{args}] {return_type} {complexity})"
+
+    def _format_params(self, params: list[Any]) -> str:
+        """Format function/method parameters as name:type pairs."""
+        param_strs = []
+        for p in params:
+            if isinstance(p, dict):
+                pname = p.get("name", "?")
+                ptype = p.get("type_annotation", "")
+                if pname in ("self", "cls"):
+                    continue
+                if ptype:
+                    param_strs.append(f"{pname}:{ptype}")
+                else:
+                    param_strs.append(pname)
+            elif isinstance(p, str):
+                param_strs.append(p)
+        return " ".join(param_strs)
+
+    def _format_attrs(self, attrs: list[Any]) -> list[str]:
+        """Format class attributes, prefixing injected deps with _."""
+        result = []
+        for attr in attrs[:10]:
+            if isinstance(attr, dict):
+                aname = attr.get("name", "?")
+            else:
+                aname = str(attr)
+            if aname.startswith("_") or "service" in aname.lower() or "repo" in aname.lower():
+                if not aname.startswith("_"):
+                    aname = f"_{aname}"
+            result.append(aname)
+        if len(attrs) > 10:
+            result.append(f"+{len(attrs) - 10}")
+        return result
+
+    def _format_fields(self, attrs: list[Any]) -> str:
+        """Format model fields as name:type pairs."""
+        field_strs = []
+        for attr in attrs[:10]:
+            if isinstance(attr, dict):
+                fname = attr.get("name", "?")
+                ftype = attr.get("type", attr.get("type_annotation", "Any"))
+                field_strs.append(f"{fname}:{ftype}" if ftype else fname)
+            else:
+                field_strs.append(str(attr))
+        if len(attrs) > 10:
+            field_strs.append(f"+{len(attrs) - 10}")
+        return " ".join(field_strs)
+
+    def _extract_path_from_decorators(self, decorators: list[Any]) -> str:
+        """Extract URL path from HTTP method decorators."""
+        import re
+
+        for dec in decorators:
+            dec_str = str(dec)
+            path_match = re.search(r'["\']([^"\']+)["\']', dec_str)
+            if path_match:
+                return path_match.group(1)
+        return "/"
+
+    def _path_to_module_name(self, path: str) -> str:
+        """Convert a file path to module name.
+
+        Args:
+            path: File path.
+
+        Returns:
+            Module name (e.g., 'mu.parser.models').
+        """
+        name = path
+
+        # Remove common prefixes
+        for prefix in ("src/", "lib/", "app/"):
+            if name.startswith(prefix):
+                name = name[len(prefix) :]
+                break
+
+        # Remove extension
+        for ext in (".py", ".ts", ".js", ".go", ".java", ".rs", ".cs"):
+            if name.endswith(ext):
+                name = name[: -len(ext)]
+                break
+
+        # Convert path separators to dots
+        name = name.replace("/", ".").replace("\\", ".")
+
+        # Remove trailing __init__
+        if name.endswith(".__init__"):
+            name = name[:-9]
+
+        return name
 
     def _count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken.

@@ -209,12 +209,16 @@ class MacroSynthesizer:
     ) -> SynthesisResult:
         """Synthesize macros from codebase patterns.
 
+        This method does two things:
+        1. Creates MacroDefinition objects for detected patterns
+        2. Builds a node→macro map for O(1) lookup during compression
+
         Args:
             include_standard: Include standard macros that match patterns.
             max_synthesized: Override MAX_SYNTHESIZED_MACROS limit.
 
         Returns:
-            SynthesisResult with macro definitions.
+            SynthesisResult with macro definitions and node_macro_map.
         """
         start_time = time.time()
         max_synth = max_synthesized or self.MAX_SYNTHESIZED_MACROS
@@ -264,6 +268,9 @@ class MacroSynthesizer:
                         macros.append(synthesized)
                         synthesized_count += 1
 
+        # Build node→macro map for O(1) lookup during compression
+        node_macro_map = self._build_node_macro_map(macros)
+
         # Calculate estimated compression
         total_savings = sum(m.token_savings for m in macros)
         # Rough estimate: assume average context is ~10000 tokens
@@ -273,11 +280,102 @@ class MacroSynthesizer:
 
         return SynthesisResult(
             macros=macros,
+            node_macro_map=node_macro_map,
             total_patterns_analyzed=total_patterns,
             patterns_converted=len(macros),
             estimated_compression=min(estimated_compression, 0.9),  # Cap at 90%
             synthesis_time_ms=elapsed_ms,
+            nodes_mapped=len(node_macro_map),
         )
+
+    def _build_node_macro_map(
+        self, macros: list[MacroDefinition]
+    ) -> dict[str, MacroDefinition]:
+        """Build a mapping from node IDs to applicable macros.
+
+        This is the key optimization: instead of O(N*M) matching during export,
+        we pre-compute which macro applies to each node during synthesis.
+
+        Args:
+            macros: Available macro definitions.
+
+        Returns:
+            Dict mapping node_id -> MacroDefinition.
+        """
+        from mu.kernel.schema import NodeType
+
+        node_macro_map: dict[str, MacroDefinition] = {}
+
+        # Build macro lookup by name for fast access
+        macro_lookup = {m.name: m for m in macros}
+
+        # Query nodes from database and match to macros
+        # We check each macro type against the appropriate node type
+
+        # Test functions
+        if "test" in macro_lookup:
+            test_macro = macro_lookup["test"]
+            functions = self.db.get_nodes(NodeType.FUNCTION)
+            for node in functions:
+                node_name = (node.name or "").lower()
+                file_path = (node.file_path or "").lower()
+                if node_name.startswith("test") or "/test" in file_path:
+                    node_macro_map[node.id] = test_macro
+
+        # Service classes
+        if "service" in macro_lookup:
+            service_macro = macro_lookup["service"]
+            classes = self.db.get_nodes(NodeType.CLASS)
+            for node in classes:
+                if (node.name or "").lower().endswith("service"):
+                    node_macro_map[node.id] = service_macro
+
+        # Repository classes
+        if "repo" in macro_lookup:
+            repo_macro = macro_lookup["repo"]
+            classes = self.db.get_nodes(NodeType.CLASS)
+            for node in classes:
+                node_name = (node.name or "").lower()
+                if "repository" in node_name or "repo" in node_name:
+                    node_macro_map[node.id] = repo_macro
+
+        # Model classes (dataclasses)
+        if "model" in macro_lookup:
+            model_macro = macro_lookup["model"]
+            classes = self.db.get_nodes(NodeType.CLASS)
+            for node in classes:
+                props = node.properties or {}
+                decorators = str(props.get("decorators", [])).lower()
+                if "dataclass" in decorators or (node.name or "").lower().endswith(
+                    "model"
+                ):
+                    if node.id not in node_macro_map:  # Don't override service/repo
+                        node_macro_map[node.id] = model_macro
+
+        # Hook functions (React-style use*)
+        if "hook" in macro_lookup:
+            hook_macro = macro_lookup["hook"]
+            functions = self.db.get_nodes(NodeType.FUNCTION)
+            for node in functions:
+                if (node.name or "").lower().startswith("use"):
+                    if node.id not in node_macro_map:  # Don't override test
+                        node_macro_map[node.id] = hook_macro
+
+        # API endpoints (functions with HTTP decorators)
+        if "api" in macro_lookup:
+            api_macro = macro_lookup["api"]
+            functions = self.db.get_nodes(NodeType.FUNCTION)
+            for node in functions:
+                props = node.properties or {}
+                decorators = str(props.get("decorators", [])).lower()
+                if any(
+                    m in decorators
+                    for m in ["get", "post", "put", "delete", "patch", "route"]
+                ):
+                    if node.id not in node_macro_map:
+                        node_macro_map[node.id] = api_macro
+
+        return node_macro_map
 
     def _analyze_pattern(self, pattern: Pattern) -> MacroDefinition | None:
         """Analyze a pattern and generate a macro if beneficial.
