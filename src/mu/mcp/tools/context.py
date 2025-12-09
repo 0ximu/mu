@@ -30,6 +30,9 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
     Returns:
         MU format context with token count
     """
+    if not question or not question.strip():
+        raise ValueError("Question cannot be empty. Please provide a question about the codebase.")
+
     cwd = str(Path.cwd())
 
     try:
@@ -55,7 +58,7 @@ def mu_context(question: str, max_tokens: int = 8000) -> ContextResult:
         from mu.kernel import MUbase
         from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
-        db = MUbase(mubase_path)
+        db = MUbase(mubase_path, read_only=True)
         try:
             cfg = ExtractionConfig(max_tokens=max_tokens)
             extractor = SmartContextExtractor(db, cfg)
@@ -110,6 +113,41 @@ def mu_context_omega(
         - Prompt cache optimization
         - Large codebase exploration
     """
+    if not question or not question.strip():
+        raise ValueError("Question cannot be empty. Please provide a question about the codebase.")
+
+    cwd = str(Path.cwd())
+
+    # Try daemon first
+    try:
+        client = get_client()
+        with client:
+            result = client.context_omega(
+                question,
+                max_tokens=max_tokens,
+                include_synthesized=include_synthesized,
+                max_synthesized_macros=max_synthesized_macros,
+                include_seed=include_seed,
+                cwd=cwd,
+            )
+
+        return OmegaContextOutput(
+            seed=result.get("seed", ""),
+            body=result.get("body", ""),
+            full_output=result.get("full_output", ""),
+            macros_used=result.get("macros_used", []),
+            seed_tokens=result.get("seed_tokens", 0),
+            body_tokens=result.get("body_tokens", 0),
+            total_tokens=result.get("total_tokens", 0),
+            original_tokens=result.get("original_tokens", 0),
+            compression_ratio=result.get("compression_ratio", 1.0),
+            nodes_included=result.get("nodes_included", 0),
+            manifest=result.get("manifest", {}),
+        )
+    except DaemonError:
+        # Fall back to direct database access
+        pass
+
     mubase_path = find_mubase()
     if not mubase_path:
         raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build' first.")
@@ -128,28 +166,28 @@ def mu_context_omega(
         )
 
         extractor = OmegaContextExtractor(db, config)
-        result = extractor.extract(question)
+        extract_result = extractor.extract(question)
 
         # If include_seed=False, only return the body (seed already in context)
         if include_seed:
-            full_output = result.full_output
-            total_tokens = result.total_tokens
+            full_output = extract_result.full_output
+            total_tokens = extract_result.total_tokens
         else:
-            full_output = result.body
-            total_tokens = result.body_tokens
+            full_output = extract_result.body
+            total_tokens = extract_result.body_tokens
 
         return OmegaContextOutput(
-            seed=result.seed if include_seed else "",
-            body=result.body,
+            seed=extract_result.seed if include_seed else "",
+            body=extract_result.body,
             full_output=full_output,
-            macros_used=result.macros_used,
-            seed_tokens=result.seed_tokens if include_seed else 0,
-            body_tokens=result.body_tokens,
+            macros_used=extract_result.macros_used,
+            seed_tokens=extract_result.seed_tokens if include_seed else 0,
+            body_tokens=extract_result.body_tokens,
             total_tokens=total_tokens,
-            original_tokens=result.original_tokens,
-            compression_ratio=result.compression_ratio,
-            nodes_included=result.nodes_included,
-            manifest=result.manifest.to_dict(),
+            original_tokens=extract_result.original_tokens,
+            compression_ratio=extract_result.compression_ratio,
+            nodes_included=extract_result.nodes_included,
+            manifest=extract_result.manifest.to_dict(),
         )
     finally:
         db.close()

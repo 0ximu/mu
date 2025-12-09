@@ -209,6 +209,17 @@ def grok(
             token_count = daemon_result.get("token_count", 0)
             nodes = daemon_result.get("nodes", [])
 
+            # Calculate token count if daemon didn't provide it
+            if token_count == 0 and mu_text:
+                try:
+                    import tiktoken
+
+                    enc = tiktoken.get_encoding("cl100k_base")
+                    token_count = len(enc.encode(mu_text))
+                except ImportError:
+                    # Fallback: rough estimate of ~4 chars per token
+                    token_count = len(mu_text) // 4
+
             if output_format == "json":
                 click.echo(
                     json.dumps(
@@ -620,7 +631,8 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
-        root_path = mubase_path.parent
+        # mubase_path is .mu/mubase, so root is two levels up
+        root_path = mubase_path.parent.parent
         config = WarningConfig()
         generator = ProactiveWarningGenerator(db, config, root_path)
         result = generator.analyze(target)

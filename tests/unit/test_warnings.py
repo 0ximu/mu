@@ -195,13 +195,9 @@ class TestProactiveWarningGenerator:
     def test_analyze_unknown_target(
         self, generator: ProactiveWarningGenerator
     ) -> None:
-        """Test analyzing an unknown target."""
-        result = generator.analyze("nonexistent_file.py")
-
-        assert result.target == "nonexistent_file.py"
-        assert result.target_type == "unknown"
-        assert not result.has_warnings
-        assert "not found" in result.summary.lower()
+        """Test analyzing an unknown target raises ValueError."""
+        with pytest.raises(ValueError, match="Target not found"):
+            generator.analyze("nonexistent_file.py")
 
     def test_analyze_file_target(
         self, generator: ProactiveWarningGenerator, tmp_path: Path

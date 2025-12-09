@@ -28,6 +28,7 @@ class QueryResult:
     rows: list[list[Any]]
     row_count: int
     execution_time_ms: float | None = None
+    error: str | None = None
 
 
 @dataclass

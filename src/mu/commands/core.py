@@ -316,8 +316,8 @@ def status(ctx: MUContext, as_json: bool) -> None:
             else:
                 next_action = None
                 message = "MU ready. All systems operational."
-        except DaemonError as e:
-            print_warning(f"Daemon query failed: {e}")
+        except DaemonError:
+            # Daemon was running but query failed - silently fall back to local mode
             daemon_running = False
 
     # Fallback to direct MUbase access

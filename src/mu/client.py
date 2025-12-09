@@ -211,6 +211,57 @@ class DaemonClient:
         except Exception as e:
             raise DaemonError(f"Context request failed: {e}") from e
 
+    def deps(
+        self,
+        node_id: str,
+        depth: int = 2,
+        direction: str = "outgoing",
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get dependencies of a node.
+
+        Args:
+            node_id: Node ID or name.
+            depth: How many levels deep to traverse (default 2).
+            direction: "outgoing" (what it uses), "incoming" (what uses it), or "both".
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Dependencies result with node_id, direction, dependencies list.
+        """
+        try:
+            payload: dict[str, Any] = {
+                "node": node_id,
+                "depth": depth,
+                "direction": direction,
+            }
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/deps",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            result = self._unwrap_response(data)
+            # Rust daemon returns a list of node IDs, normalize to expected dict format
+            if isinstance(result, list):
+                return {
+                    "node_id": node_id,
+                    "direction": direction,
+                    "dependencies": result,
+                }
+            return result
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Deps request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
+        except Exception as e:
+            raise DaemonError(f"Deps error: {e}") from e
+
     def impact(
         self,
         node_id: str,
@@ -352,6 +403,138 @@ class DaemonClient:
             raise
         except Exception as e:
             raise DaemonError(f"Cycles error: {e}") from e
+
+    def context_omega(
+        self,
+        question: str,
+        max_tokens: int = 8000,
+        include_synthesized: bool = True,
+        max_synthesized_macros: int = 5,
+        include_seed: bool = True,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get OMEGA-compressed context for a question.
+
+        Args:
+            question: Natural language question.
+            max_tokens: Maximum tokens in output.
+            include_synthesized: Include codebase-specific macros.
+            max_synthesized_macros: Max synthesized macros to use.
+            include_seed: Include macro definitions in full_output.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            OMEGA context result with seed, body, compression metrics.
+
+        Raises:
+            DaemonError: If request fails.
+        """
+        try:
+            payload: dict[str, Any] = {
+                "question": question,
+                "max_tokens": max_tokens,
+                "include_synthesized": include_synthesized,
+                "max_synthesized_macros": max_synthesized_macros,
+                "include_seed": include_seed,
+            }
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/context/omega",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"OMEGA context request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
+        except Exception as e:
+            raise DaemonError(f"OMEGA context error: {e}") from e
+
+    def patterns(
+        self,
+        category: str | None = None,
+        refresh: bool = False,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get detected codebase patterns.
+
+        Args:
+            category: Optional category filter (naming, architecture, testing, api, etc.).
+            refresh: Force re-analysis (bypass cached patterns).
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Patterns result with patterns, total_patterns, categories_found.
+
+        Raises:
+            DaemonError: If request fails.
+        """
+        try:
+            payload: dict[str, Any] = {"refresh": refresh}
+            if category:
+                payload["category"] = category
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/patterns",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Patterns request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
+        except Exception as e:
+            raise DaemonError(f"Patterns error: {e}") from e
+
+    def warn(
+        self,
+        target: str,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        """Get proactive warnings about a target.
+
+        Args:
+            target: File path or node ID to analyze.
+            cwd: Client working directory for multi-project routing.
+
+        Returns:
+            Warnings result with target, target_type, warnings, summary, risk_score.
+
+        Raises:
+            DaemonError: If request fails.
+        """
+        try:
+            payload: dict[str, Any] = {"target": target}
+            if cwd:
+                payload["cwd"] = cwd
+            response = self._client.post(
+                "/warn",
+                json=payload,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            data = cast(dict[str, Any], response.json())
+            return self._unwrap_response(data)
+        except httpx.ConnectError as e:
+            raise DaemonError(f"Daemon not available: {e}") from e
+        except httpx.HTTPStatusError as e:
+            raise DaemonError(f"Warn request failed: {e.response.text}") from e
+        except DaemonError:
+            raise
+        except Exception as e:
+            raise DaemonError(f"Warn error: {e}") from e
 
     def node(self, node_id: str, cwd: str | None = None) -> dict[str, Any]:
         """Get a node by ID.

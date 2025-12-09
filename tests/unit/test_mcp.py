@@ -174,48 +174,121 @@ class TestMuContext:
 class TestMuDeps:
     """Tests for mu_deps tool."""
 
-    @patch("mu.mcp.tools.analysis.get_client")
-    def test_deps_outgoing(self, mock_get_client: MagicMock) -> None:
+    @patch("mu.mcp.tools._utils.get_client")
+    @patch("mu.mcp.tools.analysis.find_mubase")
+    @patch("mu.mcp.tools.analysis.resolve_node_id")
+    @patch("mu.kernel.MUbase")
+    @patch("mu.kernel.graph.GraphManager")
+    def test_deps_outgoing(
+        self,
+        mock_gm_class: MagicMock,
+        mock_mubase_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_find_mubase: MagicMock,
+        mock_get_client: MagicMock,
+    ) -> None:
         """Test dependency lookup for outgoing dependencies."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name", "file_path"],
-            "rows": [
-                ["mod:utils", "module", "utils", "src/utils.py"],
-                ["class:Helper", "class", "Helper", "src/helper.py"],
-            ],
-            "row_count": 2,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
+        from pathlib import Path
+
+        from mu.kernel.schema import NodeType
+
+        # Setup mocks - daemon not running, fall through to local mode
+        mock_get_client.side_effect = DaemonError("Daemon not running")
+        mock_find_mubase.return_value = Path("/tmp/.mu/mubase")
+        mock_resolve.return_value = "cls:src/auth.py:AuthService"
+
+        mock_db = MagicMock()
+        mock_mubase_class.return_value = mock_db
+
+        mock_gm = MagicMock()
+        mock_gm_class.return_value = mock_gm
+        mock_gm.has_node.return_value = True
+        mock_gm.ancestors.return_value = ["mod:utils", "cls:Helper"]
+
+        # Create mock nodes for get_node calls
+        mock_node1 = MagicMock()
+        mock_node1.id = "mod:utils"
+        mock_node1.type = NodeType.MODULE
+        mock_node1.name = "utils"
+        mock_node1.qualified_name = "utils"
+        mock_node1.file_path = "src/utils.py"
+        mock_node1.line_start = 1
+        mock_node1.line_end = 100
+        mock_node1.complexity = 0
+
+        mock_node2 = MagicMock()
+        mock_node2.id = "cls:Helper"
+        mock_node2.type = NodeType.CLASS
+        mock_node2.name = "Helper"
+        mock_node2.qualified_name = "helper.Helper"
+        mock_node2.file_path = "src/helper.py"
+        mock_node2.line_start = 10
+        mock_node2.line_end = 50
+        mock_node2.complexity = 5
+
+        mock_db.get_node.side_effect = lambda x: {
+            "mod:utils": mock_node1,
+            "cls:Helper": mock_node2,
+        }.get(x)
 
         result = mu_deps("AuthService", depth=2, direction="outgoing")
 
-        assert result.node_id == "AuthService"
+        assert result.node_id == "cls:src/auth.py:AuthService"
         assert result.direction == "outgoing"
         assert len(result.dependencies) == 2
         assert result.dependencies[0].name == "utils"
 
-    @patch("mu.mcp.tools.analysis.get_client")
-    def test_deps_incoming(self, mock_get_client: MagicMock) -> None:
+    @patch("mu.mcp.tools._utils.get_client")
+    @patch("mu.mcp.tools.analysis.find_mubase")
+    @patch("mu.mcp.tools.analysis.resolve_node_id")
+    @patch("mu.kernel.MUbase")
+    @patch("mu.kernel.graph.GraphManager")
+    def test_deps_incoming(
+        self,
+        mock_gm_class: MagicMock,
+        mock_mubase_class: MagicMock,
+        mock_resolve: MagicMock,
+        mock_find_mubase: MagicMock,
+        mock_get_client: MagicMock,
+    ) -> None:
         """Test dependency lookup for incoming dependencies (dependents)."""
-        mock_client = MagicMock()
-        mock_client.query.return_value = {
-            "columns": ["id", "type", "name"],
-            "rows": [["func:login", "function", "login"]],
-            "row_count": 1,
-        }
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_get_client.return_value = mock_client
+        from pathlib import Path
+
+        from mu.kernel.schema import NodeType
+
+        # Setup mocks - daemon not running, fall through to local mode
+        mock_get_client.side_effect = DaemonError("Daemon not running")
+        mock_find_mubase.return_value = Path("/tmp/.mu/mubase")
+        mock_resolve.return_value = "cls:src/auth.py:AuthService"
+
+        mock_db = MagicMock()
+        mock_mubase_class.return_value = mock_db
+
+        mock_gm = MagicMock()
+        mock_gm_class.return_value = mock_gm
+        mock_gm.has_node.return_value = True
+        mock_gm.impact.return_value = ["fn:login"]
+
+        # Create mock node for get_node call
+        mock_node = MagicMock()
+        mock_node.id = "fn:login"
+        mock_node.type = NodeType.FUNCTION
+        mock_node.name = "login"
+        mock_node.qualified_name = "auth.login"
+        mock_node.file_path = "src/auth.py"
+        mock_node.line_start = 20
+        mock_node.line_end = 30
+        mock_node.complexity = 3
+
+        mock_db.get_node.return_value = mock_node
 
         result = mu_deps("AuthService", direction="incoming")
 
         assert result.direction == "incoming"
-        # Should use SHOW dependents query
-        call_args = mock_client.query.call_args[0][0]
-        assert "dependents" in call_args.lower()
+        # Should use impact (incoming dependencies)
+        mock_gm.impact.assert_called_once()
+        assert len(result.dependencies) == 1
+        assert result.dependencies[0].name == "login"
 
 
 class TestMuStatus:
@@ -332,9 +405,7 @@ class TestMuReviewDiff:
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="main",
             head_ref="HEAD",
-            changes=[
-                {"entity_name": "new_func", "change_type": "added", "is_breaking": False}
-            ],
+            changes=[{"entity_name": "new_func", "change_type": "added", "is_breaking": False}],
             breaking_changes=[],
             summary_text="1 change",
             has_breaking_changes=False,
@@ -353,9 +424,7 @@ class TestMuReviewDiff:
         assert "Looks good" in result.review_summary
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
-    def test_review_diff_with_breaking_changes(
-        self, mock_semantic_diff: MagicMock
-    ) -> None:
+    def test_review_diff_with_breaking_changes(self, mock_semantic_diff: MagicMock) -> None:
         """Test review diff detects breaking changes."""
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="main",
@@ -417,9 +486,7 @@ class TestMuReviewDiff:
         assert len(result.files_checked) == 0
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
-    def test_review_diff_summary_generation(
-        self, mock_semantic_diff: MagicMock
-    ) -> None:
+    def test_review_diff_summary_generation(self, mock_semantic_diff: MagicMock) -> None:
         """Test review summary is properly generated."""
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="develop",
@@ -445,9 +512,7 @@ class TestMuReviewDiff:
         assert "Recommendation" in result.review_summary
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
-    def test_review_diff_with_category_ignored(
-        self, mock_semantic_diff: MagicMock
-    ) -> None:
+    def test_review_diff_with_category_ignored(self, mock_semantic_diff: MagicMock) -> None:
         """Test review diff ignores pattern_category (validation removed)."""
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="main",

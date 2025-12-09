@@ -98,7 +98,7 @@ def kernel_context(
 
     # Validate input before any database access
     if not question or not question.strip():
-        print_error("Question cannot be empty")
+        print_error("Question cannot be empty. Please provide a question about the codebase.")
         sys.exit(ExitCode.CONFIG_ERROR)
 
     mubase_path = get_mubase_path(path)
@@ -108,7 +108,7 @@ def kernel_context(
         print_info("Run 'mu kernel build' first to create the graph database")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    db = MUbase(mubase_path, read_only=True)
 
     # Check for embeddings (optional but recommended)
     has_embeddings = db.has_embeddings()

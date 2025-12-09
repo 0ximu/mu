@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from lark import Lark, Token, Transformer
-from lark.exceptions import LarkError, UnexpectedCharacters, UnexpectedToken
+from lark.exceptions import LarkError, UnexpectedCharacters, UnexpectedEOF, UnexpectedToken
 
 from mu.kernel.muql.ast import (
     AggregateComparison,
@@ -1084,8 +1084,8 @@ class MUQLParser:
                 column=e.column,
             ) from e
         except UnexpectedToken as e:
-            expected = ", ".join(sorted(e.expected)[:5])
-            if len(e.expected) > 5:
+            expected = ", ".join(sorted(set(e.expected))[:5])
+            if len(set(e.expected)) > 5:
                 expected += ", ..."
             # Check for common mistake patterns
             suggestion = self._suggest_fix(query, e.column if e.column else 0)
@@ -1097,6 +1097,25 @@ class MUQLParser:
                 line=e.line,
                 column=e.column,
             ) from e
+        except UnexpectedEOF as e:
+            # Handle empty or incomplete queries with a clean error message
+            if not query.strip():
+                error_msg = "Empty query. Expected: SELECT, SHOW, FIND, PATH, ANALYZE, DESCRIBE, HISTORY, BLAME, or CYCLES"
+            else:
+                # Deduplicate expected tokens and show a clean list
+                unique_expected = sorted(set(e.expected))
+                # Map internal token names to user-friendly names
+                friendly_tokens = set()
+                for tok in unique_expected:
+                    if tok.endswith("_KW"):
+                        friendly_tokens.add(tok.replace("_KW", ""))
+                    else:
+                        friendly_tokens.add(tok)
+                expected = ", ".join(sorted(friendly_tokens)[:10])
+                if len(friendly_tokens) > 10:
+                    expected += ", ..."
+                error_msg = f"Unexpected end of query. Expected one of: {expected}"
+            raise MUQLSyntaxError(error_msg) from e
         except LarkError as e:
             raise MUQLSyntaxError(str(e)) from e
 

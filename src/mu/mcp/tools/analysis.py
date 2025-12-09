@@ -17,7 +17,7 @@ from mu.mcp.models import (
     SemanticDiffOutput,
     ViolationInfo,
 )
-from mu.mcp.tools._utils import find_mubase, get_client, resolve_node_id
+from mu.mcp.tools._utils import find_mubase, resolve_node_id
 from mu.paths import MU_DIR, MUBASE_FILE
 
 
@@ -38,96 +38,129 @@ def mu_deps(
     Returns:
         List of dependent nodes
     """
+    from mu.mcp.tools._utils import get_client
+
     cwd = str(Path.cwd())
 
-    # Use MUQL SHOW command for dependency traversal
-    if direction == "incoming":
-        query = f"SHOW dependents OF {node_name} DEPTH {depth}"
-    elif direction == "both":
-        query = f"SHOW dependencies OF {node_name} DEPTH {depth}"
-    else:
-        query = f"SHOW dependencies OF {node_name} DEPTH {depth}"
-
+    # Try daemon first
     try:
         client = get_client()
         with client:
-            result = client.query(query, cwd=cwd)
+            # First verify the node exists
+            node_data = client.find_node(node_name, cwd=cwd)
+            if node_data is None:
+                raise ValueError(f"Node not found: {node_name}")
 
-        columns = result.get("columns", [])
-        rows = result.get("rows", [])
+            result = client.deps(node_name, depth=depth, direction=direction, cwd=cwd)
 
-        deps = []
-        for row in rows:
-            row_dict = dict(zip(columns, row, strict=False))
-            deps.append(
-                NodeInfo(
-                    id=row_dict.get("id", ""),
-                    type=row_dict.get("type", ""),
-                    name=row_dict.get("name", ""),
-                    qualified_name=row_dict.get("qualified_name"),
-                    file_path=row_dict.get("file_path"),
-                    line_start=row_dict.get("line_start"),
-                    line_end=row_dict.get("line_end"),
-                    complexity=row_dict.get("complexity", 0),
-                )
+        # Daemon returns list of node IDs, convert to NodeInfo via query
+        dep_ids = result.get("dependencies", [])
+        if not dep_ids:
+            return DepsResult(
+                node_id=result.get("node_id", node_name),
+                direction=direction,
+                dependencies=[],
             )
 
+        # Fetch node details for each dependency
+        deps = []
+        for dep_id in dep_ids[:100]:  # Limit to 100
+            try:
+                node_data = client.node(dep_id, cwd=cwd)
+                deps.append(
+                    NodeInfo(
+                        id=node_data.get("id", dep_id),
+                        type=node_data.get("type", "unknown"),
+                        name=node_data.get("name", ""),
+                        qualified_name=node_data.get("qualified_name"),
+                        file_path=node_data.get("file_path"),
+                        line_start=node_data.get("line_start"),
+                        line_end=node_data.get("line_end"),
+                        complexity=node_data.get("complexity", 0),
+                    )
+                )
+            except DaemonError:
+                # Node not found, include ID only
+                deps.append(
+                    NodeInfo(
+                        id=dep_id,
+                        type="unknown",
+                        name=dep_id.split(":")[-1] if ":" in dep_id else dep_id,
+                    )
+                )
+
         return DepsResult(
-            node_id=node_name,
+            node_id=result.get("node_id", node_name),
             direction=direction,
             dependencies=deps,
         )
     except DaemonError:
-        mubase_path = find_mubase()
-        if not mubase_path:
-            raise DaemonError(
-                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
-            ) from None
+        pass  # Fall through to local mode
 
-        from mu.kernel import MUbase
-        from mu.kernel.muql import MUQLEngine
+    # Fallback to local mode
+    mubase_path = find_mubase()
+    if not mubase_path:
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first.")
 
-        db = MUbase(mubase_path)
-        root_path = mubase_path.parent.parent
-        try:
-            # Resolve node name to full ID before querying
-            resolved_name = resolve_node_id(db, node_name, root_path)
+    from mu.kernel import MUbase
+    from mu.kernel.graph import GraphManager
 
-            # Rebuild query with resolved name
-            if direction == "incoming":
-                resolved_query = f"SHOW dependents OF {resolved_name} DEPTH {depth}"
-            else:
-                resolved_query = f"SHOW dependencies OF {resolved_name} DEPTH {depth}"
+    db = MUbase(mubase_path, read_only=True)
+    root_path = mubase_path.parent.parent
+    try:
+        gm = GraphManager(db.conn)
+        gm.load()
 
-            engine = MUQLEngine(db)
-            result = engine.query_dict(resolved_query)
+        resolved_id = resolve_node_id(db, node_name, root_path)
 
-            columns = result.get("columns", [])
-            rows = result.get("rows", [])
+        if not gm.has_node(resolved_id):
+            # Check if resolution failed (returned original name)
+            if resolved_id == node_name and not node_name.startswith(("mod:", "cls:", "fn:")):
+                raise ValueError(f"Node not found: {node_name}")
+            # Node exists in DB but not in graph (edge case)
+            raise ValueError(f"Node '{resolved_id}' not found in dependency graph")
 
-            deps = []
-            for row in rows:
-                row_dict = dict(zip(columns, row, strict=False))
+        # Use GraphManager methods based on direction
+        if direction == "outgoing":
+            # Get what this node depends on (ancestors)
+            dep_ids = gm.ancestors(resolved_id)
+        elif direction == "incoming":
+            # Get what depends on this node (impact)
+            dep_ids = gm.impact(resolved_id)
+        else:
+            # Both directions
+            ancestors = set(gm.ancestors(resolved_id))
+            impacted = set(gm.impact(resolved_id))
+            dep_ids = list(ancestors | impacted)
+
+        # Limit results to avoid overwhelming output
+        dep_ids = dep_ids[:100]
+
+        # Convert IDs to NodeInfo
+        deps = []
+        for dep_id in dep_ids:
+            node = db.get_node(dep_id)
+            if node:
                 deps.append(
                     NodeInfo(
-                        id=row_dict.get("id", ""),
-                        type=row_dict.get("type", ""),
-                        name=row_dict.get("name", ""),
-                        qualified_name=row_dict.get("qualified_name"),
-                        file_path=row_dict.get("file_path"),
-                        line_start=row_dict.get("line_start"),
-                        line_end=row_dict.get("line_end"),
-                        complexity=row_dict.get("complexity", 0),
+                        id=node.id,
+                        type=node.type.value if hasattr(node.type, "value") else str(node.type),
+                        name=node.name,
+                        qualified_name=node.qualified_name,
+                        file_path=node.file_path,
+                        line_start=node.line_start,
+                        line_end=node.line_end,
+                        complexity=node.complexity or 0,
                     )
                 )
 
-            return DepsResult(
-                node_id=resolved_name,
-                direction=direction,
-                dependencies=deps,
-            )
-        finally:
-            db.close()
+        return DepsResult(
+            node_id=resolved_id,
+            direction=direction,
+            dependencies=deps,
+        )
+    finally:
+        db.close()
 
 
 def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult:
@@ -144,12 +177,18 @@ def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult
     Returns:
         List of node IDs that would be impacted by changes to this node
 
+    Raises:
+        ValueError: If node_id does not exist in the graph
+
     Examples:
         - mu_impact("mod:src/auth.py") - What breaks if auth.py changes?
         - mu_impact("AuthService", ["imports"]) - Only follow import edges
     """
+    from mu.mcp.tools._utils import get_client
+
     cwd = str(Path.cwd())
 
+    # Try daemon first
     try:
         client = get_client()
         with client:
@@ -161,35 +200,38 @@ def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult
             count=result.get("count", 0),
         )
     except DaemonError:
-        mubase_path = find_mubase()
-        if not mubase_path:
-            raise DaemonError(
-                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
-            ) from None
+        pass  # Fall through to local mode
 
-        from mu.kernel import MUbase
-        from mu.kernel.graph import GraphManager
+    # Fallback to local mode
+    mubase_path = find_mubase()
+    if not mubase_path:
+        raise DaemonError(
+            f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
+        )
 
-        db = MUbase(mubase_path)
-        root_path = mubase_path.parent.parent
-        try:
-            gm = GraphManager(db.conn)
-            gm.load()
+    from mu.kernel import MUbase
+    from mu.kernel.graph import GraphManager
 
-            resolved_id = resolve_node_id(db, node_id, root_path)
+    db = MUbase(mubase_path, read_only=True)
+    root_path = mubase_path.parent.parent
+    try:
+        gm = GraphManager(db.conn)
+        gm.load()
 
-            if not gm.has_node(resolved_id):
-                raise ValueError(f"Node not found in graph: {resolved_id}")
+        resolved_id = resolve_node_id(db, node_id, root_path)
 
-            impacted = gm.impact(resolved_id, edge_types)
+        if not gm.has_node(resolved_id):
+            raise ValueError(f"Node not found: {node_id}")
 
-            return ImpactResult(
-                node_id=resolved_id,
-                impacted_nodes=impacted,
-                count=len(impacted),
-            )
-        finally:
-            db.close()
+        impacted = gm.impact(resolved_id, edge_types)
+
+        return ImpactResult(
+            node_id=resolved_id,
+            impacted_nodes=impacted,
+            count=len(impacted),
+        )
+    finally:
+        db.close()
 
 
 def mu_semantic_diff(

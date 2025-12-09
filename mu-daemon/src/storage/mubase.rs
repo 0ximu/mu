@@ -308,19 +308,28 @@ impl MUbase {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(sql)?;
 
-        // Execute the query
+        // Get column count
+        let column_count = stmt.column_count();
+
+        // Execute the query first to get proper column names from result
         let mut rows = stmt.query([])?;
 
-        // Collect rows first, then we'll know column count
+        // Get column names from the rows (more reliable than stmt.column_name)
+        // DuckDB's Rows type has as_ref() -> &Statement which gives proper column names
+        let columns: Vec<String> = (0..column_count)
+            .map(|i| {
+                // Try to get column name from the result set
+                rows.as_ref()
+                    .and_then(|stmt| stmt.column_name(i).ok())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("col_{}", i))
+            })
+            .collect();
+
+        // Collect rows
         let mut rows_data: Vec<Vec<serde_json::Value>> = Vec::new();
-        let mut column_count = 0usize;
 
         while let Some(row) = rows.next()? {
-            // Get column count from first row
-            if column_count == 0 {
-                column_count = row.as_ref().column_count();
-            }
-
             let mut row_data = Vec::new();
             for i in 0..column_count {
                 // Try to get value as different types
@@ -339,11 +348,6 @@ impl MUbase {
             }
             rows_data.push(row_data);
         }
-
-        // Generate column names (DuckDB doesn't expose column names easily after iteration)
-        let columns: Vec<String> = (0..column_count)
-            .map(|i| format!("col_{}", i))
-            .collect();
 
         Ok(QueryResult {
             columns,

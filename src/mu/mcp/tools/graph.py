@@ -42,6 +42,7 @@ def mu_query(query: str) -> QueryResult:
             rows=result.get("rows", []),
             row_count=result.get("row_count", len(result.get("rows", []))),
             execution_time_ms=result.get("execution_time_ms"),
+            error=result.get("error"),
         )
     except DaemonError:
         mubase_path = find_mubase()
@@ -53,7 +54,7 @@ def mu_query(query: str) -> QueryResult:
         from mu.kernel import MUbase
         from mu.kernel.muql import MUQLEngine
 
-        db = MUbase(mubase_path)
+        db = MUbase(mubase_path, read_only=True)
         try:
             engine = MUQLEngine(db)
             result = engine.query_dict(query)
@@ -62,6 +63,7 @@ def mu_query(query: str) -> QueryResult:
                 rows=result.get("rows", []),
                 row_count=result.get("row_count", len(result.get("rows", []))),
                 execution_time_ms=result.get("execution_time_ms"),
+                error=result.get("error"),
             )
         finally:
             db.close()
@@ -188,20 +190,18 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
                         row = result["rows"][0]
                         node_data = dict(zip(cols, row, strict=False))
                         resolved_id = node_data.get("id", resolved_id)
-                    else:
-                        raise ValueError(f"Node not found: {node_id}")
             else:
                 found = client.find_node(node_id, cwd=cwd)
-                if not found:
-                    raise ValueError(f"Node not found: {node_id}")
-                resolved_id = found.get("id", node_id)
-                node_data = found
+                if found:
+                    resolved_id = found.get("id", node_id)
+                    node_data = found
+                else:
+                    node_data = None
 
-            if not node_data:
-                raise ValueError(f"Node not found: {node_id}")
-
-            root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
-            return _extract_source(node_data, resolved_id, root_path)
+            if node_data:
+                root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
+                return _extract_source(node_data, resolved_id, root_path)
+            # If daemon couldn't find the node, fall through to local mode
 
     except DaemonError:
         pass
@@ -211,7 +211,7 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
 
     from mu.kernel import MUbase
 
-    db = MUbase(mubase_path)
+    db = MUbase(mubase_path, read_only=True)
     root_path = mubase_path.parent.parent
     try:
         resolved_id = resolve_node_id(db, node_id, root_path)

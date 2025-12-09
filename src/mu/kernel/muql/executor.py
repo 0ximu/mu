@@ -292,12 +292,82 @@ class QueryExecutor:
     def _execute_find_graph(self, plan: GraphPlan) -> QueryResult:
         """Execute graph-based FIND queries."""
         operation = plan.operation
-        target = plan.target_node
-        # node_type available in plan.extra_args.get("node_type") for filtering
+        target = self._resolve_node_id(plan.target_node) if plan.target_node else ""
+        node_type = plan.extra_args.get("node_type")
+        limit = plan.extra_args.get("limit", 100)
 
-        # These would need specific MUbase methods
-        # For now, return not implemented
-        return self._not_implemented(f"{operation} for {target}")
+        if not target:
+            return QueryResult(error=f"FIND {operation} requires a target node")
+
+        try:
+            gm = self._get_graph_manager()
+
+            if not gm.has_node(target):
+                return QueryResult(error=f"Node not found: {plan.target_node}")
+
+            result_ids: list[str] = []
+
+            if operation == "find_calling":
+                # Find functions that call the target
+                # These are nodes that have outgoing CALLS edges to target
+                # Use reverse impact - who depends on target?
+                result_ids = gm.impact(target, ["calls"])
+            elif operation == "find_called_by":
+                # Find functions called by target
+                # These are nodes that target has outgoing CALLS edges to
+                result_ids = gm.ancestors(target, ["calls"])
+            elif operation == "find_importing":
+                # Find modules that import the target
+                result_ids = gm.impact(target, ["imports"])
+            elif operation == "find_imported_by":
+                # Find modules imported by target
+                result_ids = gm.ancestors(target, ["imports"])
+            elif operation == "find_inheriting":
+                # Find classes that inherit from target
+                result_ids = gm.impact(target, ["inherits"])
+            elif operation == "find_implementing":
+                # Find classes implemented by target (reverse of inherits)
+                result_ids = gm.ancestors(target, ["inherits"])
+            elif operation == "find_mutating":
+                # Find functions that mutate target state - fallback to generic impact
+                result_ids = gm.impact(target)
+            elif operation == "find_similar":
+                # Semantic search - not yet implemented
+                return self._not_implemented("find_similar (requires embeddings)")
+            else:
+                return self._not_implemented(f"{operation}")
+
+            # Filter by node_type if specified
+            if node_type and result_ids:
+                filtered_ids = []
+                for nid in result_ids:
+                    node = self._db.get_node(nid)
+                    if node and node.type.value == node_type:
+                        filtered_ids.append(nid)
+                result_ids = filtered_ids
+
+            # Apply limit
+            result_ids = result_ids[:limit]
+
+            # Convert to result format with full node info
+            rows = []
+            for nid in result_ids:
+                node = self._db.get_node(nid)
+                if node:
+                    rows.append((node.id, node.name, node.type.value, node.file_path))
+                else:
+                    rows.append((nid, "", "", ""))
+
+            return QueryResult(
+                columns=["id", "name", "type", "path"],
+                rows=rows,
+                row_count=len(rows),
+            )
+
+        except ImportError as e:
+            return QueryResult(error=f"Rust core not available: {e}")
+        except Exception as e:
+            return QueryResult(error=f"Graph query error: {e}")
 
     def _not_implemented(self, operation: str) -> QueryResult:
         """Return not implemented error."""

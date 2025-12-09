@@ -11,7 +11,7 @@ from mu.mcp.models import (
     WarningInfo,
     WarningsOutput,
 )
-from mu.mcp.tools._utils import find_mubase
+from mu.mcp.tools._utils import find_mubase, get_client
 from mu.paths import MU_DIR, MUBASE_FILE
 
 
@@ -44,6 +44,39 @@ def mu_patterns(
         - mu_patterns("error_handling") - Get error handling patterns
         - mu_patterns(refresh=True) - Force re-analysis
     """
+    from pathlib import Path
+
+    cwd = str(Path.cwd())
+
+    # Try daemon first
+    try:
+        client = get_client()
+        with client:
+            result = client.patterns(category=category, refresh=refresh, cwd=cwd)
+
+        patterns_info = [
+            PatternInfo(
+                name=p.get("name", ""),
+                category=p.get("category", ""),
+                description=p.get("description", ""),
+                frequency=p.get("frequency", 0),
+                confidence=p.get("confidence", 0.0),
+                examples=p.get("examples", []),
+                anti_patterns=p.get("anti_patterns", []),
+            )
+            for p in result.get("patterns", [])
+        ]
+
+        return PatternsOutput(
+            patterns=patterns_info,
+            total_patterns=result.get("total_patterns", len(patterns_info)),
+            categories_found=result.get("categories_found", []),
+            detection_time_ms=result.get("detection_time_ms", 0.0),
+        )
+    except DaemonError:
+        # Fall back to direct database access
+        pass
+
     mubase_path = find_mubase()
     if not mubase_path:
         raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
@@ -51,7 +84,7 @@ def mu_patterns(
     from mu.intelligence import PatternCategory, PatternDetector
     from mu.kernel import MUbase
 
-    db = MUbase(mubase_path)
+    db = MUbase(mubase_path, read_only=True)
     try:
         # Check for cached patterns unless refresh requested
         if not refresh and db.has_patterns():
@@ -92,11 +125,11 @@ def mu_patterns(
                     f"Invalid category: {category}. Valid categories: {valid_cats}"
                 ) from None
 
-        result = detector.detect(category=cat_enum, refresh=refresh)
+        detect_result = detector.detect(category=cat_enum, refresh=refresh)
 
         # Save patterns for future use (only if detecting all)
         if not category:
-            db.save_patterns(result.patterns)
+            db.save_patterns(detect_result.patterns)
 
         patterns_info = [
             PatternInfo(
@@ -108,14 +141,14 @@ def mu_patterns(
                 examples=[e.to_dict() for e in p.examples],
                 anti_patterns=p.anti_patterns,
             )
-            for p in result.patterns
+            for p in detect_result.patterns
         ]
 
         return PatternsOutput(
             patterns=patterns_info,
-            total_patterns=result.total_patterns,
-            categories_found=result.categories_found,
-            detection_time_ms=result.detection_time_ms,
+            total_patterns=detect_result.total_patterns,
+            categories_found=detect_result.categories_found,
+            detection_time_ms=detect_result.detection_time_ms,
         )
     finally:
         db.close()
@@ -150,6 +183,38 @@ def mu_warn(target: str) -> WarningsOutput:
         - PR review: Understand what you're touching
         - New to codebase: Get context before changes
     """
+    from pathlib import Path
+
+    cwd = str(Path.cwd())
+
+    # Try daemon first
+    try:
+        client = get_client()
+        with client:
+            result = client.warn(target=target, cwd=cwd)
+
+        warnings_info = [
+            WarningInfo(
+                category=w.get("category", ""),
+                level=w.get("level", ""),
+                message=w.get("message", ""),
+                details=w.get("details"),
+            )
+            for w in result.get("warnings", [])
+        ]
+
+        return WarningsOutput(
+            target=result.get("target", target),
+            target_type=result.get("target_type", "unknown"),
+            warnings=warnings_info,
+            summary=result.get("summary", ""),
+            risk_score=result.get("risk_score", 0.0),
+            analysis_time_ms=result.get("analysis_time_ms", 0.0),
+        )
+    except DaemonError:
+        # Fall back to direct database access
+        pass
+
     mubase_path = find_mubase()
     if not mubase_path:
         raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None
@@ -162,7 +227,7 @@ def mu_warn(target: str) -> WarningsOutput:
     project_root = mubase_path.parent.parent
     try:
         generator = ProactiveWarningGenerator(db, root_path=project_root)
-        result = generator.analyze(target)
+        analyze_result = generator.analyze(target)
 
         warnings_info = [
             WarningInfo(
@@ -171,16 +236,16 @@ def mu_warn(target: str) -> WarningsOutput:
                 message=w.message,
                 details=w.details,
             )
-            for w in result.warnings
+            for w in analyze_result.warnings
         ]
 
         return WarningsOutput(
-            target=result.target,
-            target_type=result.target_type,
+            target=analyze_result.target,
+            target_type=analyze_result.target_type,
             warnings=warnings_info,
-            summary=result.summary,
-            risk_score=result.risk_score,
-            analysis_time_ms=result.analysis_time_ms,
+            summary=analyze_result.summary,
+            risk_score=analyze_result.risk_score,
+            analysis_time_ms=analyze_result.analysis_time_ms,
         )
     finally:
         db.close()

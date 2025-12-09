@@ -22,8 +22,11 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -411,9 +414,9 @@ class OmegaContextExtractor:
         self.config = config or OmegaConfig()
 
         # Initialize the underlying smart extractor
-        # Reserve token budget for the seed (macro definitions)
-        body_budget = int(self.config.max_tokens * (1 - self.config.header_budget_ratio))
-        extraction_config = ExtractionConfig(max_tokens=body_budget)
+        # Use full token budget for extraction - we'll manage output size in generation
+        # This fixes the issue where reduced budget causes SmartContextExtractor to find 0 nodes
+        extraction_config = ExtractionConfig(max_tokens=self.config.max_tokens)
         self.smart_extractor = SmartContextExtractor(mubase, extraction_config)
 
         # Lazy-loaded components
@@ -470,13 +473,22 @@ class OmegaContextExtractor:
         stats["smart_extractor_tokens"] = context_result.token_count
 
         if not context_result.nodes:
-            # No relevant context found
+            # No relevant context found - still include schema seed
+            from mu.kernel.export.omega import OMG_SCHEMA_HEADER
+
+            seed = OMG_SCHEMA_HEADER
+            body = f";; No relevant context found for: {question}"
+            seed_tokens = self._count_tokens(seed)
+            body_tokens = self._count_tokens(body)
+
             return OmegaResult(
-                seed="",
-                body=f";; No relevant context found for: {question}",
-                manifest=OmegaManifest(),
+                seed=seed,
+                body=body,
+                manifest=OmegaManifest(version="1.0"),
                 macros_used=[],
-                total_tokens=self._count_tokens(f";; No relevant context found for: {question}"),
+                seed_tokens=seed_tokens,
+                body_tokens=body_tokens,
+                total_tokens=seed_tokens + body_tokens,
                 extraction_stats=stats,
             )
 
@@ -510,6 +522,13 @@ class OmegaContextExtractor:
         original_tokens = context_result.token_count
         total_tokens = seed_tokens + body_tokens
         compression_ratio = original_tokens / total_tokens if total_tokens > 0 else 1.0
+
+        # Log warning if expansion occurred (compression_ratio < 1.0 means more tokens than original)
+        if compression_ratio < 1.0 and original_tokens > 0:
+            logger.warning(
+                f"OMEGA expansion detected: {total_tokens} tokens vs {original_tokens} original "
+                f"(ratio: {compression_ratio:.2f}). Body generation may be including extra content."
+            )
 
         stats["total_tokens"] = total_tokens
         stats["original_tokens"] = original_tokens
@@ -715,11 +734,18 @@ class OmegaContextExtractor:
         if not nodes:
             return ""
 
+        # Create set of node IDs that should be in output
+        # This prevents: (1) duplicate outputs, (2) fetching ALL methods from DB
+        context_node_ids = {n.id for n in nodes}
+
         # Group nodes by module for structured output
         by_module: dict[str, list[Node]] = defaultdict(list)
         for node in nodes:
             module_path = node.file_path or "unknown"
             by_module[module_path].append(node)
+
+        # Track which nodes we've already output to prevent duplicates
+        output_node_ids: set[str] = set()
 
         lines: list[str] = []
 
@@ -727,10 +753,14 @@ class OmegaContextExtractor:
             # Generate module name from path
             module_name = self._path_to_module_name(module_path)
 
+            # Filter out already-output nodes
+            module_nodes = [n for n in module_nodes if n.id not in output_node_ids]
+
             # Separate nodes by type for structured output
             classes = [n for n in module_nodes if n.type == NodeType.CLASS]
             functions = [
-                n for n in module_nodes
+                n
+                for n in module_nodes
                 if n.type == NodeType.FUNCTION and not (n.properties or {}).get("is_method")
             ]
 
@@ -739,13 +769,16 @@ class OmegaContextExtractor:
 
             # Process classes with Schema v2.0 format
             for cls in classes:
-                class_sexpr = self._class_to_schema_v2(cls)
+                output_node_ids.add(cls.id)
+                class_sexpr = self._class_to_schema_v2(cls, context_node_ids, output_node_ids)
                 module_content.append(class_sexpr)
 
-            # Process top-level functions
+            # Process top-level functions (only if not already output as method)
             for func in functions:
-                func_sexpr = self._function_to_schema_v2(func)
-                module_content.append(f"  {func_sexpr}")
+                if func.id not in output_node_ids:
+                    output_node_ids.add(func.id)
+                    func_sexpr = self._function_to_schema_v2(func)
+                    module_content.append(f"  {func_sexpr}")
 
             # Build module S-expression: (module Name FilePath ...)
             if module_content:
@@ -757,10 +790,20 @@ class OmegaContextExtractor:
 
         return "\n".join(lines)
 
-    def _class_to_schema_v2(self, node: Node) -> str:
+    def _class_to_schema_v2(
+        self,
+        node: Node,
+        context_node_ids: set[str],
+        output_node_ids: set[str],
+    ) -> str:
         """Convert a class node to Schema v2.0 format.
 
         Determines if class is a service, model, validator, or plain class.
+
+        Args:
+            node: The class node to convert.
+            context_node_ids: Set of node IDs that are in the context (for filtering methods).
+            output_node_ids: Set of node IDs already output (to mark methods as output).
         """
         from mu.kernel.schema import NodeType
 
@@ -770,9 +813,14 @@ class OmegaContextExtractor:
         attrs = props.get("attributes", [])
         decorators = str(props.get("decorators", [])).lower()
 
-        # Get methods for this class
+        # Get methods for this class - ONLY those in the context
+        # This fixes the expansion issue where ALL methods were fetched from DB
         children = self.mubase.get_children(node.id)
-        methods = [c for c in children if c.type == NodeType.FUNCTION]
+        methods = [c for c in children if c.type == NodeType.FUNCTION and c.id in context_node_ids]
+
+        # Mark these methods as output to prevent duplicates
+        for method in methods:
+            output_node_ids.add(method.id)
 
         # Determine class type based on naming/decorators
         name_lower = name.lower()
@@ -800,9 +848,7 @@ class OmegaContextExtractor:
         # Default: plain class
         return self._plain_class_to_schema_v2(name, parent, attr_list, methods)
 
-    def _service_to_schema_v2(
-        self, name: str, deps: list[str], methods: list[Node]
-    ) -> str:
+    def _service_to_schema_v2(self, name: str, deps: list[str], methods: list[Node]) -> str:
         """Format a service class: (service Name [deps] (method ...) ...)"""
         lines = []
         deps_str = " ".join(deps) if deps else ""
@@ -938,13 +984,36 @@ class OmegaContextExtractor:
     def _path_to_module_name(self, path: str) -> str:
         """Convert a file path to module name.
 
+        Handles both absolute and relative paths, converting them to
+        clean module names like 'mu.parser.models'.
+
         Args:
-            path: File path.
+            path: File path (absolute or relative).
 
         Returns:
             Module name (e.g., 'mu.parser.models').
         """
+        from pathlib import Path
+
         name = path
+
+        # Get the MUbase root path for converting absolute paths to relative
+        root_path = None
+        if hasattr(self.mubase, "path") and self.mubase.path:
+            # mubase.path is .mu/mubase, so root is two levels up
+            root_path = self.mubase.path.parent.parent
+
+        # Convert absolute path to relative if possible
+        if root_path and name.startswith("/"):
+            try:
+                name = str(Path(name).relative_to(root_path))
+            except ValueError:
+                # Path not relative to root, try to extract meaningful part
+                # Look for common source directory markers
+                for marker in ("/src/", "/lib/", "/app/"):
+                    if marker in name:
+                        name = name[name.index(marker) + 1 :]
+                        break
 
         # Remove common prefixes
         for prefix in ("src/", "lib/", "app/"):
