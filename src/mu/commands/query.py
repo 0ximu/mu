@@ -228,18 +228,22 @@ def _execute_muql_local(
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
-@click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
+@click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
+@click.option("--full-paths", is_flag=True, help="Show full file paths (alias for --no-truncate)")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
 @click.option(
     "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
 )
+@click.pass_context
 def query(
+    ctx: click.Context,
     muql: str | None,
     path: Path,
     interactive: bool,
     output_format: str,
     no_color: bool,
     explain: bool,
+    no_truncate: bool,
     full_paths: bool,
     examples: bool,
     offline: bool,
@@ -255,14 +259,33 @@ def query(
         mu query "SHOW dependencies OF MUbase"
         mu query -i                         # Interactive mode
         mu query -f json "SELECT * FROM classes"
-        mu query --full-paths "SELECT * FROM modules"
+        mu query --no-truncate "SELECT * FROM modules"
         mu query --examples                 # Show query examples
         mu query --offline "SELECT ..."     # Skip daemon, use local DB
     """
     if examples:
         click.echo(MUQL_EXAMPLES)
         return
-    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths, offline)
+
+    # Combine no_truncate and full_paths (either one disables truncation)
+    effective_no_truncate = no_truncate or full_paths
+
+    # Check global context for output settings
+    obj = getattr(ctx, "obj", None) if ctx else None
+    if obj:
+        # Global format overrides command format
+        if obj.output_format:
+            output_format = obj.output_format
+        # Global no_truncate overrides
+        if obj.no_truncate:
+            effective_no_truncate = True
+        # Global no_color overrides
+        if obj.no_color:
+            no_color = True
+
+    _execute_muql(
+        path, muql, interactive, output_format, no_color, explain, effective_no_truncate, offline
+    )
 
 
 @click.command("q")
@@ -285,18 +308,22 @@ def query(
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
 @click.option("--explain", is_flag=True, help="Show execution plan without running")
-@click.option("--full-paths", is_flag=True, help="Show full file paths without truncation")
+@click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
+@click.option("--full-paths", is_flag=True, help="Show full file paths (alias for --no-truncate)")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
 @click.option(
     "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
 )
+@click.pass_context
 def q(
+    ctx: click.Context,
     muql: str | None,
     path: Path,
     interactive: bool,
     output_format: str,
     no_color: bool,
     explain: bool,
+    no_truncate: bool,
     full_paths: bool,
     examples: bool,
     offline: bool,
@@ -313,7 +340,26 @@ def q(
     if examples:
         click.echo(MUQL_EXAMPLES)
         return
-    _execute_muql(path, muql, interactive, output_format, no_color, explain, full_paths, offline)
+
+    # Combine no_truncate and full_paths (either one disables truncation)
+    effective_no_truncate = no_truncate or full_paths
+
+    # Check global context for output settings
+    obj = getattr(ctx, "obj", None) if ctx else None
+    if obj:
+        # Global format overrides command format
+        if obj.output_format:
+            output_format = obj.output_format
+        # Global no_truncate overrides
+        if obj.no_truncate:
+            effective_no_truncate = True
+        # Global no_color overrides
+        if obj.no_color:
+            no_color = True
+
+    _execute_muql(
+        path, muql, interactive, output_format, no_color, explain, effective_no_truncate, offline
+    )
 
 
 __all__ = ["query", "q", "_execute_muql", "_execute_muql_local"]

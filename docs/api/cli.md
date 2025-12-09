@@ -10,6 +10,30 @@ Complete reference for the MU command-line interface.
 | `--version` | Show version |
 | `-v, --verbose` | Increase verbosity |
 | `-q, --quiet` | Suppress non-essential output |
+| `-F, --output-format` | Output format: `table`, `json`, `csv`, `tree` |
+| `--no-truncate` | Disable truncation of long values |
+| `--no-color` | Disable colored output |
+| `--width` | Override terminal width for table output |
+
+### Output Formatting
+
+All MU commands that produce tabular output support consistent formatting options:
+
+```bash
+# JSON output for scripting
+mu impact PayoutService --output-format json | jq '.data[] | select(.type == "class")'
+
+# Full paths without truncation
+mu deps MyClass --no-truncate
+
+# Export to CSV
+mu query "SELECT name, complexity FROM functions" --output-format csv > functions.csv
+
+# Pipe-friendly (auto-disables color and truncation)
+mu impact Service | grep "critical"
+```
+
+**Auto-detection**: When output is piped to a file or another command, colors are disabled and truncation is turned off automatically. This makes MU commands work seamlessly in scripts and pipelines.
 
 ## Commands
 
@@ -164,6 +188,7 @@ mu q <query> [options]
 | `--explain` | false | Show execution plan |
 | `--no-color` | false | Disable colored output |
 | `--full-paths` | false | Show full file paths without truncation |
+| `--no-truncate` | false | Alias for `--full-paths` |
 
 **Examples:**
 ```bash

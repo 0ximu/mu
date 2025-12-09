@@ -4,23 +4,78 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from mu.logging import print_error, print_info, print_success
 from mu.paths import get_mubase_path
 
+if TYPE_CHECKING:
+    from mu.output import OutputConfig
+
+
+def _get_output_config(
+    ctx: click.Context | None,
+    output_format: str,
+    no_color: bool,
+    no_truncate: bool = False,
+) -> OutputConfig:
+    """Build OutputConfig from command options and context."""
+    from mu.commands.utils import is_interactive
+    from mu.output import OutputConfig
+
+    # Check if global options should override command options
+    obj = getattr(ctx, "obj", None) if ctx else None
+
+    # Global format overrides command format
+    fmt = output_format
+    if obj and obj.output_format:
+        fmt = obj.output_format
+
+    # TTY auto-detection
+    is_tty = is_interactive()
+
+    # Combine flags: command flags OR global flags OR auto-detection
+    final_no_truncate = no_truncate or (obj and obj.no_truncate) or not is_tty
+    final_no_color = no_color or (obj and obj.no_color) or not is_tty
+    width = (obj.width if obj else None) or None
+
+    return OutputConfig(
+        format=fmt,
+        no_truncate=final_no_truncate,
+        no_color=final_no_color,
+        width=width,
+    )
+
 
 @click.command("warn")
 @click.argument("target")
 @click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+@click.option(
     "--json",
     "output_json",
     is_flag=True,
-    help="Output as JSON",
+    help="Output as JSON (deprecated, use --format json)",
 )
-def warn(target: str, output_json: bool) -> None:
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
+@click.pass_context
+def warn(
+    ctx: click.Context,
+    target: str,
+    output_format: str,
+    output_json: bool,
+    no_color: bool,
+    no_truncate: bool,
+) -> None:
     """Get proactive warnings about a target before modification.
 
     Analyzes a file or code node to identify potential issues that should
@@ -42,13 +97,21 @@ def warn(target: str, output_json: bool) -> None:
         mu warn src/auth.py          # Check a file
         mu warn AuthService          # Check a class by name
         mu warn mod:src/payments.py  # Check by node ID
-        mu warn src/api/ --json      # JSON output
+        mu warn src/api/ --format json  # JSON output
     """
     import sys
 
     from mu.errors import ExitCode
     from mu.intelligence.warnings import ProactiveWarningGenerator
     from mu.kernel import MUbase, MUbaseLockError
+
+    # Handle deprecated --json flag
+    effective_format = output_format
+    if output_json:
+        effective_format = "json"
+
+    # Build output config
+    config = _get_output_config(ctx, effective_format, no_color, no_truncate)
 
     # Find .mu/mubase
     root_path = Path.cwd()
@@ -70,69 +133,100 @@ def warn(target: str, output_json: bool) -> None:
         generator = ProactiveWarningGenerator(db, root_path=root_path)
         result = generator.analyze(target)
 
-        if output_json:
+        if config.format == "json":
             click.echo(json.dumps(result.to_dict(), indent=2))
             return
 
-        # Display results
-        if not result.warnings:
-            print_success(f"No warnings for {target}")
-            click.echo(click.style(f"  Risk score: {result.risk_score:.0%}", dim=True))
-            return
+        # Display results (table format - rich display)
+        _display_warnings_rich(result, target, config.no_color)
 
-        # Header
-        click.echo()
+    finally:
+        db.close()
+
+
+def _display_warnings_rich(
+    result: Any,
+    target: str,
+    no_color: bool,
+) -> None:
+    """Display warnings with rich formatting."""
+    if not result.warnings:
+        print_success(f"No warnings for {target}")
+        if no_color:
+            click.echo(f"  Risk score: {result.risk_score:.0%}")
+        else:
+            click.echo(click.style(f"  Risk score: {result.risk_score:.0%}", dim=True))
+        return
+
+    # Header
+    click.echo()
+    if no_color:
+        click.echo(f"  Target: {result.target} ({result.target_type})")
+        click.echo(f"  Risk score: {_risk_color(result.risk_score, no_color)}")
+    else:
         click.echo(
             click.style("  Target: ", dim=True)
             + click.style(result.target, bold=True)
             + click.style(f" ({result.target_type})", dim=True)
         )
-        click.echo(click.style("  Risk score: ", dim=True) + _risk_color(result.risk_score))
-        click.echo()
+        click.echo(
+            click.style("  Risk score: ", dim=True) + _risk_color(result.risk_score, no_color)
+        )
+    click.echo()
 
-        # Display each warning
-        for w in result.warnings:
-            # Level icon and color
-            level_config = {
-                "error": ("!", "red"),
-                "warn": ("~", "yellow"),
-                "info": ("i", "blue"),
-            }
-            icon, color = level_config.get(w.level, ("?", "white"))
+    # Display each warning
+    for w in result.warnings:
+        # Level icon and color
+        level_config = {
+            "error": ("!", "red"),
+            "warn": ("~", "yellow"),
+            "info": ("i", "blue"),
+        }
+        icon, color = level_config.get(w.level, ("?", "white"))
 
-            # Category badge
-            cat_badge = f"[{w.category.value}]"
+        # Category badge
+        cat_badge = f"[{w.category.value}]"
 
+        if no_color:
+            click.echo(f"  {icon} {cat_badge} {w.message}")
+        else:
             click.echo(
                 click.style(f"  {icon} ", fg=color, bold=True)
                 + click.style(cat_badge, fg="cyan")
                 + f" {w.message}"
             )
 
-            # Show relevant details
-            if w.details:
-                details_to_show = _format_details(w.details)
-                if details_to_show:
+        # Show relevant details
+        if w.details:
+            details_to_show = _format_details(w.details)
+            if details_to_show:
+                if no_color:
+                    click.echo(f"      {details_to_show}")
+                else:
                     click.echo(click.style(f"      {details_to_show}", dim=True))
 
-        click.echo()
+    click.echo()
 
-        # Summary
+    # Summary
+    if no_color:
+        click.echo(f"  Summary: {result.summary}")
+        click.echo(f"  Analysis time: {result.analysis_time_ms:.1f}ms")
+    else:
         click.echo(click.style(f"  Summary: {result.summary}", dim=True))
         click.echo(click.style(f"  Analysis time: {result.analysis_time_ms:.1f}ms", dim=True))
 
-    finally:
-        db.close()
 
-
-def _risk_color(score: float) -> str:
+def _risk_color(score: float, no_color: bool = False) -> str:
     """Format risk score with color."""
     if score >= 0.7:
-        return click.style(f"{score:.0%} (HIGH)", fg="red", bold=True)
+        label = f"{score:.0%} (HIGH)"
+        return label if no_color else click.style(label, fg="red", bold=True)
     elif score >= 0.4:
-        return click.style(f"{score:.0%} (MEDIUM)", fg="yellow")
+        label = f"{score:.0%} (MEDIUM)"
+        return label if no_color else click.style(label, fg="yellow")
     else:
-        return click.style(f"{score:.0%} (LOW)", fg="green")
+        label = f"{score:.0%} (LOW)"
+        return label if no_color else click.style(label, fg="green")
 
 
 def _format_details(details: dict[str, Any]) -> str:

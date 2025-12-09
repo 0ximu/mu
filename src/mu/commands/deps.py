@@ -4,10 +4,48 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 
 from mu.paths import get_mubase_path
+
+if TYPE_CHECKING:
+    from mu.output import OutputConfig
+
+
+def _get_output_config(
+    ctx: click.Context | None,
+    output_format: str,
+    no_color: bool,
+    no_truncate: bool = False,
+) -> OutputConfig:
+    """Build OutputConfig from command options and context."""
+    from mu.commands.utils import is_interactive
+    from mu.output import OutputConfig
+
+    # Check if global options should override command options
+    obj = getattr(ctx, "obj", None) if ctx else None
+
+    # Global format overrides command format
+    fmt = output_format
+    if obj and obj.output_format:
+        fmt = obj.output_format
+
+    # TTY auto-detection
+    is_tty = is_interactive()
+
+    # Combine flags: command flags OR global flags OR auto-detection
+    final_no_truncate = no_truncate or (obj and obj.no_truncate) or not is_tty
+    final_no_color = no_color or (obj and obj.no_color) or not is_tty
+    width = (obj.width if obj else None) or None
+
+    return OutputConfig(
+        format=fmt,
+        no_truncate=final_no_truncate,
+        no_color=final_no_color,
+        width=width,
+    )
 
 
 @click.command("deps")
@@ -25,7 +63,19 @@ from mu.paths import get_mubase_path
     is_flag=True,
     help="Show dependents instead of dependencies",
 )
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "--format",
+    "-f",
+    "output_format",
+    type=click.Choice(["table", "json", "csv"]),
+    default="table",
+    help="Output format",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Output as JSON (deprecated, use --format json)"
+)
+@click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
 @click.option(
     "--path",
     "-p",
@@ -33,11 +83,16 @@ from mu.paths import get_mubase_path
     default=".",
     help="Path to codebase",
 )
+@click.pass_context
 def deps(
+    ctx: click.Context,
     node: str,
     depth: int,
     reverse: bool,
+    output_format: str,
     as_json: bool,
+    no_color: bool,
+    no_truncate: bool,
     path: Path,
 ) -> None:
     """Show what NODE depends on (or what depends on it with --reverse).
@@ -49,14 +104,16 @@ def deps(
         mu deps AuthService           # What does AuthService depend on?
         mu deps cli.py --depth 2      # Dependencies 2 levels deep
         mu deps GraphBuilder -r       # What depends on GraphBuilder?
-        mu deps MUbase --json         # Output as JSON
+        mu deps MUbase --format json  # Output as JSON
+        mu deps MUbase --no-truncate  # Show full values
     """
-    import json as json_module
+    from typing import Any
 
     from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
-    from mu.logging import console, print_error, print_info
+    from mu.logging import print_error, print_info
+    from mu.output import Column, format_output
 
     mubase_path = get_mubase_path(path)
 
@@ -65,6 +122,16 @@ def deps(
         print_info("Run 'mu bootstrap' first.")
         sys.exit(ExitCode.CONFIG_ERROR)
 
+    # Handle deprecated --json flag
+    effective_format = output_format
+    if as_json:
+        effective_format = "json"
+
+    # Build output config
+    config = _get_output_config(ctx, effective_format, no_color, no_truncate)
+
+    relation_type = "Dependents" if reverse else "Dependencies"
+
     # Try daemon first to avoid database locking
     client = DaemonClient()
     if client.is_running():
@@ -72,23 +139,31 @@ def deps(
             direction = "incoming" if reverse else "outgoing"
             result = client.deps(node, depth=depth, direction=direction, cwd=str(path))
 
-            if as_json:
-                console.print(json_module.dumps(result, indent=2))
-            else:
-                relation_type = "Dependents" if reverse else "Dependencies"
-                deps_list = result.get("dependencies", [])
-                print_info(f"{relation_type} of {node} (depth={depth}):")
-                if not deps_list:
-                    print_info("  (none)")
+            deps_list = result.get("dependencies", [])
+
+            # Convert to standard data format
+            data: list[dict[str, Any]] = []
+            for dep in deps_list:
+                if isinstance(dep, dict):
+                    data.append(
+                        {
+                            "name": dep.get("qualified_name") or dep.get("name", str(dep)),
+                            "type": dep.get("type", "unknown"),
+                            "file_path": dep.get("file_path", ""),
+                        }
+                    )
                 else:
-                    for dep in deps_list:
-                        if isinstance(dep, dict):
-                            type_str = f"[{dep.get('type', 'unknown')}]"
-                            name_str = dep.get("qualified_name") or dep.get("name", str(dep))
-                        else:
-                            type_str = ""
-                            name_str = str(dep)
-                        print_info(f"  {type_str} {name_str}")
+                    data.append({"name": str(dep), "type": "unknown", "file_path": ""})
+
+            title = f"{relation_type} of {node} (depth={depth}, {len(data)} nodes)"
+            columns = [
+                Column("Name", "name"),
+                Column("Type", "type"),
+                Column("File", "file_path"),
+            ]
+
+            output = format_output(data, columns, config, title=title)
+            click.echo(output)
             return
         except DaemonError:
             # Fall through to local database access
@@ -124,36 +199,31 @@ def deps(
     # Get dependencies or dependents
     if reverse:
         related = db.get_dependents(target_node.id, depth=depth)
-        relation_type = "Dependents"
     else:
         related = db.get_dependencies(target_node.id, depth=depth)
-        relation_type = "Dependencies"
 
     db.close()
 
-    if as_json:
-        result = {
-            "node": target_node.to_dict(),
-            "relation": "dependents" if reverse else "dependencies",
-            "depth": depth,
-            "related": [n.to_dict() for n in related],
-        }
-        console.print(json_module.dumps(result, indent=2))
-        return
-
-    print_info(
-        f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}):"
-    )
-
-    if not related:
-        print_info("  (none)")
-        return
-
+    # Convert to standard data format
+    data = []
     for n in related:
-        prefix = "  "
-        type_str = f"[{n.type.value}]"
-        name_str = n.qualified_name or n.name
-        print_info(f"{prefix}{type_str} {name_str}")
+        data.append(
+            {
+                "name": n.qualified_name or n.name,
+                "type": n.type.value,
+                "file_path": n.file_path or "",
+            }
+        )
+
+    title = f"{relation_type} of {target_node.qualified_name or target_node.name} (depth={depth}, {len(data)} nodes)"
+    columns = [
+        Column("Name", "name"),
+        Column("Type", "type"),
+        Column("File", "file_path"),
+    ]
+
+    output = format_output(data, columns, config, title=title)
+    click.echo(output)
 
 
 __all__ = ["deps"]
