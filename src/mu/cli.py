@@ -28,6 +28,11 @@ class MUContext:
         self.config: MUConfig | None = None
         self.verbosity: VerbosityLevel = "normal"
         self.debug: bool = False
+        # Output configuration
+        self.output_format: str | None = None  # None = use command default
+        self.no_truncate: bool = False
+        self.no_color: bool = False
+        self.width: int | None = None
 
 
 pass_context = click.make_pass_decorator(MUContext, ensure=True)
@@ -94,9 +99,42 @@ HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
     type=click.Path(exists=True, path_type=Path),
     help="Path to configuration file",
 )
+@click.option(
+    "--output-format",
+    "-F",
+    type=click.Choice(["table", "json", "csv", "tree"]),
+    default=None,
+    help="Output format (overrides command-specific defaults)",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    help="Show full values without truncation",
+)
+@click.option(
+    "--no-color",
+    is_flag=True,
+    help="Disable colored output",
+)
+@click.option(
+    "--width",
+    type=int,
+    default=None,
+    help="Table width (default: auto-detect terminal)",
+)
 @click.version_option(version=__version__, prog_name="mu")
 @pass_context
-def cli(ctx: MUContext, verbose: bool, quiet: bool, debug: bool, config: Path | None) -> None:
+def cli(
+    ctx: MUContext,
+    verbose: bool,
+    quiet: bool,
+    debug: bool,
+    config: Path | None,
+    output_format: str | None,
+    no_truncate: bool,
+    no_color: bool,
+    width: int | None,
+) -> None:
     """MU - Machine Understanding for Codebases.
 
     \b
@@ -142,6 +180,8 @@ def cli(ctx: MUContext, verbose: bool, quiet: bool, debug: bool, config: Path | 
     Use 'mu <command> --help' for details.
     Use --debug to show full tracebacks on errors.
     """
+    import sys
+
     # Lazy import for faster startup
     from mu.config import MUConfig
     from mu.logging import print_error, setup_logging
@@ -158,6 +198,15 @@ def cli(ctx: MUContext, verbose: bool, quiet: bool, debug: bool, config: Path | 
         ctx.verbosity = "normal"
 
     setup_logging(ctx.verbosity)
+
+    # Auto-detect TTY for output settings
+    is_tty = sys.stdout.isatty()
+
+    # Store output configuration with TTY auto-detection
+    ctx.output_format = output_format
+    ctx.no_truncate = no_truncate or not is_tty  # Auto-disable truncation when piped
+    ctx.no_color = no_color or not is_tty  # Auto-disable color when piped
+    ctx.width = width
 
     # Load configuration
     try:

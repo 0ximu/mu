@@ -14,8 +14,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from mu.output import OutputConfig
 
 
 def _get_mubase_path(path: Path) -> Path:
@@ -32,93 +36,59 @@ def _get_mubase_path(path: Path) -> Path:
     return mubase_path
 
 
+def _get_output_config(
+    ctx: click.Context | None,
+    output_format: str,
+    no_color: bool,
+    no_truncate: bool = False,
+) -> OutputConfig:
+    """Build OutputConfig from command options and context."""
+    from mu.commands.utils import is_interactive
+    from mu.output import OutputConfig
+
+    # Check if global options should override command options
+    obj = getattr(ctx, "obj", None) if ctx else None
+
+    # Global format overrides command format
+    fmt = output_format
+    if obj and obj.output_format:
+        fmt = obj.output_format
+
+    # TTY auto-detection
+    is_tty = is_interactive()
+
+    # Combine flags: command flags OR global flags OR auto-detection
+    final_no_truncate = no_truncate or (obj and obj.no_truncate) or not is_tty
+    final_no_color = no_color or (obj and obj.no_color) or not is_tty
+    width = (obj.width if obj else None) or None
+
+    return OutputConfig(
+        format=fmt,
+        no_truncate=final_no_truncate,
+        no_color=final_no_color,
+        width=width,
+    )
+
+
 def _format_node_list(
     nodes: list[str],
     title: str,
-    output_format: str,
-    no_color: bool,
+    config: OutputConfig,
 ) -> str:
-    """Format a list of node IDs for output."""
-    import json
+    """Format a list of node IDs for output using unified output module."""
+    from mu.output import format_node_list
 
-    from rich.table import Table
-
-    if output_format == "json":
-        return json.dumps({"title": title, "nodes": nodes, "count": len(nodes)}, indent=2)
-
-    if output_format == "csv":
-        lines = ["node_id"]
-        lines.extend(nodes)
-        return "\n".join(lines)
-
-    # Default: table format
-    table = Table(title=title, show_header=True)
-    table.add_column("Node ID", style="cyan" if not no_color else None)
-
-    for node in nodes:
-        table.add_row(node)
-
-    # Convert table to string using Rich console
-    from io import StringIO
-
-    from rich.console import Console
-
-    string_io = StringIO()
-    console = Console(file=string_io, force_terminal=not no_color)
-    console.print(table)
-    return string_io.getvalue()
+    return format_node_list(nodes, title, config)
 
 
-def _format_cycles(
+def _format_cycles_output(
     cycles: list[list[str]],
-    output_format: str,
-    no_color: bool,
+    config: OutputConfig,
 ) -> str:
-    """Format cycle detection results."""
-    import json
+    """Format cycle detection results using unified output module."""
+    from mu.output import format_cycles
 
-    from rich.table import Table
-
-    if output_format == "json":
-        return json.dumps(
-            {
-                "cycles": cycles,
-                "cycle_count": len(cycles),
-                "total_nodes": sum(len(c) for c in cycles),
-            },
-            indent=2,
-        )
-
-    if output_format == "csv":
-        lines = ["cycle_id,node_id"]
-        for i, cycle in enumerate(cycles):
-            for node in cycle:
-                lines.append(f"{i},{node}")
-        return "\n".join(lines)
-
-    # Default: table format
-    if not cycles:
-        return "No cycles detected."
-
-    table = Table(title=f"Circular Dependencies ({len(cycles)} cycles)", show_header=True)
-    table.add_column("Cycle", style="yellow" if not no_color else None)
-    table.add_column("Nodes", style="cyan" if not no_color else None)
-
-    for i, cycle in enumerate(cycles):
-        # Show cycle as: A -> B -> C -> A
-        cycle_str = " -> ".join(cycle)
-        if cycle:
-            cycle_str += f" -> {cycle[0]}"  # Complete the cycle visually
-        table.add_row(str(i + 1), cycle_str)
-
-    from io import StringIO
-
-    from rich.console import Console
-
-    string_io = StringIO()
-    console = Console(file=string_io, force_terminal=not no_color)
-    console.print(table)
-    return string_io.getvalue()
+    return format_cycles(cycles, config)
 
 
 @click.command("impact")
@@ -145,14 +115,18 @@ def _format_cycles(
     help="Output format",
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-truncate", is_flag=True, help="Show full node IDs without truncation")
 @click.option("--no-interactive", "-n", is_flag=True, help="Disable interactive disambiguation")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress resolution info messages")
+@click.pass_context
 def impact(
+    ctx: click.Context,
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool,
     no_interactive: bool,
     quiet: bool,
 ) -> None:
@@ -168,9 +142,13 @@ def impact(
         mu impact AuthService
         mu impact "mod:src/kernel/mubase.py" --edge-types imports
         mu impact MUbase -f json
+        mu impact MUbase --no-truncate   # Show full node IDs
     """
     from mu.client import DaemonClient, DaemonError
-    from mu.logging import console, print_warning
+    from mu.logging import print_warning
+
+    # Build output config from context and options
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     # Try daemon HTTP client first (no lock)
     client = DaemonClient()
@@ -198,8 +176,8 @@ def impact(
                     impacted = data
 
             title = f"Impact of {resolved_node} ({len(impacted)} nodes)"
-            output = _format_node_list(impacted, title, output_format, no_color)
-            console.print(output)
+            output = _format_node_list(impacted, title, config)
+            click.echo(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
@@ -207,15 +185,19 @@ def impact(
             print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _impact_local(node, path, edge_types, output_format, no_color, no_interactive, quiet)
+    _impact_local(
+        ctx, node, path, edge_types, output_format, no_color, no_truncate, no_interactive, quiet
+    )
 
 
 def _impact_local(
+    ctx: click.Context,
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool = False,
     no_interactive: bool = False,
     quiet: bool = False,
 ) -> None:
@@ -226,9 +208,12 @@ def _impact_local(
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
-    from mu.logging import console, print_error, print_info
+    from mu.logging import print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+
+    # Build output config
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -261,8 +246,8 @@ def _impact_local(
 
         # Format and output
         title = f"Impact of {resolved_node} ({len(impacted)} nodes)"
-        output = _format_node_list(impacted, title, output_format, no_color)
-        console.print(output)
+        output = _format_node_list(impacted, title, config)
+        click.echo(output)
 
     finally:
         db.close()
@@ -292,14 +277,18 @@ def _impact_local(
     help="Output format",
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-truncate", is_flag=True, help="Show full node IDs without truncation")
 @click.option("--no-interactive", "-n", is_flag=True, help="Disable interactive disambiguation")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress resolution info messages")
+@click.pass_context
 def ancestors(
+    ctx: click.Context,
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool,
     no_interactive: bool,
     quiet: bool,
 ) -> None:
@@ -315,9 +304,13 @@ def ancestors(
         mu ancestors UserService
         mu ancestors "fn:src/auth.py:login" --edge-types calls
         mu ancestors MUbase -f json
+        mu ancestors MUbase --no-truncate  # Show full node IDs
     """
     from mu.client import DaemonClient, DaemonError
-    from mu.logging import console, print_warning
+    from mu.logging import print_warning
+
+    # Build output config from context and options
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     # Try daemon HTTP client first (no lock)
     client = DaemonClient()
@@ -345,8 +338,8 @@ def ancestors(
                     ancestor_nodes = data
 
             title = f"Ancestors of {resolved_node} ({len(ancestor_nodes)} nodes)"
-            output = _format_node_list(ancestor_nodes, title, output_format, no_color)
-            console.print(output)
+            output = _format_node_list(ancestor_nodes, title, config)
+            click.echo(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
@@ -354,15 +347,19 @@ def ancestors(
             print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _ancestors_local(node, path, edge_types, output_format, no_color, no_interactive, quiet)
+    _ancestors_local(
+        ctx, node, path, edge_types, output_format, no_color, no_truncate, no_interactive, quiet
+    )
 
 
 def _ancestors_local(
+    ctx: click.Context,
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool = False,
     no_interactive: bool = False,
     quiet: bool = False,
 ) -> None:
@@ -371,9 +368,12 @@ def _ancestors_local(
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
-    from mu.logging import console, print_error, print_info
+    from mu.logging import print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+
+    # Build output config
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -406,8 +406,8 @@ def _ancestors_local(
 
         # Format and output
         title = f"Ancestors of {resolved_node} ({len(ancestor_nodes)} nodes)"
-        output = _format_node_list(ancestor_nodes, title, output_format, no_color)
-        console.print(output)
+        output = _format_node_list(ancestor_nodes, title, config)
+        click.echo(output)
 
     finally:
         db.close()
@@ -436,11 +436,15 @@ def _ancestors_local(
     help="Output format",
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-truncate", is_flag=True, help="Show full node IDs without truncation")
+@click.pass_context
 def cycles(
+    ctx: click.Context,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool,
 ) -> None:
     """Detect circular dependencies in the codebase.
 
@@ -452,9 +456,13 @@ def cycles(
         mu cycles --edge-types imports      # Only import cycles
         mu cycles -e imports -e calls       # Import and call cycles
         mu cycles -f json                   # JSON output
+        mu cycles --no-truncate             # Show full node IDs
     """
     from mu.client import DaemonClient, DaemonError
-    from mu.logging import console, print_info, print_warning
+    from mu.logging import print_info, print_warning
+
+    # Build output config from context and options
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     # Try daemon HTTP client first (no lock)
     client = DaemonClient()
@@ -474,8 +482,8 @@ def cycles(
 
             print_info(f"Analyzed graph: {total_nodes} nodes in cycles")
 
-            output = _format_cycles(detected_cycles, output_format, no_color)
-            console.print(output)
+            output = _format_cycles_output(detected_cycles, config)
+            click.echo(output)
             return
         except DaemonError as e:
             print_warning(f"Daemon request failed, falling back to local: {e}")
@@ -483,22 +491,27 @@ def cycles(
             print_warning(f"MCP tool failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _cycles_local(path, edge_types, output_format, no_color)
+    _cycles_local(ctx, path, edge_types, output_format, no_color, no_truncate)
 
 
 def _cycles_local(
+    ctx: click.Context,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_truncate: bool = False,
 ) -> None:
     """Execute cycle detection in local mode (direct MUbase access)."""
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
-    from mu.logging import console, print_error, print_info
+    from mu.logging import print_error, print_info
 
     mubase_path = _get_mubase_path(path)
+
+    # Build output config
+    config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -519,8 +532,8 @@ def _cycles_local(
         detected_cycles = gm.find_cycles(edge_type_list)
 
         # Format and output
-        output = _format_cycles(detected_cycles, output_format, no_color)
-        console.print(output)
+        output = _format_cycles_output(detected_cycles, config)
+        click.echo(output)
 
     finally:
         db.close()
