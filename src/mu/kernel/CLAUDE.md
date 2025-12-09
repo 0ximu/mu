@@ -19,6 +19,7 @@ ModuleDef[] → GraphBuilder → Nodes + Edges → MUbase (.mubase file)
 | `models.py` | Node and Edge dataclasses |
 | `builder.py` | GraphBuilder converts ModuleDef → nodes/edges |
 | `mubase.py` | MUbase class - DuckDB wrapper with query methods |
+| `resolver.py` | NodeResolver for intelligent node disambiguation |
 
 ## Node Types
 
@@ -150,6 +151,54 @@ deps = db.get_dependencies(node_id, depth=3)
 # Filter by edge type
 deps = db.get_dependencies(node_id, edge_types=[EdgeType.IMPORTS])
 ```
+
+## Node Resolution
+
+The `resolver.py` module provides intelligent node disambiguation when users reference nodes by name.
+
+### Resolution Strategies
+
+```python
+class ResolutionStrategy(Enum):
+    PREFER_SOURCE = "prefer_source"  # Auto-select source over test (default)
+    INTERACTIVE = "interactive"      # Prompt user to choose
+    FIRST_MATCH = "first_match"      # Legacy alphabetical behavior
+    STRICT = "strict"                # Error on ambiguity
+```
+
+### Usage
+
+```python
+from mu.kernel.resolver import NodeResolver, ResolutionStrategy
+
+resolver = NodeResolver(mubase, strategy=ResolutionStrategy.PREFER_SOURCE)
+result = resolver.resolve("PayoutService")
+
+# Result contains:
+# - result.node: The selected Node
+# - result.alternatives: Other matching nodes
+# - result.was_ambiguous: Whether disambiguation occurred
+# - result.resolution_method: How the node was selected
+```
+
+### Match Types (in order of preference)
+
+1. **Exact ID** (score: 100) - Full node ID like `cls:src/foo.py:MyClass`
+2. **Exact Name** (score: 80) - Class/function name exactly matches
+3. **Suffix Match** (score: 60) - Reference matches end of name
+4. **Fuzzy Match** (score: 40) - Case-insensitive substring match
+
+### Test File Detection
+
+The resolver uses language-agnostic heuristics to detect test files:
+- Python: `tests/`, `test_*.py`, `*_test.py`
+- TypeScript/JS: `__tests__/`, `*.test.ts`, `*.spec.ts`
+- Go: `*_test.go`
+- Java: `src/test/`, `*Test.java`
+- C#: `.Tests/`, `*Tests.cs`, `UnitTests/`
+- Rust: `tests/`, `*_test.rs`
+
+Source files receive a +10 score bonus over test files.
 
 ## Anti-Patterns
 
