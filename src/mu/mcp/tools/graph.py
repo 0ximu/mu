@@ -201,10 +201,11 @@ def mu_read(node_id: str, context_lines: int = 3) -> ReadResult:
             if node_data:
                 root_path = mubase_path.parent.parent if mubase_path else Path.cwd()
                 return _extract_source(node_data, resolved_id, root_path)
-            # If daemon couldn't find the node, fall through to local mode
+            # Daemon is running but couldn't find the node - raise error
+            raise ValueError(f"Node not found: {node_id}")
 
     except DaemonError:
-        pass
+        pass  # Daemon not running, fall through to local mode
 
     if not mubase_path:
         raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run mu_bootstrap() first.") from None

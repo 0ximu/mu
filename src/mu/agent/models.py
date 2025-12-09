@@ -22,7 +22,7 @@ class AgentConfig:
     max_tokens: int = 4096
     temperature: float = 0.0
     mubase_path: str | None = None
-    daemon_url: str = "http://localhost:8765"
+    daemon_url: str = "http://localhost:9120"
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""

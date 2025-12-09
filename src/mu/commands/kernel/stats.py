@@ -36,7 +36,20 @@ def kernel_stats(path: Path, as_json: bool) -> None:
     if client.is_running():
         try:
             status_resp = client.status(cwd=str(path.resolve()))
+            # Rust daemon returns flat response with node_count/edge_count
+            # Normalize to expected stats format
             stats = status_resp.get("stats", {})
+            if not stats:
+                # Rust daemon format - normalize keys
+                stats = {
+                    "nodes": status_resp.get("node_count", 0),
+                    "edges": status_resp.get("edge_count", 0),
+                    "nodes_by_type": {},  # Not available from daemon status
+                    "edges_by_type": {},  # Not available from daemon status
+                    "file_size_kb": 0,
+                    "version": status_resp.get("schema_version", "unknown"),
+                    "built_at": None,
+                }
             client.close()
         except Exception:
             # Daemon available but request failed, fall back to direct access

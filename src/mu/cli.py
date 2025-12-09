@@ -64,10 +64,10 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "cache": ("mu.commands.cache", "cache"),
     # Utility commands
     "migrate": ("mu.commands.migrate", "migrate"),
-    # Developer-friendly "vibes" commands (emotional design)
-    "omg": ("mu.commands.vibes", "omg"),  # OMEGA context extraction
-    "grok": ("mu.commands.vibes", "grok"),  # Smart context extraction
-    "wtf": ("mu.commands.vibes", "wtf"),  # Git history analysis
+    # Vibes commands - developer-friendly CLI with personality
+    "omg": ("mu.commands.vibes", "omg"),  # OMEGA context
+    "grok": ("mu.commands.vibes", "grok"),  # Smart context
+    "wtf": ("mu.commands.vibes", "wtf"),  # Git archaeology
     "yolo": ("mu.commands.vibes", "yolo"),  # Impact analysis
     "sus": ("mu.commands.vibes", "sus"),  # Proactive warnings
     "vibe": ("mu.commands.vibes", "vibe"),  # Pattern validation

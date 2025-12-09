@@ -35,8 +35,6 @@ class SemanticDiffOutput:
     changes: list[dict[str, Any]]
     breaking_changes: list[dict[str, Any]]
     summary_text: str
-    has_breaking_changes: bool
-    total_changes: int
 
 
 @dataclass
@@ -62,16 +60,5 @@ class ReviewDiffOutput:
     # Semantic diff section
     changes: list[dict[str, Any]]
     breaking_changes: list[dict[str, Any]]
-    has_breaking_changes: bool
-    total_changes: int
-    # Pattern validation section
-    violations: list[ViolationInfo]
-    patterns_checked: list[str]
-    files_checked: list[str]
-    error_count: int
-    warning_count: int
-    info_count: int
-    patterns_valid: bool
-    # Summary
-    review_summary: str
+    # Timing
     review_time_ms: float

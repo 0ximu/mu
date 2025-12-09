@@ -1150,3 +1150,86 @@ class TestQueryPlanner:
 
         assert "plan_type" in d
         assert "sql" in d
+
+
+# =============================================================================
+# Bug Fix Tests (Issues 3 and 4)
+# =============================================================================
+
+
+class TestBugFixes:
+    """Tests for specific bug fixes."""
+
+    def test_show_dependencies_nonexistent_node_returns_error(
+        self, executor: QueryExecutor, planner: QueryPlanner
+    ) -> None:
+        """Issue 4: SHOW dependencies for non-existent node returns error, not empty.
+
+        Previously returned empty results, which was confusing.
+        Now returns a helpful error message.
+        """
+        query = ShowQuery(
+            show_type=ShowType.DEPENDENCIES,
+            target=NodeRef(name="NonExistentClass"),
+            depth=2,
+        )
+        plan = planner.plan(query)
+        result = executor.execute(plan)
+
+        # Should return error, not empty success
+        assert not result.is_success
+        assert result.error is not None
+        assert "Node not found" in result.error
+        assert "NonExistentClass" in result.error
+
+    def test_show_dependencies_by_simple_name_works(
+        self, executor: QueryExecutor, planner: QueryPlanner
+    ) -> None:
+        """SHOW dependencies with simple name resolves to full ID.
+
+        User should be able to query by just the class/module name.
+        """
+        query = ShowQuery(
+            show_type=ShowType.DEPENDENCIES,
+            target=NodeRef(name="Parser"),  # Simple name, not full ID
+            depth=1,
+        )
+        plan = planner.plan(query)
+        result = executor.execute(plan)
+
+        # Parser class should be found and have dependencies (contains parse_file)
+        assert result.is_success
+        # Parser contains parse_file method
+        assert result.row_count >= 1
+
+    def test_show_dependencies_by_full_id_works(
+        self, executor: QueryExecutor, planner: QueryPlanner
+    ) -> None:
+        """SHOW dependencies with full node ID works correctly."""
+        query = ShowQuery(
+            show_type=ShowType.DEPENDENCIES,
+            target=NodeRef(name="cls:src/parser.py:Parser"),
+            depth=1,
+        )
+        plan = planner.plan(query)
+        result = executor.execute(plan)
+
+        assert result.is_success
+        # Parser contains parse_file
+        assert result.row_count >= 1
+
+    def test_show_dependents_by_simple_name(
+        self, executor: QueryExecutor, planner: QueryPlanner
+    ) -> None:
+        """SHOW dependents with simple name resolves correctly."""
+        query = ShowQuery(
+            show_type=ShowType.DEPENDENTS,
+            target=NodeRef(name="utils"),  # Simple module name
+            depth=1,
+        )
+        plan = planner.plan(query)
+        result = executor.execute(plan)
+
+        assert result.is_success
+        # utils.py is imported by cli.py and parser.py
+        assert result.row_count >= 2

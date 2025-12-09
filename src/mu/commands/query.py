@@ -126,10 +126,11 @@ def _execute_muql(
             cwd = str(path.resolve())
             result_dict = client.query(query_str, cwd=cwd)
             # Convert daemon response to QueryResult for formatting
+            rows = [tuple(row) for row in result_dict.get("rows", [])]
             result = QueryResult(
                 columns=result_dict.get("columns", []),
-                rows=[tuple(row) for row in result_dict.get("rows", [])],
-                row_count=result_dict.get("row_count", 0),
+                rows=rows,
+                row_count=result_dict.get("row_count", len(rows)),
                 error=result_dict.get("error"),
                 execution_time_ms=result_dict.get("execution_time_ms", 0.0),
             )

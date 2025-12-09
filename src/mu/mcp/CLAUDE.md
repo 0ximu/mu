@@ -25,7 +25,7 @@ MCP Server (FastMCP)
        |
        +---> Context Tools
        |     +---> mu_context         → Smart context extraction
-       |     +---> mu_context_omega   → OMEGA compressed context
+       |     +---> mu_context_omega   → OMEGA S-expression context
        |
        +---> Analysis Tools
        |     +---> mu_deps            → Dependency traversal (in/out/both)
@@ -104,7 +104,7 @@ mu_semantic_diff("main", "HEAD") → PR review
 | Tool | Purpose | Returns |
 |------|---------|---------|
 | `mu_context` | Smart context extraction | `ContextResult` with MU text |
-| `mu_context_omega` | OMEGA compressed context (3-5x reduction) | `OmegaContextOutput` |
+| `mu_context_omega` | OMEGA S-expression context (LLM-parseable) | `OmegaContextOutput` |
 
 ### Analysis Tools
 
@@ -154,7 +154,7 @@ Then Claude Code can use:
 - `mcp__mu__mu_bootstrap(".")` - Initialize and build in one step
 - `mcp__mu__mu_query("SELECT * FROM functions LIMIT 10")`
 - `mcp__mu__mu_context("How does caching work?")`
-- `mcp__mu__mu_context_omega("How does auth work?")` - OMEGA compressed
+- `mcp__mu__mu_context_omega("How does auth work?")` - OMEGA S-expression format
 - `mcp__mu__mu_deps("AuthService", direction="both")` - All dependencies
 - `mcp__mu__mu_semantic_diff("main", "HEAD")` - PR review
 
@@ -185,6 +185,20 @@ Each tool tries:
 1. Connect to running daemon via `DaemonClient`
 2. If daemon unavailable, fall back to direct `MUbase` access
 3. If no `.mubase` found, raise error with instructions
+
+## OMEGA vs Sigils
+
+OMEGA (`mu_context_omega`) provides an alternative output format to sigil-based MU (`mu_context`):
+
+| Aspect | Sigils (mu_context) | OMEGA (mu_context_omega) |
+|--------|---------------------|--------------------------|
+| Format | Custom sigil syntax (`!`, `$`, `#`) | S-expressions (Lisp-like) |
+| Purpose | Human readability | LLM parseability |
+| Token usage | More compact | More verbose (~1.0-1.2x) |
+| Structure | Visual hierarchy | Explicit parentheses |
+| Caching | N/A | Stable seed enables prompt cache |
+
+**Important:** OMEGA Schema v2.0 prioritizes **LLM parseability** over token savings. S-expressions are more verbose than sigils, so `compression_ratio` may be < 1.0 (expansion). The value is in structured format and prompt cache optimization, not raw token reduction.
 
 ## Testing
 

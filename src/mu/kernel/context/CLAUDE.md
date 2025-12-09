@@ -135,7 +135,13 @@ json_output = exporter.export_json(context_result)
 
 ### `OmegaContextExtractor`
 
-OMEGA-enhanced context extraction with S-expression output and macro compression.
+OMEGA-enhanced context extraction with S-expression output for improved LLM parseability.
+
+**Important:** OMEGA Schema v2.0 prioritizes **LLM parseability** over token savings. S-expressions
+are more verbose than sigils, so `compression_ratio` may be < 1.0 (expansion). The value is in:
+- Structured, parseable format for LLMs
+- Stable seed (schema) enabling prompt cache optimization
+- Explicit syntax (parentheses vs sigils) for precise extraction
 
 ```python
 from mu.kernel.context.omega import OmegaContextExtractor, OmegaConfig
@@ -155,8 +161,7 @@ extractor = OmegaContextExtractor(db, config)
 result = extractor.extract("How does authentication work?")
 
 print(result.full_output)           # Complete OMEGA context
-print(f"Compression: {result.compression_ratio:.1f}x")
-print(f"Tokens saved: {result.tokens_saved}")
+print(f"Compression ratio: {result.compression_ratio:.2f}")  # May be < 1.0
 ```
 
 **OMEGA Output Structure:**
@@ -181,10 +186,9 @@ print(f"Tokens saved: {result.tokens_saved}")
 | Property | Description |
 |----------|-------------|
 | `seed` | Macro definitions header (stable for caching) |
-| `body` | Compressed S-expression content |
+| `body` | S-expression content |
 | `full_output` | Combined seed + body for LLM consumption |
-| `compression_ratio` | Tokens saved vs sigil format |
-| `tokens_saved` | Absolute token reduction |
+| `compression_ratio` | Ratio vs sigil format (may be < 1.0) |
 | `manifest` | `OmegaManifest` with macro metadata |
 
 ## MUbase Integration
@@ -217,7 +221,7 @@ mu kernel context "database queries" --max-tokens 4000 --verbose
 # JSON output
 mu kernel context "user validation" --format json
 
-# OMEGA format (S-expression with macro compression)
+# OMEGA format (S-expression for LLM parseability)
 mu kernel context "auth service" --format omega
 
 # OMEGA with verbose stats

@@ -112,6 +112,12 @@ def mu_context_omega(
         - LLM context injection with minimal token usage
         - Prompt cache optimization
         - Large codebase exploration
+
+    Note:
+        OMEGA Schema v2.0 prioritizes LLM parseability over token savings.
+        S-expressions are more verbose than MU sigils, so compression_ratio
+        may be < 1.0 (expansion). The value is in structured format and
+        prompt cache optimization, not raw token reduction.
     """
     if not question or not question.strip():
         raise ValueError("Question cannot be empty. Please provide a question about the codebase.")
@@ -134,63 +140,49 @@ def mu_context_omega(
         return OmegaContextOutput(
             seed=result.get("seed", ""),
             body=result.get("body", ""),
-            full_output=result.get("full_output", ""),
             macros_used=result.get("macros_used", []),
             seed_tokens=result.get("seed_tokens", 0),
             body_tokens=result.get("body_tokens", 0),
-            total_tokens=result.get("total_tokens", 0),
             original_tokens=result.get("original_tokens", 0),
             compression_ratio=result.get("compression_ratio", 1.0),
             nodes_included=result.get("nodes_included", 0),
             manifest=result.get("manifest", {}),
         )
     except DaemonError:
-        # Fall back to direct database access
-        pass
+        # Daemon not running - fall back to direct database access
+        mubase_path = find_mubase()
+        if not mubase_path:
+            raise DaemonError(
+                f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
+            ) from None
 
-    mubase_path = find_mubase()
-    if not mubase_path:
-        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build' first.")
-
-    from mu.kernel import MUbase
-
-    db = MUbase(mubase_path, read_only=True)
-
-    try:
+        from mu.kernel import MUbase
         from mu.kernel.context.omega import OmegaConfig, OmegaContextExtractor
 
-        config = OmegaConfig(
-            max_tokens=max_tokens,
-            include_synthesized=include_synthesized,
-            max_synthesized_macros=max_synthesized_macros,
-        )
+        db = MUbase(mubase_path, read_only=True)
+        try:
+            config = OmegaConfig(
+                max_tokens=max_tokens,
+                include_synthesized=include_synthesized,
+                max_synthesized_macros=max_synthesized_macros,
+            )
 
-        extractor = OmegaContextExtractor(db, config)
-        extract_result = extractor.extract(question)
+            extractor = OmegaContextExtractor(db, config)
+            extract_result = extractor.extract(question)
 
-        # If include_seed=False, only return the body (seed already in context)
-        if include_seed:
-            full_output = extract_result.full_output
-            total_tokens = extract_result.total_tokens
-        else:
-            full_output = extract_result.body
-            total_tokens = extract_result.body_tokens
-
-        return OmegaContextOutput(
-            seed=extract_result.seed if include_seed else "",
-            body=extract_result.body,
-            full_output=full_output,
-            macros_used=extract_result.macros_used,
-            seed_tokens=extract_result.seed_tokens if include_seed else 0,
-            body_tokens=extract_result.body_tokens,
-            total_tokens=total_tokens,
-            original_tokens=extract_result.original_tokens,
-            compression_ratio=extract_result.compression_ratio,
-            nodes_included=extract_result.nodes_included,
-            manifest=extract_result.manifest.to_dict(),
-        )
-    finally:
-        db.close()
+            return OmegaContextOutput(
+                seed=extract_result.seed if include_seed else "",
+                body=extract_result.body,
+                macros_used=extract_result.macros_used,
+                seed_tokens=extract_result.seed_tokens if include_seed else 0,
+                body_tokens=extract_result.body_tokens,
+                original_tokens=extract_result.original_tokens,
+                compression_ratio=extract_result.compression_ratio,
+                nodes_included=extract_result.nodes_included,
+                manifest=extract_result.manifest.to_dict(),
+            )
+        finally:
+            db.close()
 
 
 def register_context_tools(mcp: FastMCP) -> None:

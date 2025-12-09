@@ -36,7 +36,7 @@ class WarningInfo:
     category: str
     level: str
     message: str
-    details: dict[str, Any]
+    details: dict[str, Any] | None = None
 
 
 @dataclass

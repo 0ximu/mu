@@ -35,16 +35,20 @@ class QueryResult:
     rows: list[tuple[Any, ...]] = field(default_factory=list)
     row_count: int = 0
     error: str | None = None
+    warning: str | None = None
     execution_time_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "columns": self.columns,
             "rows": [list(row) for row in self.rows],
             "row_count": self.row_count,
             "error": self.error,
             "execution_time_ms": self.execution_time_ms,
         }
+        if self.warning:
+            result["warning"] = self.warning
+        return result
 
     @property
     def is_success(self) -> bool:
@@ -137,7 +141,7 @@ class QueryExecutor:
     # Graph Execution
     # -------------------------------------------------------------------------
 
-    def _resolve_node_id(self, target: str) -> str:
+    def _resolve_node_id(self, target: str) -> str | None:
         """Resolve a node name/reference to a full node ID.
 
         The target could be:
@@ -145,11 +149,14 @@ class QueryExecutor:
         - A simple name: MUbase, TransactionService
         - A qualified name: kernel.mubase.MUbase
 
-        Returns the full node ID if found, otherwise returns the original target.
+        Returns the full node ID if found, otherwise returns None.
         """
-        # If target already looks like a full node ID, return it
-        if target.startswith(("mod:", "cls:", "fn:")):
-            return target
+        # If target already looks like a full node ID, verify it exists
+        if target.startswith(("mod:", "cls:", "fn:", "ext:")):
+            node = self._db.get_node(target)
+            if node:
+                return target
+            # Fall through to try name-based lookup
 
         # Try to find by exact name match
         nodes = self._db.find_by_name(target)
@@ -166,14 +173,26 @@ class QueryExecutor:
             # Fall back to first match
             return nodes[0].id
 
-        # Return original target if no match found
-        return target
+        # Return None if no match found
+        return None
 
     def _execute_graph(self, plan: GraphPlan) -> QueryResult:
         """Execute graph traversal plan using MUbase methods or GraphManager."""
         operation = plan.operation
-        target = self._resolve_node_id(plan.target_node) if plan.target_node else ""
         depth = plan.depth
+
+        # Resolve target node ID (most operations require a target)
+        target: str = ""
+        if plan.target_node:
+            resolved = self._resolve_node_id(plan.target_node)
+            if resolved is None:
+                # Node not found - return helpful error message
+                return QueryResult(
+                    error=f"Node not found: '{plan.target_node}'. "
+                    f"Try using a full node ID (e.g., cls:path/to/file.py:ClassName) "
+                    f"or verify the node exists with: SELECT * FROM nodes WHERE name LIKE '%{plan.target_node}%'"
+                )
+            target = resolved
 
         try:
             # petgraph-backed operations (use GraphManager)
@@ -309,25 +328,34 @@ class QueryExecutor:
 
             if operation == "find_calling":
                 # Find functions that call the target
-                # These are nodes that have outgoing CALLS edges to target
-                # Use reverse impact - who depends on target?
-                result_ids = gm.impact(target, ["calls"])
+                # NOTE: CALLS edges are not yet implemented in graph building.
+                # This query will return empty results until call graph extraction is added.
+                # The graph builder needs to extract function calls and create edges.
+                result_ids = gm.ancestors(target, ["calls"])
             elif operation == "find_called_by":
                 # Find functions called by target
-                # These are nodes that target has outgoing CALLS edges to
-                result_ids = gm.ancestors(target, ["calls"])
+                # NOTE: CALLS edges are not yet implemented in graph building.
+                result_ids = gm.impact(target, ["calls"])
             elif operation == "find_importing":
                 # Find modules that import the target
-                result_ids = gm.impact(target, ["imports"])
+                # If A imports B, edge is A --imports--> B (A is source, B is target)
+                # We want to find A given B (target), so we need ancestors of target
+                result_ids = gm.ancestors(target, ["imports"])
             elif operation == "find_imported_by":
                 # Find modules imported by target
-                result_ids = gm.ancestors(target, ["imports"])
+                # If X imports B, edge is X --imports--> B (X is source, B is target)
+                # We want to find B given X (target), so we need impact of target
+                result_ids = gm.impact(target, ["imports"])
             elif operation == "find_inheriting":
                 # Find classes that inherit from target
-                result_ids = gm.impact(target, ["inherits"])
-            elif operation == "find_implementing":
-                # Find classes implemented by target (reverse of inherits)
+                # If A inherits B, edge is A --inherits--> B (A is source/child, B is target/parent)
+                # We want to find A given B (target), so we need ancestors of target
                 result_ids = gm.ancestors(target, ["inherits"])
+            elif operation == "find_implementing":
+                # Find classes that target inherits from (what does target implement/extend)
+                # If X inherits B, edge is X --inherits--> B (X is source, B is target)
+                # We want to find B given X (target), so we need impact of target
+                result_ids = gm.impact(target, ["inherits"])
             elif operation == "find_mutating":
                 # Find functions that mutate target state - fallback to generic impact
                 result_ids = gm.impact(target)

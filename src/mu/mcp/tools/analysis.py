@@ -15,7 +15,6 @@ from mu.mcp.models import (
     NodeInfo,
     ReviewDiffOutput,
     SemanticDiffOutput,
-    ViolationInfo,
 )
 from mu.mcp.tools._utils import find_mubase, resolve_node_id
 from mu.paths import MU_DIR, MUBASE_FILE
@@ -25,6 +24,7 @@ def mu_deps(
     node_name: str,
     depth: int = 2,
     direction: str = "outgoing",
+    detail: str = "minimal",
 ) -> DepsResult:
     """Show dependencies of a code node.
 
@@ -34,6 +34,7 @@ def mu_deps(
         node_name: Name or ID of the node (e.g., "AuthService", "mod:src/auth.py")
         depth: How many levels deep to traverse (default 2)
         direction: "outgoing" (what it uses), "incoming" (what uses it), or "both"
+        detail: Level of detail - "minimal" (id, name, type only) or "full" (all fields)
 
     Returns:
         List of dependent nodes
@@ -67,18 +68,27 @@ def mu_deps(
         for dep_id in dep_ids[:100]:  # Limit to 100
             try:
                 node_data = client.node(dep_id, cwd=cwd)
-                deps.append(
-                    NodeInfo(
-                        id=node_data.get("id", dep_id),
-                        type=node_data.get("type", "unknown"),
-                        name=node_data.get("name", ""),
-                        qualified_name=node_data.get("qualified_name"),
-                        file_path=node_data.get("file_path"),
-                        line_start=node_data.get("line_start"),
-                        line_end=node_data.get("line_end"),
-                        complexity=node_data.get("complexity", 0),
+                if detail == "minimal":
+                    deps.append(
+                        NodeInfo(
+                            id=node_data.get("id", dep_id),
+                            type=node_data.get("type", "unknown"),
+                            name=node_data.get("name", ""),
+                        )
                     )
-                )
+                else:
+                    deps.append(
+                        NodeInfo(
+                            id=node_data.get("id", dep_id),
+                            type=node_data.get("type", "unknown"),
+                            name=node_data.get("name", ""),
+                            qualified_name=node_data.get("qualified_name"),
+                            file_path=node_data.get("file_path"),
+                            line_start=node_data.get("line_start"),
+                            line_end=node_data.get("line_end"),
+                            complexity=node_data.get("complexity", 0),
+                        )
+                    )
             except DaemonError:
                 # Node not found, include ID only
                 deps.append(
@@ -141,18 +151,27 @@ def mu_deps(
         for dep_id in dep_ids:
             node = db.get_node(dep_id)
             if node:
-                deps.append(
-                    NodeInfo(
-                        id=node.id,
-                        type=node.type.value if hasattr(node.type, "value") else str(node.type),
-                        name=node.name,
-                        qualified_name=node.qualified_name,
-                        file_path=node.file_path,
-                        line_start=node.line_start,
-                        line_end=node.line_end,
-                        complexity=node.complexity or 0,
+                if detail == "minimal":
+                    deps.append(
+                        NodeInfo(
+                            id=node.id,
+                            type=node.type.value if hasattr(node.type, "value") else str(node.type),
+                            name=node.name,
+                        )
                     )
-                )
+                else:
+                    deps.append(
+                        NodeInfo(
+                            id=node.id,
+                            type=node.type.value if hasattr(node.type, "value") else str(node.type),
+                            name=node.name,
+                            qualified_name=node.qualified_name,
+                            file_path=node.file_path,
+                            line_start=node.line_start,
+                            line_end=node.line_end,
+                            complexity=node.complexity or 0,
+                        )
+                    )
 
         return DepsResult(
             node_id=resolved_id,
@@ -205,9 +224,7 @@ def mu_impact(node_id: str, edge_types: list[str] | None = None) -> ImpactResult
     # Fallback to local mode
     mubase_path = find_mubase()
     if not mubase_path:
-        raise DaemonError(
-            f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first."
-        )
+        raise DaemonError(f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu kernel build .' first.")
 
     from mu.kernel import MUbase
     from mu.kernel.graph import GraphManager
@@ -238,6 +255,8 @@ def mu_semantic_diff(
     base_ref: str,
     head_ref: str,
     path: str = ".",
+    limit: int = 20,
+    breaking_only: bool = False,
 ) -> SemanticDiffOutput:
     """Compare two git refs and return semantic changes.
 
@@ -250,6 +269,8 @@ def mu_semantic_diff(
         base_ref: Base git ref (e.g., "main", "HEAD~1")
         head_ref: Head git ref (e.g., "feature-branch", "HEAD")
         path: Path to codebase (default: current directory)
+        limit: Maximum number of changes to return (default 20)
+        breaking_only: Only return breaking changes (default False)
 
     Returns:
         SemanticDiffOutput with changes, breaking_changes, summary_text
@@ -344,8 +365,6 @@ def mu_semantic_diff(
                 changes=[],
                 breaking_changes=[],
                 summary_text="No supported files found in one or both refs",
-                has_breaking_changes=False,
-                total_changes=0,
             )
 
         # Try Rust semantic diff first
@@ -377,14 +396,21 @@ def mu_semantic_diff(
                 }
                 for c in rust_result.breaking_changes
             ]
+            # Apply filtering: breaking_only and limit
+            if breaking_only:
+                changes = [c for c in changes if c.get("is_breaking", False)]
+
+            # Sort: breaking changes first, then by entity_type
+            changes.sort(key=lambda c: (not c.get("is_breaking", False), c.get("entity_type", "")))
+            changes = changes[:limit]
+            breaking_changes = breaking_changes[:limit]
+
             return SemanticDiffOutput(
                 base_ref=base_ref,
                 head_ref=head_ref,
                 changes=changes,
                 breaking_changes=breaking_changes,
                 summary_text=rust_result.summary.text(),
-                has_breaking_changes=len(breaking_changes) > 0,
-                total_changes=len(changes),
             )
 
         # Fallback to Python differ
@@ -445,6 +471,15 @@ def mu_semantic_diff(
                 changes.append(change)
                 breaking_changes.append(change)
 
+        # Apply filtering: breaking_only and limit
+        if breaking_only:
+            changes = [c for c in changes if c.get("is_breaking", False)]
+
+        # Sort: breaking changes first, then by entity_type
+        changes.sort(key=lambda c: (not c.get("is_breaking", False), c.get("entity_type", "")))
+        changes = changes[:limit]
+        breaking_changes = breaking_changes[:limit]
+
         summary_lines = [f"Comparing {base_ref} -> {head_ref}:"]
         summary_lines.append(f"  Total changes: {len(changes)}")
         if breaking_changes:
@@ -456,8 +491,6 @@ def mu_semantic_diff(
             changes=changes,
             breaking_changes=breaking_changes,
             summary_text="\n".join(summary_lines),
-            has_breaking_changes=len(breaking_changes) > 0,
-            total_changes=len(changes),
         )
 
 
@@ -518,80 +551,10 @@ def mu_review_diff(
     # Get semantic diff
     diff_result = mu_semantic_diff(base_ref, head_ref, path)
 
-    # Pattern validation is deprecated (validator removed)
-    violations: list[ViolationInfo] = []
-    patterns_checked: list[str] = []
-    files_checked: list[str] = []
-    error_count = 0
-    warning_count = 0
-    info_count = 0
-    patterns_valid = True
+    # Pattern validation deprecated - ignore parameters
     _ = validate_patterns
     _ = pattern_category
 
-    # Generate review summary
-    summary_parts = []
-    summary_parts.append(f"# Code Review: {base_ref} -> {head_ref}")
-    summary_parts.append("")
-
-    summary_parts.append("## Semantic Changes")
-    if diff_result.total_changes == 0:
-        summary_parts.append("No semantic changes detected.")
-    else:
-        summary_parts.append(f"- Total changes: {diff_result.total_changes}")
-
-        added = [c for c in diff_result.changes if c.get("change_type") == "added"]
-        removed = [c for c in diff_result.changes if c.get("change_type") == "removed"]
-        modified = [
-            c for c in diff_result.changes if c.get("change_type") not in ("added", "removed")
-        ]
-
-        if added:
-            summary_parts.append(f"- Added: {len(added)}")
-        if removed:
-            summary_parts.append(f"- Removed: {len(removed)}")
-        if modified:
-            summary_parts.append(f"- Modified: {len(modified)}")
-
-    summary_parts.append("")
-
-    if diff_result.has_breaking_changes:
-        summary_parts.append("## Breaking Changes Detected")
-        for bc in diff_result.breaking_changes[:5]:
-            entity = bc.get("entity_name", "unknown")
-            change_type = bc.get("change_type", "modified")
-            summary_parts.append(f"- **{entity}**: {change_type}")
-        if len(diff_result.breaking_changes) > 5:
-            summary_parts.append(f"  ... and {len(diff_result.breaking_changes) - 5} more")
-        summary_parts.append("")
-
-    if validate_patterns:
-        summary_parts.append("## Pattern Validation")
-        if not files_checked:
-            summary_parts.append("No files to validate (no .mubase or no changed files).")
-        elif patterns_valid and not violations:
-            summary_parts.append("All changes follow codebase patterns.")
-        summary_parts.append("")
-
-    summary_parts.append("## Recommendation")
-    if diff_result.has_breaking_changes:
-        summary_parts.append(
-            "**Review breaking changes carefully** before merging. "
-            "Ensure downstream code is updated."
-        )
-    elif error_count > 0:
-        summary_parts.append(
-            "**Address pattern violations** before merging. "
-            "New code should follow established conventions."
-        )
-    elif warning_count > 0:
-        summary_parts.append(
-            "**Consider addressing warnings** for consistency. Changes are otherwise acceptable."
-        )
-    else:
-        summary_parts.append("**Looks good!** No blocking issues found.")
-
-    review_summary = "\n".join(summary_parts)
     review_time_ms = (time.time() - start_time) * 1000
 
     return ReviewDiffOutput(
@@ -599,16 +562,6 @@ def mu_review_diff(
         head_ref=head_ref,
         changes=diff_result.changes,
         breaking_changes=diff_result.breaking_changes,
-        has_breaking_changes=diff_result.has_breaking_changes,
-        total_changes=diff_result.total_changes,
-        violations=violations,
-        patterns_checked=patterns_checked,
-        files_checked=files_checked,
-        error_count=error_count,
-        warning_count=warning_count,
-        info_count=info_count,
-        patterns_valid=patterns_valid,
-        review_summary=review_summary,
         review_time_ms=review_time_ms,
     )
 

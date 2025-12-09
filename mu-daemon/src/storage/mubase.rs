@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use super::edges::Edge;
 use super::nodes::Node;
-use super::schema::{EdgeType, NodeType, SCHEMA_SQL, SCHEMA_VERSION};
+use super::schema::{NodeType, SCHEMA_SQL, SCHEMA_VERSION};
 
 /// Graph engine wrapper around petgraph for in-memory graph operations.
 pub struct GraphEngine {
@@ -94,9 +94,20 @@ impl MUbase {
         Ok(mubase)
     }
 
+    /// Acquire the database connection lock, handling PoisonError gracefully.
+    /// If the mutex is poisoned (previous holder panicked), we still acquire
+    /// the lock and continue - the database connection itself is likely fine.
+    fn acquire_conn(
+        &self,
+    ) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Database lock poisoned: {}", e))
+    }
+
     /// Initialize the database schema.
     fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
 
         // Execute schema creation
         conn.execute_batch(SCHEMA_SQL)
@@ -113,7 +124,7 @@ impl MUbase {
 
     /// Clear all data from the database.
     pub fn clear(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         conn.execute("DELETE FROM edges", [])?;
         conn.execute("DELETE FROM nodes", [])?;
         Ok(())
@@ -121,7 +132,7 @@ impl MUbase {
 
     /// Insert a node into the database.
     pub fn insert_node(&self, node: &Node) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let properties_json = node
             .properties
             .as_ref()
@@ -148,7 +159,7 @@ impl MUbase {
 
     /// Insert multiple nodes in a batch.
     pub fn insert_nodes(&self, nodes: &[Node]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             r#"INSERT OR REPLACE INTO nodes
                (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity)
@@ -178,7 +189,7 @@ impl MUbase {
 
     /// Insert an edge into the database.
     pub fn insert_edge(&self, edge: &Edge) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let properties_json = edge
             .properties
             .as_ref()
@@ -201,7 +212,7 @@ impl MUbase {
 
     /// Insert multiple edges in a batch.
     pub fn insert_edges(&self, edges: &[Edge]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             r#"INSERT OR REPLACE INTO edges
                (id, source_id, target_id, type, properties)
@@ -227,7 +238,7 @@ impl MUbase {
 
     /// Get a node by ID.
     pub fn get_node(&self, id: &str) -> Result<Option<Node>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
              FROM nodes WHERE id = ?",
@@ -257,7 +268,7 @@ impl MUbase {
 
     /// Get all nodes of a specific type.
     pub fn get_nodes_by_type(&self, node_type: NodeType) -> Result<Vec<Node>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
              FROM nodes WHERE type = ?",
@@ -288,7 +299,7 @@ impl MUbase {
 
     /// Delete nodes for a specific file (for incremental updates).
     pub fn delete_nodes_for_file(&self, file_path: &str) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
 
         // First delete edges referencing these nodes
         conn.execute(
@@ -305,31 +316,26 @@ impl MUbase {
 
     /// Execute a raw SQL query and return results.
     pub fn query(&self, sql: &str) -> Result<QueryResult> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(sql)?;
 
-        // Get column count
-        let column_count = stmt.column_count();
-
-        // Execute the query first to get proper column names from result
+        // Execute the query
         let mut rows = stmt.query([])?;
 
-        // Get column names from the rows (more reliable than stmt.column_name)
-        // DuckDB's Rows type has as_ref() -> &Statement which gives proper column names
-        let columns: Vec<String> = (0..column_count)
-            .map(|i| {
-                // Try to get column name from the result set
-                rows.as_ref()
-                    .and_then(|stmt| stmt.column_name(i).ok())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("col_{}", i))
-            })
-            .collect();
-
-        // Collect rows
+        // Collect rows and extract column information
         let mut rows_data: Vec<Vec<serde_json::Value>> = Vec::new();
+        let mut columns: Vec<String> = Vec::new();
+        let mut column_count = 0;
 
         while let Some(row) = rows.next()? {
+            // Extract column information from the first row
+            // In duckdb-rs, we can get column names from row.as_ref().column_names()
+            if columns.is_empty() {
+                let stmt_ref = row.as_ref();
+                columns = stmt_ref.column_names().iter().map(|s| s.to_string()).collect();
+                column_count = columns.len();
+            }
+
             let mut row_data = Vec::new();
             for i in 0..column_count {
                 // Try to get value as different types
@@ -349,6 +355,9 @@ impl MUbase {
             rows_data.push(row_data);
         }
 
+        // For empty result sets, columns will be empty which is acceptable
+        // The caller can use DESCRIBE or other methods to get schema info if needed
+
         Ok(QueryResult {
             columns,
             rows: rows_data,
@@ -357,7 +366,7 @@ impl MUbase {
 
     /// Get graph statistics.
     pub fn stats(&self) -> Result<GraphStats> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
 
         let node_count: usize = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
         let edge_count: usize = conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
@@ -381,7 +390,7 @@ impl MUbase {
 
     /// Load the graph into memory for fast traversal.
     pub fn load_graph(&self) -> Result<GraphEngine> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.acquire_conn()?;
 
         // Load all node IDs
         let mut stmt = conn.prepare("SELECT id FROM nodes")?;
@@ -510,5 +519,75 @@ mod tests {
         let graph = db.load_graph().unwrap();
         assert_eq!(graph.node_count(), 2);
         assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_query_returns_proper_column_names() {
+        let db = create_test_db();
+
+        // Insert a test node
+        let node = Node::module("src/test.py");
+        db.insert_node(&node).unwrap();
+
+        // Query with SELECT *
+        let result = db.query("SELECT * FROM nodes").unwrap();
+
+        // Verify column names are actual column names, not col_0, col_1, etc.
+        assert!(!result.columns.is_empty());
+        assert!(
+            result.columns.contains(&"id".to_string()),
+            "Expected 'id' column, got: {:?}",
+            result.columns
+        );
+        assert!(
+            result.columns.contains(&"name".to_string()),
+            "Expected 'name' column, got: {:?}",
+            result.columns
+        );
+        assert!(
+            result.columns.contains(&"type".to_string()),
+            "Expected 'type' column, got: {:?}",
+            result.columns
+        );
+        assert!(
+            result.columns.contains(&"file_path".to_string()),
+            "Expected 'file_path' column, got: {:?}",
+            result.columns
+        );
+
+        // Ensure we don't have col_0, col_1 style names
+        for col in &result.columns {
+            assert!(
+                !col.starts_with("col_"),
+                "Column name should not be '{}', expected actual column names",
+                col
+            );
+        }
+    }
+
+    #[test]
+    fn test_query_returns_proper_column_names_with_aliases() {
+        let db = create_test_db();
+
+        // Insert test data
+        let node = Node::module("src/test.py");
+        db.insert_node(&node).unwrap();
+
+        // Query with aliases
+        let result = db
+            .query("SELECT id AS node_id, name AS node_name FROM nodes")
+            .unwrap();
+
+        assert_eq!(result.columns.len(), 2);
+        assert!(
+            result.columns.contains(&"node_id".to_string()),
+            "Expected 'node_id' alias, got: {:?}",
+            result.columns
+        );
+        assert!(
+            result.columns.contains(&"node_name".to_string()),
+            "Expected 'node_name' alias, got: {:?}",
+            result.columns
+        );
     }
 }

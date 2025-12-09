@@ -1,11 +1,14 @@
-"""OMEGA Context - S-Expression semantic compression.
+"""OMEGA Context - S-Expression semantic format for LLMs.
 
 Provides OMEGA-enhanced context extraction that combines:
-- LispExporter: S-expression output format
-- MacroSynthesizer: Pattern-based macro compression
+- Schema v2.0: Strict positional S-expression format
+- LispExporter: Structured S-expression output
+- Prompt cache optimization: Stable seed (schema) + variable body
 
-OMEGA achieves 3-5x token reduction while preserving semantic signal
-through dynamic macro compression and prompt cache optimization.
+OMEGA Schema v2.0 prioritizes LLM parseability over token savings:
+- S-expressions are more verbose than sigils but easier for LLMs to parse
+- The schema header (seed) is stable for prompt cache efficiency
+- Structured format enables precise extraction of code elements
 
 Usage:
     from mu.kernel.context.omega import OmegaContextExtractor, OmegaConfig
@@ -275,9 +278,15 @@ class OmegaResult:
     """Tokens if exported as sigils (for compression comparison)."""
 
     compression_ratio: float = 0.0
-    """Compression achieved (original_tokens / total_tokens).
+    """Token ratio vs sigil format (original_tokens / total_tokens).
 
-    A ratio of 3.0 means OMEGA uses 3x fewer tokens than sigils.
+    Interpretation:
+    - > 1.0: OMEGA uses fewer tokens (compression)
+    - < 1.0: OMEGA uses more tokens (expansion, expected for Schema v2.0)
+
+    Note: Schema v2.0 prioritizes parseability over compression. S-expressions
+    are more verbose than sigils, so expect ratio < 1.0. The value is in
+    structured format and prompt cache optimization, not token savings.
     """
 
     # Context info
@@ -517,17 +526,23 @@ class OmegaContextExtractor:
         body_tokens = self._count_tokens(body)
         stats["body_tokens"] = body_tokens
 
-        # Step 6: Calculate compression metrics
-        # Get original sigil format tokens for comparison
+        # Step 6: Calculate token metrics
+        # Note: OMEGA Schema v2.0 prioritizes LLM parseability over compression.
+        # S-expressions are more verbose than sigils, so expect total_tokens > original_tokens.
+        # The value is in structured format and prompt cache optimization, not token savings.
         original_tokens = context_result.token_count
         total_tokens = seed_tokens + body_tokens
+
+        # Ratio interpretation:
+        # > 1.0: OMEGA uses fewer tokens than sigils (compression)
+        # < 1.0: OMEGA uses more tokens than sigils (expansion, expected for Schema v2.0)
         compression_ratio = original_tokens / total_tokens if total_tokens > 0 else 1.0
 
-        # Log warning if expansion occurred (compression_ratio < 1.0 means more tokens than original)
-        if compression_ratio < 1.0 and original_tokens > 0:
-            logger.warning(
-                f"OMEGA expansion detected: {total_tokens} tokens vs {original_tokens} original "
-                f"(ratio: {compression_ratio:.2f}). Body generation may be including extra content."
+        # Log info about token usage (not a warning - expansion is expected)
+        if original_tokens > 0:
+            logger.debug(
+                f"OMEGA tokens: {total_tokens} (seed: {seed_tokens}, body: {body_tokens}) "
+                f"vs sigils: {original_tokens} (ratio: {compression_ratio:.2f})"
             )
 
         stats["total_tokens"] = total_tokens

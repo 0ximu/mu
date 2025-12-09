@@ -64,6 +64,7 @@ def omg(
     """
     import json
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.context.omega import OmegaConfig, OmegaContextExtractor
@@ -81,6 +82,67 @@ def omg(
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
+    # Try daemon first
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            daemon_result = client.context_omega(
+                question=question,
+                max_tokens=tokens,
+                include_seed=not no_seed,
+                cwd=str(cwd),
+            )
+
+            if as_json:
+                click.echo(json.dumps(daemon_result, indent=2))
+                return
+
+            full_output = daemon_result.get("full_output", "")
+            total_tokens = daemon_result.get("total_tokens", 0)
+            seed_tokens = daemon_result.get("seed_tokens", 0)
+            body_tokens = daemon_result.get("body_tokens", 0)
+            compression_ratio = daemon_result.get("compression_ratio", 1.0)
+            original_tokens = daemon_result.get("original_tokens", 0)
+            seed = daemon_result.get("seed", "")
+            body = daemon_result.get("body", "")
+
+            if raw:
+                if no_seed:
+                    click.echo(body)
+                else:
+                    click.echo(full_output)
+                return
+
+            # Output with personality
+            click.echo()
+            click.echo(
+                click.style("OMG Context ", fg="green", bold=True)
+                + click.style(f"({total_tokens:,} tokens)", dim=True)
+            )
+            click.echo()
+
+            if not no_seed and seed:
+                click.echo(
+                    click.style(f";; Schema seed ({seed_tokens} tokens) - cache this", dim=True)
+                )
+                console.print(seed, markup=False)
+                click.echo()
+
+            click.echo(click.style(f";; Body ({body_tokens} tokens)", dim=True))
+            console.print(body, markup=False)
+
+            click.echo()
+            click.echo(
+                click.style("Compression: ", dim=True)
+                + click.style(f"{compression_ratio:.1f}x", fg="cyan", bold=True)
+                + click.style(f" ({original_tokens:,} → {total_tokens:,} tokens)", dim=True)
+            )
+            click.echo(click.style("Your context just lost mass. 🚀", dim=True))
+            return
+        except DaemonError:
+            pass  # Fall through to local mode
+
+    # Local mode
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
@@ -464,6 +526,7 @@ def yolo(
     """
     import json
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.logging import print_error
@@ -480,6 +543,69 @@ def yolo(
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
+    # Try daemon first
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            # Resolve node to full ID if it's a short name
+            resolved_node = target
+            if not target.startswith(("mod:", "cls:", "fn:")):
+                found = client.find_node(target, cwd=str(cwd))
+                if found:
+                    resolved_node = found.get("id", target)
+
+            edge_type_list = list(edge_types) if edge_types else None
+            result = client.impact(resolved_node, edge_types=edge_type_list, cwd=str(cwd))
+
+            # Handle daemon response format
+            impacted = result.get("impacted_nodes", result.get("data", []))
+            if isinstance(impacted, dict):
+                impacted = []
+
+            if as_json:
+                click.echo(
+                    json.dumps(
+                        {
+                            "target": target,
+                            "node_id": resolved_node,
+                            "impacted_count": len(impacted),
+                            "impacted": impacted,
+                        },
+                        indent=2,
+                    )
+                )
+                return
+
+            click.echo()
+            click.echo(
+                click.style("YOLO: ", fg="magenta", bold=True) + click.style(target, bold=True)
+            )
+            click.echo()
+            click.echo(click.style(f"{len(impacted)} nodes affected", fg="yellow", bold=True))
+
+            if impacted:
+                click.echo()
+                click.echo(click.style(f"Impacted nodes ({len(impacted)})", fg="cyan"))
+                for node_id in impacted[:15]:
+                    click.echo(click.style("  • ", dim=True) + str(node_id))
+                if len(impacted) > 15:
+                    click.echo(click.style(f"  ... and {len(impacted) - 15} more", dim=True))
+
+            click.echo()
+            if len(impacted) > 10:
+                click.echo(
+                    click.style(
+                        f"⚠️  High impact - changes affect {len(impacted)} downstream nodes",
+                        fg="yellow",
+                    )
+                )
+            else:
+                click.echo(click.style("Low impact. Go ahead, YOLO! 🎲", dim=True))
+            return
+        except DaemonError:
+            pass  # Fall through to local mode
+
+    # Local mode
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
@@ -605,6 +731,7 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
     """
     import json
 
+    from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
     from mu.intelligence import ProactiveWarningGenerator, WarningConfig
     from mu.kernel import MUbase, MUbaseLockError
@@ -622,6 +749,69 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
+    # Try daemon first
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            result = client.warn(target, cwd=str(cwd))
+
+            if as_json:
+                click.echo(json.dumps(result, indent=2))
+                return
+
+            warnings = result.get("warnings", [])
+            risk_score = result.get("risk_score", 0)
+
+            click.echo()
+            click.echo(
+                click.style("SUS Check: ", fg="yellow", bold=True) + click.style(target, bold=True)
+            )
+            click.echo()
+
+            if not warnings:
+                click.echo(click.style("✓ All clear. Not sus. 👍", fg="green"))
+                return
+
+            # Display warnings
+            for warning in warnings:
+                level = warning.get("level", "warn")
+                category = warning.get("category", "unknown")
+                message = warning.get("message", "")
+                details = warning.get("details", {})
+
+                icon = "⚠️" if level in ("warn", "error") else "ℹ️"
+                color = "red" if level == "error" else "yellow"
+                click.echo(
+                    click.style(f"{icon} ", fg=color)
+                    + click.style(category.upper(), fg=color, bold=True)
+                )
+                click.echo(click.style(f"   {message}", dim=False))
+                suggestion = details.get("suggestion") if details else None
+                if suggestion:
+                    click.echo(click.style(f"   → {suggestion}", fg="green"))
+                click.echo()
+
+            # Risk score (daemon returns 0-1, convert to 0-10)
+            display_score = risk_score * 10 if risk_score <= 1 else risk_score
+            click.echo(
+                click.style("Risk Score: ", dim=True)
+                + click.style(
+                    f"{display_score:.0f}/10",
+                    fg="red" if display_score >= 7 else "yellow",
+                    bold=True,
+                )
+                + click.style(
+                    " - Proceed with caution" if display_score >= 5 else " - Looks OK", dim=True
+                )
+            )
+
+            if strict and warnings:
+                sys.exit(1)
+            return
+        except DaemonError:
+            pass  # Fall through to local mode
+
+    # Local mode
     try:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
@@ -635,10 +825,10 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         root_path = mubase_path.parent.parent
         config = WarningConfig()
         generator = ProactiveWarningGenerator(db, config, root_path)
-        result = generator.analyze(target)
+        local_result = generator.analyze(target)
 
         if as_json:
-            click.echo(json.dumps(result.to_dict(), indent=2))
+            click.echo(json.dumps(local_result.to_dict(), indent=2))
             return
 
         click.echo()
@@ -647,12 +837,12 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         )
         click.echo()
 
-        if not result.warnings:
+        if not local_result.warnings:
             click.echo(click.style("✓ All clear. Not sus. 👍", fg="green"))
             return
 
         # Group warnings by category
-        for warning in result.warnings:
+        for warning in local_result.warnings:
             icon = "⚠️" if warning.level in ("warn", "error") else "ℹ️"
             color = "red" if warning.level == "error" else "yellow"
             click.echo(
@@ -670,16 +860,17 @@ def sus(ctx: MUContext, target: str | None, strict: bool, as_json: bool) -> None
         click.echo(
             click.style("Risk Score: ", dim=True)
             + click.style(
-                f"{result.risk_score}/10",
-                fg="red" if result.risk_score >= 7 else "yellow",
+                f"{local_result.risk_score}/10",
+                fg="red" if local_result.risk_score >= 7 else "yellow",
                 bold=True,
             )
             + click.style(
-                " - Proceed with caution" if result.risk_score >= 5 else " - Looks OK", dim=True
+                " - Proceed with caution" if local_result.risk_score >= 5 else " - Looks OK",
+                dim=True,
             )
         )
 
-        if strict and result.warnings:
+        if strict and local_result.warnings:
             sys.exit(1)
 
     finally:

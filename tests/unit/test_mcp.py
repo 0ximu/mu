@@ -285,8 +285,8 @@ class TestMuDeps:
         result = mu_deps("AuthService", direction="incoming")
 
         assert result.direction == "incoming"
-        # Should use impact (incoming dependencies)
-        mock_gm.impact.assert_called_once()
+        # Should use impact() for incoming deps
+        mock_gm.impact.assert_called_once_with("cls:src/auth.py:AuthService")
         assert len(result.dependencies) == 1
         assert result.dependencies[0].name == "login"
 
@@ -353,46 +353,24 @@ class TestReviewDiffOutput:
             head_ref="HEAD",
             changes=[{"entity_name": "test", "change_type": "added"}],
             breaking_changes=[],
-            has_breaking_changes=False,
-            total_changes=1,
-            violations=[],
-            patterns_checked=["snake_case_functions"],
-            files_checked=["src/test.py"],
-            error_count=0,
-            warning_count=0,
-            info_count=0,
-            patterns_valid=True,
-            review_summary="# Code Review: main -> HEAD\n\nLooks good!",
             review_time_ms=100.0,
         )
         assert output.base_ref == "main"
         assert output.head_ref == "HEAD"
-        assert output.total_changes == 1
-        assert output.patterns_valid is True
-        assert output.has_breaking_changes is False
+        assert len(output.changes) == 1
+        assert len(output.breaking_changes) == 0
 
-    def test_review_diff_output_empty_violations(self) -> None:
-        """Test ReviewDiffOutput with empty violations (pattern validation removed)."""
+    def test_review_diff_output_with_breaking_changes(self) -> None:
+        """Test ReviewDiffOutput with breaking changes."""
         output = ReviewDiffOutput(
             base_ref="develop",
             head_ref="feature-branch",
-            changes=[],
-            breaking_changes=[],
-            has_breaking_changes=False,
-            total_changes=0,
-            violations=[],
-            patterns_checked=[],
-            files_checked=[],
-            error_count=0,
-            warning_count=0,
-            info_count=0,
-            patterns_valid=True,
-            review_summary="Review summary",
+            changes=[{"entity_name": "removed_func", "change_type": "removed"}],
+            breaking_changes=[{"entity_name": "removed_func", "change_type": "removed"}],
             review_time_ms=50.0,
         )
-        assert len(output.violations) == 0
-        assert output.warning_count == 0
-        assert output.patterns_valid is True
+        assert len(output.breaking_changes) == 1
+        assert output.review_time_ms == 50.0
 
 
 class TestMuReviewDiff:
@@ -408,20 +386,14 @@ class TestMuReviewDiff:
             changes=[{"entity_name": "new_func", "change_type": "added", "is_breaking": False}],
             breaking_changes=[],
             summary_text="1 change",
-            has_breaking_changes=False,
-            total_changes=1,
         )
 
         result = mu_review_diff("main", "HEAD", validate_patterns=False)
 
         assert result.base_ref == "main"
         assert result.head_ref == "HEAD"
-        assert result.total_changes == 1
-        assert result.has_breaking_changes is False
-        # No validation run
-        assert result.patterns_valid is True
-        assert len(result.violations) == 0
-        assert "Looks good" in result.review_summary
+        assert len(result.changes) == 1
+        assert len(result.breaking_changes) == 0
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_with_breaking_changes(self, mock_semantic_diff: MagicMock) -> None:
@@ -444,27 +416,18 @@ class TestMuReviewDiff:
                 }
             ],
             summary_text="1 breaking change",
-            has_breaking_changes=True,
-            total_changes=1,
         )
 
         result = mu_review_diff("main", "HEAD", validate_patterns=False)
 
-        assert result.has_breaking_changes is True
         assert len(result.breaking_changes) == 1
-        assert "Breaking Changes" in result.review_summary
-        assert "Review breaking changes" in result.review_summary
 
-    @patch("subprocess.run")
-    @patch("mu.mcp.tools.analysis.find_mubase")
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
-    def test_review_diff_with_pattern_validation(
+    def test_review_diff_with_pattern_validation_ignored(
         self,
         mock_semantic_diff: MagicMock,
-        mock_find_mubase: MagicMock,
-        mock_subprocess: MagicMock,
     ) -> None:
-        """Test review diff with pattern validation enabled."""
+        """Test review diff ignores pattern validation (deprecated)."""
         # Mock semantic diff
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="main",
@@ -472,22 +435,17 @@ class TestMuReviewDiff:
             changes=[],
             breaking_changes=[],
             summary_text="No changes",
-            has_breaking_changes=False,
-            total_changes=0,
         )
-
-        # Mock no mubase found (skip validation)
-        mock_find_mubase.return_value = None
 
         result = mu_review_diff("main", "HEAD", validate_patterns=True)
 
-        # Should still succeed but with no files validated
-        assert result.patterns_valid is True
-        assert len(result.files_checked) == 0
+        # Pattern validation deprecated - just passes through semantic diff
+        assert result.base_ref == "main"
+        assert result.head_ref == "HEAD"
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
-    def test_review_diff_summary_generation(self, mock_semantic_diff: MagicMock) -> None:
-        """Test review summary is properly generated."""
+    def test_review_diff_passes_changes_through(self, mock_semantic_diff: MagicMock) -> None:
+        """Test review diff passes semantic diff changes through."""
         mock_semantic_diff.return_value = SemanticDiffOutput(
             base_ref="develop",
             head_ref="feature-x",
@@ -498,18 +456,12 @@ class TestMuReviewDiff:
             ],
             breaking_changes=[],
             summary_text="3 changes",
-            has_breaking_changes=False,
-            total_changes=3,
         )
 
         result = mu_review_diff("develop", "feature-x", validate_patterns=False)
 
-        # Check summary contains expected sections
-        assert "Code Review: develop -> feature-x" in result.review_summary
-        assert "Semantic Changes" in result.review_summary
-        assert "Total changes: 3" in result.review_summary
-        assert "Added: 2" in result.review_summary
-        assert "Recommendation" in result.review_summary
+        assert len(result.changes) == 3
+        assert result.review_time_ms > 0
 
     @patch("mu.mcp.tools.analysis.mu_semantic_diff")
     def test_review_diff_with_category_ignored(self, mock_semantic_diff: MagicMock) -> None:
@@ -520,11 +472,8 @@ class TestMuReviewDiff:
             changes=[],
             breaking_changes=[],
             summary_text="",
-            has_breaking_changes=False,
-            total_changes=0,
         )
 
         # Category is now ignored (no validation)
         result = mu_review_diff("main", "HEAD", pattern_category="any_category")
         assert result.base_ref == "main"
-        assert result.patterns_valid is True

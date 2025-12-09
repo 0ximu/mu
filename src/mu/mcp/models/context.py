@@ -21,12 +21,24 @@ class OmegaContextOutput:
 
     seed: str
     body: str
-    full_output: str
     macros_used: list[str]
     seed_tokens: int
     body_tokens: int
-    total_tokens: int
     original_tokens: int
     compression_ratio: float
     nodes_included: int
     manifest: dict[str, Any]
+
+    @property
+    def full_output(self) -> str:
+        """Get complete OMEGA output (seed + body)."""
+        if self.seed and self.body:
+            return f"{self.seed}\n\n;; Codebase Context\n{self.body}"
+        elif self.body:
+            return f";; Codebase Context\n{self.body}"
+        return self.seed or ""
+
+    @property
+    def total_tokens(self) -> int:
+        """Get total token count (seed + body)."""
+        return self.seed_tokens + self.body_tokens
