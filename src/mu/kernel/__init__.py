@@ -56,6 +56,17 @@ from mu.kernel.export import (
 from mu.kernel.graph import GraphManager, GraphStats
 from mu.kernel.models import Edge, Node
 from mu.kernel.mubase import MUbase, MUbaseCorruptionError, MUbaseLockError
+
+# Re-export resolver classes for convenience
+from mu.kernel.resolver import (
+    AmbiguousNodeError,
+    MatchType,
+    NodeCandidate,
+    NodeNotFoundError,
+    NodeResolver,
+    ResolutionStrategy,
+    ResolvedNode,
+)
 from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
 
 __all__ = [
@@ -91,4 +102,12 @@ __all__ = [
     # Graph reasoning (petgraph)
     "GraphManager",
     "GraphStats",
+    # Resolver (node disambiguation)
+    "NodeResolver",
+    "ResolutionStrategy",
+    "MatchType",
+    "NodeCandidate",
+    "ResolvedNode",
+    "NodeNotFoundError",
+    "AmbiguousNodeError",
 ]

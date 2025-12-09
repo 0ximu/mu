@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
 
 import click
 
@@ -146,12 +145,16 @@ def _format_cycles(
     help="Output format",
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-interactive", "-n", is_flag=True, help="Disable interactive disambiguation")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress resolution info messages")
 def impact(
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_interactive: bool,
+    quiet: bool,
 ) -> None:
     """Find downstream impact of changing a node.
 
@@ -204,7 +207,7 @@ def impact(
             print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _impact_local(node, path, edge_types, output_format, no_color)
+    _impact_local(node, path, edge_types, output_format, no_color, no_interactive, quiet)
 
 
 def _impact_local(
@@ -213,17 +216,19 @@ def _impact_local(
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_interactive: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Execute impact analysis in local mode (direct MUbase access)."""
     import sys
 
+    from mu.commands.utils import resolve_node_for_command
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
-    root_path = mubase_path.parent
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -236,14 +241,11 @@ def _impact_local(
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
-        resolved_node = _resolve_node(db, node, root_path)
-        if not resolved_node:
-            print_error(f"Node not found: {node}")
-            print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
-            )
-            sys.exit(1)
+        # Resolve node using NodeResolver with disambiguation
+        resolved, resolution = resolve_node_for_command(
+            db, node, no_interactive=no_interactive, quiet=quiet
+        )
+        resolved_node = resolved.id
 
         # Check node exists in graph
         if not gm.has_node(resolved_node):
@@ -290,12 +292,16 @@ def _impact_local(
     help="Output format",
 )
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option("--no-interactive", "-n", is_flag=True, help="Disable interactive disambiguation")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress resolution info messages")
 def ancestors(
     node: str,
     path: Path,
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_interactive: bool,
+    quiet: bool,
 ) -> None:
     """Find upstream dependencies of a node.
 
@@ -348,7 +354,7 @@ def ancestors(
             print_warning(f"Daemon query failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _ancestors_local(node, path, edge_types, output_format, no_color)
+    _ancestors_local(node, path, edge_types, output_format, no_color, no_interactive, quiet)
 
 
 def _ancestors_local(
@@ -357,15 +363,17 @@ def _ancestors_local(
     edge_types: tuple[str, ...],
     output_format: str,
     no_color: bool,
+    no_interactive: bool = False,
+    quiet: bool = False,
 ) -> None:
     """Execute ancestors analysis in local mode (direct MUbase access)."""
+    from mu.commands.utils import resolve_node_for_command
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
     from mu.kernel.graph import GraphManager
     from mu.logging import console, print_error, print_info
 
     mubase_path = _get_mubase_path(path)
-    root_path = mubase_path.parent
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -378,14 +386,11 @@ def _ancestors_local(
         gm = GraphManager(db.conn)
         stats = gm.load()
 
-        # Resolve node name to ID if needed (supports file paths like src/foo.ts)
-        resolved_node = _resolve_node(db, node, root_path)
-        if not resolved_node:
-            print_error(f"Node not found: {node}")
-            print_info(
-                "Try using full node ID (e.g., 'mod:src/file.py'), file path (e.g., 'src/file.py'), or class name (e.g., 'AuthService')"
-            )
-            sys.exit(1)
+        # Resolve node using NodeResolver with disambiguation
+        resolved, resolution = resolve_node_for_command(
+            db, node, no_interactive=no_interactive, quiet=quiet
+        )
+        resolved_node = resolved.id
 
         # Check node exists in graph
         if not gm.has_node(resolved_node):
@@ -519,85 +524,6 @@ def _cycles_local(
 
     finally:
         db.close()
-
-
-def _resolve_node(db: Any, node_ref: str, root_path: Path | None = None) -> str | None:
-    """Resolve a node reference to a full node ID.
-
-    Handles:
-    - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
-    - Simple names: MUbase, AuthService
-    - File paths: src/hooks/useTransactions.ts -> mod:...
-    - Partial matches: cli.py -> mod:src/cli.py
-
-    Args:
-        db: MUbase instance
-        node_ref: Node reference (ID, name, or file path)
-        root_path: Project root path for resolving relative paths
-    """
-    # If it already looks like a full node ID, verify and return
-    if node_ref.startswith(("mod:", "cls:", "fn:")):
-        node = db.get_node(node_ref)
-        return node_ref if node else None
-
-    # Try exact name match first
-    nodes = db.find_by_name(node_ref)
-    if nodes:
-        return str(nodes[0].id)
-
-    # Check if it looks like a file path (contains / or \ or ends with known extension)
-    looks_like_path = (
-        "/" in node_ref
-        or "\\" in node_ref
-        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
-    )
-
-    if looks_like_path:
-        # Try to resolve as file path
-        ref_path = Path(node_ref)
-
-        # If absolute path, try to make it relative to root
-        if ref_path.is_absolute() and root_path:
-            try:
-                ref_path = ref_path.relative_to(root_path)
-            except ValueError:
-                pass  # Not relative to root, use as-is
-
-        # Normalize path separators
-        normalized_path = str(ref_path).replace("\\", "/")
-
-        # Try exact file_path match via SQL
-        result = db.execute(
-            "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
-            [normalized_path],
-        )
-        if result:
-            return str(result[0][0])
-
-        # Try matching with path suffix (for partial paths)
-        result = db.execute(
-            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
-            [f"%{normalized_path}"],
-        )
-        if result:
-            return str(result[0][0])
-
-        # For paths like "src/foo.ts", also try constructing the node ID directly
-        possible_id = f"mod:{normalized_path}"
-        if db.get_node(possible_id):
-            return possible_id
-
-    # Try pattern match on name
-    nodes = db.find_by_name(f"%{node_ref}%")
-    if nodes:
-        # Prefer exact name matches
-        for node in nodes:
-            if node.name == node_ref:
-                return str(node.id)
-        # Fall back to first match
-        return str(nodes[0].id)
-
-    return None
 
 
 __all__ = ["impact", "ancestors", "cycles"]

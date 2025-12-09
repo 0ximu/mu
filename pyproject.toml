@@ -130,6 +130,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "regression: marks tests as regression tests for bugs",
+]
 
 [tool.coverage.run]
 source = ["src/mu"]
