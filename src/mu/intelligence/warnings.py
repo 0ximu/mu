@@ -477,23 +477,9 @@ class ProactiveWarningGenerator:
             )
 
             # Also check for sibling *.Tests project directory (common .NET convention)
-            # e.g., src/MyProject/Services/FooService.cs -> src/MyProject.Tests/Services/FooServiceTests.cs
-            for ancestor in [parent.parent, parent.parent.parent, parent.parent.parent.parent]:
-                if ancestor.exists():
-                    for sibling in ancestor.iterdir():
-                        if sibling.is_dir() and sibling.name.endswith(".Tests"):
-                            # Try to mirror the path structure
-                            try:
-                                rel_path = file_path.relative_to(
-                                    ancestor / sibling.name.replace(".Tests", "")
-                                )
-                                test_path = sibling / rel_path.parent / f"{stem}Tests{suffix}"
-                                patterns.append(test_path)
-                            except ValueError:
-                                # Path not relative, try direct lookup
-                                test_path = sibling / f"{stem}Tests{suffix}"
-                                patterns.append(test_path)
-                    break  # Only check one ancestor level for .Tests projects
+            # e.g., src/Dominaite.Services/PayoutService.cs -> src/Dominaite.Services.Tests/PayoutServiceTests.cs
+            # e.g., src/Dominaite.Services/Handlers/PayoutService.cs -> src/Dominaite.Services.Tests/Handlers/PayoutServiceTests.cs
+            self._find_dotnet_tests_project(file_path, stem, suffix, patterns)
 
         elif is_python:
             # Python style: test_foo.py or foo_test.py
@@ -687,6 +673,97 @@ class ProactiveWarningGenerator:
             pass
 
         return False
+
+    def _find_dotnet_tests_project(
+        self,
+        file_path: Path,
+        stem: str,
+        suffix: str,
+        patterns: list[Path],
+    ) -> None:
+        """Find test files in sibling .Tests project directories (.NET convention).
+
+        For .NET projects, tests are often in a sibling directory with .Tests suffix:
+        - src/Dominaite.Services/PayoutService.cs
+        - src/Dominaite.Services.Tests/PayoutServiceTests.cs
+
+        This method:
+        1. Walks up the path to find directories that could be project roots
+        2. Looks for sibling directories with .Tests suffix
+        3. Mirrors the relative path structure in the test directory
+        4. Uses recursive search (rglob) to find tests in nested directories
+
+        Args:
+            file_path: Path to the source file
+            stem: Source file stem (without extension)
+            suffix: Source file extension
+            patterns: List to append potential test paths to
+        """
+        # Walk up the directory tree looking for project structure
+        # e.g., for src/Dominaite.Services/Handlers/PayoutService.cs
+        # we want to find Dominaite.Services and look for Dominaite.Services.Tests
+        current = file_path.parent
+        rel_parts: list[str] = []  # Accumulate relative path parts
+
+        # Limit search depth to avoid going too far up
+        max_depth = 5
+        depth = 0
+
+        while current != current.parent and depth < max_depth:
+            depth += 1
+            parent_dir = current.parent
+
+            if not parent_dir.exists():
+                break
+
+            # Look for a sibling .Tests directory
+            tests_dir_name = f"{current.name}.Tests"
+            tests_dir = parent_dir / tests_dir_name
+
+            if tests_dir.is_dir():
+                # Found a .Tests sibling project!
+                # Build the mirrored path: tests_dir / rel_parts / {stem}Tests{suffix}
+                if rel_parts:
+                    rel_path = Path(*reversed(rel_parts))
+                    mirrored_dir = tests_dir / rel_path
+                else:
+                    mirrored_dir = tests_dir
+
+                # Add exact path pattern
+                exact_test_path = mirrored_dir / f"{stem}Tests{suffix}"
+                patterns.append(exact_test_path)
+
+                # Also check for {stem}Test{suffix} (singular)
+                patterns.append(mirrored_dir / f"{stem}Test{suffix}")
+
+                # Task 2: Recursive search in .Tests directory (bounded)
+                # Use rglob to find test files anywhere in the .Tests project
+                test_patterns_to_search = [
+                    f"{stem}Tests{suffix}",
+                    f"{stem}Test{suffix}",
+                ]
+                for test_pattern in test_patterns_to_search:
+                    try:
+                        # Limit depth by checking path component count
+                        for match in tests_dir.rglob(test_pattern):
+                            # Bound the depth: only include if within 5 levels
+                            try:
+                                rel_match = match.relative_to(tests_dir)
+                                if len(rel_match.parts) <= 5:
+                                    patterns.append(match)
+                            except ValueError:
+                                pass
+                    except OSError:
+                        # Permission or other filesystem errors
+                        pass
+
+                # Found a .Tests project, no need to look further up
+                return
+
+            # Accumulate the relative path as we walk up
+            rel_parts.append(current.name)
+            current = parent_dir
+
 
     def _check_complexity(self, nodes: list[Any]) -> list[ProactiveWarning]:
         """Check for high complexity nodes."""
