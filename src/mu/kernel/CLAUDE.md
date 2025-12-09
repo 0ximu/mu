@@ -37,6 +37,7 @@ class EdgeType(Enum):
     CONTAINS = "contains"  # Module→Class, Class→Function
     IMPORTS = "imports"    # Module→Module (internal deps)
     INHERITS = "inherits"  # Class→Class (inheritance)
+    CALLS = "calls"        # Function→Function (call graph)
 ```
 
 ## Usage
@@ -133,6 +134,7 @@ The builder converts parser output (ModuleDef) to graph structures:
 3. Creates FUNCTION nodes for methods/functions + CONTAINS edges
 4. Creates INHERITS edges from class bases
 5. Creates IMPORTS edges for internal module dependencies
+6. Creates CALLS edges from function call sites (extracted by Rust parser)
 
 ## Recursive Queries
 

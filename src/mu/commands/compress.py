@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 @click.option(
     "--format",
     "-f",
-    type=click.Choice(["mu", "json", "markdown"]),
+    type=click.Choice(["mu", "json", "markdown", "lisp", "omega"]),
     default="mu",
-    help="Output format",
+    help="Output format (omega = macro-compressed S-expressions)",
 )
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompts")
 @click.option("--no-cache", is_flag=True, help="Disable caching (process all files fresh)")
@@ -74,7 +74,7 @@ def compress(
     import asyncio
 
     from mu.assembler import assemble
-    from mu.assembler.exporters import export_json, export_markdown, export_mu
+    from mu.assembler.exporters import export_json, export_lisp, export_markdown, export_mu
     from mu.cache import CacheManager
     from mu.config import MUConfig
     from mu.logging import (
@@ -119,7 +119,7 @@ def compress(
         ctx.config.output.shell_safe = True
     if no_cache:
         ctx.config.cache.enabled = False
-    ctx.config.output.format = cast(Literal["mu", "json", "markdown"], format)
+    ctx.config.output.format = cast(Literal["mu", "json", "markdown", "lisp", "omega"], format)
 
     # Local-only mode validation
     if local:
@@ -159,7 +159,8 @@ def compress(
             output.write_text(cached.output)
             print_success(f"Output written to {output}")
         else:
-            console.print(cached.output)
+            # Use markup=False to prevent Rich from interpreting [...] as tags
+            console.print(cached.output, markup=False)
         cache_manager.close()
         return
 
@@ -423,10 +424,40 @@ def compress(
     print_info(f"  {internal_deps} internal dependencies, {external_pkgs} external packages")
 
     # Step 6: Generate output
-    if format == "json":
+    if format == "omega":
+        # OMEGA requires graph intelligence - build in-memory MUbase
+        from mu.kernel.export.omega import OmegaExporter, OmegaExportOptions
+        from mu.kernel.mubase import MUbase
+
+        print_info("Building intelligence graph...")
+        mubase = MUbase(":memory:")
+        mubase.build(parsed_modules, path.resolve())
+
+        print_info("Synthesizing macros and compressing...")
+        exporter = OmegaExporter()
+        export_result = exporter.export(
+            mubase,
+            OmegaExportOptions(
+                include_synthesized=True,
+                max_synthesized_macros=5,
+                include_header=True,
+                pretty_print=True,
+            ),
+        )
+
+        output_str = export_result.output
+
+        # Report node/edge counts
+        print_info(f"  {export_result.node_count} nodes exported")
+
+        mubase.close()
+
+    elif format == "json":
         output_str = export_json(assembled, include_full_graph=True, pretty=True)
     elif format == "markdown":
         output_str = export_markdown(assembled)
+    elif format == "lisp":
+        output_str = export_lisp(assembled, pretty=True)
     else:
         # MU format
         output_str = export_mu(assembled, shell_safe=shell_safe)
@@ -443,7 +474,8 @@ def compress(
         output.write_text(output_str)
         print_success(f"Output written to {output}")
     else:
-        console.print(output_str)
+        # Use markup=False to prevent Rich from interpreting [...] as tags
+        console.print(output_str, markup=False)
 
     # Close cache manager
     cache_manager.close()

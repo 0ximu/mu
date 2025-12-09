@@ -32,12 +32,14 @@ maturin build --release --manifest-path mu-core/Cargo.toml
 
 ### Post-Build Step for Editable Install
 
-After `maturin develop`, the `.so` file goes to site-packages. For the editable install to work:
+After `maturin develop`, the `.so` file goes to site-packages. For the editable install to work, use a **symlink** (not a copy):
 
 ```bash
-# Copy .so to src/mu/ for editable install integration
-cp $(python -c "import mu._core; print(mu._core.__file__)") src/mu/_core.abi3.so
+# Create symlink to site-packages (one-time setup)
+ln -sf ../../.venv/lib/python3.12/site-packages/_core/_core.abi3.so src/mu/_core.abi3.so
 ```
+
+**Why symlink instead of copy?** On macOS arm64, copying invalidates the ad-hoc code signature, causing `SIGKILL (Code Signature Invalid)` crashes during `dlopen`. A symlink points to the freshly-signed binary that maturin creates, avoiding signature issues.
 
 ### Cargo Commands That DO Work
 
@@ -299,6 +301,13 @@ Regenerate `src/mu/_core.pyi` after API changes.
 
 ### macOS version warnings
 Tree-sitter grammars may be built for newer macOS. Safe to ignore unless linking fails.
+
+### SIGKILL (Code Signature Invalid) on macOS arm64
+If Python crashes with `SIGKILL (Code Signature Invalid)` when importing `mu._core`, the ad-hoc code signature was invalidated. This happens when the `.so` file is copied instead of symlinked. Fix:
+```bash
+rm src/mu/_core.abi3.so
+ln -sf ../../.venv/lib/python3.12/site-packages/_core/_core.abi3.so src/mu/_core.abi3.so
+```
 
 ## Python API
 

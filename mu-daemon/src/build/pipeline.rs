@@ -7,7 +7,7 @@ use tracing::{debug, info};
 
 use crate::server::state::GraphEvent;
 use crate::server::AppState;
-use crate::storage::{Edge, GraphEngine, Node};
+use crate::storage::{Edge, Node};
 
 /// Result of a build operation.
 #[derive(Debug, Clone)]
@@ -65,10 +65,11 @@ impl BuildPipeline {
         let parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
         info!("Parsed {} files", parse_results.len());
 
-        // 3. Convert parsed modules to nodes and edges
+        // 3. Convert parsed modules to nodes and edges (two-pass approach)
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
 
+        // Pass 1: Create all nodes and CONTAINS/IMPORTS/INHERITS edges
         for result in &parse_results {
             if !result.success {
                 if let Some(ref err) = result.error {
@@ -155,6 +156,66 @@ impl BuildPipeline {
             }
         }
 
+        // Build function lookup map for call resolution
+        let mut func_lookup: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for node in &nodes {
+            if node.node_type == crate::storage::NodeType::Function {
+                // Map by simple name and qualified name
+                func_lookup.insert(node.name.clone(), node.id.clone());
+                if let Some(ref qname) = node.qualified_name {
+                    func_lookup.insert(qname.clone(), node.id.clone());
+                }
+            }
+        }
+
+        // Pass 2: Create CALLS edges (iterate again with func_lookup available)
+        for result in &parse_results {
+            if !result.success {
+                continue;
+            }
+            if let Some(ref module) = result.module {
+                let rel_path = Path::new(&module.path)
+                    .strip_prefix(root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| module.path.clone());
+
+                // Process class methods
+                for class in &module.classes {
+                    for method in &class.methods {
+                        let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                        for call in &method.call_sites {
+                            if let Some(target_id) = resolve_call_site(
+                                call,
+                                &rel_path,
+                                Some(&class.name),
+                                &func_lookup,
+                                &module.imports,
+                            ) {
+                                edges.push(Edge::calls(&method_id, &target_id));
+                            }
+                        }
+                    }
+                }
+
+                // Process module-level functions
+                for func in &module.functions {
+                    let func_id = format!("fn:{}:{}", rel_path, func.name);
+                    for call in &func.call_sites {
+                        if let Some(target_id) = resolve_call_site(
+                            call,
+                            &rel_path,
+                            None,
+                            &func_lookup,
+                            &module.imports,
+                        ) {
+                            edges.push(Edge::calls(&func_id, &target_id));
+                        }
+                    }
+                }
+            }
+        }
+
         info!("Built {} nodes and {} edges", nodes.len(), edges.len());
 
         // 4. Write to DuckDB
@@ -201,6 +262,22 @@ impl BuildPipeline {
         let mut total_nodes = 0;
         let mut total_edges = 0;
 
+        // Build func_lookup from existing database for call resolution
+        let func_lookup: std::collections::HashMap<String, String> = {
+            let mubase = self.state.mubase.read().await;
+            let func_nodes = mubase
+                .get_nodes_by_type(crate::storage::NodeType::Function)
+                .unwrap_or_default();
+            let mut lookup = std::collections::HashMap::new();
+            for node in func_nodes {
+                lookup.insert(node.name.clone(), node.id.clone());
+                if let Some(ref qname) = node.qualified_name {
+                    lookup.insert(qname.clone(), node.id.clone());
+                }
+            }
+            lookup
+        };
+
         for file_path in changed_files {
             // Make path relative
             let rel_path = file_path
@@ -224,7 +301,8 @@ impl BuildPipeline {
 
                         if result.success {
                             if let Some(ref module) = result.module {
-                                let (nodes, edges) = build_nodes_for_module(module, &rel_path);
+                                let (nodes, edges) =
+                                    build_nodes_for_module(module, &rel_path, Some(&func_lookup));
 
                                 let mubase = self.state.mubase.write().await;
                                 mubase.insert_nodes(&nodes)?;
@@ -257,9 +335,11 @@ impl BuildPipeline {
 }
 
 /// Build nodes and edges for a single module.
+/// If func_lookup is provided, CALLS edges will be created.
 fn build_nodes_for_module(
     module: &mu_core::types::ModuleDef,
     rel_path: &str,
+    func_lookup: Option<&std::collections::HashMap<String, String>>,
 ) -> (Vec<Node>, Vec<Edge>) {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
@@ -294,6 +374,21 @@ fn build_nodes_for_module(
             let method_id = method_node.id.clone();
             nodes.push(method_node);
             edges.push(Edge::contains(&class_id, &method_id));
+
+            // Create CALLS edges if func_lookup is available
+            if let Some(lookup) = func_lookup {
+                for call in &method.call_sites {
+                    if let Some(target_id) = resolve_call_site(
+                        call,
+                        rel_path,
+                        Some(&class.name),
+                        lookup,
+                        &module.imports,
+                    ) {
+                        edges.push(Edge::calls(&method_id, &target_id));
+                    }
+                }
+            }
         }
     }
 
@@ -310,6 +405,21 @@ fn build_nodes_for_module(
         let func_id = func_node.id.clone();
         nodes.push(func_node);
         edges.push(Edge::contains(&module_id, &func_id));
+
+        // Create CALLS edges if func_lookup is available
+        if let Some(lookup) = func_lookup {
+            for call in &func.call_sites {
+                if let Some(target_id) = resolve_call_site(
+                    call,
+                    rel_path,
+                    None,
+                    lookup,
+                    &module.imports,
+                ) {
+                    edges.push(Edge::calls(&func_id, &target_id));
+                }
+            }
+        }
     }
 
     // Imports
@@ -319,6 +429,58 @@ fn build_nodes_for_module(
     }
 
     (nodes, edges)
+}
+
+/// Resolve a call site to a target function node ID.
+fn resolve_call_site(
+    call: &mu_core::types::CallSiteDef,
+    current_module: &str,
+    current_class: Option<&str>,
+    func_lookup: &std::collections::HashMap<String, String>,
+    imports: &[mu_core::types::ImportDef],
+) -> Option<String> {
+    let callee = &call.callee;
+
+    // 1. Method call on self - look in current class
+    if call.is_method_call {
+        if let Some(receiver) = &call.receiver {
+            if receiver == "self" || receiver == "cls" {
+                if let Some(class_name) = current_class {
+                    // Try: fn:module:Class.method
+                    let method_id = format!("fn:{}:{}.{}", current_module, class_name, callee);
+                    if func_lookup.contains_key(&method_id) {
+                        return Some(method_id);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check local functions in same module
+    let local_fn_id = format!("fn:{}:{}", current_module, callee);
+    if func_lookup.contains_key(&local_fn_id) {
+        return Some(local_fn_id);
+    }
+
+    // 3. Check by simple name (may match if unique)
+    if let Some(target_id) = func_lookup.get(callee) {
+        return Some(target_id.clone());
+    }
+
+    // 4. Check imported names
+    for import in imports {
+        if import.names.contains(&callee.to_string()) {
+            // Resolve to imported module's function
+            let import_path = import.module.replace('.', "/");
+            let imported_fn_id = format!("fn:{}:{}", import_path, callee);
+            if func_lookup.contains_key(&imported_fn_id) {
+                return Some(imported_fn_id);
+            }
+        }
+    }
+
+    // 5. Unresolved - return None (no edge created)
+    None
 }
 
 /// Resolve an import statement to a module ID.

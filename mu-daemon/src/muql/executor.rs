@@ -31,11 +31,67 @@ async fn execute_plan(plan: ExecutionPlan, state: &AppState) -> Result<QueryResu
 }
 
 async fn execute_sql(sql: &str, state: &AppState) -> Result<QueryResult> {
+    tracing::info!("Executing SQL: {}", sql);
     let mubase = state.mubase.read().await;
     mubase.query(sql)
 }
 
+/// Resolve a node name/path to its canonical ID.
+async fn resolve_node_id(input: &str, state: &AppState) -> String {
+    // If already a valid node ID format, verify it exists
+    if input.starts_with("mod:") || input.starts_with("cls:") || input.starts_with("fn:") || input.starts_with("ext:") {
+        let mubase = state.mubase.read().await;
+        if mubase.get_node(input).ok().flatten().is_some() {
+            return input.to_string();
+        }
+    }
+
+    // Try to find by name
+    let mubase = state.mubase.read().await;
+    let sql = format!(
+        "SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}' LIMIT 1",
+        input.replace('\'', "''"),
+        input.replace('\'', "''")
+    );
+
+    if let Ok(result) = mubase.query(&sql) {
+        if let Some(row) = result.rows.first() {
+            if let Some(id) = row.first().and_then(|v| v.as_str()) {
+                tracing::debug!("Resolved '{}' to '{}'", input, id);
+                return id.to_string();
+            }
+        }
+    }
+
+    // Try by file_path for module-like inputs
+    if input.contains('/') || input.contains('\\') || input.ends_with(".py") || input.ends_with(".ts") || input.ends_with(".rs") {
+        let normalized = input.replace('\\', "/");
+        let sql = format!(
+            "SELECT id FROM nodes WHERE file_path = '{}' OR file_path LIKE '%{}' LIMIT 1",
+            normalized.replace('\'', "''"),
+            normalized.replace('\'', "''")
+        );
+
+        if let Ok(result) = mubase.query(&sql) {
+            if let Some(row) = result.rows.first() {
+                if let Some(id) = row.first().and_then(|v| v.as_str()) {
+                    tracing::debug!("Resolved path '{}' to '{}'", input, id);
+                    return id.to_string();
+                }
+            }
+        }
+    }
+
+    // Return original if resolution fails (let traversal handle it)
+    tracing::debug!("Could not resolve '{}', using as-is", input);
+    input.to_string()
+}
+
 async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResult> {
+    // Resolve the target node ID first
+    let resolved_target = resolve_node_id(&op.target, state).await;
+    tracing::debug!("Graph op target: '{}' -> '{}'", op.target, resolved_target);
+
     // Load graph data
     let mubase = state.mubase.read().await;
 
@@ -65,7 +121,7 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
             // Find all nodes reachable FROM this node
             let graph = state.graph.read().await;
             let impacted = traverse_bfs(
-                &op.target,
+                &resolved_target,
                 graph.get_nodes(),
                 graph.get_edges(),
                 Direction::Outgoing,
@@ -85,7 +141,7 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
             // Find all nodes that can REACH this node
             let graph = state.graph.read().await;
             let ancestors = traverse_bfs(
-                &op.target,
+                &resolved_target,
                 graph.get_nodes(),
                 graph.get_edges(),
                 Direction::Incoming,
@@ -105,7 +161,7 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
             // Get direct dependents (who depends on this)
             let graph = state.graph.read().await;
             let deps = get_neighbors(
-                &op.target,
+                &resolved_target,
                 graph.get_edges(),
                 Direction::Incoming,
                 op.depth,
@@ -142,14 +198,14 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
             // Get direct dependencies
             let graph = state.graph.read().await;
             let deps = get_neighbors(
-                &op.target,
+                &resolved_target,
                 graph.get_edges(),
                 Direction::Outgoing,
                 op.depth,
                 op.edge_types.as_deref(),
             );
 
-            // Get full node info from database
+            // Get full node info from database (or create placeholder for external)
             let mut rows = Vec::new();
             for dep_id in deps {
                 if let Ok(Some(node)) = mubase.get_node(&dep_id) {
@@ -159,6 +215,17 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
                         serde_json::Value::String(node.name),
                         serde_json::json!(node.file_path),
                         serde_json::json!(node.complexity),
+                    ]);
+                } else {
+                    // Node not in database (external module) - create minimal entry
+                    let name = dep_id.strip_prefix("mod:").unwrap_or(&dep_id);
+                    let name = name.strip_prefix("ext:").unwrap_or(name);
+                    rows.push(vec![
+                        serde_json::Value::String(dep_id.clone()),
+                        serde_json::Value::String("external".to_string()),
+                        serde_json::Value::String(name.to_string()),
+                        serde_json::Value::Null,
+                        serde_json::json!(0),
                     ]);
                 }
             }
@@ -176,10 +243,11 @@ async fn execute_graph(op: GraphOperation, state: &AppState) -> Result<QueryResu
         }
 
         GraphOpType::Path { to, via } => {
+            let resolved_to = resolve_node_id(&to, state).await;
             let graph = state.graph.read().await;
             let path = find_shortest_path(
-                &op.target,
-                &to,
+                &resolved_target,
+                &resolved_to,
                 graph.get_nodes(),
                 graph.get_edges(),
                 via.as_deref(),

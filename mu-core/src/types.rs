@@ -55,6 +55,44 @@ impl ParameterDef {
     }
 }
 
+/// A function call site within a function body.
+#[pyclass]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CallSiteDef {
+    #[pyo3(get, set)]
+    pub callee: String, // "validate_user" or "self.save"
+    #[pyo3(get, set)]
+    pub line: u32,
+    #[pyo3(get, set)]
+    pub is_method_call: bool, // self.x() vs x()
+    #[pyo3(get, set)]
+    pub receiver: Option<String>, // "self", "user_service", etc.
+}
+
+#[pymethods]
+impl CallSiteDef {
+    #[new]
+    #[pyo3(signature = (callee, line=0, is_method_call=false, receiver=None))]
+    fn new(callee: String, line: u32, is_method_call: bool, receiver: Option<String>) -> Self {
+        Self {
+            callee,
+            line,
+            is_method_call,
+            receiver,
+        }
+    }
+
+    /// Convert to Python dict matching Python's to_dict() output.
+    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let dict = PyDict::new_bound(py);
+        dict.set_item("callee", &self.callee)?;
+        dict.set_item("line", self.line)?;
+        dict.set_item("is_method_call", self.is_method_call)?;
+        dict.set_item("receiver", &self.receiver)?;
+        Ok(dict.into())
+    }
+}
+
 /// A function or method definition.
 #[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -84,6 +122,8 @@ pub struct FunctionDef {
     #[pyo3(get, set)]
     pub body_source: Option<String>,
     #[pyo3(get, set)]
+    pub call_sites: Vec<CallSiteDef>,
+    #[pyo3(get, set)]
     pub start_line: u32,
     #[pyo3(get, set)]
     pub end_line: u32,
@@ -92,7 +132,7 @@ pub struct FunctionDef {
 #[pymethods]
 impl FunctionDef {
     #[new]
-    #[pyo3(signature = (name, parameters=vec![], return_type=None, decorators=vec![], is_async=false, is_method=false, is_static=false, is_classmethod=false, is_property=false, docstring=None, body_complexity=0, body_source=None, start_line=0, end_line=0))]
+    #[pyo3(signature = (name, parameters=vec![], return_type=None, decorators=vec![], is_async=false, is_method=false, is_static=false, is_classmethod=false, is_property=false, docstring=None, body_complexity=0, body_source=None, call_sites=vec![], start_line=0, end_line=0))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -107,6 +147,7 @@ impl FunctionDef {
         docstring: Option<String>,
         body_complexity: u32,
         body_source: Option<String>,
+        call_sites: Vec<CallSiteDef>,
         start_line: u32,
         end_line: u32,
     ) -> Self {
@@ -123,6 +164,7 @@ impl FunctionDef {
             docstring,
             body_complexity,
             body_source,
+            call_sites,
             start_line,
             end_line,
         }
@@ -153,6 +195,16 @@ impl FunctionDef {
         // Only include body_source if present (avoid bloating JSON output)
         if self.body_source.is_some() {
             dict.set_item("body_source", &self.body_source)?;
+        }
+
+        // Only include call_sites if non-empty (avoid bloating JSON output)
+        if !self.call_sites.is_empty() {
+            let call_sites: Vec<PyObject> = self
+                .call_sites
+                .iter()
+                .map(|c| c.to_dict(py))
+                .collect::<PyResult<Vec<_>>>()?;
+            dict.set_item("call_sites", call_sites)?;
         }
 
         Ok(dict.into())

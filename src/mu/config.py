@@ -126,7 +126,7 @@ class SecurityConfig(BaseModel):
 class OutputConfig(BaseModel):
     """Output configuration."""
 
-    format: Literal["mu", "json", "markdown"] = Field(
+    format: Literal["mu", "json", "markdown", "lisp", "omega"] = Field(
         default="mu",
         description="Output format",
     )

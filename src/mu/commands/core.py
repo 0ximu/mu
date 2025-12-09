@@ -20,6 +20,85 @@ from mu.paths import find_mubase_path, get_mubase_path
 
 if TYPE_CHECKING:
     from mu.cli import MUContext
+    from mu.kernel import MUbase
+
+
+def _resolve_node_id_local(db: MUbase, node_ref: str, root_path: Path) -> str | None:
+    """Resolve a node reference to a full node ID (local mode).
+
+    Handles:
+    - Full node IDs: mod:src/cli.py, cls:src/file.py:ClassName
+    - Simple names: MUbase, AuthService
+    - File paths: src/hooks/useTransactions.ts -> mod:...
+    - Absolute paths: /Users/.../src/auth.py -> mod:...
+
+    Args:
+        db: MUbase instance
+        node_ref: Node reference (ID, name, or file path)
+        root_path: Project root path for resolving relative paths
+
+    Returns:
+        Resolved node ID or None if not found
+    """
+    # If it already looks like a full node ID, verify it exists
+    if node_ref.startswith(("mod:", "cls:", "fn:")):
+        if db.get_node(node_ref):
+            return node_ref
+        return None
+
+    # Try exact name match first
+    nodes = db.find_by_name(node_ref)
+    if nodes:
+        # Prefer exact match
+        for node in nodes:
+            if node.name == node_ref:
+                return str(node.id)
+        return str(nodes[0].id)
+
+    # Check if it looks like a file path
+    looks_like_path = (
+        "/" in node_ref
+        or "\\" in node_ref
+        or node_ref.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+    )
+
+    if looks_like_path:
+        ref_path = Path(node_ref)
+
+        # If absolute path, try to make it relative to root
+        if ref_path.is_absolute():
+            try:
+                ref_path = ref_path.relative_to(root_path)
+            except ValueError:
+                pass  # Not relative to root
+
+        # Normalize path separators
+        normalized_path = str(ref_path).replace("\\", "/")
+
+        # Try to find module with this path
+        result = db.conn.execute(
+            "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+            [f"%{normalized_path}"],
+        ).fetchone()
+
+        if result:
+            return str(result[0])
+
+        # Also try constructing the node ID directly
+        possible_id = f"mod:{normalized_path}"
+        if db.get_node(possible_id):
+            return possible_id
+
+    # Try fuzzy match on name
+    nodes = db.find_by_name(f"%{node_ref}%")
+    if nodes:
+        # Prefer exact name matches
+        for node in nodes:
+            if node.name == node_ref:
+                return str(node.id)
+        return str(nodes[0].id)
+
+    return None
 
 
 @click.command()
@@ -226,7 +305,14 @@ def status(ctx: MUContext, as_json: bool) -> None:
         daemon_running = True
         try:
             daemon_status = client.status(cwd=str(cwd))
+            # Daemon returns stats at top level with node_count/edge_count keys
             stats = daemon_status.get("stats", {})
+            if not stats:
+                # Extract from daemon's flat response format
+                stats = {
+                    "nodes": daemon_status.get("node_count", 0),
+                    "edges": daemon_status.get("edge_count", 0),
+                }
             if mubase_path:
                 embeddings_db = mubase_path.parent / ".mu-embeddings.db"
                 embeddings_exist = embeddings_db.exists()
@@ -237,8 +323,8 @@ def status(ctx: MUContext, as_json: bool) -> None:
             else:
                 next_action = None
                 message = "MU ready. All systems operational."
-        except DaemonError as e:
-            print_warning(f"Daemon query failed: {e}")
+        except DaemonError:
+            # Daemon was running but query failed - silently fall back to local mode
             daemon_running = False
 
     # Fallback to direct MUbase access
@@ -415,7 +501,8 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
         }
 
     result = None
-    root_path = mubase_path.parent
+    # mubase_path is .mu/mubase, so root is two levels up
+    root_path = mubase_path.parent.parent
 
     # Try daemon first (no lock)
     client = DaemonClient()
@@ -427,11 +514,13 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
                 node_data = client.node(node_id, cwd=str(cwd))
             else:
                 found = client.find_node(node_id, cwd=str(cwd))
-                if not found:
-                    print_error(f"Node not found: {node_id}")
-                    sys.exit(1)
-                resolved_id = found.get("id", node_id)
-                node_data = found
+                if found:
+                    resolved_id = found.get("id", node_id)
+                    node_data = found
+                else:
+                    # find_node returns None on error or not found
+                    # Fall through to local mode to try there
+                    node_data = None
 
             if node_data:
                 result = _read_source(node_data, resolved_id, root_path)
@@ -447,27 +536,17 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
             db = MUbase(mubase_path, read_only=True)
         except MUbaseLockError:
             print_error(
-                "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+                "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
             )
             sys.exit(ExitCode.CONFIG_ERROR)
 
         try:
-            # Resolve node name to ID if needed
-            resolved_id = node_id
-            if not node_id.startswith(("mod:", "cls:", "fn:")):
-                nodes = db.find_by_name(node_id)
-                if not nodes:
-                    nodes = db.find_by_name(f"%{node_id}%")
-                if nodes:
-                    for node in nodes:
-                        if node.name == node_id:
-                            resolved_id = node.id
-                            break
-                    else:
-                        resolved_id = nodes[0].id
-                else:
-                    print_error(f"Node not found: {node_id}")
-                    sys.exit(1)
+            # Resolve node name to ID if needed (fuzzy resolution)
+            maybe_resolved_id = _resolve_node_id_local(db, node_id, root_path)
+            if maybe_resolved_id is None:
+                print_error(f"Node not found: {node_id}")
+                sys.exit(1)
+            resolved_id = maybe_resolved_id  # Now guaranteed non-None
 
             fetched_node = db.get_node(resolved_id)
             if not fetched_node:
@@ -517,34 +596,23 @@ def read(ctx: MUContext, node_id: str, context_lines: int, as_json: bool) -> Non
 @click.command()
 @click.argument("question")
 @click.option("--max-tokens", "-t", default=8000, help="Maximum tokens in output")
-@click.option(
-    "--task", is_flag=True, help="Use task-aware context extraction (includes patterns, warnings)"
-)
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 @click.pass_obj
-def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json: bool) -> None:
-    """Extract smart context for a natural language question or task.
+def context(ctx: MUContext, question: str, max_tokens: int, as_json: bool) -> None:
+    """Extract smart context for a natural language question.
 
     Analyzes the question, finds relevant code nodes, and returns
     a token-efficient MU format representation.
-
-    Use --task for task-aware context which includes:
-    - Entry points (where to start)
-    - Codebase patterns to follow
-    - Warnings about high-impact files
-    - Suggestions for related changes
 
     \b
     Examples:
         mu context 'How does authentication work?'
         mu context 'What calls the payment processor?' --max-tokens 4000
-        mu context --task 'Add rate limiting to API endpoints'
-        mu context --task 'Fix the login bug' --json
     """
     import json
 
     from mu.client import DaemonClient, DaemonError
-    from mu.logging import print_error, print_info, print_warning
+    from mu.logging import print_error, print_info
 
     # Find mubase
     cwd = Path.cwd()
@@ -554,38 +622,35 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
         print_error("No .mu/mubase found. Run 'mu bootstrap' first.")
         sys.exit(1)
 
-    # Task context requires local features (not in daemon yet)
-    # Standard context can use daemon
-    if not task:
-        # Try daemon first for standard context (no lock)
-        client = DaemonClient()
-        if client.is_running():
-            try:
-                daemon_result = client.context(question, max_tokens=max_tokens, cwd=str(cwd))
-                mu_text = daemon_result.get("mu_text", "")
-                token_count = daemon_result.get("token_count", 0)
-                nodes = daemon_result.get("nodes", [])
+    # Try daemon first (no lock)
+    client = DaemonClient()
+    if client.is_running():
+        try:
+            daemon_result = client.context(question, max_tokens=max_tokens, cwd=str(cwd))
+            mu_text = daemon_result.get("mu_text", "")
+            token_count = daemon_result.get("token_count", 0)
+            nodes = daemon_result.get("nodes", [])
 
-                if as_json:
-                    click.echo(
-                        json.dumps(
-                            {
-                                "mu_text": mu_text,
-                                "token_count": token_count,
-                                "node_count": len(nodes),
-                            },
-                            indent=2,
-                        )
+            if as_json:
+                click.echo(
+                    json.dumps(
+                        {
+                            "mu_text": mu_text,
+                            "token_count": token_count,
+                            "node_count": len(nodes),
+                        },
+                        indent=2,
                     )
-                else:
-                    print_info(f"# {len(nodes)} nodes, {token_count} tokens")
-                    print_info("")
-                    click.echo(mu_text)
-                return
-            except DaemonError:
-                pass  # Fall through to local mode
+                )
+            else:
+                print_info(f"# {len(nodes)} nodes, {token_count} tokens")
+                print_info("")
+                click.echo(mu_text)
+            return
+        except DaemonError:
+            pass  # Fall through to local mode
 
-    # Local mode (daemon unavailable or task context requested)
+    # Local mode (daemon unavailable)
     from mu.errors import ExitCode
     from mu.kernel import MUbase, MUbaseLockError
 
@@ -593,96 +658,34 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
-        if task:
-            # Task-aware context extraction
-            from mu.intelligence import TaskContextConfig, TaskContextExtractor
+        from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
-            config = TaskContextConfig(max_tokens=max_tokens)
-            extractor = TaskContextExtractor(db, config)
-            result = extractor.extract(question)
+        cfg = ExtractionConfig(max_tokens=max_tokens)
+        smart_extractor = SmartContextExtractor(db, cfg)
+        context_result = smart_extractor.extract(question)
 
-            if as_json:
-                click.echo(json.dumps(result.to_dict(), indent=2))
-            else:
-                # Pretty print task context
-                print_info(f"# Task: {question}")
-                if result.task_analysis:
-                    print_info(f"# Type: {result.task_analysis.task_type.value}")
-                    print_info(f"# Confidence: {result.confidence:.0%}")
-                print_info("")
-
-                # Entry points
-                if result.entry_points:
-                    print_info("Entry Points:")
-                    for ep in result.entry_points[:5]:
-                        click.echo(f"  → {ep}")
-                    print_info("")
-
-                # Relevant files
-                if result.relevant_files:
-                    print_info(f"Relevant Files ({len(result.relevant_files)}):")
-                    for f in result.relevant_files[:10]:
-                        icon = "★" if f.is_entry_point else "•"
-                        click.echo(f"  {icon} {f.path} ({f.relevance:.0%})")
-                        if f.reason:
-                            click.echo(click.style(f"      {f.reason}", dim=True))
-                    print_info("")
-
-                # Patterns
-                if result.patterns:
-                    print_info(f"Patterns ({len(result.patterns)}):")
-                    for p in result.patterns[:3]:
-                        click.echo(f"  • {p.name}: {p.description}")
-                    print_info("")
-
-                # Warnings
-                if result.warnings:
-                    print_info("Warnings:")
-                    for w in result.warnings:
-                        icon = "⚠" if w.level == "warn" else "ℹ"
-                        print_warning(f"  {icon} {w.message}")
-                    print_info("")
-
-                # Suggestions
-                if result.suggestions:
-                    print_info("Suggestions:")
-                    for s in result.suggestions:
-                        click.echo(f"  → {s.message}")
-                    print_info("")
-
-                # MU context
-                print_info(f"# MU Context ({result.token_count} tokens)")
-                click.echo(result.mu_text)
+        if as_json:
+            click.echo(
+                json.dumps(
+                    {
+                        "mu_text": context_result.mu_text,
+                        "token_count": context_result.token_count,
+                        "node_count": len(context_result.nodes),
+                    },
+                    indent=2,
+                )
+            )
         else:
-            # Standard context extraction (local fallback)
-            from mu.kernel.context import ExtractionConfig, SmartContextExtractor
-
-            cfg = ExtractionConfig(max_tokens=max_tokens)
-            smart_extractor = SmartContextExtractor(db, cfg)
-            context_result = smart_extractor.extract(question)
-
-            if as_json:
-                click.echo(
-                    json.dumps(
-                        {
-                            "mu_text": context_result.mu_text,
-                            "token_count": context_result.token_count,
-                            "node_count": len(context_result.nodes),
-                        },
-                        indent=2,
-                    )
-                )
-            else:
-                print_info(
-                    f"# {len(context_result.nodes)} nodes, {context_result.token_count} tokens"
-                )
-                print_info("")
-                click.echo(context_result.mu_text)
+            print_info(
+                f"# {len(context_result.nodes)} nodes, {context_result.token_count} tokens"
+            )
+            print_info("")
+            click.echo(context_result.mu_text)
     finally:
         db.close()
 
@@ -727,7 +730,7 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
 

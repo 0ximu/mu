@@ -7,7 +7,7 @@ use super::helpers::{
     count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
+use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Python source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
@@ -302,6 +302,7 @@ fn extract_function(
             "block" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "python");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
 
                 // Check for docstring
                 let mut block_cursor = child.walk();
@@ -644,6 +645,88 @@ fn extract_builtin_import_call(node: &Node, source: &str, line_number: u32) -> O
     }
 }
 
+/// Extract all call sites from a function body node.
+fn extract_call_sites(body: &Node, source: &str) -> Vec<CallSiteDef> {
+    let mut call_sites = Vec::new();
+    find_call_sites_recursive(body, source, &mut call_sites);
+    call_sites
+}
+
+/// Recursively search for call expressions in AST.
+fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSiteDef>) {
+    if node.kind() == "call" {
+        if let Some(call_site) = extract_call_site(node, source) {
+            results.push(call_site);
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_call_sites_recursive(&child, source, results);
+    }
+}
+
+/// Extract a single call site from a call node.
+fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
+    // The function being called is in the first child (before argument_list)
+    let func_node = node.child(0)?;
+    let line = get_start_line(node);
+
+    match func_node.kind() {
+        "identifier" => {
+            // Simple function call: foo()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "attribute" => {
+            // Method call: obj.method() or self.method()
+            let full_text = get_node_text(&func_node, source);
+
+            // Get the object (receiver) and method name
+            let object_node = find_child_by_type(&func_node, "identifier")
+                .or_else(|| find_child_by_type(&func_node, "attribute"));
+            let method_node = func_node.child_by_field_name("attribute");
+
+            let receiver = object_node.map(|n| get_node_text(&n, source).to_string());
+            let method_name = method_node
+                .map(|n| get_node_text(&n, source).to_string())
+                .unwrap_or_else(|| full_text.to_string());
+
+            // Check if it's self.method() or cls.method()
+            let is_self_call = receiver
+                .as_ref()
+                .map(|r| r == "self" || r == "cls")
+                .unwrap_or(false);
+
+            Some(CallSiteDef {
+                callee: if is_self_call {
+                    method_name
+                } else {
+                    full_text.to_string()
+                },
+                line,
+                is_method_call: true,
+                receiver,
+            })
+        }
+        _ => {
+            // Other callable patterns (subscript, call result, etc.)
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -689,5 +772,45 @@ from typing import Optional, List
         assert_eq!(result.imports[0].module, "os");
         assert_eq!(result.imports[1].module, "pathlib");
         assert_eq!(result.imports[1].names, vec!["Path"]);
+    }
+
+    #[test]
+    fn test_extract_call_sites() {
+        let source = r#"
+def process_data(data):
+    validated = validate(data)
+    result = self.transform(validated)
+    helper.process(result)
+    return save(result)
+"#;
+        let result = parse(source, "test.py").unwrap();
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert!(
+            func.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            func.call_sites.len()
+        );
+
+        // Check we captured validate() call
+        assert!(func.call_sites.iter().any(|c| c.callee == "validate"));
+    }
+
+    #[test]
+    fn test_method_call_detection() {
+        let source = r#"
+class MyClass:
+    def do_work(self):
+        self.helper()
+        other.process()
+"#;
+        let result = parse(source, "test.py").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // self.helper() should be detected as method call
+        let self_call = method.call_sites.iter().find(|c| c.callee == "helper");
+        assert!(self_call.is_some(), "Should find self.helper() call");
+        assert!(self_call.unwrap().is_method_call);
+        assert_eq!(self_call.unwrap().receiver, Some("self".to_string()));
     }
 }

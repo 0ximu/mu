@@ -7,7 +7,7 @@ use super::helpers::{
     count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
+use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse TypeScript/JavaScript source code.
 ///
@@ -246,6 +246,7 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
                 func_def.body_complexity =
                     complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             "async" => {
                 func_def.is_async = true;
@@ -284,6 +285,7 @@ fn extract_function(node: &Node, source: &str, is_method: bool) -> FunctionDef {
                 func_def.body_complexity =
                     complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             "type_annotation" => {
                 let mut inner_cursor = child.walk();
@@ -399,6 +401,7 @@ fn extract_arrow_function(node: &Node, source: &str) -> FunctionDef {
                 func_def.body_complexity =
                     complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             "async" => {
                 func_def.is_async = true;
@@ -615,6 +618,85 @@ fn check_dynamic_import(node: &Node, source: &str) -> Option<ImportDef> {
     None
 }
 
+/// Extract all call sites from a function body node.
+fn extract_call_sites(body: &Node, source: &str) -> Vec<CallSiteDef> {
+    let mut call_sites = Vec::new();
+    find_call_sites_recursive(body, source, &mut call_sites);
+    call_sites
+}
+
+/// Recursively search for call expressions in AST.
+fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSiteDef>) {
+    // TypeScript/JS uses "call_expression" not "call"
+    if node.kind() == "call_expression" {
+        if let Some(call_site) = extract_call_site(node, source) {
+            results.push(call_site);
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_call_sites_recursive(&child, source, results);
+    }
+}
+
+/// Extract a single call site from a call_expression node.
+fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
+    // In TS/JS, the function is the first child (before "arguments")
+    let func_node = node.child(0)?;
+    let line = get_start_line(node);
+
+    match func_node.kind() {
+        "identifier" => {
+            // Simple function call: foo()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "member_expression" => {
+            // Method call: obj.method() or this.method()
+            let full_text = get_node_text(&func_node, source);
+
+            // Get object and property
+            let object_node = func_node.child_by_field_name("object");
+            let property_node = func_node.child_by_field_name("property");
+
+            let receiver = object_node.map(|n| get_node_text(&n, source).to_string());
+            let method_name = property_node
+                .map(|n| get_node_text(&n, source).to_string())
+                .unwrap_or_else(|| full_text.to_string());
+
+            // Check if it's this.method()
+            let is_this_call = receiver.as_ref().map(|r| r == "this").unwrap_or(false);
+
+            Some(CallSiteDef {
+                callee: if is_this_call {
+                    method_name
+                } else {
+                    full_text.to_string()
+                },
+                line,
+                is_method_call: true,
+                receiver,
+            })
+        }
+        _ => {
+            // Other callable patterns (subscript, IIFE, etc.)
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,5 +735,69 @@ import { foo, bar } from './module';
         let result = parse(source, "test.ts", false).unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].module, "./module");
+    }
+
+    #[test]
+    fn test_extract_call_sites_ts() {
+        let source = r#"
+function processData(data: string) {
+    const validated = validate(data);
+    const result = this.transform(validated);
+    return helper.process(result);
+}
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert!(
+            func.call_sites.len() >= 2,
+            "Expected at least 2 call sites, got {}",
+            func.call_sites.len()
+        );
+        assert!(func.call_sites.iter().any(|c| c.callee == "validate"));
+    }
+
+    #[test]
+    fn test_method_call_detection_ts() {
+        let source = r#"
+class MyClass {
+    doWork() {
+        this.helper();
+        other.process();
+    }
+}
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        let method = &result.classes[0].methods[0];
+
+        let this_call = method.call_sites.iter().find(|c| c.callee == "helper");
+        assert!(this_call.is_some(), "Should find this.helper() call");
+        assert!(this_call.unwrap().is_method_call);
+        assert_eq!(this_call.unwrap().receiver, Some("this".to_string()));
+    }
+
+    #[test]
+    fn test_arrow_function_calls() {
+        let source = r#"
+const process = (data: string) => {
+    validate(data);
+    return transform(data);
+};
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        // Arrow functions are extracted as functions
+        assert!(
+            result.functions.len() >= 1,
+            "Expected at least 1 function, got {}",
+            result.functions.len()
+        );
+        let func = &result.functions[0];
+        assert!(
+            func.call_sites.len() >= 2,
+            "Expected at least 2 call sites in arrow function, got {}",
+            func.call_sites.len()
+        );
+        assert!(func.call_sites.iter().any(|c| c.callee == "validate"));
+        assert!(func.call_sites.iter().any(|c| c.callee == "transform"));
     }
 }

@@ -24,7 +24,7 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "MU - Machine Understanding" in result.output
-        assert "semantic compression" in result.output.lower()
+        assert "Core Commands" in result.output
 
     def test_main_version(self, runner: CliRunner) -> None:
         """Test mu --version shows version."""
@@ -37,19 +37,19 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
 
-        # Top-level commands
+        # Top-level visible commands (hidden commands not checked here)
+        # Note: 'cache' and 'daemon' moved to hidden commands in Phase 2 cleanup
         expected_commands = [
-            "init",
-            "describe",
-            "scan",
             "query",
             "q",
-            "view",
             "diff",
             "compress",
-            "cache",
-            "man",
-            "llm",
+            "serve",  # New unified server command
+            "deps",
+            "bootstrap",
+            "status",
+            "context",
+            "search",
         ]
         for cmd in expected_commands:
             assert cmd in result.output, f"Command '{cmd}' not found in help output"
@@ -59,8 +59,8 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
 
-        # Subgroups
-        expected_groups = ["kernel", "daemon", "mcp", "contracts"]
+        # Visible subgroups (daemon moved to hidden in Phase 2 cleanup)
+        expected_groups = ["kernel", "mcp"]
         for group in expected_groups:
             assert group in result.output, f"Subgroup '{group}' not found in help output"
 
@@ -77,22 +77,19 @@ class TestKernelSubgroup:
         """Test mu kernel --help shows usage."""
         result = runner.invoke(cli, ["kernel", "--help"])
         assert result.exit_code == 0
-        assert "graph database" in result.output.lower()
+        # Updated in Phase 2: kernel is now for "advanced graph operations"
+        assert "graph operations" in result.output.lower()
 
     def test_kernel_subcommands_registered(self, runner: CliRunner) -> None:
-        """Test all kernel subcommands are registered."""
+        """Test visible kernel subcommands are registered."""
         result = runner.invoke(cli, ["kernel", "--help"])
         assert result.exit_code == 0
 
-        expected_subcommands = [
-            "init",
-            "build",
-            "stats",
-            "muql",
-            "deps",
+        # Visible kernel subcommands (after Phase 2 cleanup)
+        # Hidden: init, build, stats, muql, deps, context (deprecated)
+        expected_visible = [
             "embed",
             "search",
-            "context",
             "snapshot",
             "snapshots",
             "history",
@@ -100,8 +97,16 @@ class TestKernelSubgroup:
             "diff",
             "export",
         ]
-        for cmd in expected_subcommands:
+        for cmd in expected_visible:
             assert cmd in result.output, f"Kernel subcommand '{cmd}' not found"
+
+    def test_kernel_hidden_subcommands_work(self, runner: CliRunner) -> None:
+        """Test deprecated kernel subcommands still work (hidden but functional)."""
+        # Deprecated commands should still work but show in deprecation help
+        deprecated_commands = ["init", "build", "stats", "muql", "deps", "context"]
+        for cmd in deprecated_commands:
+            result = runner.invoke(cli, ["kernel", cmd, "--help"])
+            assert result.exit_code == 0, f"Deprecated command 'kernel {cmd}' should still work"
 
     def test_kernel_init_help(self, runner: CliRunner) -> None:
         """Test mu kernel init --help."""
@@ -190,30 +195,6 @@ class TestMCPSubgroup:
         assert result.exit_code == 0
 
 
-class TestContractsSubgroup:
-    """Tests for the contracts subgroup."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_contracts_help(self, runner: CliRunner) -> None:
-        """Test mu contracts --help shows usage."""
-        result = runner.invoke(cli, ["contracts", "--help"])
-        assert result.exit_code == 0
-        assert "Architecture" in result.output or "contract" in result.output.lower()
-
-    def test_contracts_subcommands_registered(self, runner: CliRunner) -> None:
-        """Test all contracts subcommands are registered."""
-        result = runner.invoke(cli, ["contracts", "--help"])
-        assert result.exit_code == 0
-
-        expected_subcommands = ["init", "verify"]
-        for cmd in expected_subcommands:
-            assert cmd in result.output, f"Contracts subcommand '{cmd}' not found"
-
-
 class TestCacheGroup:
     """Tests for the cache command group."""
 
@@ -249,48 +230,6 @@ class TestCacheGroup:
         result = runner.invoke(cli, ["cache", "stats", "--help"])
         assert result.exit_code == 0
         assert "--json" in result.output
-
-
-class TestInitCommand:
-    """Tests for the init command."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_init_help(self, runner: CliRunner) -> None:
-        """Test mu init --help."""
-        result = runner.invoke(cli, ["init", "--help"])
-        assert result.exit_code == 0
-        assert ".murc.toml" in result.output
-        assert "--force" in result.output or "-f" in result.output
-
-    def test_init_creates_config(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init creates .murc.toml file."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            result = runner.invoke(cli, ["init"])
-            assert result.exit_code == 0
-            assert Path(".murc.toml").exists()
-            assert "Created" in result.output
-
-    def test_init_refuses_overwrite(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init refuses to overwrite existing config."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create initial config
-            Path(".murc.toml").write_text("[mu]\n")
-            result = runner.invoke(cli, ["init"])
-            assert result.exit_code != 0
-            assert "already exists" in result.output
-
-    def test_init_force_overwrites(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu init --force overwrites existing config."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create initial config
-            Path(".murc.toml").write_text("[mu]\n")
-            result = runner.invoke(cli, ["init", "--force"])
-            assert result.exit_code == 0
-            assert "Created" in result.output
 
 
 class TestDescribeCommand:
@@ -334,46 +273,6 @@ class TestDescribeCommand:
         assert result.exit_code == 0
         # Should have markdown headers
         assert "# MU CLI Reference" in result.output
-
-
-class TestScanCommand:
-    """Tests for the scan command."""
-
-    @pytest.fixture
-    def runner(self) -> CliRunner:
-        """Create a CLI runner."""
-        return CliRunner()
-
-    def test_scan_help(self, runner: CliRunner) -> None:
-        """Test mu scan --help."""
-        result = runner.invoke(cli, ["scan", "--help"])
-        assert result.exit_code == 0
-        assert "Analyze codebase" in result.output
-        assert "--output" in result.output or "-o" in result.output
-        assert "--format" in result.output or "-f" in result.output
-
-    def test_scan_current_directory(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu scan on a directory."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            # Create a simple Python file
-            Path("test.py").write_text("def hello(): pass\n")
-            result = runner.invoke(cli, ["scan", "."])
-            assert result.exit_code == 0
-            assert "Scanned" in result.output
-
-    def test_scan_json_format(self, runner: CliRunner, tmp_path: Path) -> None:
-        """Test mu scan --format json produces JSON-like output."""
-        with runner.isolated_filesystem(temp_dir=tmp_path):
-            Path("test.py").write_text("def hello(): pass\n")
-            # Use quiet mode to suppress log messages
-            result = runner.invoke(cli, ["-q", "scan", ".", "--format", "json"])
-            assert result.exit_code == 0
-            # Check that output contains expected JSON keys
-            # Note: there may be formatting issues with rich console output
-            assert '"version"' in result.output
-            assert '"files"' in result.output
-            assert '"root"' in result.output
-            assert "test.py" in result.output
 
 
 class TestQueryCommand:
@@ -525,13 +424,6 @@ class TestLazyImports:
 
         assert mcp is not None
         assert hasattr(mcp, "commands")
-
-    def test_contracts_module_has_contracts_group(self) -> None:
-        """Test that contracts module has the contracts click group."""
-        from mu.commands.contracts import contracts
-
-        assert contracts is not None
-        assert hasattr(contracts, "commands")
 
 
 class TestVerbosityFlags:

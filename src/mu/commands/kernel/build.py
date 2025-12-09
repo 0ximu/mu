@@ -1,4 +1,7 @@
-"""MU kernel build command - Build graph database from codebase."""
+"""MU kernel build command - Build graph database from codebase.
+
+DEPRECATED: Use 'mu bootstrap' instead.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,15 @@ if TYPE_CHECKING:
     from mu.cli import MUContext
 
 
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for kernel build."""
+    click.secho(
+        "⚠️  'mu kernel build' is deprecated. Use 'mu bootstrap' instead.",
+        fg="yellow",
+        err=True,
+    )
+
+
 @click.command("build")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option(
@@ -23,11 +35,11 @@ if TYPE_CHECKING:
 )
 @click.pass_obj
 def kernel_build(ctx: MUContext, path: Path, output: Path | None) -> None:
-    """Build graph database from codebase.
+    """[DEPRECATED] Build graph database from codebase.
 
-    Scans the directory, parses all supported files, and builds a
-    queryable graph of modules, classes, functions, and their relationships.
+    Use 'mu bootstrap' instead - it handles init and build in one step.
     """
+    _show_deprecation_warning()
     from mu.config import MUConfig
     from mu.kernel import MUbase
     from mu.logging import print_info, print_success, print_warning

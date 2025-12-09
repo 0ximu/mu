@@ -168,14 +168,7 @@ class ProactiveWarningGenerator:
         target_type, nodes, file_path = self._resolve_target(target)
 
         if not nodes and not file_path:
-            return WarningsResult(
-                target=target,
-                target_type="unknown",
-                warnings=[],
-                summary=f"Target not found: {target}",
-                risk_score=0.0,
-                analysis_time_ms=(time.time() - start_time) * 1000,
-            )
+            raise ValueError(f"Target not found: {target}")
 
         # Run warning checks
         if self.config.check_impact:
@@ -461,6 +454,9 @@ class ProactiveWarningGenerator:
         is_js_ts = suffix.lower() in (".js", ".jsx", ".ts", ".tsx")
         is_go = suffix.lower() == ".go"
 
+        # Find project root for top-level tests/ directory
+        project_root = self._find_project_root(file_path)
+
         if is_csharp or is_java:
             # C# / Java style: FooTests.cs or FooTest.cs (prioritize first)
             patterns.extend(
@@ -518,6 +514,41 @@ class ProactiveWarningGenerator:
                 ]
             )
 
+            # Add project-level tests/ directory patterns
+            if project_root:
+                tests_dir = project_root / "tests"
+                if tests_dir.exists():
+                    # Get module name from stem for matching (e.g., "server" from "server.py")
+                    module_name = stem.lower()
+
+                    # Common project-level test patterns
+                    for test_subdir in ["", "unit", "integration"]:
+                        test_base = tests_dir / test_subdir if test_subdir else tests_dir
+                        if test_base.exists():
+                            patterns.extend(
+                                [
+                                    test_base / f"test_{module_name}.py",
+                                    test_base / f"test_{module_name}s.py",  # plural
+                                ]
+                            )
+
+                            # Also check for tests named after parent module
+                            # e.g., src/mu/mcp/server.py -> tests/unit/test_mcp.py
+                            if parent.name != "mu" and parent.name != "src":
+                                patterns.extend(
+                                    [
+                                        test_base / f"test_{parent.name}.py",
+                                        test_base / f"test_{parent.name}s.py",
+                                    ]
+                                )
+
+                    patterns_tried.extend(
+                        [
+                            f"tests/test_{module_name}.py",
+                            f"tests/unit/test_{module_name}.py",
+                        ]
+                    )
+
         elif is_js_ts:
             # JS/TS style: foo.test.ts or foo.spec.ts
             patterns.extend(
@@ -573,6 +604,10 @@ class ProactiveWarningGenerator:
                 test_found = True
                 break
 
+        # If no test file found by pattern, check for imports in test files
+        if not test_found and project_root and is_python:
+            test_found = self._check_test_imports(file_path, nodes, project_root)
+
         if not test_found:
             # Check if there are any test imports referencing these nodes
             node_names = [n.name for n in nodes if n.name]
@@ -590,6 +625,68 @@ class ProactiveWarningGenerator:
             )
 
         return warnings
+
+    def _find_project_root(self, file_path: Path) -> Path | None:
+        """Find project root by looking for pyproject.toml, setup.py, or .git."""
+        current = file_path.parent
+        for _ in range(10):  # Max 10 levels up
+            if (current / "pyproject.toml").exists():
+                return current
+            if (current / "setup.py").exists():
+                return current
+            if (current / ".git").exists():
+                return current
+            if current.parent == current:
+                break
+            current = current.parent
+        return None
+
+    def _check_test_imports(self, file_path: Path, nodes: list[Any], project_root: Path) -> bool:
+        """Check if any test file imports this module."""
+        tests_dir = project_root / "tests"
+        if not tests_dir.exists():
+            return False
+
+        # Get the module import path
+        try:
+            # Try relative to src/ first
+            src_dir = project_root / "src"
+            if src_dir.exists():
+                try:
+                    rel_path = file_path.relative_to(src_dir)
+                    import_path = str(rel_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+                except ValueError:
+                    # Not under src/, try relative to project root
+                    rel_path = file_path.relative_to(project_root)
+                    import_path = str(rel_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+            else:
+                rel_path = file_path.relative_to(project_root)
+                import_path = str(rel_path.with_suffix("")).replace("/", ".").replace("\\", ".")
+        except ValueError:
+            return False
+
+        # Get node names for searching
+        node_names = [n.name for n in nodes if n.name]
+
+        # Search for imports in test files (limit depth to avoid scanning too many files)
+        try:
+            test_files = list(tests_dir.rglob("test_*.py"))[:50]  # Limit to 50 files
+            for test_file in test_files:
+                try:
+                    content = test_file.read_text(errors="ignore")[:10000]  # First 10KB
+                    # Check for import path
+                    if import_path in content:
+                        return True
+                    # Check for any node name from the module
+                    for name in node_names[:5]:
+                        if f"from {import_path.rsplit('.', 1)[0]}" in content and name in content:
+                            return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        return False
 
     def _check_complexity(self, nodes: list[Any]) -> list[ProactiveWarning]:
         """Check for high complexity nodes."""

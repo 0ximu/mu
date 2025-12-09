@@ -33,6 +33,7 @@ pub fn create_router(state: AppState) -> Router {
         // Query endpoints
         .route("/query", post(query))
         .route("/context", post(context))
+        .route("/context/omega", post(context_omega))
         // Node operations
         .route("/node/:id", get(get_node))
         .route("/nodes/:id", get(get_node)) // Alias for Python daemon compatibility
@@ -50,6 +51,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/scan", post(scan))
         // Export
         .route("/export", get(export_graph))
+        // Intelligence endpoints
+        .route("/patterns", post(patterns))
+        .route("/warn", post(warn))
         // WebSocket for live updates
         .route("/ws", get(websocket_handler))
         .route("/live", get(websocket_handler)) // Alias for Python daemon compatibility
@@ -259,9 +263,12 @@ fn default_max_tokens() -> usize {
 
 #[derive(Serialize)]
 struct ContextResponse {
-    mu_output: String,
+    /// MU format output (matches Python's mu_text field)
+    mu_text: String,
+    /// List of relevant node IDs
     nodes: Vec<String>,
-    tokens: usize,
+    /// Estimated token count (matches Python's token_count field)
+    token_count: usize,
 }
 
 async fn context(
@@ -276,9 +283,9 @@ async fn context(
     match result {
         Ok(ctx) => {
             let data = ContextResponse {
-                mu_output: ctx.mu_output,
+                mu_text: ctx.mu_output,
                 nodes: ctx.nodes,
-                tokens: ctx.tokens,
+                token_count: ctx.tokens,
             };
             ApiResponse::ok(data, start.elapsed().as_millis() as u64)
         }
@@ -289,6 +296,12 @@ async fn context(
 // =============================================================================
 // Node Operations
 // =============================================================================
+
+#[derive(Deserialize)]
+struct NodeParams {
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
+}
 
 #[derive(Serialize)]
 struct NodeResponse {
@@ -304,10 +317,19 @@ struct NodeResponse {
 async fn get_node(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<NodeParams>,
 ) -> impl IntoResponse {
     let start = Instant::now();
 
-    let mubase = state.mubase.read().await;
+    // Get project-specific mubase
+    let mubase = match state.projects.get_mubase(params.cwd.as_deref()).await {
+        Ok(m) => m,
+        Err(e) => {
+            return ApiResponse::<NodeResponse>::err(e, start.elapsed().as_millis() as u64)
+        }
+    };
+
+    let mubase = mubase.read().await;
     match mubase.get_node(&id) {
         Ok(Some(node)) => {
             let data = NodeResponse {
@@ -332,6 +354,8 @@ async fn get_node(
 #[derive(Deserialize)]
 struct BatchNodesRequest {
     ids: Vec<String>,
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
 }
 
 async fn get_nodes_batch(
@@ -340,7 +364,15 @@ async fn get_nodes_batch(
 ) -> impl IntoResponse {
     let start = Instant::now();
 
-    let mubase = state.mubase.read().await;
+    // Get project-specific mubase
+    let mubase = match state.projects.get_mubase(req.cwd.as_deref()).await {
+        Ok(m) => m,
+        Err(e) => {
+            return ApiResponse::<Vec<NodeResponse>>::err(e, start.elapsed().as_millis() as u64)
+        }
+    };
+
+    let mubase = mubase.read().await;
     let mut nodes = Vec::new();
 
     for id in &req.ids {
@@ -1123,4 +1155,850 @@ fn export_cytoscape_format(
     });
 
     serde_json::to_string_pretty(&output).unwrap_or_default()
+}
+
+// =============================================================================
+// OMEGA Context Endpoint
+// =============================================================================
+
+#[derive(Deserialize)]
+struct OmegaContextRequest {
+    question: String,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+    #[serde(default = "default_include_synthesized")]
+    include_synthesized: bool,
+    #[serde(default = "default_max_synthesized_macros")]
+    max_synthesized_macros: usize,
+    #[serde(default = "default_include_seed")]
+    include_seed: bool,
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
+}
+
+fn default_include_synthesized() -> bool {
+    true
+}
+
+fn default_max_synthesized_macros() -> usize {
+    5
+}
+
+fn default_include_seed() -> bool {
+    true
+}
+
+#[derive(Serialize)]
+struct OmegaContextResponse {
+    seed: String,
+    body: String,
+    full_output: String,
+    macros_used: Vec<String>,
+    seed_tokens: usize,
+    body_tokens: usize,
+    total_tokens: usize,
+    original_tokens: usize,
+    compression_ratio: f64,
+    nodes_included: usize,
+    manifest: serde_json::Value,
+}
+
+async fn context_omega(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<OmegaContextRequest>,
+) -> impl IntoResponse {
+    let start = Instant::now();
+
+    // First, get the regular context extraction
+    let extractor = ContextExtractor::new(state.as_ref());
+    let result = extractor.extract(&req.question, req.max_tokens).await;
+
+    match result {
+        Ok(ctx) => {
+            // Generate OMEGA format from the context
+            let omega_result = generate_omega_output(&ctx, &req, &state).await;
+
+            match omega_result {
+                Ok(data) => ApiResponse::ok(data, start.elapsed().as_millis() as u64),
+                Err(e) => ApiResponse::<OmegaContextResponse>::err(e, start.elapsed().as_millis() as u64),
+            }
+        }
+        Err(e) => ApiResponse::<OmegaContextResponse>::err(e, start.elapsed().as_millis() as u64),
+    }
+}
+
+/// Generate OMEGA S-expression output from context extraction result.
+async fn generate_omega_output(
+    ctx: &crate::context::ContextResult,
+    req: &OmegaContextRequest,
+    state: &AppState,
+) -> Result<OmegaContextResponse, String> {
+    // OMEGA Schema v2.0 header (stable for caching)
+    let seed = r#";; OMG SCHEMA v2.0 - Positional S-Expression Format
+;; Forms: (module Name FilePath ...)
+;;        (class Name Parent [attrs] ...)
+;;        (service Name [deps] ...)
+;;        (method Name [args] ReturnType Complexity)
+;;        (function Name [args] ReturnType Complexity)
+;;        (api HttpVerb Path Handler [args])
+;;        (model Name [field:type ...])
+;;        (validator Name Target [rules])
+"#.to_string();
+
+    // Generate body from nodes
+    let body = generate_omega_body(&ctx.nodes, state).await?;
+
+    // Estimate token counts (rough approximation: ~4 chars per token)
+    let seed_tokens = seed.len() / 4;
+    let body_tokens = body.len() / 4;
+    let total_tokens = seed_tokens + body_tokens;
+    let original_tokens = ctx.tokens;
+
+    let compression_ratio = if total_tokens > 0 {
+        original_tokens as f64 / total_tokens as f64
+    } else {
+        1.0
+    };
+
+    // Build full output based on include_seed
+    let full_output = if req.include_seed {
+        format!("{}\n\n;; Codebase Context\n{}", seed, body)
+    } else {
+        format!(";; Codebase Context\n{}", body)
+    };
+
+    // Build manifest
+    let manifest = serde_json::json!({
+        "version": "2.0",
+        "schema": "omega",
+        "forms": ["module", "class", "service", "method", "function", "api", "model", "validator"],
+    });
+
+    Ok(OmegaContextResponse {
+        seed: if req.include_seed { seed } else { String::new() },
+        body,
+        full_output,
+        macros_used: vec!["module".to_string(), "class".to_string(), "function".to_string(), "method".to_string()],
+        seed_tokens: if req.include_seed { seed_tokens } else { 0 },
+        body_tokens,
+        total_tokens: if req.include_seed { total_tokens } else { body_tokens },
+        original_tokens,
+        compression_ratio,
+        nodes_included: ctx.nodes.len(),
+        manifest,
+    })
+}
+
+/// Generate OMEGA body from node IDs.
+async fn generate_omega_body(node_ids: &[String], state: &AppState) -> Result<String, String> {
+    use std::collections::HashMap;
+
+    let mubase = state.mubase.read().await;
+
+    // Fetch nodes and group by file_path
+    let mut modules: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
+
+    for node_id in node_ids {
+        if let Ok(Some(node)) = mubase.get_node(node_id) {
+            let file_path = node.file_path.unwrap_or_else(|| "unknown".to_string());
+            modules.entry(file_path).or_default().push(serde_json::json!({
+                "id": node.id,
+                "name": node.name,
+                "type": node.node_type.as_str(),
+                "complexity": node.complexity,
+                "line_start": node.line_start,
+                "line_end": node.line_end,
+            }));
+        }
+    }
+
+    // Generate S-expression output
+    let mut lines = Vec::new();
+
+    for (file_path, file_nodes) in modules.iter() {
+        // Convert file path to module name
+        let module_name = path_to_module_name(file_path);
+
+        lines.push(format!("(module {} \"{}\"", module_name, file_path));
+
+        for node in file_nodes {
+            let node_type = node.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            let name = node.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let complexity = node.get("complexity").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            match node_type {
+                "class" => {
+                    lines.push(format!("  (class {} nil [])", name));
+                }
+                "function" => {
+                    lines.push(format!("  (function {} [] None {})", name, complexity));
+                }
+                _ => {}
+            }
+        }
+
+        lines.push(")".to_string());
+    }
+
+    Ok(lines.join("\n"))
+}
+
+/// Convert file path to module name (e.g., "src/mu/cli.py" -> "mu.cli").
+fn path_to_module_name(path: &str) -> String {
+    let mut name = path.to_string();
+
+    // Remove common prefixes
+    for prefix in &["src/", "lib/", "app/"] {
+        if name.starts_with(prefix) {
+            name = name[prefix.len()..].to_string();
+            break;
+        }
+    }
+
+    // Remove extension
+    for ext in &[".py", ".ts", ".js", ".go", ".java", ".rs", ".cs"] {
+        if name.ends_with(ext) {
+            name = name[..name.len() - ext.len()].to_string();
+            break;
+        }
+    }
+
+    // Convert path separators to dots
+    name = name.replace('/', ".").replace('\\', ".");
+
+    // Remove trailing __init__
+    if name.ends_with(".__init__") {
+        name = name[..name.len() - 9].to_string();
+    }
+
+    name
+}
+
+// =============================================================================
+// Pattern Detection Endpoint
+// =============================================================================
+
+#[derive(Deserialize)]
+struct PatternsRequest {
+    category: Option<String>,
+    #[serde(default)]
+    refresh: bool,
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
+}
+
+#[derive(Serialize)]
+struct PatternInfo {
+    name: String,
+    category: String,
+    description: String,
+    frequency: usize,
+    confidence: f64,
+    examples: Vec<serde_json::Value>,
+    anti_patterns: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct PatternsResponse {
+    patterns: Vec<PatternInfo>,
+    total_patterns: usize,
+    categories_found: Vec<String>,
+    detection_time_ms: f64,
+}
+
+async fn patterns(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PatternsRequest>,
+) -> impl IntoResponse {
+    let start = Instant::now();
+
+    let result = detect_patterns(&state, req.category.as_deref(), req.refresh).await;
+
+    match result {
+        Ok(data) => ApiResponse::ok(data, start.elapsed().as_millis() as u64),
+        Err(e) => ApiResponse::<PatternsResponse>::err(e, start.elapsed().as_millis() as u64),
+    }
+}
+
+/// Detect patterns in the codebase.
+async fn detect_patterns(
+    state: &AppState,
+    category: Option<&str>,
+    _refresh: bool,
+) -> Result<PatternsResponse, String> {
+    let detection_start = Instant::now();
+    let mubase = state.mubase.read().await;
+
+    let mut patterns = Vec::new();
+    let mut categories_found = Vec::new();
+
+    // Detect naming patterns
+    if category.is_none() || category == Some("naming") {
+        let naming_patterns = detect_naming_patterns(&mubase)?;
+        if !naming_patterns.is_empty() {
+            categories_found.push("naming".to_string());
+        }
+        patterns.extend(naming_patterns);
+    }
+
+    // Detect architecture patterns (services, repositories, etc.)
+    if category.is_none() || category == Some("architecture") {
+        let arch_patterns = detect_architecture_patterns(&mubase)?;
+        if !arch_patterns.is_empty() {
+            categories_found.push("architecture".to_string());
+        }
+        patterns.extend(arch_patterns);
+    }
+
+    // Detect testing patterns
+    if category.is_none() || category == Some("testing") {
+        let test_patterns = detect_testing_patterns(&mubase)?;
+        if !test_patterns.is_empty() {
+            categories_found.push("testing".to_string());
+        }
+        patterns.extend(test_patterns);
+    }
+
+    // Detect API patterns
+    if category.is_none() || category == Some("api") {
+        let api_patterns = detect_api_patterns(&mubase)?;
+        if !api_patterns.is_empty() {
+            categories_found.push("api".to_string());
+        }
+        patterns.extend(api_patterns);
+    }
+
+    // Sort by frequency
+    patterns.sort_by(|a, b| b.frequency.cmp(&a.frequency));
+
+    let detection_time_ms = detection_start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(PatternsResponse {
+        total_patterns: patterns.len(),
+        patterns,
+        categories_found,
+        detection_time_ms,
+    })
+}
+
+/// Detect naming convention patterns.
+fn detect_naming_patterns(mubase: &crate::storage::MUbase) -> Result<Vec<PatternInfo>, String> {
+    let mut patterns = Vec::new();
+
+    // Check for class naming suffixes
+    let class_sql = "SELECT name FROM nodes WHERE type = 'class'";
+    let result = mubase.query(class_sql).map_err(|e| e.to_string())?;
+
+    let mut suffix_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    for row in &result.rows {
+        if let Some(name) = row.get(0).and_then(|v| v.as_str()) {
+            // Extract CamelCase suffix
+            let chars: Vec<char> = name.chars().collect();
+            let mut last_upper_idx = chars.len();
+            for (i, c) in chars.iter().enumerate().rev() {
+                if c.is_uppercase() {
+                    last_upper_idx = i;
+                    break;
+                }
+            }
+            if last_upper_idx < chars.len() {
+                let suffix: String = chars[last_upper_idx..].iter().collect();
+                if suffix.len() > 2 {
+                    *suffix_counts.entry(suffix).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    // Create patterns for common suffixes
+    for (suffix, count) in suffix_counts {
+        if count >= 3 {
+            patterns.push(PatternInfo {
+                name: format!("class_suffix_{}", suffix.to_lowercase()),
+                category: "naming".to_string(),
+                description: format!("Classes ending with '{}' ({} occurrences)", suffix, count),
+                frequency: count,
+                confidence: (count as f64 / result.rows.len() as f64).min(1.0),
+                examples: vec![],
+                anti_patterns: vec![format!("Using generic names without '{}' suffix for this type", suffix)],
+            });
+        }
+    }
+
+    // Check for function naming style (snake_case vs camelCase)
+    let func_sql = "SELECT name FROM nodes WHERE type = 'function'";
+    let func_result = mubase.query(func_sql).map_err(|e| e.to_string())?;
+
+    let mut snake_case_count = 0;
+    let mut camel_case_count = 0;
+
+    for row in &func_result.rows {
+        if let Some(name) = row.get(0).and_then(|v| v.as_str()) {
+            if name.contains('_') && name.chars().all(|c| c.is_lowercase() || c == '_' || c.is_numeric()) {
+                snake_case_count += 1;
+            } else if !name.contains('_') && name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
+                camel_case_count += 1;
+            }
+        }
+    }
+
+    let total = snake_case_count + camel_case_count;
+    if total >= 3 {
+        if snake_case_count > camel_case_count {
+            patterns.push(PatternInfo {
+                name: "snake_case_functions".to_string(),
+                category: "naming".to_string(),
+                description: format!("Functions use snake_case ({}/{})", snake_case_count, total),
+                frequency: snake_case_count,
+                confidence: snake_case_count as f64 / total as f64,
+                examples: vec![],
+                anti_patterns: vec!["Using camelCase for function names".to_string()],
+            });
+        } else if camel_case_count > snake_case_count {
+            patterns.push(PatternInfo {
+                name: "camel_case_functions".to_string(),
+                category: "naming".to_string(),
+                description: format!("Functions use camelCase ({}/{})", camel_case_count, total),
+                frequency: camel_case_count,
+                confidence: camel_case_count as f64 / total as f64,
+                examples: vec![],
+                anti_patterns: vec!["Using snake_case for function names".to_string()],
+            });
+        }
+    }
+
+    Ok(patterns)
+}
+
+/// Detect architectural patterns (services, repositories, etc.).
+fn detect_architecture_patterns(mubase: &crate::storage::MUbase) -> Result<Vec<PatternInfo>, String> {
+    let mut patterns = Vec::new();
+
+    // Service pattern
+    let service_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'class' AND name LIKE '%Service'";
+    let service_result = mubase.query(service_sql).map_err(|e| e.to_string())?;
+    let service_count = service_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if service_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "service_layer".to_string(),
+            category: "architecture".to_string(),
+            description: format!("Service layer pattern ({} Service classes)", service_count),
+            frequency: service_count,
+            confidence: 0.9,
+            examples: vec![],
+            anti_patterns: vec!["Business logic in controllers/handlers".to_string()],
+        });
+    }
+
+    // Repository pattern
+    let repo_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'class' AND (name LIKE '%Repository' OR name LIKE '%Repo' OR name LIKE '%Store')";
+    let repo_result = mubase.query(repo_sql).map_err(|e| e.to_string())?;
+    let repo_count = repo_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if repo_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "repository_pattern".to_string(),
+            category: "architecture".to_string(),
+            description: format!("Repository/Store pattern ({} classes)", repo_count),
+            frequency: repo_count,
+            confidence: 0.9,
+            examples: vec![],
+            anti_patterns: vec!["Direct database access in services".to_string()],
+        });
+    }
+
+    // Controller/Handler pattern
+    let controller_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'class' AND (name LIKE '%Controller' OR name LIKE '%Handler' OR name LIKE '%Router')";
+    let controller_result = mubase.query(controller_sql).map_err(|e| e.to_string())?;
+    let controller_count = controller_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if controller_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "controller_pattern".to_string(),
+            category: "architecture".to_string(),
+            description: format!("Controller/Handler pattern ({} classes)", controller_count),
+            frequency: controller_count,
+            confidence: 0.85,
+            examples: vec![],
+            anti_patterns: vec![],
+        });
+    }
+
+    Ok(patterns)
+}
+
+/// Detect testing patterns.
+fn detect_testing_patterns(mubase: &crate::storage::MUbase) -> Result<Vec<PatternInfo>, String> {
+    let mut patterns = Vec::new();
+
+    // Test file naming
+    let test_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'module' AND (file_path LIKE '%test_%' OR file_path LIKE '%_test.%' OR file_path LIKE '%.test.%' OR file_path LIKE '%.spec.%')";
+    let test_result = mubase.query(test_sql).map_err(|e| e.to_string())?;
+    let test_count = test_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if test_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "test_file_organization".to_string(),
+            category: "testing".to_string(),
+            description: format!("Test files ({} found)", test_count),
+            frequency: test_count,
+            confidence: 0.9,
+            examples: vec![],
+            anti_patterns: vec!["Test files scattered without convention".to_string()],
+        });
+    }
+
+    // Test function naming
+    let test_func_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'function' AND name LIKE 'test%'";
+    let test_func_result = mubase.query(test_func_sql).map_err(|e| e.to_string())?;
+    let test_func_count = test_func_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if test_func_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "test_function_naming".to_string(),
+            category: "testing".to_string(),
+            description: format!("Test functions with 'test' prefix ({} found)", test_func_count),
+            frequency: test_func_count,
+            confidence: 0.95,
+            examples: vec![],
+            anti_patterns: vec!["Test functions without 'test' prefix".to_string()],
+        });
+    }
+
+    Ok(patterns)
+}
+
+/// Detect API patterns.
+fn detect_api_patterns(mubase: &crate::storage::MUbase) -> Result<Vec<PatternInfo>, String> {
+    let mut patterns = Vec::new();
+
+    // Route/API modules
+    let route_sql = "SELECT COUNT(*) FROM nodes WHERE type = 'module' AND (file_path LIKE '%route%' OR file_path LIKE '%api%' OR file_path LIKE '%endpoint%' OR file_path LIKE '%views%')";
+    let route_result = mubase.query(route_sql).map_err(|e| e.to_string())?;
+    let route_count = route_result.rows.first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0) as usize;
+
+    if route_count >= 3 {
+        patterns.push(PatternInfo {
+            name: "route_modules".to_string(),
+            category: "api".to_string(),
+            description: format!("Dedicated route/API modules ({} found)", route_count),
+            frequency: route_count,
+            confidence: 0.85,
+            examples: vec![],
+            anti_patterns: vec![],
+        });
+    }
+
+    Ok(patterns)
+}
+
+// =============================================================================
+// Proactive Warnings Endpoint
+// =============================================================================
+
+#[derive(Deserialize)]
+struct WarnRequest {
+    target: String,
+    /// Client working directory for multi-project routing
+    cwd: Option<String>,
+}
+
+#[derive(Serialize)]
+struct WarningInfo {
+    category: String,
+    level: String,
+    message: String,
+    details: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+struct WarnResponse {
+    target: String,
+    target_type: String,
+    warnings: Vec<WarningInfo>,
+    summary: String,
+    risk_score: f64,
+    analysis_time_ms: f64,
+}
+
+async fn warn(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<WarnRequest>,
+) -> impl IntoResponse {
+    let start = Instant::now();
+
+    let result = analyze_warnings(&state, &req.target).await;
+
+    match result {
+        Ok(data) => ApiResponse::ok(data, start.elapsed().as_millis() as u64),
+        Err(e) => ApiResponse::<WarnResponse>::err(e, start.elapsed().as_millis() as u64),
+    }
+}
+
+/// Analyze a target for proactive warnings.
+async fn analyze_warnings(state: &AppState, target: &str) -> Result<WarnResponse, String> {
+    let analysis_start = Instant::now();
+    let mubase = state.mubase.read().await;
+
+    let mut warnings = Vec::new();
+    let mut target_type = "unknown".to_string();
+    let mut node_id = None;
+
+    // Resolve target to node
+    if target.starts_with("mod:") || target.starts_with("cls:") || target.starts_with("fn:") {
+        // Direct node ID
+        if let Ok(Some(node)) = mubase.get_node(target) {
+            node_id = Some(target.to_string());
+            target_type = node.node_type.as_str().to_string();
+        }
+    } else {
+        // Try to find by file path or name
+        let search_sql = format!(
+            "SELECT id, type FROM nodes WHERE file_path LIKE '%{}' OR name = '{}' LIMIT 1",
+            target.replace('\'', "''"),
+            target.replace('\'', "''")
+        );
+        if let Ok(result) = mubase.query(&search_sql) {
+            if let Some(row) = result.rows.first() {
+                node_id = row.get(0).and_then(|v| v.as_str()).map(String::from);
+                target_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            }
+        }
+    }
+
+    // Check impact (dependents count)
+    if let Some(ref id) = node_id {
+        let impact_sql = format!(
+            "SELECT COUNT(*) FROM edges WHERE target_id = '{}'",
+            id.replace('\'', "''")
+        );
+        if let Ok(result) = mubase.query(&impact_sql) {
+            let dependent_count = result.rows.first()
+                .and_then(|r| r.first())
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+
+            if dependent_count > 10 {
+                let level = if dependent_count > 30 { "error" } else { "warn" };
+                warnings.push(WarningInfo {
+                    category: "high_impact".to_string(),
+                    level: level.to_string(),
+                    message: format!("{} nodes depend on this - changes may have wide impact", dependent_count),
+                    details: Some(serde_json::json!({
+                        "dependent_count": dependent_count,
+                    })),
+                });
+            }
+        }
+    }
+
+    // Check complexity
+    if let Some(ref id) = node_id {
+        let complexity_sql = format!(
+            "SELECT complexity FROM nodes WHERE id = '{}'",
+            id.replace('\'', "''")
+        );
+        if let Ok(result) = mubase.query(&complexity_sql) {
+            let complexity = result.rows.first()
+                .and_then(|r| r.first())
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+
+            if complexity > 50 {
+                warnings.push(WarningInfo {
+                    category: "complexity".to_string(),
+                    level: "error".to_string(),
+                    message: format!("Very high complexity ({}) - consider refactoring before changes", complexity),
+                    details: Some(serde_json::json!({
+                        "complexity": complexity,
+                        "threshold": 50,
+                    })),
+                });
+            } else if complexity > 20 {
+                warnings.push(WarningInfo {
+                    category: "complexity".to_string(),
+                    level: "warn".to_string(),
+                    message: format!("High complexity ({}) - changes may be risky", complexity),
+                    details: Some(serde_json::json!({
+                        "complexity": complexity,
+                        "threshold": 20,
+                    })),
+                });
+            }
+        }
+    }
+
+    // Check for security-sensitive code
+    let security_keywords = ["auth", "password", "token", "secret", "crypto", "encrypt", "session", "login"];
+    let target_lower = target.to_lowercase();
+    for keyword in &security_keywords {
+        if target_lower.contains(keyword) {
+            warnings.push(WarningInfo {
+                category: "security".to_string(),
+                level: "warn".to_string(),
+                message: "Security-sensitive code detected - extra review recommended".to_string(),
+                details: Some(serde_json::json!({
+                    "indicator": keyword,
+                })),
+            });
+            break;
+        }
+    }
+
+    // Check for test coverage (simple heuristic: look for test files)
+    if let Some(ref id) = node_id {
+        if id.starts_with("mod:") && !id.contains("test") {
+            let file_path = id.strip_prefix("mod:").unwrap_or(id);
+            let stem = file_path.rsplit('/').next().unwrap_or(file_path);
+            let stem = stem.rsplit('.').last().unwrap_or(stem);
+
+            let test_patterns = vec![
+                format!("test_{}", stem),
+                format!("{}_test", stem),
+            ];
+
+            let mut test_found = false;
+            for pattern in test_patterns {
+                let test_sql = format!(
+                    "SELECT COUNT(*) FROM nodes WHERE type = 'module' AND file_path LIKE '%{}%'",
+                    pattern
+                );
+                if let Ok(result) = mubase.query(&test_sql) {
+                    let count = result.rows.first()
+                        .and_then(|r| r.first())
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0);
+                    if count > 0 {
+                        test_found = true;
+                        break;
+                    }
+                }
+            }
+
+            if !test_found {
+                warnings.push(WarningInfo {
+                    category: "no_tests".to_string(),
+                    level: "warn".to_string(),
+                    message: "No test file found - consider adding tests before modifying".to_string(),
+                    details: None,
+                });
+            }
+        }
+    }
+
+    // Calculate risk score
+    let risk_score = calculate_risk_score(&warnings);
+
+    // Generate summary
+    let summary = generate_warning_summary(&warnings, target);
+
+    let analysis_time_ms = analysis_start.elapsed().as_secs_f64() * 1000.0;
+
+    Ok(WarnResponse {
+        target: target.to_string(),
+        target_type,
+        warnings,
+        summary,
+        risk_score,
+        analysis_time_ms,
+    })
+}
+
+/// Calculate overall risk score based on warnings.
+fn calculate_risk_score(warnings: &[WarningInfo]) -> f64 {
+    if warnings.is_empty() {
+        return 0.0;
+    }
+
+    let mut score: f64 = 0.0;
+    for w in warnings {
+        // Level weights
+        let level_weight = match w.level.as_str() {
+            "error" => 0.3,
+            "warn" => 0.15,
+            "info" => 0.05,
+            _ => 0.1,
+        };
+
+        // Category weights
+        let category_weight = match w.category.as_str() {
+            "high_impact" => 1.2,
+            "security" => 1.3,
+            "complexity" => 1.1,
+            "stale" => 0.9,
+            "no_tests" => 0.8,
+            "deprecated" => 0.7,
+            _ => 1.0,
+        };
+
+        score += level_weight * category_weight;
+    }
+
+    // Normalize to 0-1 range
+    score.min(1.0)
+}
+
+/// Generate a one-line summary of warnings.
+fn generate_warning_summary(warnings: &[WarningInfo], target: &str) -> String {
+    if warnings.is_empty() {
+        return format!("No warnings for {}", target);
+    }
+
+    let error_count = warnings.iter().filter(|w| w.level == "error").count();
+    let warn_count = warnings.iter().filter(|w| w.level == "warn").count();
+    let info_count = warnings.iter().filter(|w| w.level == "info").count();
+
+    let mut parts = Vec::new();
+    if error_count > 0 {
+        parts.push(format!("{} error{}", error_count, if error_count != 1 { "s" } else { "" }));
+    }
+    if warn_count > 0 {
+        parts.push(format!("{} warning{}", warn_count, if warn_count != 1 { "s" } else { "" }));
+    }
+    if info_count > 0 {
+        parts.push(format!("{} info", info_count));
+    }
+
+    // Add key categories
+    let categories: std::collections::HashSet<&str> = warnings.iter()
+        .map(|w| w.category.as_str())
+        .collect();
+
+    let mut key_cats = Vec::new();
+    if categories.contains("high_impact") {
+        key_cats.push("high-impact");
+    }
+    if categories.contains("security") {
+        key_cats.push("security-sensitive");
+    }
+    if categories.contains("stale") {
+        key_cats.push("stale");
+    }
+
+    let mut summary = parts.join(", ");
+    if !key_cats.is_empty() {
+        summary.push_str(&format!(" ({})", key_cats.join(", ")));
+    }
+
+    summary
 }

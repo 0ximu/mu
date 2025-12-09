@@ -185,12 +185,14 @@ def impact(
                 resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
             )
 
-            # Handle daemon response format
-            data = result.get("data", result)
-            if isinstance(data, list):
-                impacted = data
-            else:
-                impacted = data if isinstance(data, list) else []
+            # Handle daemon response format - client.impact normalizes to dict
+            # with 'impacted_nodes' key (see client.py)
+            impacted = result.get("impacted_nodes", [])
+            if not impacted:
+                # Also check for raw list response or 'data' key
+                data = result.get("data", result)
+                if isinstance(data, list):
+                    impacted = data
 
             title = f"Impact of {resolved_node} ({len(impacted)} nodes)"
             output = _format_node_list(impacted, title, output_format, no_color)
@@ -227,7 +229,7 @@ def _impact_local(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
@@ -327,12 +329,14 @@ def ancestors(
                 resolved_node, edge_types=edge_type_list, cwd=str(path.resolve())
             )
 
-            # Handle daemon response format
-            data = result.get("data", result)
-            if isinstance(data, list):
-                ancestor_nodes = data
-            else:
-                ancestor_nodes = data if isinstance(data, list) else []
+            # Handle daemon response format - client.ancestors normalizes to dict
+            # with 'ancestor_nodes' key (see client.py)
+            ancestor_nodes = result.get("ancestor_nodes", [])
+            if not ancestor_nodes:
+                # Also check for raw list response or 'data' key
+                data = result.get("data", result)
+                if isinstance(data, list):
+                    ancestor_nodes = data
 
             title = f"Ancestors of {resolved_node} ({len(ancestor_nodes)} nodes)"
             output = _format_node_list(ancestor_nodes, title, output_format, no_color)
@@ -367,7 +371,7 @@ def _ancestors_local(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:
@@ -495,7 +499,7 @@ def _cycles_local(
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:

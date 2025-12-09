@@ -72,7 +72,10 @@ fn plan_select(q: SelectQuery) -> ExecutionPlan {
 
     // SELECT clause
     sql.push_str("SELECT ");
-    if q.fields.is_empty() || (q.fields.len() == 1 && q.fields[0].is_star) {
+    // Check for bare SELECT * (not COUNT(*) or other aggregates)
+    let is_bare_star = q.fields.is_empty()
+        || (q.fields.len() == 1 && q.fields[0].is_star && q.fields[0].aggregate.is_none());
+    if is_bare_star {
         sql.push_str("id, type, name, file_path, line_start, line_end, complexity");
     } else {
         let field_strs: Vec<String> = q.fields.iter().map(|f| {
@@ -199,59 +202,195 @@ fn format_value(value: &Value) -> String {
 fn plan_show(q: ShowQuery) -> ExecutionPlan {
     let depth = q.depth.min(MAX_DEPTH);
 
-    let op_type = match q.show_type {
-        ShowType::Dependencies | ShowType::Dependents => GraphOpType::Dependencies,
-        ShowType::Callers | ShowType::Callees => GraphOpType::Dependencies,
-        ShowType::Impact => GraphOpType::Impact,
-        ShowType::Ancestors => GraphOpType::Ancestors,
-        ShowType::Children | ShowType::Parents => GraphOpType::Children,
-        ShowType::Inheritance | ShowType::Implementations => GraphOpType::Dependencies,
+    let (op_type, edge_types) = match q.show_type {
+        // Follow all edge types for dependencies/dependents to work with any node type
+        // (classes may inherit, functions may call, modules may import)
+        ShowType::Dependencies => (GraphOpType::Dependencies, None),
+        ShowType::Dependents => (GraphOpType::Dependents, None),
+        ShowType::Callers => (GraphOpType::Dependents, Some(vec!["calls".to_string()])),
+        ShowType::Callees => (GraphOpType::Dependencies, Some(vec!["calls".to_string()])),
+        ShowType::Impact => (GraphOpType::Impact, None), // Follow all edges for impact
+        ShowType::Ancestors => (GraphOpType::Ancestors, None), // Follow all edges for ancestors
+        ShowType::Children => (GraphOpType::Children, Some(vec!["contains".to_string()])),
+        ShowType::Parents => (GraphOpType::Dependents, Some(vec!["contains".to_string()])),
+        ShowType::Inheritance => (GraphOpType::Dependencies, Some(vec!["inherits".to_string()])),
+        ShowType::Implementations => (GraphOpType::Dependents, Some(vec!["inherits".to_string()])),
     };
 
     ExecutionPlan::Graph(GraphOperation {
         op_type,
         target: q.target,
         depth,
-        edge_types: None,
+        edge_types,
     })
 }
 
 fn plan_find(q: FindQuery) -> ExecutionPlan {
     // Convert find conditions to SQL WHERE clauses
-    let mut sql = String::from("SELECT id, type, name, file_path, line_start, line_end, complexity FROM nodes");
-    let mut conditions = Vec::new();
-
-    // Filter by node type
-    if q.node_type != NodeTypeFilter::Nodes {
-        conditions.push(format!("type = '{}'", q.node_type.to_sql_type()));
-    }
+    let type_filter = if q.node_type != NodeTypeFilter::Nodes {
+        format!("type = '{}'", q.node_type.to_sql_type())
+    } else {
+        String::new()
+    };
 
     // Add condition based on find type
     match &q.condition {
         FindCondition::Matching(pattern) => {
+            let mut sql = String::from("SELECT id, type, name, file_path, line_start, line_end, complexity FROM nodes WHERE ");
+            let mut conditions = Vec::new();
+            if !type_filter.is_empty() {
+                conditions.push(type_filter);
+            }
             conditions.push(format!("name LIKE '{}'", pattern.replace('\'', "''")));
+            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
         }
         FindCondition::WithDecorator(decorator) => {
-            // Would need to check properties JSON
+            let mut sql = String::from("SELECT id, type, name, file_path, line_start, line_end, complexity FROM nodes WHERE ");
+            let mut conditions = Vec::new();
+            if !type_filter.is_empty() {
+                conditions.push(type_filter);
+            }
             conditions.push(format!(
                 "properties LIKE '%{}%'",
                 decorator.replace('\'', "''")
             ));
+            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
         }
-        _ => {
-            // Other conditions require graph traversal
-            // For now, just return all nodes of the type
+        FindCondition::WithAnnotation(annotation) => {
+            let mut sql = String::from("SELECT id, type, name, file_path, line_start, line_end, complexity FROM nodes WHERE ");
+            let mut conditions = Vec::new();
+            if !type_filter.is_empty() {
+                conditions.push(type_filter);
+            }
+            conditions.push(format!(
+                "properties LIKE '%{}%'",
+                annotation.replace('\'', "''")
+            ));
+            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::Calling(target) => {
+            // Find functions that CALL the target
+            // Join nodes with edges where this node is the source and target matches
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.source_id \
+                 WHERE e.type = 'calls' \
+                 AND (e.target_id LIKE '%{}%' OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::CalledBy(target) => {
+            // Find functions that ARE CALLED BY the target
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.target_id \
+                 WHERE e.type = 'calls' \
+                 AND (e.source_id LIKE '%{}%' OR e.source_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::Importing(target) => {
+            // Find modules that IMPORT the target
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.source_id \
+                 WHERE e.type = 'imports' \
+                 AND (e.target_id LIKE '%{}%' OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::ImportedBy(target) => {
+            // Find modules that ARE IMPORTED BY the target
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.target_id \
+                 WHERE e.type = 'imports' \
+                 AND (e.source_id LIKE '%{}%' OR e.source_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::Inheriting(target) => {
+            // Find classes that INHERIT FROM the target
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.source_id \
+                 WHERE e.type = 'inherits' \
+                 AND (e.target_id LIKE '%{}%' OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::Implementing(target) => {
+            // Find classes that IMPLEMENT the target (same as inheriting for most languages)
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = format!(
+                "SELECT DISTINCT n.id, n.type, n.name, n.file_path, n.line_start, n.line_end, n.complexity \
+                 FROM nodes n \
+                 INNER JOIN edges e ON n.id = e.source_id \
+                 WHERE e.type IN ('implements', 'inherits') \
+                 AND (e.target_id LIKE '%{}%' OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}' OR qualified_name LIKE '%{}'))",
+                target_escaped, target_escaped, target_escaped
+            );
+            if !type_filter.is_empty() {
+                sql.push_str(&format!(" AND n.{}", type_filter));
+            }
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
+        }
+        FindCondition::SimilarTo(target) => {
+            // Similarity search would require embeddings - fall back to name pattern
+            let target_escaped = target.replace('\'', "''");
+            let mut sql = String::from("SELECT id, type, name, file_path, line_start, line_end, complexity FROM nodes WHERE ");
+            let mut conditions = Vec::new();
+            if !type_filter.is_empty() {
+                conditions.push(type_filter);
+            }
+            conditions.push(format!("name LIKE '%{}%'", target_escaped));
+            sql.push_str(&conditions.join(" AND "));
+            sql.push_str(" LIMIT 100");
+            ExecutionPlan::Sql(sql)
         }
     }
-
-    if !conditions.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&conditions.join(" AND "));
-    }
-
-    sql.push_str(" LIMIT 100");
-
-    ExecutionPlan::Sql(sql)
 }
 
 fn plan_find_cycles(q: FindCyclesQuery) -> ExecutionPlan {

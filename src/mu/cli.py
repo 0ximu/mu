@@ -45,38 +45,47 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "query": ("mu.commands.query", "query"),
     "q": ("mu.commands.query", "q"),
     # Graph reasoning commands (petgraph-backed)
+    "deps": ("mu.commands.deps", "deps"),  # Promoted from kernel deps
     "impact": ("mu.commands.graph", "impact"),
     "ancestors": ("mu.commands.graph", "ancestors"),
     "cycles": ("mu.commands.graph", "cycles"),
     # Intelligence Layer commands
     "patterns": ("mu.commands.patterns", "patterns"),
-    "generate": ("mu.commands.generate", "generate"),
     "warn": ("mu.commands.warn", "warn"),
     "related": ("mu.commands.core", "related"),
     # Output commands
     "compress": ("mu.commands.compress", "compress"),
     "diff": ("mu.commands.diff", "diff"),
-    # Service groups
-    "daemon": ("mu.commands.daemon", "daemon"),
+    # Services - consolidated
+    "serve": ("mu.commands.serve", "serve"),  # Unified server command
     "mcp": ("mu.commands.mcp", "mcp"),
-    "agent": ("mu.agent.cli", "agent"),
     # Advanced/power-user commands
     "kernel": ("mu.commands.kernel", "kernel"),
-    "cache": ("mu.commands.cache", "cache"),
-    "contracts": ("mu.commands.contracts", "contracts"),
-    # Utility commands
+    # Vibes commands - developer-friendly CLI with personality
+    "omg": ("mu.commands.vibes", "omg"),  # OMEGA context
+    "grok": ("mu.commands.vibes", "grok"),  # Smart context
+    "wtf": ("mu.commands.vibes", "wtf"),  # Git archaeology
+    "yolo": ("mu.commands.vibes", "yolo"),  # Impact analysis
+    "sus": ("mu.commands.vibes", "sus"),  # Proactive warnings
+    "vibe": ("mu.commands.vibes", "vibe"),  # Pattern validation
+    "zen": ("mu.commands.vibes", "zen"),  # Cache cleanup
+}
+
+# Hidden commands (power-user, deprecated, or for compatibility)
+HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
     "migrate": ("mu.commands.migrate", "migrate"),
-    # Legacy commands (kept for compatibility)
-    "init": ("mu.commands.init_cmd", "init"),
-    "scan": ("mu.commands.scan", "scan"),
     "view": ("mu.commands.view", "view"),
     "describe": ("mu.commands.describe", "describe"),
     "man": ("mu.commands.man", "man_command"),
     "llm": ("mu.commands.llm_spec", "llm_command"),
+    # Deprecated - use 'mu serve' instead
+    "daemon": ("mu.commands.daemon", "daemon"),
+    # Hidden - accessible but not in main help
+    "cache": ("mu.commands.cache", "cache"),
 }
 
 
-@click.group(cls=LazyGroup, lazy_subcommands=LAZY_COMMANDS)
+@click.group(cls=LazyGroup, lazy_subcommands=LAZY_COMMANDS, hidden_subcommands=HIDDEN_COMMANDS)
 @click.option("-v", "--verbose", is_flag=True, help="Enable verbose output")
 @click.option("-q", "--quiet", is_flag=True, help="Suppress non-error output")
 @click.option("--debug", is_flag=True, help="Show full tracebacks on errors")
@@ -88,12 +97,50 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
 @click.version_option(version=__version__, prog_name="mu")
 @pass_context
 def cli(ctx: MUContext, verbose: bool, quiet: bool, debug: bool, config: Path | None) -> None:
-    """MU - Machine Understanding: Semantic compression for AI-native development.
-
-    Translate codebases into token-efficient representations optimized for LLM comprehension.
+    """MU - Machine Understanding for Codebases.
 
     \b
-    Use --debug to show full tracebacks when errors occur.
+    Core Commands:
+      bootstrap    Initialize MU for a codebase
+      status       Show MU status and guidance
+      compress     Compress code to MU format
+
+    \b
+    Query & Navigation:
+      query, q     Execute MUQL queries
+      context      Smart context extraction
+      read         Read source code for a node
+      search       Search for code entities
+
+    \b
+    Graph Reasoning:
+      deps         Show dependencies
+      impact       What breaks if I change this?
+      ancestors    What depends on this?
+      cycles       Find circular dependencies
+      related      Find related files
+
+    \b
+    Intelligence:
+      patterns     Detect codebase patterns
+      warn         Proactive code warnings
+      diff         Semantic diff between refs
+
+    \b
+    Services:
+      serve        Start MU daemon (HTTP/WebSocket API)
+      mcp          MCP server tools
+
+    \b
+    Vibes (fun aliases):
+      omg, grok, wtf, yolo, sus, vibe, zen
+
+    \b
+    Advanced:
+      kernel       Advanced graph operations (power users)
+
+    Use 'mu <command> --help' for details.
+    Use --debug to show full tracebacks on errors.
     """
     # Lazy import for faster startup
     from mu.config import MUConfig

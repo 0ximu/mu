@@ -1,4 +1,7 @@
-"""MU daemon run command - Run daemon in foreground."""
+"""MU daemon run command - Run daemon in foreground.
+
+DEPRECATED: Use 'mu serve -f' instead.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,15 @@ from pathlib import Path
 import click
 
 from mu.paths import get_daemon_pid_path, get_mubase_path
+
+
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for daemon commands."""
+    click.secho(
+        "⚠️  'mu daemon run' is deprecated. Use 'mu serve -f' instead.",
+        fg="yellow",
+        err=True,
+    )
 
 
 @click.command("run")
@@ -34,15 +46,11 @@ def daemon_run(
     watch: tuple[Path, ...],
     debounce: int,
 ) -> None:
-    """Run daemon in foreground (for debugging).
+    """[DEPRECATED] Run daemon in foreground (for debugging).
 
-    Press Ctrl+C to stop.
-
-    \b
-    Examples:
-        mu daemon run .
-        mu daemon run . --port 9000
+    Use 'mu serve -f' instead. Press Ctrl+C to stop.
     """
+    _show_deprecation_warning()
     from mu.daemon.config import DaemonConfig
     from mu.daemon.lifecycle import DaemonLifecycle
     from mu.errors import ExitCode

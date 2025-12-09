@@ -1,4 +1,7 @@
-"""MU daemon status command - Check daemon status."""
+"""MU daemon status command - Check daemon status.
+
+DEPRECATED: Use 'mu serve --status' instead.
+"""
 
 from __future__ import annotations
 
@@ -9,17 +12,24 @@ import click
 from mu.paths import get_daemon_pid_path
 
 
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for daemon commands."""
+    click.secho(
+        "⚠️  'mu daemon status' is deprecated. Use 'mu serve --status' instead.",
+        fg="yellow",
+        err=True,
+    )
+
+
 @click.command("status")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
 def daemon_status(path: Path, as_json: bool) -> None:
-    """Check daemon status.
+    """[DEPRECATED] Check daemon status.
 
-    \b
-    Example:
-        mu daemon status
-        mu daemon status --json
+    Use 'mu serve --status' instead.
     """
+    _show_deprecation_warning()
     import json as json_module
 
     from rich.table import Table

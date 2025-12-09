@@ -194,6 +194,7 @@ fn version() -> &'static str {
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Types
     m.add_class::<ParameterDef>()?;
+    m.add_class::<CallSiteDef>()?;
     m.add_class::<FunctionDef>()?;
     m.add_class::<ClassDef>()?;
     m.add_class::<ImportDef>()?;

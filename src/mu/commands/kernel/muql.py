@@ -1,10 +1,22 @@
-"""MU kernel muql command - Execute MUQL queries."""
+"""MU kernel muql command - Execute MUQL queries.
+
+DEPRECATED: Use 'mu query' or 'mu q' instead.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import click
+
+
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for kernel muql."""
+    click.secho(
+        "⚠️  'mu kernel muql' is deprecated. Use 'mu query' or 'mu q' instead.",
+        fg="yellow",
+        err=True,
+    )
 
 
 @click.command("muql")
@@ -29,40 +41,17 @@ def kernel_muql(
     no_color: bool,
     explain: bool,
 ) -> None:
-    """Execute MUQL queries against the graph database.
+    """[DEPRECATED] Execute MUQL queries.
 
-    MUQL provides an SQL-like query interface for exploring your codebase.
-    Also available as 'mu query' or 'mu q' (shorter aliases).
+    Use 'mu query' or 'mu q' instead.
 
     \b
     Examples:
-        # Single query
-        mu kernel muql . "SELECT * FROM functions WHERE complexity > 20"
-
-        # Interactive mode
-        mu kernel muql . -i
-
-        # Show execution plan
-        mu kernel muql . --explain "SELECT * FROM classes LIMIT 10"
-
-        # Output as JSON
-        mu kernel muql . -f json "SELECT name, complexity FROM functions"
-
-    \b
-    Query Types:
-        SELECT - SQL-like queries on nodes
-        SHOW   - Dependency and relationship queries
-        FIND   - Pattern matching queries
-        PATH   - Path finding between nodes
-        ANALYZE - Built-in analysis queries
-
-    \b
-    In interactive mode, use these commands:
-        .help    - Show help
-        .format  - Change output format
-        .explain - Explain query
-        .exit    - Exit REPL
+        mu query "SELECT * FROM functions"
+        mu q "SELECT * FROM classes LIMIT 10"
+        mu query -i  # Interactive mode
     """
+    _show_deprecation_warning()
     from mu.commands.query import _execute_muql
 
     _execute_muql(path, query, interactive, output_format, no_color, explain)

@@ -10,6 +10,27 @@ class ParameterDef:
     is_variadic: bool
     is_keyword: bool
 
+
+class CallSiteDef:
+    """A function call site within a function body."""
+
+    callee: str  # "validate_user" or "self.save"
+    line: int
+    is_method_call: bool  # self.x() vs x()
+    receiver: str | None  # "self", "user_service", etc.
+
+    def __init__(
+        self,
+        callee: str,
+        line: int = 0,
+        is_method_call: bool = False,
+        receiver: str | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary representation."""
+        ...
+
+
 class FunctionDef:
     """Function or method definition."""
 
@@ -25,6 +46,7 @@ class FunctionDef:
     docstring: str | None
     body_complexity: int
     body_source: str | None
+    call_sites: list[CallSiteDef]  # Function calls within this function
     start_line: int
     end_line: int
 

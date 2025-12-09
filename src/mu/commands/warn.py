@@ -63,7 +63,7 @@ def warn(target: str, output_json: bool) -> None:
         db = MUbase(mubase_path, read_only=True)
     except MUbaseLockError:
         print_error(
-            "Database is locked. Start daemon with 'mu daemon start' or stop it with 'mu daemon stop'."
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
         )
         sys.exit(ExitCode.CONFIG_ERROR)
     try:

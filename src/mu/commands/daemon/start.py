@@ -1,4 +1,7 @@
-"""MU daemon start command - Start MU daemon in background."""
+"""MU daemon start command - Start MU daemon in background.
+
+DEPRECATED: Use 'mu serve' instead.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,15 @@ from pathlib import Path
 import click
 
 from mu.paths import get_daemon_pid_path, get_mubase_path
+
+
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for daemon commands."""
+    click.secho(
+        "⚠️  'mu daemon start' is deprecated. Use 'mu serve' instead.",
+        fg="yellow",
+        err=True,
+    )
 
 
 @click.command("start")
@@ -34,17 +46,16 @@ def daemon_start(
     watch: tuple[Path, ...],
     debounce: int,
 ) -> None:
-    """Start MU daemon in background.
+    """[DEPRECATED] Start MU daemon in background.
 
-    The daemon watches for file changes and provides an HTTP/WebSocket
-    API for querying the code graph.
+    Use 'mu serve' instead.
 
     \b
     Examples:
-        mu daemon start .
-        mu daemon start . --port 9000
-        mu daemon start . --watch ./lib --watch ./tests
+        mu serve              # Start daemon in background
+        mu serve --port 9000  # Custom port
     """
+    _show_deprecation_warning()
     from mu.daemon.config import DaemonConfig
     from mu.daemon.lifecycle import DaemonLifecycle
     from mu.errors import ExitCode

@@ -1,4 +1,7 @@
-"""MU kernel deps command - Show dependencies of a node."""
+"""MU kernel deps command - Show dependencies of a node.
+
+DEPRECATED: Use 'mu deps' instead.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,15 @@ from pathlib import Path
 import click
 
 from mu.paths import get_mubase_path
+
+
+def _show_deprecation_warning() -> None:
+    """Show deprecation warning for kernel deps."""
+    click.secho(
+        "⚠️  'mu kernel deps' is deprecated. Use 'mu deps' instead.",
+        fg="yellow",
+        err=True,
+    )
 
 
 @click.command("deps")
@@ -29,18 +41,17 @@ def kernel_deps(
     reverse: bool,
     as_json: bool,
 ) -> None:
-    """Show dependencies or dependents of a node.
+    """[DEPRECATED] Show dependencies or dependents of a node.
 
-    NODE_NAME can be a function, class, or module name.
+    Use 'mu deps' instead.
 
+    \b
     Examples:
-
-        mu kernel deps MUbase
-
-        mu kernel deps cli.py --depth 2
-
-        mu kernel deps GraphBuilder --reverse
+        mu deps MUbase
+        mu deps cli.py --depth 2
+        mu deps GraphBuilder -r
     """
+    _show_deprecation_warning()
     import json as json_module
 
     from mu.errors import ExitCode
@@ -53,7 +64,15 @@ def kernel_deps(
         print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     # Find the node by name
     matching_nodes = db.find_by_name(f"%{node_name}%")

@@ -76,10 +76,38 @@ async fn main() -> Result<()> {
 
     // Resolve paths
     let root = cli.root.canonicalize().unwrap_or(cli.root.clone());
-    let mubase_path = cli.mubase.unwrap_or_else(|| root.join(".mubase"));
+
+    // Determine mubase path: use explicit path, or find existing database, or use new default
+    let mubase_path = cli.mubase.unwrap_or_else(|| {
+        // New standard path: .mu/mubase
+        let new_path = root.join(".mu").join("mubase");
+        if new_path.exists() {
+            return new_path;
+        }
+
+        // Legacy path: .mubase (for backward compatibility)
+        let legacy_path = root.join(".mubase");
+        if legacy_path.exists() {
+            info!(
+                "Using legacy .mubase path. Consider running 'mu migrate' to move to .mu/mubase"
+            );
+            return legacy_path;
+        }
+
+        // Default to new path (will create .mu/ directory if needed)
+        new_path
+    });
 
     info!("Starting MU daemon for {:?}", root);
     info!("Database: {:?}", mubase_path);
+
+    // Ensure parent directory exists (for .mu/mubase)
+    if let Some(parent) = mubase_path.parent() {
+        if !parent.exists() {
+            std::fs::create_dir_all(parent)?;
+            info!("Created directory: {:?}", parent);
+        }
+    }
 
     // Open or create mubase database
     info!("Opening database...");

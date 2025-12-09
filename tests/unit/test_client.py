@@ -23,7 +23,7 @@ class TestDaemonClient:
         """Test client initializes with defaults."""
         client = DaemonClient()
         assert client.base_url == DEFAULT_DAEMON_URL
-        assert client.timeout == 0.5
+        assert client.timeout == 2.0  # Increased from 0.5 for reliability
         client.close()
 
     def test_init_custom_values(self) -> None:

@@ -391,6 +391,463 @@ class CodeExample:
         }
 
 
+class MacroTier(Enum):
+    """Tiers of macro stability for prompt cache optimization.
+
+    Macros are ordered by tier in output to maximize prompt cache hits:
+    CORE (always same) → STANDARD (common) → SYNTHESIZED (dynamic).
+    """
+
+    CORE = "core"
+    """Built-in macros, always available (module, class, defn, data)."""
+
+    STANDARD = "standard"
+    """Common cross-codebase macros (api, component, test, hook)."""
+
+    SYNTHESIZED = "synthesized"
+    """Dynamically generated per-codebase macros."""
+
+
+@dataclass
+class MacroDefinition:
+    """A macro definition for pattern compression in OMEGA format.
+
+    This is the critical interface for pattern-to-lisp translation.
+    Macros compress repeated code patterns into concise S-expressions.
+
+    Example:
+        A macro for API endpoints:
+        >>> macro = MacroDefinition(
+        ...     name="api",
+        ...     tier=MacroTier.STANDARD,
+        ...     signature=["method", "path", "name", "params"],
+        ...     description="REST API endpoint handler",
+        ...     pattern_source="http_method_handlers",
+        ...     frequency=42,
+        ...     expansion_template='(defn {name} [{params}] -> Response ...)',
+        ...     token_savings=15,
+        ... )
+        >>> macro.apply({"method": "GET", "path": "/users", "name": "get_users", "params": []})
+        '(api GET "/users" get_users [])'
+    """
+
+    name: str
+    """Macro name (e.g., 'api', 'component', 'hook')."""
+
+    tier: MacroTier
+    """Stability tier of this macro."""
+
+    signature: list[str]
+    """Parameter names in order (e.g., ['method', 'path', 'name', 'params'])."""
+
+    description: str
+    """Human-readable description of what this macro represents."""
+
+    pattern_source: str
+    """Name of the pattern that generated this macro."""
+
+    frequency: int
+    """How many nodes this macro compresses."""
+
+    expansion_template: str
+    """Template showing what this macro expands to.
+
+    Example for 'api' macro:
+        (defn {name} [{params}] -> Response
+          :decorators [app.{method}("{path}")])
+    """
+
+    token_savings: int = 0
+    """Estimated tokens saved by using this macro."""
+
+    def to_lisp_def(self) -> str:
+        """Generate the Lisp defmacro form.
+
+        Returns:
+            S-expression defining this macro.
+
+        Example:
+            (defmacro api [method path name params]
+              "REST API endpoint handler")
+        """
+        params = " ".join(self.signature)
+        return f'(defmacro {self.name} [{params}]\n  "{self.description}")'
+
+    def apply(self, node_data: dict[str, Any]) -> str:
+        """Apply this macro to a node, producing compressed S-expr.
+
+        Args:
+            node_data: Dictionary with keys matching signature params.
+
+        Returns:
+            Macro invocation S-expression.
+
+        Example:
+            Input: {"method": "GET", "path": "/users", "name": "get_users", "params": []}
+            Output: (api GET "/users" get_users [])
+        """
+        args = []
+        for param in self.signature:
+            value = node_data.get(param, "_")
+            if isinstance(value, str) and " " in value:
+                args.append(f'"{value}"')
+            elif isinstance(value, list):
+                args.append(f"[{' '.join(str(v) for v in value)}]")
+            else:
+                args.append(str(value))
+        return f"({self.name} {' '.join(args)})"
+
+    def matches(self, node: Any) -> bool:
+        """Check if this macro can compress the given node.
+
+        Args:
+            node: A Node object from the kernel.
+
+        Returns:
+            True if this macro applies to the node.
+        """
+        from mu.kernel.schema import NodeType
+
+        node_name = (node.name or "").lower()
+        node_props = node.properties or {}
+        decorators = node_props.get("decorators", [])
+        decorators_str = str(decorators).lower()
+
+        if self.name == "api":
+            # API endpoints have HTTP method decorators
+            if node.type != NodeType.FUNCTION:
+                return False
+            return any(
+                method in decorators_str
+                for method in ["get", "post", "put", "delete", "patch", "route"]
+            )
+
+        elif self.name == "hook":
+            # React hooks start with "use"
+            if node.type != NodeType.FUNCTION:
+                return False
+            return node_name.startswith("use")
+
+        elif self.name == "test":
+            # Test functions start with "test" or are in test files
+            if node.type != NodeType.FUNCTION:
+                return False
+            file_path = (node.file_path or "").lower()
+            return node_name.startswith("test") or "/test" in file_path
+
+        elif self.name == "service":
+            # Service classes end with "Service"
+            if node.type != NodeType.CLASS:
+                return False
+            return node_name.endswith("service")
+
+        elif self.name == "repo":
+            # Repository classes
+            if node.type != NodeType.CLASS:
+                return False
+            return "repository" in node_name or "repo" in node_name
+
+        elif self.name == "model":
+            # Data models/dataclasses
+            if node.type != NodeType.CLASS:
+                return False
+            return "dataclass" in decorators_str or node_name.endswith("model")
+
+        elif self.name == "component":
+            # UI components (PascalCase, not services)
+            if node.type != NodeType.CLASS:
+                return False
+            return (
+                node.name
+                and node.name[0].isupper()
+                and not node_name.endswith("service")
+                and not node_name.endswith("repository")
+            )
+
+        return False
+
+    def extract_node_data(self, node: Any) -> dict[str, Any]:
+        """Extract data from a node to fill macro signature params.
+
+        Args:
+            node: A Node object from the kernel.
+
+        Returns:
+            Dictionary with keys matching signature params.
+        """
+        props = node.properties or {}
+        data: dict[str, Any] = {"name": node.name}
+
+        if self.name == "api":
+            # Extract HTTP method and path from decorators
+            decorators = props.get("decorators", [])
+            method = "GET"
+            path = "/"
+            for dec in decorators:
+                dec_lower = str(dec).lower()
+                for m in ["get", "post", "put", "delete", "patch"]:
+                    if m in dec_lower:
+                        method = m.upper()
+                        # Try to extract path from decorator
+                        import re
+
+                        path_match = re.search(r'["\']([^"\']+)["\']', str(dec))
+                        if path_match:
+                            path = path_match.group(1)
+                        break
+            data["method"] = method
+            data["path"] = path
+            # Extract params
+            params = props.get("parameters", [])
+            param_strs = []
+            for p in params:
+                if isinstance(p, dict):
+                    pname = p.get("name", "?")
+                    ptype = p.get("type_annotation", "")
+                    if pname not in ("self", "cls"):
+                        param_strs.append(f"{pname}:{ptype}" if ptype else pname)
+            data["params"] = param_strs
+
+        elif self.name == "hook":
+            # Extract hook name (strip "use" prefix for compression)
+            name = node.name or ""
+            if name.lower().startswith("use"):
+                data["name"] = name[3:]  # Strip "use"
+            data["deps"] = []  # Could extract from params
+            data["returns"] = props.get("return_type", "Any")
+
+        elif self.name == "test":
+            # Extract test name (strip "test_" prefix)
+            name = node.name or ""
+            if name.lower().startswith("test_"):
+                data["name"] = name[5:]
+            elif name.lower().startswith("test"):
+                data["name"] = name[4:]
+            data["target"] = ""  # Could infer from file path
+
+        elif self.name == "service":
+            # Extract service name (strip "Service" suffix)
+            name = node.name or ""
+            if name.endswith("Service"):
+                data["name"] = name[:-7]
+            data["deps"] = props.get("attributes", [])[:3]  # First 3 attrs as deps
+            data["methods"] = []
+
+        elif self.name == "repo":
+            # Extract repository entity
+            name = node.name or ""
+            if name.endswith("Repository"):
+                data["name"] = name[:-10]
+            elif name.endswith("Repo"):
+                data["name"] = name[:-4]
+            data["entity"] = data["name"]
+
+        elif self.name == "model":
+            # Extract model fields
+            data["fields"] = props.get("attributes", [])[:5]  # First 5 attrs
+
+        elif self.name == "component":
+            # Extract component props
+            data["props"] = []
+
+        return data
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "name": self.name,
+            "tier": self.tier.value,
+            "signature": self.signature,
+            "description": self.description,
+            "pattern_source": self.pattern_source,
+            "frequency": self.frequency,
+            "expansion_template": self.expansion_template,
+            "token_savings": self.token_savings,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> MacroDefinition:
+        """Create MacroDefinition from dictionary.
+
+        Args:
+            data: Dictionary with macro definition fields.
+
+        Returns:
+            MacroDefinition instance.
+        """
+        return cls(
+            name=data["name"],
+            tier=MacroTier(data["tier"]),
+            signature=data["signature"],
+            description=data["description"],
+            pattern_source=data["pattern_source"],
+            frequency=data["frequency"],
+            expansion_template=data.get("expansion_template", ""),
+            token_savings=data.get("token_savings", 0),
+        )
+
+
+@dataclass
+class SynthesisResult:
+    """Result of macro synthesis from codebase patterns.
+
+    Contains generated macro definitions, synthesis statistics, and
+    the node→macro mapping for O(1) compression lookups.
+
+    The get_header() method produces a stable macro header optimized
+    for prompt caching by ordering macros: CORE → STANDARD → SYNTHESIZED.
+
+    Example:
+        >>> result = SynthesisResult(
+        ...     macros=[api_macro, service_macro],
+        ...     node_macro_map={"fn:src/api.py:get_users": api_macro},
+        ...     total_patterns_analyzed=50,
+        ...     patterns_converted=2,
+        ...     estimated_compression=0.35,
+        ...     synthesis_time_ms=125.5,
+        ... )
+        >>> print(result.get_header())
+        ;; MU-Lisp Macro Definitions
+        ;; Standard (cross-codebase)
+        (defmacro api [method path name params]
+          "REST API endpoint handler")
+        ...
+    """
+
+    macros: list[MacroDefinition] = field(default_factory=list)
+    """Generated macro definitions."""
+
+    node_macro_map: dict[str, MacroDefinition] = field(default_factory=dict)
+    """Mapping from node ID to applicable macro for O(1) lookup.
+
+    This is the key optimization: instead of O(N*M) matching during export,
+    the synthesizer pre-computes which macro applies to each node.
+
+    Example:
+        {
+            "fn:src/api/users.py:get_users": api_macro,
+            "fn:src/api/users.py:create_user": api_macro,
+            "cls:src/services/auth.py:AuthService": service_macro,
+        }
+    """
+
+    total_patterns_analyzed: int = 0
+    """Number of patterns considered during synthesis."""
+
+    patterns_converted: int = 0
+    """Number of patterns that became macros."""
+
+    estimated_compression: float = 0.0
+    """Estimated compression ratio (0.0 - 1.0, where 0.35 = 35% reduction)."""
+
+    synthesis_time_ms: float = 0.0
+    """Time taken for synthesis in milliseconds."""
+
+    nodes_mapped: int = 0
+    """Number of nodes that have macro mappings (for stats)."""
+
+    def get_header(self) -> str:
+        """Generate the macro header for context injection.
+
+        Returns stable core macros first, then standard, then synthesized.
+        This ordering optimizes for prompt caching - stable content at
+        the start means higher cache hit rates.
+
+        Returns:
+            Formatted macro definitions as Lisp comments and defmacro forms.
+        """
+        lines = [";; MU-Lisp Macro Definitions"]
+
+        # Group by tier for stable ordering
+        core = [m for m in self.macros if m.tier == MacroTier.CORE]
+        standard = [m for m in self.macros if m.tier == MacroTier.STANDARD]
+        synthesized = [m for m in self.macros if m.tier == MacroTier.SYNTHESIZED]
+
+        if core:
+            lines.append(";; Core (built-in)")
+            for m in core:
+                lines.append(m.to_lisp_def())
+
+        if standard:
+            lines.append("\n;; Standard (cross-codebase)")
+            for m in standard:
+                lines.append(m.to_lisp_def())
+
+        if synthesized:
+            lines.append("\n;; Synthesized (this codebase)")
+            for m in synthesized:
+                lines.append(m.to_lisp_def())
+
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization.
+
+        Note: node_macro_map is serialized as {node_id: macro_name} for space
+        efficiency. Use from_dict() to reconstruct.
+        """
+        return {
+            "macros": [m.to_dict() for m in self.macros],
+            "node_macro_map": {
+                node_id: macro.name for node_id, macro in self.node_macro_map.items()
+            },
+            "total_patterns_analyzed": self.total_patterns_analyzed,
+            "patterns_converted": self.patterns_converted,
+            "estimated_compression": round(self.estimated_compression, 3),
+            "synthesis_time_ms": round(self.synthesis_time_ms, 2),
+            "nodes_mapped": self.nodes_mapped,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SynthesisResult:
+        """Create SynthesisResult from dictionary.
+
+        Args:
+            data: Dictionary with synthesis result fields.
+
+        Returns:
+            SynthesisResult instance.
+        """
+        macros = [MacroDefinition.from_dict(m) for m in data.get("macros", [])]
+        macro_lookup = {m.name: m for m in macros}
+
+        # Reconstruct node_macro_map from serialized {node_id: macro_name}
+        node_macro_map: dict[str, MacroDefinition] = {}
+        for node_id, macro_name in data.get("node_macro_map", {}).items():
+            if macro_name in macro_lookup:
+                node_macro_map[node_id] = macro_lookup[macro_name]
+
+        return cls(
+            macros=macros,
+            node_macro_map=node_macro_map,
+            total_patterns_analyzed=data.get("total_patterns_analyzed", 0),
+            patterns_converted=data.get("patterns_converted", 0),
+            estimated_compression=data.get("estimated_compression", 0.0),
+            synthesis_time_ms=data.get("synthesis_time_ms", 0.0),
+            nodes_mapped=data.get("nodes_mapped", 0),
+        )
+
+    @property
+    def macro_count(self) -> int:
+        """Total number of macros."""
+        return len(self.macros)
+
+    @property
+    def core_count(self) -> int:
+        """Number of core macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.CORE)
+
+    @property
+    def standard_count(self) -> int:
+        """Number of standard macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.STANDARD)
+
+    @property
+    def synthesized_count(self) -> int:
+        """Number of synthesized macros."""
+        return sum(1 for m in self.macros if m.tier == MacroTier.SYNTHESIZED)
+
+
 class MemoryCategory(Enum):
     """Categories of cross-session memories."""
 
@@ -777,6 +1234,8 @@ __all__ = [
     "FileContext",
     "GeneratedFile",
     "GenerateResult",
+    "MacroDefinition",
+    "MacroTier",
     "Memory",
     "MemoryCategory",
     "Pattern",
@@ -786,6 +1245,7 @@ __all__ = [
     "ProactiveWarning",
     "RecallResult",
     "Suggestion",
+    "SynthesisResult",
     "TaskAnalysis",
     "TaskContextResult",
     "TaskType",

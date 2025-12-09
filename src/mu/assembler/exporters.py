@@ -228,4 +228,179 @@ def export_mu(output: AssembledOutput, shell_safe: bool = False) -> str:
     return generator.generate(output.codebase)
 
 
-__all__ = ["export_json", "export_markdown", "export_mu"]
+def export_lisp(output: AssembledOutput, pretty: bool = True) -> str:
+    """Export assembled output as Lisp S-expression format.
+
+    Produces a token-efficient representation using nested lists
+    that LLMs can parse natively without custom syntax.
+
+    Args:
+        output: The assembled output to export
+        pretty: Pretty-print with indentation
+
+    Returns:
+        Lisp S-expression string
+    """
+    lines: list[str] = []
+    indent = "  " if pretty else ""
+    nl = "\n" if pretty else " "
+
+    # Header
+    lines.append(";; MU-Lisp v1.0 - Machine Understanding Semantic Format")
+    lines.append(";; Core forms: module, class, defn, data, const")
+    lines.append("")
+
+    # Start mu-lisp wrapper
+    lines.append('(mu-lisp :version "1.0"')
+
+    # Add external deps summary
+    if output.external_packages:
+        sorted_pkgs = sorted(output.external_packages)[:20]
+        if sorted_pkgs:
+            ext_list = " ".join(sorted_pkgs)
+            if len(output.external_packages) > 20:
+                ext_list += f" +{len(output.external_packages) - 20}"
+            lines.append(f'{indent}:external-deps [{ext_list}]')
+
+    # Process each module
+    for module in output.codebase.modules:
+        module_name = _path_to_module_name(module.path)
+        module_lines: list[str] = []
+
+        # Module header
+        module_header = f'(module {module_name} :file "{module.path}"'
+
+        # Add module deps
+        if module.path in output.graph.nodes:
+            node = output.graph.nodes[module.path]
+            sorted_deps = sorted(node.external_deps)[:10] if node.external_deps else []
+            if sorted_deps:
+                deps = " ".join(sorted_deps)
+                module_header += f" :deps [{deps}]"
+
+        # Classes
+        for cls in module.classes:
+            cls_sexpr = _class_to_sexpr(cls, pretty)
+            module_lines.append(cls_sexpr)
+
+        # Top-level functions
+        for func in module.functions:
+            func_sexpr = _function_to_sexpr(func)
+            module_lines.append(func_sexpr)
+
+        # Build module block
+        if module_lines:
+            lines.append(f"{indent}{module_header}")
+            for item in module_lines:
+                lines.append(f"{indent}{indent}{item}")
+            lines.append(f"{indent})")
+        else:
+            lines.append(f"{indent}{module_header})")
+
+    lines.append(")")
+
+    return nl.join(lines) if pretty else " ".join(lines)
+
+
+def _path_to_module_name(path: str) -> str:
+    """Convert a file path to module name."""
+    name = path
+
+    # Remove common prefixes
+    for prefix in ("src/", "lib/", "app/"):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+
+    # Remove extension
+    for ext in (".py", ".ts", ".js", ".go", ".java", ".rs", ".cs"):
+        if name.endswith(ext):
+            name = name[:-len(ext)]
+            break
+
+    # Convert path separators to dots
+    name = name.replace("/", ".").replace("\\", ".")
+
+    # Remove trailing __init__
+    if name.endswith(".__init__"):
+        name = name[:-9]
+
+    return name
+
+
+def _class_to_sexpr(cls: Any, pretty: bool = True) -> str:
+    """Convert a class to S-expression."""
+    parts: list[str] = [f"(class {cls.name}"]
+
+    # Inheritance
+    if cls.bases:
+        parts.append(f":bases [{' '.join(cls.bases)}]")
+
+    # Attributes (from class body)
+    attrs = getattr(cls, "attributes", [])
+    if attrs:
+        attr_list = attrs[:10]
+        if len(attrs) > 10:
+            attr_list.append(f"+{len(attrs) - 10}")
+        parts.append(f":attrs [{' '.join(str(a) for a in attr_list)}]")
+
+    # Methods
+    method_sexprs: list[str] = []
+    for method in cls.methods:
+        method_sexprs.append(_function_to_sexpr(method))
+
+    if method_sexprs:
+        parts.extend(method_sexprs)
+
+    parts.append(")")
+    return " ".join(parts)
+
+
+def _function_to_sexpr(func: Any) -> str:
+    """Convert a function/method to S-expression."""
+    # Determine form name
+    form = "defn"
+    if getattr(func, "is_async", False):
+        form = "defn-async"
+    elif getattr(func, "is_static", False):
+        form = "defn-static"
+    elif getattr(func, "is_classmethod", False):
+        form = "defn-classmethod"
+
+    parts: list[str] = [f"({form} {func.name}"]
+
+    # Parameters
+    params = getattr(func, "parameters", [])
+    param_strs: list[str] = []
+    for p in params:
+        name = getattr(p, "name", str(p))
+        if name in ("self", "cls"):
+            continue
+        ptype = getattr(p, "type_annotation", None)
+        if ptype:
+            param_strs.append(f"{name}:{ptype}")
+        else:
+            param_strs.append(name)
+
+    parts.append(f"[{' '.join(param_strs)}]")
+
+    # Return type
+    return_type = getattr(func, "return_type", None)
+    if return_type:
+        parts.append(f"-> {return_type}")
+
+    # Decorators (excluding common ones)
+    decorators = getattr(func, "decorators", [])
+    visible_decorators = [
+        d for d in decorators
+        if d not in ("public", "private", "protected", "internal",
+                     "staticmethod", "classmethod", "async")
+    ]
+    if visible_decorators:
+        parts.append(f":decorators [{' '.join(visible_decorators)}]")
+
+    parts.append(")")
+    return " ".join(parts)
+
+
+__all__ = ["export_json", "export_markdown", "export_mu", "export_lisp"]

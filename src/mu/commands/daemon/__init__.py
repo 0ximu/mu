@@ -1,4 +1,4 @@
-"""MU Daemon Commands - Real-time file watching and HTTP/WebSocket API."""
+"""MU Daemon Commands - DEPRECATED, use 'mu serve' instead."""
 
 from __future__ import annotations
 
@@ -15,19 +15,16 @@ LAZY_DAEMON_COMMANDS: dict[str, tuple[str, str]] = {
 }
 
 
-@click.group(cls=LazyGroup, lazy_subcommands=LAZY_DAEMON_COMMANDS)
+@click.group(cls=LazyGroup, lazy_subcommands=LAZY_DAEMON_COMMANDS, hidden=True)
 def daemon() -> None:
-    """MU daemon commands (real-time updates).
-
-    Run a long-running daemon that watches for file changes
-    and serves HTTP/WebSocket API for queries.
+    """[DEPRECATED] Use 'mu serve' instead.
 
     \b
-    Examples:
-        mu daemon start .         # Start daemon in background
-        mu daemon status          # Check daemon status
-        mu daemon stop            # Stop running daemon
-        mu daemon run .           # Run in foreground (for debugging)
+    Migration:
+        mu daemon start  ->  mu serve
+        mu daemon stop   ->  mu serve --stop
+        mu daemon status ->  mu serve --status
+        mu daemon run    ->  mu serve -f
     """
     pass
 

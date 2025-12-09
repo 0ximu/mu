@@ -840,6 +840,49 @@ class TestTokenBudgeter:
 
         assert actual == expected
 
+    def test_estimate_node_tokens_with_docstring(self, sample_node: Node) -> None:
+        """Node with docstring includes docstring tokens."""
+        from mu.kernel.context.models import ExportConfig
+
+        # Create config with docstrings enabled
+        export_config = ExportConfig(include_docstrings=True)
+        budgeter = TokenBudgeter(max_tokens=1000, export_config=export_config)
+
+        # Add docstring to node properties
+        sample_node.properties["docstring"] = "This is a test function that does something useful."
+
+        estimate_with_doc = budgeter.estimate_node_tokens(sample_node)
+
+        # Now disable docstrings
+        export_config_no_doc = ExportConfig(include_docstrings=False)
+        budgeter_no_doc = TokenBudgeter(max_tokens=1000, export_config=export_config_no_doc)
+
+        estimate_without_doc = budgeter_no_doc.estimate_node_tokens(sample_node)
+
+        # With docstring should have more tokens
+        assert estimate_with_doc > estimate_without_doc
+        assert (estimate_with_doc - estimate_without_doc) > 0
+
+    def test_estimate_node_tokens_with_line_numbers(self, sample_node: Node) -> None:
+        """Node with line numbers enabled includes line number overhead."""
+        from mu.kernel.context.models import ExportConfig
+
+        # Create config with line numbers enabled
+        export_config = ExportConfig(include_line_numbers=True)
+        budgeter = TokenBudgeter(max_tokens=1000, export_config=export_config)
+
+        estimate_with_lines = budgeter.estimate_node_tokens(sample_node)
+
+        # Now disable line numbers
+        export_config_no_lines = ExportConfig(include_line_numbers=False)
+        budgeter_no_lines = TokenBudgeter(max_tokens=1000, export_config=export_config_no_lines)
+
+        estimate_without_lines = budgeter_no_lines.estimate_node_tokens(sample_node)
+
+        # With line numbers should have more tokens (approximately 5)
+        assert estimate_with_lines > estimate_without_lines
+        assert (estimate_with_lines - estimate_without_lines) == 5
+
 
 # =============================================================================
 # TestContextExporter
@@ -1095,7 +1138,7 @@ class TestSmartContextExtractor:
         self, mock_vector: MagicMock, mock_mubase: MUbase
     ) -> None:
         """Extraction works in degraded mode without embeddings."""
-        mock_vector.return_value = ([], {})  # No vector results
+        mock_vector.return_value = ([], {}, "no_embeddings")  # No vector results
 
         extractor = SmartContextExtractor(mock_mubase)
         result = extractor.extract("How does AuthService work?")
@@ -1103,6 +1146,9 @@ class TestSmartContextExtractor:
         # Should still find entities
         assert result is not None
         assert len(result.nodes) > 0
+        # Stats should indicate vector search was skipped
+        assert result.extraction_stats.get("vector_search_used") is False
+        assert result.extraction_stats.get("vector_search_skipped") == "no_embeddings"
 
     def test_extract_expands_graph(self, mock_mubase: MUbase) -> None:
         """Graph expansion includes related nodes."""

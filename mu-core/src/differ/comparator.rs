@@ -689,6 +689,7 @@ mod tests {
             docstring: None,
             body_complexity: 1,
             body_source: None,
+            call_sites: vec![],
             start_line: 0,
             end_line: 0,
         }
