@@ -667,11 +667,23 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
                             "mu_text": context_result.mu_text,
                             "token_count": context_result.token_count,
                             "node_count": len(context_result.nodes),
+                            "extraction_method": context_result.extraction_method,
                         },
                         indent=2,
                     )
                 )
             else:
+                # Show extraction method info when using graph-based extraction
+                if context_result.extraction_method == "graph":
+                    print_info("Using graph-based extraction (embeddings not available)")
+                    print_info(
+                        click.style(
+                            "  Tip: Run 'mu bootstrap --embed' for better semantic search",
+                            dim=True,
+                        )
+                    )
+                    print_info("")
+
                 print_info(
                     f"# {len(context_result.nodes)} nodes, {context_result.token_count} tokens"
                 )

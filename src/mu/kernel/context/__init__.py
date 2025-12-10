@@ -43,7 +43,11 @@ from mu.kernel.context.omega import (
     OmegaManifest,
     OmegaResult,
 )
-from mu.kernel.context.smart import SmartContextExtractor
+from mu.kernel.context.smart import (
+    DomainBoundary,
+    GraphExpansionConfig,
+    SmartContextExtractor,
+)
 from mu.kernel.context.strategies import (
     DefaultStrategy,
     ExtractionStrategy,
@@ -69,9 +73,11 @@ __all__ = [
     "get_strategy",
     # Context extraction
     "ContextResult",
+    "DomainBoundary",
     "ExportConfig",
     "ExtractionConfig",
     "ExtractedEntity",
+    "GraphExpansionConfig",
     "OmegaConfig",
     "OmegaContextExtractor",
     "OmegaManifest",
