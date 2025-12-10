@@ -13,7 +13,7 @@ When entering a new codebase:
 | `mu_status` | Health check + `next_action` guidance |
 | `mu_init` | Create .murc.toml config |
 | `mu_build` | Build .mubase graph |
-| `mu_query` | MUQL queries |
+| `mu_query` | MUQL queries (supports terse syntax) |
 | `mu_context` | Smart context for questions |
 | `mu_semantic_diff` | PR review with breaking changes |
 | `mu_scan` | Fast file discovery (Rust, 6.9x faster) |
@@ -21,6 +21,35 @@ When entering a new codebase:
 | `mu_impact` | "If I change X, what breaks?" |
 | `mu_ancestors` | "What does X depend on?" |
 | `mu_cycles` | Detect circular dependencies |
+
+## MUQL Terse Syntax (Token-Optimized)
+
+Use terse syntax for 60-85% token reduction:
+
+| Verbose | Terse | Example |
+|---------|-------|---------|
+| `SELECT * FROM functions WHERE` | `fn` | `fn c>50` |
+| `SELECT * FROM classes WHERE` | `cls` | `cls n~'Service'` |
+| `SELECT * FROM modules` | `mod` | `mod fp~'src/'` |
+| `complexity` | `c` | `fn c>50` |
+| `name LIKE` | `n~` | `fn n~'auth'` |
+| `file_path` | `fp` | `fn fp~'test'` |
+| `SHOW DEPENDENCIES OF X DEPTH N` | `deps X dN` | `deps Auth d2` |
+| `SHOW DEPENDENTS OF X` | `rdeps X` | `rdeps User` |
+| `SHOW CALLERS OF X` | `callers X` | `callers main` |
+| `SHOW CALLEES OF X` | `callees X` | `callees process` |
+| `SHOW IMPACT OF X` | `impact X` | `impact Service` |
+| `ORDER BY X DESC` | `sort x-` | `fn sort c-` |
+| `ORDER BY X ASC` | `sort x+` | `fn sort n+` |
+| `LIMIT N` | `N` (at end) | `fn c>50 10` |
+
+### Examples
+```
+fn c>50 sort c- 10      # Top 10 complex functions
+deps AuthService d2     # Auth dependencies, 2 levels
+fn n~'parse' fp~'src/'  # Functions named *parse* in src/
+callers main d3         # What calls main, 3 levels up
+```
 
 ## MU Sigils
 ! = module/service boundary
