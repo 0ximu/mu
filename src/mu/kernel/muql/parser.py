@@ -108,6 +108,7 @@ class MUQLTransformer(Transformer[Token, Any]):
             ">=": ComparisonOperator.GTE,
             "<=": ComparisonOperator.LTE,
             "LIKE": ComparisonOperator.LIKE,
+            "~": ComparisonOperator.LIKE,  # Terse alias for LIKE
         }
         return mapping.get(op, ComparisonOperator.EQ)
 
@@ -549,6 +550,218 @@ class MUQLTransformer(Transformer[Token, Any]):
                 depth = item
 
         return ShowQuery(show_type=show_type, target=target, depth=depth)
+
+    # -------------------------------------------------------------------------
+    # Terse SHOW Commands (LLM-optimized)
+    # -------------------------------------------------------------------------
+
+    def terse_depth_clause(self, items: list[Token]) -> int:
+        """Handle terse depth: d2 -> 2."""
+        for item in items:
+            if str(item).isdigit():
+                return int(str(item))
+        return 1  # Default
+
+    def _parse_terse_show(self, items: list[Any], show_type: ShowType) -> ShowQuery:
+        """Common handler for terse SHOW commands.
+
+        Extracts target NodeRef and optional depth from items, filtering out
+        None and Token objects.
+
+        Args:
+            items: Parse tree items containing NodeRef and optionally depth int
+            show_type: The type of SHOW query (DEPENDENCIES, DEPENDENTS, etc.)
+
+        Returns:
+            ShowQuery with the specified show_type
+        """
+        target: NodeRef = NodeRef(name="")
+        depth: int = 1
+
+        for item in items:
+            if item is None or isinstance(item, Token):
+                continue
+            if isinstance(item, NodeRef):
+                target = item
+            elif isinstance(item, int):
+                depth = item
+
+        return ShowQuery(show_type=show_type, target=target, depth=depth)
+
+    def terse_deps_query(self, items: list[Any]) -> ShowQuery:
+        """Handle terse deps: `deps AuthService d2` -> SHOW DEPENDENCIES OF AuthService DEPTH 2."""
+        return self._parse_terse_show(items, ShowType.DEPENDENCIES)
+
+    def terse_rdeps_query(self, items: list[Any]) -> ShowQuery:
+        """Handle terse rdeps: `rdeps AuthService` -> SHOW DEPENDENTS OF AuthService."""
+        return self._parse_terse_show(items, ShowType.DEPENDENTS)
+
+    def terse_callers_query(self, items: list[Any]) -> ShowQuery:
+        """Handle terse callers: `callers main d3` -> SHOW CALLERS OF main DEPTH 3."""
+        return self._parse_terse_show(items, ShowType.CALLERS)
+
+    def terse_callees_query(self, items: list[Any]) -> ShowQuery:
+        """Handle terse callees: `callees main` -> SHOW CALLEES OF main."""
+        return self._parse_terse_show(items, ShowType.CALLEES)
+
+    def terse_impact_query(self, items: list[Any]) -> ShowQuery:
+        """Handle terse impact: `impact UserModel` -> SHOW IMPACT OF UserModel."""
+        return self._parse_terse_show(items, ShowType.IMPACT)
+
+    # -------------------------------------------------------------------------
+    # Terse SELECT Query (LLM-optimized)
+    # -------------------------------------------------------------------------
+
+    def complexity_field(self, items: list[Any]) -> str:
+        """Terse 'c' -> 'complexity'."""
+        return "complexity"
+
+    def name_field(self, items: list[Any]) -> str:
+        """Terse 'n' -> 'name'."""
+        return "name"
+
+    def filepath_field(self, items: list[Any]) -> str:
+        """Terse 'fp' -> 'file_path'."""
+        return "file_path"
+
+    def qualname_field(self, items: list[Any]) -> str:
+        """Terse 'qn' -> 'qualified_name'."""
+        return "qualified_name"
+
+    def named_field_terse(self, items: list[Token]) -> str:
+        """Pass through field name from identifier."""
+        return str(items[0])
+
+    def terse_field(self, items: list[str]) -> str:
+        """Pass through terse field."""
+        return items[0]
+
+    def desc_order(self, items: list[Any]) -> SortOrder:
+        """Terse '-' or 'desc' -> DESC."""
+        return SortOrder.DESC
+
+    def asc_order(self, items: list[Any]) -> SortOrder:
+        """Terse '+' or 'asc' -> ASC."""
+        return SortOrder.ASC
+
+    def terse_order_direction(self, items: list[SortOrder]) -> SortOrder:
+        """Pass through order direction."""
+        return items[0]
+
+    def terse_order_field(self, items: list[Any]) -> OrderByField:
+        """Handle terse order field: c- or c desc."""
+        name = items[0] if items else "name"
+        direction = SortOrder.ASC
+        for item in items:
+            if isinstance(item, SortOrder):
+                direction = item
+        return OrderByField(name=str(name), order=direction)
+
+    def terse_order_clause(self, items: list[Any]) -> list[OrderByField]:
+        """Handle terse ORDER BY: sort c-, c2+."""
+        result: list[OrderByField] = []
+        for item in items:
+            if isinstance(item, OrderByField):
+                result.append(item)
+        return result
+
+    def terse_limit_num(self, items: list[Token]) -> int:
+        """Handle terse limit: bare number or lim N."""
+        for item in items:
+            if str(item).isdigit():
+                return int(str(item))
+        return 100  # Default
+
+    def terse_limit_clause(self, items: list[int]) -> int:
+        """Pass through limit value."""
+        return items[0] if items else 100
+
+    def terse_simple_comparison(self, items: list[Any]) -> Comparison:
+        """Handle terse comparison: c>50, n~auth."""
+        field = items[0] if items else "name"
+        op = ComparisonOperator.EQ
+        value = Value(value="", type="string")
+
+        for item in items:
+            if isinstance(item, str):
+                field = item
+            elif isinstance(item, ComparisonOperator):
+                op = item
+            elif isinstance(item, Value):
+                value = item
+
+        return Comparison(field=str(field), operator=op, value=value)
+
+    def terse_comparison(self, items: list[Comparison]) -> Comparison:
+        """Pass through terse comparison."""
+        return (
+            items[0]
+            if items
+            else Comparison(
+                field="name", operator=ComparisonOperator.EQ, value=Value(value="", type="string")
+            )
+        )
+
+    def terse_and_condition(self, items: list[Any]) -> Condition:
+        """Handle terse AND condition."""
+        comparisons: list[Comparison | AggregateComparison] = []
+        for item in items:
+            if isinstance(item, Comparison):
+                comparisons.append(item)
+            elif isinstance(item, Condition):
+                comparisons.extend(item.comparisons)
+        return Condition(comparisons=comparisons, operator="and")
+
+    def terse_condition(self, items: list[Any]) -> Condition:
+        """Handle terse OR condition.
+
+        Filters out Token objects (OR keywords) that may be in the items list.
+        """
+        conditions = [item for item in items if isinstance(item, Condition)]
+        if len(conditions) == 1:
+            return conditions[0]
+        return Condition(comparisons=[], operator="or", nested=conditions)
+
+    def terse_where_clause(self, items: list[Condition]) -> Condition:
+        """Pass through terse WHERE clause."""
+        return items[0] if items else Condition(comparisons=[], operator="and")
+
+    def terse_node_type(self, items: list[NodeTypeFilter]) -> NodeTypeFilter:
+        """Pass through terse node type."""
+        return items[0] if items else NodeTypeFilter.NODES
+
+    def terse_select_query(self, items: list[Any]) -> SelectQuery:
+        """Handle terse SELECT: `fn c>50 sort c- 10`.
+
+        Converts to:
+        SELECT * FROM functions WHERE complexity > 50 ORDER BY complexity DESC LIMIT 10
+        """
+        node_type: NodeTypeFilter = NodeTypeFilter.NODES
+        where: Condition | None = None
+        order_by: list[OrderByField] = []
+        limit: int | None = None
+
+        for item in items:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                continue
+            if isinstance(item, NodeTypeFilter):
+                node_type = item
+            elif isinstance(item, Condition):
+                where = item
+            elif isinstance(item, list) and item and isinstance(item[0], OrderByField):
+                order_by = item
+            elif isinstance(item, int):
+                limit = item
+
+        return SelectQuery(
+            fields=[SelectField(name="*", is_star=True)],
+            node_type=node_type,
+            where=where,
+            order_by=order_by,
+            limit=limit,
+        )
 
     # -------------------------------------------------------------------------
     # FIND CYCLES Query (Graph cycle detection)
