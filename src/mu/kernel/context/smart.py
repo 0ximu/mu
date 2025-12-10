@@ -284,8 +284,15 @@ class SmartContextExtractor:
         )
         stats["selected_nodes"] = len(selected)
 
-        # Handle empty results
+        # Handle empty results - try semantic search fallback if embeddings available
         if not selected:
+            fallback_result = self._try_semantic_search_fallback(question, stats)
+            if fallback_result is not None:
+                fallback_result.intent = intent.value
+                fallback_result.intent_confidence = confidence
+                return fallback_result
+
+            # No results even after fallback
             fallback_msg = f":: No relevant context found for: {question}"
             # Estimate tokens: ~4 chars per token for English text
             estimated_tokens = len(fallback_msg) // 4
@@ -590,6 +597,113 @@ class SmartContextExtractor:
             filtered.append(scored_node)
 
         return filtered
+
+    def _try_semantic_search_fallback(
+        self,
+        question: str,
+        stats: dict[str, Any],
+    ) -> ContextResult | None:
+        """Try semantic search as fallback when entity extraction finds nothing.
+
+        This is useful for queries like "idempotency" where the word doesn't
+        match any entity extraction patterns but embeddings can find relevant
+        nodes semantically.
+
+        Args:
+            question: The original question.
+            stats: Extraction stats dict to update.
+
+        Returns:
+            ContextResult with search results, or None if no results.
+        """
+        # Check if embeddings are available
+        try:
+            embed_stats = self.mubase.embedding_stats()
+            if embed_stats.get("nodes_with_embeddings", 0) == 0:
+                logger.debug("Semantic fallback skipped: no embeddings")
+                stats["semantic_fallback"] = "no_embeddings"
+                return None
+        except Exception as e:
+            logger.debug(f"Semantic fallback skipped: {e}")
+            stats["semantic_fallback"] = f"error: {e}"
+            return None
+
+        try:
+            import asyncio
+
+            from mu.config import MUConfig
+            from mu.kernel.embeddings import EmbeddingService
+
+            try:
+                config = MUConfig.load()
+            except Exception:
+                config = MUConfig()
+
+            # Use local embeddings for fallback (faster, no API key needed)
+            service = EmbeddingService(config=config.embeddings, provider="local")
+
+            async def get_query_embedding() -> list[float] | None:
+                return await service.embed_query(question)
+
+            query_embedding = asyncio.run(get_query_embedding())
+
+            if not query_embedding:
+                asyncio.run(service.close())
+                stats["semantic_fallback"] = "embedding_failed"
+                return None
+
+            # Search with reasonable limit
+            search_results = self.mubase.vector_search(
+                query_embedding=query_embedding,
+                embedding_type="code",
+                limit=20,
+            )
+
+            asyncio.run(service.close())
+
+            if not search_results:
+                stats["semantic_fallback"] = "no_results"
+                return None
+
+            # Convert to ScoredNode and export
+            scored_nodes = [
+                ScoredNode(node=node, score=score)
+                for node, score in search_results
+            ]
+
+            # Fit to budget
+            selected = self.budgeter.fit_to_budget(
+                scored_nodes,
+                mubase=self.mubase,
+                include_parent=self.config.include_parent,
+            )
+
+            if not selected:
+                stats["semantic_fallback"] = "budget_exhausted"
+                return None
+
+            # Export as MU format
+            mu_text = self.exporter.export_mu(selected)
+            token_count = self.budgeter.get_actual_tokens(mu_text)
+
+            stats["semantic_fallback"] = "success"
+            stats["fallback_results"] = len(search_results)
+            stats["selected_nodes"] = len(selected)
+            stats["actual_tokens"] = token_count
+
+            return ContextResult(
+                mu_text=mu_text,
+                nodes=[sn.node for sn in selected],
+                token_count=token_count,
+                relevance_scores={sn.node.id: sn.score for sn in selected},
+                extraction_stats=stats,
+                strategy_used="semantic_search_fallback",
+            )
+
+        except Exception as e:
+            logger.debug(f"Semantic fallback failed: {e}")
+            stats["semantic_fallback"] = f"error: {e}"
+            return None
 
     # =========================================================================
     # Graph-Based Extraction Methods (used when embeddings unavailable)
