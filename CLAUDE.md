@@ -19,6 +19,7 @@ src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
 src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
 src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
 src/mu/mcp/CLAUDE.md                  # MCP server for AI assistants
+src/mu/sigma/CLAUDE.md                # Self-bootstrapping training data pipeline
 tests/CLAUDE.md                       # Testing standards and patterns
 ```
 

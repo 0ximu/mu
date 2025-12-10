@@ -74,6 +74,8 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     "sus": ("mu.commands.vibes", "sus"),  # Proactive warnings
     "vibe": ("mu.commands.vibes", "vibe"),  # Pattern validation
     "zen": ("mu.commands.vibes", "zen"),  # Cache cleanup
+    # Training data pipeline
+    "sigma": ("mu.sigma.cli", "sigma"),  # MU-SIGMA training data
 }
 
 # Hidden commands (power-user, deprecated, or for compatibility)
@@ -172,6 +174,10 @@ def cli(
     \b
     Vibes (fun aliases):
       omg, grok, wtf, yolo, sus, vibe, zen
+
+    \b
+    Training:
+      sigma        Training data pipeline (MU-SIGMA)
 
     \b
     Advanced:
