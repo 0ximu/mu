@@ -1081,7 +1081,8 @@ class TestSmartContextExtractor:
 
         result = extractor.extract("What is AuthService?")
 
-        assert "entities_extracted" in result.extraction_stats
+        # Graph-based extraction has different stats keys
+        assert "seeds" in result.extraction_stats or "entities_extracted" in result.extraction_stats
         assert "question_length" in result.extraction_stats
         assert "max_tokens" in result.extraction_stats
 
@@ -1093,7 +1094,7 @@ class TestSmartContextExtractor:
 
         # May return empty or minimal result
         assert result is not None
-        assert "No relevant context" in result.mu_text or len(result.nodes) == 0
+        assert "No relevant" in result.mu_text or len(result.nodes) == 0
 
     def test_extract_excludes_tests_when_configured(
         self, mock_mubase: MUbase
@@ -1133,22 +1134,18 @@ class TestSmartContextExtractor:
         # Should still work with custom weights
         assert result is not None
 
-    @patch("mu.kernel.context.smart.SmartContextExtractor._vector_search")
-    def test_extract_works_without_embeddings(
-        self, mock_vector: MagicMock, mock_mubase: MUbase
-    ) -> None:
+    def test_extract_works_without_embeddings(self, mock_mubase: MUbase) -> None:
         """Extraction works in degraded mode without embeddings."""
-        mock_vector.return_value = ([], {}, "no_embeddings")  # No vector results
-
+        # Graph-based extraction is used when no embeddings are available
         extractor = SmartContextExtractor(mock_mubase)
         result = extractor.extract("How does AuthService work?")
 
         # Should still find entities
         assert result is not None
         assert len(result.nodes) > 0
-        # Stats should indicate vector search was skipped
-        assert result.extraction_stats.get("vector_search_used") is False
-        assert result.extraction_stats.get("vector_search_skipped") == "no_embeddings"
+        # Stats should indicate graph-based extraction was used
+        assert result.extraction_stats.get("method") == "graph"
+        assert result.extraction_method == "graph"
 
     def test_extract_expands_graph(self, mock_mubase: MUbase) -> None:
         """Graph expansion includes related nodes."""

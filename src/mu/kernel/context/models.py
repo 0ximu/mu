@@ -242,6 +242,14 @@ class ContextResult:
     strategy_used: str = "default"
     """Name of the extraction strategy used."""
 
+    extraction_method: str = "unknown"
+    """Extraction method used: 'embeddings' (semantic search) or 'graph' (structure-based).
+
+    When 'graph' is used, it means embeddings were not available and the extraction
+    fell back to using code structure (imports, calls, inheritance) for context discovery.
+    Run 'mu bootstrap --embed' to enable embeddings-based semantic search.
+    """
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -253,6 +261,7 @@ class ContextResult:
             "intent": self.intent,
             "intent_confidence": round(self.intent_confidence, 4),
             "strategy_used": self.strategy_used,
+            "extraction_method": self.extraction_method,
         }
 
 
