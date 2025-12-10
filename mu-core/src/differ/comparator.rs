@@ -705,6 +705,7 @@ mod tests {
             docstring: None,
             start_line: 0,
             end_line: 0,
+            referenced_types: vec![],
         }
     }
 

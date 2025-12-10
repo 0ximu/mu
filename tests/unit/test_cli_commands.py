@@ -24,7 +24,8 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "MU - Machine Understanding" in result.output
-        assert "Core Commands" in result.output
+        # CLI uses shortened section headers like "Core:" instead of "Core Commands"
+        assert "Core:" in result.output or "Core Commands" in result.output
 
     def test_main_version(self, runner: CliRunner) -> None:
         """Test mu --version shows version."""
@@ -39,16 +40,15 @@ class TestCLIHelp:
 
         # Top-level visible commands (hidden commands not checked here)
         # Note: 'cache' and 'daemon' moved to hidden commands in Phase 2 cleanup
+        # Note: 'query' renamed to 'q', 'context' moved to kernel (hidden)
         expected_commands = [
-            "query",
-            "q",
+            "q",  # Primary query command (short alias visible, 'query' hidden)
             "diff",
             "compress",
             "serve",  # New unified server command
             "deps",
             "bootstrap",
             "status",
-            "context",
             "search",
         ]
         for cmd in expected_commands:
@@ -59,8 +59,9 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
 
-        # Visible subgroups (daemon moved to hidden in Phase 2 cleanup)
-        expected_groups = ["kernel", "mcp"]
+        # Visible subgroups (kernel promoted commands to top-level, daemon hidden)
+        # Only mcp is now visible as a subgroup; kernel commands are top-level
+        expected_groups = ["mcp"]
         for group in expected_groups:
             assert group in result.output, f"Subgroup '{group}' not found in help output"
 

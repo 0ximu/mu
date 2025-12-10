@@ -55,6 +55,11 @@ if TYPE_CHECKING:
     is_flag=True,
     help="Output as JSON",
 )
+@click.option(
+    "--model-path",
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to custom embedding model (must match model used for indexing)",
+)
 @click.pass_obj
 def kernel_search(
     ctx: MUContext,
@@ -66,6 +71,7 @@ def kernel_search(
     provider: str | None,
     local: bool,
     as_json: bool,
+    model_path: str | None,
 ) -> None:
     """Semantic search for code nodes.
 
@@ -78,6 +84,7 @@ def kernel_search(
         mu kernel search "authentication logic"
         mu kernel search "database connection" --type function
         mu kernel search "error handling" --limit 20 --json
+        mu kernel search "auth" --model-path ./models/mu-sigma-v2
     """
     import asyncio
     import json as json_module
@@ -136,10 +143,25 @@ def kernel_search(
         db.close()
         sys.exit(ExitCode.CONFIG_ERROR)
 
+    # Check if custom model was used for indexing
+    model_dist = embed_stats.get("model_distribution", {})
+    if model_path is None and model_dist:
+        from mu.logging import print_warning
+
+        for model_key in model_dist:
+            if ":custom" in model_key:
+                model_name_stored = model_key.split(":")[0]
+                print_warning(
+                    f"Embeddings were created with custom model '{model_name_stored}'. "
+                    f"Use --model-path to specify the model directory for accurate search."
+                )
+                break
+
     # Create embedding service for query
     service = EmbeddingService(
         config=ctx.config.embeddings,
         provider=embed_provider,
+        model_path=model_path,
     )
 
     # Embed the query

@@ -105,17 +105,48 @@ def _color(text: str, color: str, no_color: bool = False) -> str:
 # =============================================================================
 
 
+def _smart_truncate(value: str, max_width: int, column_hint: str = "") -> str:
+    """Smart truncation based on content type.
+
+    - Paths: middle truncation (src/.../.../file.py) - preserves directory context and filename
+    - Names: end truncation (VeryLongClass...) - preserves start of identifier
+
+    Args:
+        value: The string value to truncate.
+        max_width: Maximum width in characters.
+        column_hint: Column name hint for detecting paths.
+
+    Returns:
+        Truncated string or original if within width.
+    """
+    if len(value) <= max_width or max_width < 10:
+        return value
+
+    # Detect if path-like based on content or column name
+    is_path = _is_path_column(column_hint) or "/" in value or "\\" in value
+
+    if is_path:
+        # Middle truncation: keep start and end to preserve filename
+        keep = (max_width - 3) // 2
+        return f"{value[:keep]}...{value[-keep:]}"
+    else:
+        # End truncation for names/identifiers
+        return value[: max_width - 3] + "..."
+
+
 def format_table(
     result: QueryResult,
     no_color: bool = False,
-    truncate_paths: bool = True,
+    no_truncate: bool = False,
+    terminal_width: int | None = None,
 ) -> str:
     """Format query result as ASCII table.
 
     Args:
         result: The query result to format.
         no_color: If True, disable ANSI colors.
-        truncate_paths: If True, truncate file paths to last 3 segments.
+        no_truncate: If True, disable all truncation (show full values).
+        terminal_width: Optional terminal width override. None = auto-detect.
 
     Returns:
         Formatted table string.
@@ -128,23 +159,38 @@ def format_table(
 
     columns = result.columns
 
-    # Convert rows to mutable lists for potential truncation
+    # Convert rows to mutable lists for truncation
     rows: list[list[Any]] = [list(row) for row in result.rows]
 
-    # Apply path truncation if enabled
-    if truncate_paths:
-        path_indices = [i for i, col in enumerate(columns) if _is_path_column(col)]
-        for row in rows:
-            for idx in path_indices:
-                if idx < len(row) and isinstance(row[idx], str) and row[idx]:
-                    row[idx] = _truncate_path(row[idx])
-
-    # Calculate column widths
-    widths = [len(col) for col in columns]
+    # Calculate natural column widths (header + data)
+    MIN_COL_WIDTH = 8
+    widths = [max(len(col), MIN_COL_WIDTH) for col in columns]
     for row in rows:
         for i, val in enumerate(row):
             if i < len(widths):
                 widths[i] = max(widths[i], len(str(val)))
+
+    # Apply adaptive truncation if not disabled
+    if not no_truncate:
+        term_width = terminal_width or _get_terminal_width()
+
+        # Reserve space for separators: " | " between columns
+        separator_space = (len(columns) - 1) * 3
+        available = term_width - separator_space - 4  # margin
+
+        total_width = sum(widths)
+        if total_width > available and available > 0:
+            # Proportionally reduce widths, respecting minimum
+            scale = available / total_width
+            widths = [max(MIN_COL_WIDTH, int(w * scale)) for w in widths]
+
+    # Apply truncation to cell values
+    for row in rows:
+        for i, val in enumerate(row):
+            if i < len(widths):
+                str_val = str(val)
+                if not no_truncate and len(str_val) > widths[i]:
+                    row[i] = _smart_truncate(str_val, widths[i], columns[i])
 
     # Build table
     lines: list[str] = []
@@ -323,7 +369,8 @@ def format_result(
     result: QueryResult,
     output_format: OutputFormat | str = OutputFormat.TABLE,
     no_color: bool = False,
-    truncate_paths: bool = True,
+    no_truncate: bool = False,
+    terminal_width: int | None = None,
 ) -> str | dict[str, Any]:
     """Format query result in the specified format.
 
@@ -331,7 +378,8 @@ def format_result(
         result: The query result to format.
         output_format: The output format (table, json, csv, tree, dict).
         no_color: If True, disable ANSI colors.
-        truncate_paths: If True, truncate file paths to last 3 segments (table format only).
+        no_truncate: If True, disable truncation (show full values).
+        terminal_width: Optional terminal width override.
 
     Returns:
         Formatted string, or dict if output_format is DICT.
@@ -343,7 +391,7 @@ def format_result(
             output_format = OutputFormat.TABLE
 
     if output_format == OutputFormat.TABLE:
-        return format_table(result, no_color, truncate_paths)
+        return format_table(result, no_color, no_truncate, terminal_width)
     elif output_format == OutputFormat.JSON:
         return format_json(result)
     elif output_format == OutputFormat.CSV:
@@ -353,7 +401,7 @@ def format_result(
     elif output_format == OutputFormat.DICT:
         return result.to_dict()
     else:
-        return format_table(result, no_color, truncate_paths)
+        return format_table(result, no_color, no_truncate, terminal_width)
 
 
 # =============================================================================

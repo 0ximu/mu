@@ -28,11 +28,172 @@ PAIR_WEIGHTS = {
     PairType.CO_RELEVANT: 0.85,  # Nodes answering same question - medium signal
 }
 
+# Names to EXCLUDE entirely - too generic across all codebases
+EXCLUDE_NODE_NAMES = frozenset(
+    {
+        # Python dunder methods (structural, not semantic)
+        "__init__",
+        "__main__",
+        "__str__",
+        "__repr__",
+        "__eq__",
+        "__hash__",
+        "__len__",
+        "__iter__",
+        "__next__",
+        "__enter__",
+        "__exit__",
+        # Module-level noise
+        "conftest",
+        "fixture",
+        "mock",
+    }
+)
+
+# Names to DOWNWEIGHT (not exclude) - useful but common
+DOWNWEIGHT_NODE_NAMES = frozenset(
+    {
+        # Common function names
+        "main",
+        "run",
+        "start",
+        "stop",
+        "init",
+        "setup",
+        "teardown",
+        "get",
+        "set",
+        "update",
+        "delete",
+        "create",
+        "read",
+        "write",
+        "load",
+        "save",
+        "parse",
+        "build",
+        "make",
+        "do",
+        "execute",
+        "handle",
+        "process",
+        "validate",
+        "check",
+        "config",
+        "index",
+        "app",
+        "db",
+        "api",
+        "utils",
+        "helpers",
+        "common",
+        "base",
+        "core",
+        "model",
+        "view",
+        "controller",
+        "service",
+        # Module names
+        "models",
+        "views",
+        "urls",
+        "forms",
+        "admin",
+        "settings",
+        "constants",
+        "exceptions",
+        "types",
+        "schemas",
+        "tests",
+    }
+)
+
+# Minimum name length for meaningful nodes
+MIN_NODE_NAME_LENGTH = 3
+
+# Weight multipliers
+DOWNWEIGHT_FACTOR = 0.5  # Generic names get 50% weight
+TEST_WEIGHT_FACTOR = 0.7  # Test functions get 70% weight (they show what code does)
+
+
+def _is_excluded_name(name: str) -> bool:
+    """Check if a node name should be excluded entirely."""
+    name_lower = name.lower()
+    if name_lower in EXCLUDE_NODE_NAMES:
+        return True
+    # Too short to be meaningful
+    if len(name) < MIN_NODE_NAME_LENGTH:
+        return True
+    return False
+
+
+def _is_downweighted_name(name: str) -> bool:
+    """Check if a node name should be downweighted (but not excluded)."""
+    name_lower = name.lower()
+    return name_lower in DOWNWEIGHT_NODE_NAMES
+
+
+def _is_test_name(name: str) -> bool:
+    """Check if this is a test function/class name."""
+    name_lower = name.lower()
+    return (
+        name_lower.startswith("test_")
+        or name_lower.endswith("_test")
+        or name_lower.startswith("test")
+    )
+
+
+def _is_high_quality_pair(anchor: str, positive: str) -> bool:
+    """Check if anchor-positive pair should be included (possibly downweighted)."""
+    # Exclude if either name is in the hard-exclude list
+    if _is_excluded_name(anchor) or _is_excluded_name(positive):
+        return False
+    # Must be different enough (not just prefix/suffix variants)
+    if anchor in positive or positive in anchor:
+        # Allow if significantly different in length
+        if abs(len(anchor) - len(positive)) < 5:
+            return False
+    return True
+
+
+def _compute_specificity_weight(name: str) -> float:
+    """Compute a weight based on how specific/meaningful a name is.
+
+    More specific names get higher weights:
+    - Longer names (more descriptive)
+    - CamelCase names (proper class/function names)
+    - Names with domain-specific terms
+
+    Downweighted names get reduced weights.
+    """
+    weight = 1.0
+
+    # Apply downweight for common names
+    if _is_downweighted_name(name):
+        weight *= DOWNWEIGHT_FACTOR
+    elif _is_test_name(name):
+        weight *= TEST_WEIGHT_FACTOR
+
+    # Longer names are generally more specific
+    if len(name) >= 15:
+        weight += 0.1
+    elif len(name) >= 10:
+        weight += 0.05
+
+    # CamelCase or snake_case with multiple parts = more descriptive
+    parts = name.replace("_", " ").split()
+    if len(parts) >= 2:
+        weight += 0.05 * min(len(parts) - 1, 3)
+
+    # Cap at reasonable range
+    return min(max(weight, 0.3), 1.2)
+
 
 def extract_structural_pairs(
     mubase_path: Path,
     repo_name: str,
     max_pairs_per_type: int = 500,
+    frameworks: list[str] | None = None,
 ) -> list[TrainingPair]:
     """Extract training pairs from graph edges.
 
@@ -45,13 +206,19 @@ def extract_structural_pairs(
         mubase_path: Path to .mubase file
         repo_name: Repository name
         max_pairs_per_type: Maximum pairs per edge type
+        frameworks: Detected frameworks for this repo (optional, will detect if None)
 
     Returns:
         List of TrainingPair objects
     """
     from mu.kernel import MUbase
+    from mu.sigma.frameworks import detect_frameworks
 
     pairs: list[TrainingPair] = []
+
+    # Detect frameworks if not provided
+    if frameworks is None:
+        frameworks = detect_frameworks(mubase_path)
 
     try:
         db = MUbase(mubase_path, read_only=True)
@@ -65,6 +232,9 @@ def extract_structural_pairs(
             logger.warning(f"Too few nodes for negative sampling: {len(all_node_names)}")
             db.close()
             return []
+
+        # Build connection graph for smarter negative sampling
+        node_connections = _build_connection_graph(db)
 
         # Extract pairs for each edge type
         edge_type_map = {
@@ -83,6 +253,8 @@ def extract_structural_pairs(
                 all_nodes,
                 all_node_names,
                 max_pairs=max_pairs_per_type,
+                node_connections=node_connections,
+                frameworks=frameworks,
             )
             pairs.extend(edge_pairs)
 
@@ -93,6 +265,8 @@ def extract_structural_pairs(
             all_nodes,
             all_node_names,
             max_pairs=max_pairs_per_type,
+            node_connections=node_connections,
+            frameworks=frameworks,
         )
         pairs.extend(same_file_pairs)
 
@@ -105,6 +279,37 @@ def extract_structural_pairs(
     return pairs
 
 
+def _build_connection_graph(db: MUbase) -> dict[str, set[str]]:
+    """Build a graph of node connections for negative sampling.
+
+    Returns dict mapping node name -> set of connected node names.
+    """
+    connections: dict[str, set[str]] = {}
+
+    try:
+        result = db.conn.execute(
+            """
+            SELECT n1.name, n2.name
+            FROM edges e
+            JOIN nodes n1 ON e.source_id = n1.id
+            JOIN nodes n2 ON e.target_id = n2.id
+            """
+        ).fetchall()
+
+        for source_name, target_name in result:
+            if source_name not in connections:
+                connections[source_name] = set()
+            if target_name not in connections:
+                connections[target_name] = set()
+            connections[source_name].add(target_name)
+            connections[target_name].add(source_name)
+
+    except Exception as e:
+        logger.debug(f"Error building connection graph: {e}")
+
+    return connections
+
+
 def _extract_edge_pairs(
     db: MUbase,
     edge_type: str,
@@ -113,9 +318,15 @@ def _extract_edge_pairs(
     all_nodes: dict[str, str],
     all_node_names: list[str],
     max_pairs: int = 500,
+    node_connections: dict[str, set[str]] | None = None,
+    frameworks: list[str] | None = None,
 ) -> list[TrainingPair]:
     """Extract pairs for a specific edge type."""
     pairs: list[TrainingPair] = []
+    frameworks = frameworks or []
+
+    # Filter to non-excluded node names for negatives
+    quality_node_names = [n for n in all_node_names if not _is_excluded_name(n)]
 
     try:
         # Query edges of this type
@@ -128,17 +339,33 @@ def _extract_edge_pairs(
             WHERE e.type = ?
             LIMIT ?
             """,
-            [edge_type, max_pairs * 2],  # Fetch more to account for invalid negatives
+            [edge_type, max_pairs * 3],  # Fetch more to account for filtering
         ).fetchall()
 
         for _source_id, _target_id, source_name, target_name in result:
             if len(pairs) >= max_pairs:
                 break
 
+            # Skip low-quality pairs
+            if not _is_high_quality_pair(source_name, target_name):
+                continue
+
             # Get hard negative (different node, not connected)
-            negative = _get_hard_negative(source_name, target_name, all_node_names)
+            negative = _get_hard_negative(
+                source_name,
+                target_name,
+                quality_node_names,
+                node_connections=node_connections,
+            )
             if not negative:
                 continue
+
+            # Compute weight based on pair type and node specificity
+            base_weight = PAIR_WEIGHTS[pair_type]
+            specificity = (
+                _compute_specificity_weight(source_name) + _compute_specificity_weight(target_name)
+            ) / 2
+            final_weight = base_weight * specificity
 
             pairs.append(
                 TrainingPair(
@@ -146,8 +373,9 @@ def _extract_edge_pairs(
                     positive=target_name,
                     negative=negative,
                     pair_type=pair_type,
-                    weight=PAIR_WEIGHTS[pair_type],
+                    weight=round(final_weight, 3),
                     source_repo=repo_name,
+                    frameworks=frameworks,
                 )
             )
 
@@ -163,9 +391,15 @@ def _extract_same_file_pairs(
     all_nodes: dict[str, str],
     all_node_names: list[str],
     max_pairs: int = 500,
+    node_connections: dict[str, set[str]] | None = None,
+    frameworks: list[str] | None = None,
 ) -> list[TrainingPair]:
     """Extract pairs for entities in the same file."""
     pairs: list[TrainingPair] = []
+    frameworks = frameworks or []
+
+    # Filter to non-excluded node names for negatives
+    quality_node_names = [n for n in all_node_names if not _is_excluded_name(n)]
 
     try:
         # Get nodes grouped by file
@@ -199,9 +433,25 @@ def _extract_same_file_pairs(
                     if len(pairs) >= max_pairs:
                         break
 
-                    negative = _get_hard_negative(anchor, positive, all_node_names)
+                    # Skip low-quality pairs
+                    if not _is_high_quality_pair(anchor, positive):
+                        continue
+
+                    negative = _get_hard_negative(
+                        anchor,
+                        positive,
+                        quality_node_names,
+                        node_connections=node_connections,
+                    )
                     if not negative:
                         continue
+
+                    # Compute weight based on pair type and node specificity
+                    base_weight = PAIR_WEIGHTS[PairType.SAME_FILE]
+                    specificity = (
+                        _compute_specificity_weight(anchor) + _compute_specificity_weight(positive)
+                    ) / 2
+                    final_weight = base_weight * specificity
 
                     pairs.append(
                         TrainingPair(
@@ -209,8 +459,9 @@ def _extract_same_file_pairs(
                             positive=positive,
                             negative=negative,
                             pair_type=PairType.SAME_FILE,
-                            weight=PAIR_WEIGHTS[PairType.SAME_FILE],
+                            weight=round(final_weight, 3),
                             source_repo=repo_name,
+                            frameworks=frameworks,
                         )
                     )
 
@@ -224,14 +475,39 @@ def _get_hard_negative(
     anchor: str,
     positive: str,
     all_node_names: list[str],
-    max_attempts: int = 10,
+    max_attempts: int = 20,
+    node_connections: dict[str, set[str]] | None = None,
 ) -> str | None:
     """Get a hard negative from the same codebase.
 
     Hard negatives are nodes that are NOT semantically related to anchor/positive.
+    Uses connection graph to avoid accidentally picking connected nodes as negatives.
+
+    Args:
+        anchor: The anchor node name
+        positive: The positive node name
+        all_node_names: Pool of candidate negative nodes
+        max_attempts: Maximum random sampling attempts
+        node_connections: Optional dict mapping node names to their connected nodes
     """
     exclude = {anchor, positive}
 
+    # Also exclude directly connected nodes if we have connection info
+    if node_connections:
+        exclude.update(node_connections.get(anchor, set()))
+        exclude.update(node_connections.get(positive, set()))
+
+    # Try to find a good negative
+    for _ in range(max_attempts):
+        negative = random.choice(all_node_names)
+        if negative in exclude:
+            continue
+        # Skip if too similar in name (likely related)
+        if _names_too_similar(anchor, negative) or _names_too_similar(positive, negative):
+            continue
+        return negative
+
+    # Fallback: just find any non-excluded node
     for _ in range(max_attempts):
         negative = random.choice(all_node_names)
         if negative not in exclude:
@@ -240,10 +516,29 @@ def _get_hard_negative(
     return None
 
 
+def _names_too_similar(name1: str, name2: str) -> bool:
+    """Check if two names are too similar (likely semantically related)."""
+    n1, n2 = name1.lower(), name2.lower()
+    # One contains the other
+    if n1 in n2 or n2 in n1:
+        return True
+    # Share a significant common prefix (e.g., UserService, UserRepository)
+    common_prefix_len = 0
+    for c1, c2 in zip(n1, n2, strict=False):
+        if c1 == c2:
+            common_prefix_len += 1
+        else:
+            break
+    if common_prefix_len >= 4 and common_prefix_len >= min(len(n1), len(n2)) * 0.5:
+        return True
+    return False
+
+
 def extract_qa_pairs(
     qa_pairs: list[QAPair],
     repo_name: str,
     all_node_names: list[str] | None = None,
+    frameworks: list[str] | None = None,
 ) -> list[TrainingPair]:
     """Convert validated Q&A pairs to training triplets.
 
@@ -258,11 +553,13 @@ def extract_qa_pairs(
         qa_pairs: Validated Q&A pairs
         repo_name: Repository name
         all_node_names: All node names for negative sampling (optional)
+        frameworks: Detected frameworks for this repo
 
     Returns:
         List of TrainingPair objects
     """
     pairs: list[TrainingPair] = []
+    frameworks = frameworks or []
 
     # Filter to valid pairs only
     valid_pairs = [qa for qa in qa_pairs if qa.is_valid]
@@ -302,6 +599,7 @@ def extract_qa_pairs(
                     pair_type=PairType.QA_RELEVANCE,
                     weight=PAIR_WEIGHTS[PairType.QA_RELEVANCE],
                     source_repo=repo_name,
+                    frameworks=frameworks,
                 )
             )
 
@@ -327,6 +625,7 @@ def extract_qa_pairs(
                         pair_type=PairType.CO_RELEVANT,
                         weight=PAIR_WEIGHTS[PairType.CO_RELEVANT],
                         source_repo=repo_name,
+                        frameworks=frameworks,
                     )
                 )
 

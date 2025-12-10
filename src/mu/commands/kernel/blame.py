@@ -11,23 +11,31 @@ from mu.paths import get_mubase_path
 
 
 @click.command("blame")
-@click.argument("node_name", type=str)
+@click.argument("node_ref", type=str, metavar="NODE")
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def kernel_blame(node_name: str, path: Path, as_json: bool) -> None:
+@click.option("--no-interactive", is_flag=True, help="Skip interactive prompts")
+def kernel_blame(node_ref: str, path: Path, as_json: bool, no_interactive: bool) -> None:
     """Show who last modified each aspect of a node.
 
     Similar to git blame, shows attribution for node properties.
 
+    NODE can be a name, file path, or full node ID:
+      - AuthService (class/function name)
+      - src/auth.py (file path)
+      - cls:src/auth.py:AuthService (full node ID)
+
     \b
     Examples:
-        mu kernel blame MUbase .
-        mu kernel blame "cli.py" . --json
+        mu blame AuthService
+        mu blame src/auth.py --json
+        mu blame cls:src/auth.py:AuthService
     """
     import json as json_module
 
     from rich.table import Table
 
+    from mu.commands.utils import resolve_node_for_command
     from mu.errors import ExitCode
     from mu.kernel import MUbase
     from mu.kernel.temporal import HistoryTracker
@@ -50,15 +58,10 @@ def kernel_blame(node_name: str, path: Path, as_json: bool) -> None:
         sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
-        # Find the node
-        nodes = db.find_by_name(node_name)
-        if not nodes:
-            nodes = db.find_by_name(f"%{node_name}%")
-        if not nodes:
-            print_error(f"Node not found: {node_name}")
-            return
-
-        node = nodes[0]
+        # Resolve the node using intelligent resolution
+        node, _resolution = resolve_node_for_command(
+            db, node_ref, no_interactive=no_interactive, quiet=as_json
+        )
         tracker = HistoryTracker(db)
         blame_info = tracker.blame(node.id)
 

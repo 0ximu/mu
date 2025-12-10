@@ -15,6 +15,7 @@ from mu.sigma.answers import generate_answers_batch
 from mu.sigma.build import build_mubase, get_all_node_names
 from mu.sigma.clone import cleanup_clone, clone_repo
 from mu.sigma.config import SigmaConfig
+from mu.sigma.frameworks import detect_frameworks
 from mu.sigma.models import (
     Checkpoint,
     PipelineStats,
@@ -83,11 +84,16 @@ class SigmaPipeline:
             if (i + 1) % self.config.pipeline.checkpoint_interval == 0:
                 self._save_checkpoint()
 
-            logger.info(
-                f"Processed {repo.name}: "
-                f"success={result.success}, "
-                f"pairs={result.total_training_pairs}"
-            )
+            if result.success:
+                logger.info(
+                    f"Processed {repo.name}: "
+                    f"success={result.success}, "
+                    f"pairs={result.total_training_pairs}"
+                )
+            else:
+                logger.warning(
+                    f"Processed {repo.name}: success={result.success}, error={result.error}"
+                )
 
         # Final checkpoint
         self._save_checkpoint()
@@ -191,10 +197,16 @@ class SigmaPipeline:
                 # Step 6: Extract training pairs
                 logger.info(f"Extracting training pairs for {repo.name}...")
 
+                # Detect frameworks once for this repo
+                frameworks = detect_frameworks(build_result.mubase_path)
+                if frameworks:
+                    logger.info(f"Detected frameworks for {repo.name}: {frameworks}")
+
                 # Structural pairs from graph
                 structural_pairs = extract_structural_pairs(
                     mubase_path=build_result.mubase_path,
                     repo_name=repo.name,
+                    frameworks=frameworks,
                 )
                 result.structural_pairs = len(structural_pairs)
 
@@ -204,6 +216,7 @@ class SigmaPipeline:
                     qa_pairs=valid_pairs,
                     repo_name=repo.name,
                     all_node_names=all_node_names,
+                    frameworks=frameworks,
                 )
                 result.qa_training_pairs = len(qa_training_pairs)
 
@@ -261,6 +274,7 @@ class SigmaPipeline:
                     "pair_type": p.pair_type.value,
                     "weight": p.weight,
                     "source_repo": p.source_repo,
+                    "frameworks": p.frameworks,
                 }
                 for p in self.all_training_pairs
             ]

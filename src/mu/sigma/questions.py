@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 
 from mu.sigma.build import get_graph_summary
@@ -151,6 +152,8 @@ async def generate_questions(
             questions = _parse_questions_response(content, repo_name)
 
             if questions:
+                # Deduplicate similar questions
+                questions = deduplicate_questions(questions)
                 logger.info(f"Generated {len(questions)} questions for {repo_name}")
                 return questions
 
@@ -221,6 +224,175 @@ def _parse_questions_response(response: str, repo_name: str) -> list[QAPair]:
         )
 
     return questions
+
+
+def deduplicate_questions(questions: list[QAPair], similarity_threshold: float = 0.6) -> list[QAPair]:
+    """Remove semantically similar questions to avoid redundant training signal.
+
+    Uses heuristics:
+    - Normalize and compare question structure
+    - Extract entity names and compare overlap
+    - Detect semantically equivalent phrasings
+    - Keep the first question from each similar cluster
+
+    Args:
+        questions: List of QAPair objects
+        similarity_threshold: Similarity threshold for deduplication (default 0.6)
+
+    Returns:
+        Deduplicated list of questions
+    """
+    if len(questions) <= 1:
+        return questions
+
+    def normalize(text: str) -> str:
+        """Normalize question for comparison."""
+        text = text.lower()
+        text = re.sub(r"[^\w\s]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def extract_entities(text: str) -> set[str]:
+        """Extract likely entity names (CamelCase or significant words)."""
+        # Common question words to ignore
+        question_words = {"what", "how", "where", "which", "when", "why", "does", "is", "are", "the", "this", "that"}
+
+        entities: set[str] = set()
+        # Find CamelCase words (e.g., Blueprint, AuthService)
+        for w in re.findall(r"[A-Z][a-zA-Z]+", text):
+            if w.lower() not in question_words:
+                entities.add(w.lower())
+        # Find snake_case words
+        entities.update(re.findall(r"[a-z]+_[a-z_]+", text.lower()))
+        # Capitalized words that might be class/function names
+        for word in text.split():
+            clean = re.sub(r"[^\w]", "", word)
+            if clean and clean[0].isupper() and len(clean) > 2:
+                if clean.lower() not in question_words:
+                    entities.add(clean.lower())
+        return entities
+
+    # Question intent categories for equivalence detection
+    # Each group contains patterns that ask semantically similar things
+    INTENT_PATTERNS = {
+        "what_does": [r"what does .+ do", r"what is the purpose of", r"what is .+ for"],
+        "how_works": [r"how does .+ work", r"how is .+ implemented", r"how .+ works"],
+        "where_is": [r"where is .+", r"which file contains", r"where .+ implemented"],
+        "depends_on": [r"what .+ depend", r"dependencies of", r"what .+ requires"],
+        "depended_by": [r"what depends on", r"what uses", r"who uses"],
+    }
+
+    def get_intent(text: str) -> str | None:
+        """Get the question intent category."""
+        normalized = normalize(text)
+        for intent, patterns in INTENT_PATTERNS.items():
+            for pat in patterns:
+                if re.search(pat, normalized):
+                    return intent
+        return None
+
+    def get_canonical_pattern(text: str) -> str:
+        """Convert question to canonical pattern for comparison.
+
+        Only replaces entity names (capitalized words), preserving question structure.
+        """
+        # Common words to keep
+        keep_words = {"what", "how", "where", "which", "when", "why", "does", "is", "are",
+                      "the", "this", "that", "do", "for", "of", "in", "to", "a", "an",
+                      "have", "has", "handle", "work", "use", "call", "depend", "class"}
+
+        pattern = normalize(text)
+        words = pattern.split()
+        result = []
+        for i, word in enumerate(words):
+            # Keep first word (question word), common words, and short words
+            if i == 0 or word in keep_words or len(word) <= 3:
+                result.append(word)
+            else:
+                result.append("*")
+        return " ".join(result)
+
+    def patterns_equivalent(p1: str, p2: str, q1_text: str, q2_text: str) -> bool:
+        """Check if two question patterns are semantically equivalent."""
+        # Same pattern = same question structure with different entities
+        if p1 == p2 and p1.count("*") >= 1:
+            return True
+        # Check if same intent (e.g., both asking "what does X do" style questions)
+        intent1 = get_intent(q1_text)
+        intent2 = get_intent(q2_text)
+        if intent1 and intent2 and intent1 == intent2:
+            return True
+        return False
+
+    def similarity(q1: QAPair, q2: QAPair) -> float:
+        """Compute similarity between two questions."""
+        # Same category is a prerequisite for high similarity
+        category_match = q1.category == q2.category
+
+        # Pattern similarity
+        p1 = get_canonical_pattern(q1.question)
+        p2 = get_canonical_pattern(q2.question)
+        if patterns_equivalent(p1, p2, q1.question, q2.question):
+            # Check if they're about the same entity
+            e1 = extract_entities(q1.question)
+            e2 = extract_entities(q2.question)
+            if e1 & e2:  # Same entity mentioned
+                return 0.95
+            return 0.5 if category_match else 0.3
+
+        # Entity overlap (Jaccard)
+        e1 = extract_entities(q1.question)
+        e2 = extract_entities(q2.question)
+        if e1 and e2:
+            jaccard = len(e1 & e2) / len(e1 | e2)
+            if jaccard >= 0.5:  # Same entities
+                # IMPORTANT: Same entity doesn't mean same question
+                # Need significant word overlap too (excluding stop words AND entities)
+                w1 = set(normalize(q1.question).split())
+                w2 = set(normalize(q2.question).split())
+                stop_words = {"what", "how", "does", "the", "is", "are", "of", "in", "to", "a", "an", "this", "class"}
+                w1 -= stop_words
+                w2 -= stop_words
+                # Also remove entity words from comparison
+                w1 -= {e.lower() for e in e1}
+                w2 -= {e.lower() for e in e2}
+                if w1 and w2:
+                    word_overlap = len(w1 & w2) / len(w1 | w2)
+                    # Only high similarity if significant word overlap beyond entities
+                    if word_overlap >= 0.3:
+                        return 0.4 + jaccard * 0.2 + word_overlap * 0.4
+                # Low entity overlap + low word overlap = different questions about same entity
+                return 0.3 if category_match else 0.2
+
+        # Fallback: word overlap only
+        w1 = set(normalize(q1.question).split())
+        w2 = set(normalize(q2.question).split())
+        stop_words = {"what", "how", "does", "the", "is", "are", "of", "in", "to", "a", "an", "this"}
+        w1 -= stop_words
+        w2 -= stop_words
+        if w1 and w2:
+            word_jaccard = len(w1 & w2) / len(w1 | w2)
+            return word_jaccard * 0.5
+
+        return 0.0
+
+    # Greedy deduplication - keep first, skip similar
+    kept: list[QAPair] = []
+    for q in questions:
+        is_duplicate = False
+        for existing in kept:
+            sim = similarity(q, existing)
+            if sim >= similarity_threshold:
+                is_duplicate = True
+                logger.debug(f"Dedup ({sim:.2f}): '{q.question[:40]}...' ~ '{existing.question[:40]}...'")
+                break
+        if not is_duplicate:
+            kept.append(q)
+
+    if len(kept) < len(questions):
+        logger.info(f"Deduplicated {len(questions)} -> {len(kept)} questions")
+
+    return kept
 
 
 async def generate_questions_batch(

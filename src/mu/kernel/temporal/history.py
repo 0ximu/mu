@@ -9,6 +9,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+import duckdb
+
+from mu.kernel.schema import TEMPORAL_SCHEMA_SQL
 from mu.kernel.temporal.models import ChangeType, NodeChange
 
 if TYPE_CHECKING:
@@ -29,6 +32,25 @@ class HistoryTracker:
             mubase: The MUbase database to track history for.
         """
         self._db = mubase
+        self._temporal_initialized = False
+
+    def _ensure_temporal_schema(self) -> None:
+        """Create temporal tables if they don't exist (lazy initialization)."""
+        if self._temporal_initialized:
+            return
+
+        try:
+            self._db.conn.execute("SELECT 1 FROM node_history LIMIT 1")
+            self._temporal_initialized = True
+        except duckdb.CatalogException:
+            # Tables don't exist, create them (if not read-only)
+            if self._db.read_only:
+                # In read-only mode, we can't create tables
+                # Just mark as initialized and let queries fail gracefully
+                self._temporal_initialized = True
+                return
+            self._db.conn.execute(TEMPORAL_SCHEMA_SQL)
+            self._temporal_initialized = True
 
     def history(
         self,
@@ -48,6 +70,7 @@ class HistoryTracker:
         Returns:
             List of NodeChange objects in chronological order (oldest first).
         """
+        self._ensure_temporal_schema()
         conditions = ["nh.node_id = ?"]
         params: list[Any] = [node_id]
 
@@ -90,6 +113,7 @@ class HistoryTracker:
         Returns:
             Dictionary mapping property name to the NodeChange that last modified it.
         """
+        self._ensure_temporal_schema()
         # Get all changes to this node, most recent first
         rows = self._db.conn.execute(
             """
@@ -151,6 +175,7 @@ class HistoryTracker:
         Returns:
             NodeChange for when the node was first added, or None if not found.
         """
+        self._ensure_temporal_schema()
         row = self._db.conn.execute(
             """
             SELECT nh.id, nh.snapshot_id, nh.node_id, nh.change_type,
@@ -176,6 +201,7 @@ class HistoryTracker:
         Returns:
             Most recent NodeChange, or None if node has no history.
         """
+        self._ensure_temporal_schema()
         row = self._db.conn.execute(
             """
             SELECT nh.id, nh.snapshot_id, nh.node_id, nh.change_type,
@@ -206,6 +232,7 @@ class HistoryTracker:
         Returns:
             List of NodeChange objects in the snapshot.
         """
+        self._ensure_temporal_schema()
         conditions = ["nh.snapshot_id = ?"]
         params: list[Any] = [snapshot_id]
 
@@ -244,6 +271,7 @@ class HistoryTracker:
         Returns:
             List of NodeChange objects by this author.
         """
+        self._ensure_temporal_schema()
         rows = self._db.conn.execute(
             """
             SELECT nh.id, nh.snapshot_id, nh.node_id, nh.change_type,
@@ -274,6 +302,7 @@ class HistoryTracker:
         Returns:
             True if node existed (and wasn't removed), False otherwise.
         """
+        self._ensure_temporal_schema()
         row = self._db.conn.execute(
             """
             SELECT change_type FROM node_history

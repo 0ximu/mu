@@ -35,8 +35,9 @@ class EdgeType(Enum):
     IMPORTS = "imports"  # Module→Module (internal dependencies)
     INHERITS = "inherits"  # Class→Class (inheritance)
     CALLS = "calls"  # Function→Function (call graph)
+    USES = "uses"  # Class→Class (type reference, instantiation)
 
-    # Future: USES, MUTATES, IMPLEMENTS, ANNOTATED_WITH
+    # Future: MUTATES, IMPLEMENTS, ANNOTATED_WITH
 
 
 # DuckDB schema for the .mubase file
@@ -45,7 +46,7 @@ SCHEMA_SQL = """
 -- MODULE, CLASS, FUNCTION, EXTERNAL
 
 -- Edge types enum
--- CONTAINS, IMPORTS, INHERITS
+-- CONTAINS, IMPORTS, INHERITS, CALLS, USES
 
 -- Nodes table: all code entities
 CREATE TABLE IF NOT EXISTS nodes (

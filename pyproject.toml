@@ -49,6 +49,9 @@ dependencies = [
     "watchfiles>=0.21.0",
     "mcp[cli]>=1.0.0",
     "sentence-transformers>=5.1.2",
+    "anthropic>=0.40.0",
+    "datasets>=4.4.1",
+    "accelerate>=0.26.0",
 ]
 
 [project.optional-dependencies]
@@ -159,10 +162,15 @@ dev = [
     "pyinstaller>=6.0.0",
     "types-PyYAML>=6.0.0",
 ]
+# Rust performance layer - included by default for local dev
+rust = [
+    "maturin>=1.0.0",
+    "mu-core>=0.1.0",
+]
 
 [tool.uv]
-# Default to dev group only; rust extra requires local mu-core build
-default-groups = ["dev"]
+# Default to dev group and rust extra for local development
+default-groups = ["dev", "rust"]
 
 [tool.uv.sources]
 # mu-core is built locally from mu-core/ subdirectory (only when rust extra requested)

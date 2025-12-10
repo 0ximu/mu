@@ -100,9 +100,10 @@ class ClassDef:
     docstring: str | None = None
     start_line: int = 0
     end_line: int = 0
+    referenced_types: list[str] = field(default_factory=list)  # Types used by this class
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "name": self.name,
             "bases": self.bases,
             "decorators": self.decorators,
@@ -111,6 +112,9 @@ class ClassDef:
             "docstring": self.docstring,
             "lines": [self.start_line, self.end_line],
         }
+        if self.referenced_types:
+            result["referenced_types"] = self.referenced_types
+        return result
 
 
 @dataclass

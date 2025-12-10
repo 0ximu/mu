@@ -143,6 +143,7 @@ class TrainingPair:
     pair_type: PairType
     weight: float  # 0.7-1.0
     source_repo: str
+    frameworks: list[str] = field(default_factory=list)  # Detected frameworks
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -152,6 +153,7 @@ class TrainingPair:
             "pair_type": self.pair_type.value,
             "weight": self.weight,
             "source_repo": self.source_repo,
+            "frameworks": self.frameworks,
         }
 
     @classmethod
@@ -163,9 +165,10 @@ class TrainingPair:
             pair_type=PairType(data["pair_type"]),
             weight=data["weight"],
             source_repo=data["source_repo"],
+            frameworks=data.get("frameworks", []),
         )
 
-    def to_row(self) -> tuple[str, str, str, str, float, str]:
+    def to_row(self) -> tuple[str, str, str, str, float, str, list[str]]:
         """Convert to tuple for parquet/database insertion."""
         return (
             self.anchor,
@@ -174,6 +177,7 @@ class TrainingPair:
             self.pair_type.value,
             self.weight,
             self.source_repo,
+            self.frameworks,
         )
 
 

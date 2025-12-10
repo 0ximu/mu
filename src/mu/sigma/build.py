@@ -93,12 +93,16 @@ def build_mubase(
         parsed_modules: list[ModuleDef] = []
         for file_info in scan_result.files:
             try:
+                # Scanner returns relative paths - join with repo_path
+                file_path = repo_path / file_info.path
                 parsed = parse_file(
-                    Path(file_info.path),
+                    file_path,
                     file_info.language,
                 )
                 if parsed.module:
                     parsed_modules.append(parsed.module)
+                elif parsed.error:
+                    logger.debug(f"Parse error for {file_info.path}: {parsed.error}")
             except Exception as e:
                 logger.debug(f"Failed to parse {file_info.path}: {e}")
                 continue

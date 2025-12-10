@@ -1,4 +1,8 @@
-"""MU Kernel Commands - Advanced graph database operations."""
+"""MU Kernel Commands - Advanced graph database operations.
+
+Most kernel commands are now promoted to top-level. This subcommand
+group is preserved for backward compatibility and power users.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +10,8 @@ import click
 
 from mu.commands.lazy import LazyGroup
 
-# Active kernel commands (visible in help)
+# Kernel commands still visible here (also available at top level)
 LAZY_KERNEL_COMMANDS: dict[str, tuple[str, str]] = {
-    # Kept (visible) - power-user commands not available at top level
     "export": ("mu.commands.kernel.export", "kernel_export"),
     "history": ("mu.commands.kernel.history", "kernel_history"),
     "snapshot": ("mu.commands.kernel.snapshot", "kernel_snapshot"),
@@ -38,15 +41,15 @@ HIDDEN_KERNEL_COMMANDS: dict[str, tuple[str, str]] = {
 def kernel() -> None:
     """Advanced graph operations (power users).
 
-    Most common operations are now available at the top level.
-    Use 'mu kernel' for export, history, snapshots, blame.
+    Most kernel commands are now available at top level:
+        mu snapshot, mu history, mu blame, mu export, mu embed
 
     \b
     Migrated commands (use top-level instead):
         mu kernel init/build  ->  mu bootstrap
         mu kernel stats       ->  mu status
-        mu kernel context     ->  mu context
-        mu kernel muql        ->  mu query
+        mu kernel context     ->  mu grok
+        mu kernel muql        ->  mu q
         mu kernel deps        ->  mu deps
     """
     pass

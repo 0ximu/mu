@@ -51,6 +51,9 @@ class ContextExporter:
         self.mubase = mubase
         self.include_scores = include_scores
         self.export_config = export_config or ExportConfig()
+        # Get root_path for converting absolute paths to relative
+        stats = mubase.stats()
+        self._root_path = stats.get("root_path", "")
 
     def export_mu(self, scored_nodes: list[ScoredNode]) -> str:
         """Export scored nodes as MU format.
@@ -366,30 +369,26 @@ class ContextExporter:
         """Convert a file path to module name.
 
         Args:
-            path: File path.
+            path: File path (absolute or relative).
 
         Returns:
-            Module name (e.g., "mu.parser.models").
+            Module name (e.g., "mu/parser/models.py" or "mu.parser.models").
         """
-        # Remove common prefixes
         name = path
+
+        # Strip root_path prefix if absolute path
+        if self._root_path and name.startswith(self._root_path):
+            name = name[len(self._root_path) :]
+            # Remove leading slash
+            if name.startswith("/") or name.startswith("\\"):
+                name = name[1:]
+
+        # Return as relative path (cleaner for display)
+        # Just remove leading src/ etc for common project layouts
         for prefix in ("src/", "lib/", "app/"):
             if name.startswith(prefix):
                 name = name[len(prefix) :]
                 break
-
-        # Remove extension
-        for ext in (".py", ".ts", ".js", ".go", ".java", ".rs", ".cs"):
-            if name.endswith(ext):
-                name = name[: -len(ext)]
-                break
-
-        # Convert path separators to dots
-        name = name.replace("/", ".").replace("\\", ".")
-
-        # Remove trailing __init__
-        if name.endswith(".__init__"):
-            name = name[:-9]
 
         return name
 

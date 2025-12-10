@@ -763,13 +763,21 @@ class OmegaContextExtractor:
         if not nodes:
             return ""
 
+        # Deduplicate input nodes by ID (prevents duplicates from multiple sources)
+        seen_ids: set[str] = set()
+        unique_nodes: list[Node] = []
+        for node in nodes:
+            if node.id not in seen_ids:
+                seen_ids.add(node.id)
+                unique_nodes.append(node)
+
         # Create set of node IDs that should be in output
         # This prevents: (1) duplicate outputs, (2) fetching ALL methods from DB
-        context_node_ids = {n.id for n in nodes}
+        context_node_ids = {n.id for n in unique_nodes}
 
         # Group nodes by module for structured output
         by_module: dict[str, list[Node]] = defaultdict(list)
-        for node in nodes:
+        for node in unique_nodes:
             module_path = node.file_path or "unknown"
             by_module[module_path].append(node)
 

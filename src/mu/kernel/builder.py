@@ -13,7 +13,7 @@ from mu.kernel.models import Edge, Node
 from mu.kernel.schema import EdgeType, NodeType
 
 if TYPE_CHECKING:
-    from mu.parser.models import ClassDef, FunctionDef, ImportDef, ModuleDef
+    from mu.parser.models import ClassDef, FunctionDef, ModuleDef
 
 
 class GraphBuilder:
@@ -35,6 +35,7 @@ class GraphBuilder:
         self._module_id_map: dict[str, str] = {}  # path -> node_id
         self._function_id_map: dict[str, str] = {}  # qualified_name -> node_id
         self._import_map: dict[str, dict[str, str]] = {}  # module_path -> {name -> import_module}
+        self._class_name_map: dict[str, str] = {}  # class_name -> node_id (for resolving uses)
 
     def build(self, modules: list[ModuleDef]) -> tuple[list[Node], list[Edge]]:
         """Convert parsed modules to graph nodes and edges.
@@ -50,6 +51,7 @@ class GraphBuilder:
         self._module_id_map = {}
         self._function_id_map = {}
         self._import_map = {}
+        self._class_name_map = {}
 
         # First pass: create all module nodes and build import map
         for module in modules:
@@ -63,6 +65,10 @@ class GraphBuilder:
         # Third pass: create CALLS edges (after all functions are registered)
         for module in modules:
             self._process_call_sites(module)
+
+        # Fourth pass: create USES edges (after all classes are registered)
+        for module in modules:
+            self._process_uses_edges(module)
 
         return self._nodes, self._edges
 
@@ -131,7 +137,14 @@ class GraphBuilder:
         if cls.docstring:
             class_node.properties["docstring"] = cls.docstring
 
+        # Store referenced types for USES edge creation
+        if hasattr(cls, "referenced_types") and cls.referenced_types:
+            class_node.properties["referenced_types"] = cls.referenced_types
+
         self._nodes.append(class_node)
+
+        # Register class for USES resolution
+        self._class_name_map[cls.name] = class_node_id
 
         # Module CONTAINS Class
         self._edges.append(
@@ -475,6 +488,73 @@ class GraphBuilder:
 
         # Return placeholder for unresolved base classes
         return f"cls:external:{base_name}"
+
+    def _process_uses_edges(self, module: ModuleDef) -> None:
+        """Create USES edges for class-to-class type references."""
+        for cls in module.classes:
+            class_node_id = f"cls:{module.path}:{cls.name}"
+
+            # Get referenced types from the class
+            referenced_types = getattr(cls, "referenced_types", None)
+            if not referenced_types:
+                continue
+
+            for type_name in referenced_types:
+                # Try to resolve the type name to a class node
+                target_id = self._resolve_type_reference(type_name, module)
+                if target_id and target_id != class_node_id:
+                    edge_id = f"edge:{class_node_id}:uses:{target_id}"
+                    # Avoid duplicate edges
+                    if not any(e.id == edge_id for e in self._edges):
+                        self._edges.append(
+                            Edge(
+                                id=edge_id,
+                                source_id=class_node_id,
+                                target_id=target_id,
+                                type=EdgeType.USES,
+                                properties={"type_name": type_name},
+                            )
+                        )
+
+    def _resolve_type_reference(self, type_name: str, from_module: ModuleDef) -> str | None:
+        """Resolve a type name to a class node ID.
+
+        Args:
+            type_name: The type name to resolve (e.g., "Node", "MyClass")
+            from_module: The module containing the type reference
+
+        Returns:
+            Node ID if found, None otherwise
+        """
+        # 1. Check if it's a class in the class name map (direct match)
+        if type_name in self._class_name_map:
+            return self._class_name_map[type_name]
+
+        # 2. Check imported names
+        import_names = self._import_map.get(from_module.path, {})
+        if type_name in import_names:
+            # The type was imported - try to find it in the source module
+            source_module = import_names[type_name]
+            resolved_module_id = self._resolve_import(source_module, from_module)
+            if resolved_module_id:
+                # Extract path from module ID and look for the class
+                target_module_path = resolved_module_id[4:]  # Remove "mod:" prefix
+                target_class_id = f"cls:{target_module_path}:{type_name}"
+                # Check if this class exists
+                for node in self._nodes:
+                    if node.id == target_class_id:
+                        return target_class_id
+
+        # 3. Check all classes in the same module
+        for node in self._nodes:
+            if (
+                node.type == NodeType.CLASS
+                and node.name == type_name
+                and node.file_path == from_module.path
+            ):
+                return node.id
+
+        return None
 
     @staticmethod
     def from_module_defs(

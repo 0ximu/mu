@@ -349,6 +349,7 @@ class TestTrainingPair:
         assert sample_training_pair.pair_type == PairType.CALLS
         assert sample_training_pair.weight == 0.9
         assert sample_training_pair.source_repo == "owner/repo"
+        assert sample_training_pair.frameworks == []  # default empty list
 
     def test_to_dict(self, sample_training_pair: TrainingPair) -> None:
         """Test TrainingPair serialization."""
@@ -359,6 +360,7 @@ class TestTrainingPair:
         assert data["pair_type"] == "calls"
         assert data["weight"] == 0.9
         assert data["source_repo"] == "owner/repo"
+        assert data["frameworks"] == []
 
     def test_from_dict(self) -> None:
         """Test TrainingPair deserialization."""
@@ -385,6 +387,7 @@ class TestTrainingPair:
             "calls",
             0.9,
             "owner/repo",
+            [],  # frameworks (empty by default)
         )
 
     def test_round_trip_serialization(self, sample_training_pair: TrainingPair) -> None:
@@ -396,6 +399,24 @@ class TestTrainingPair:
         assert restored.negative == sample_training_pair.negative
         assert restored.pair_type == sample_training_pair.pair_type
         assert restored.weight == sample_training_pair.weight
+        assert restored.frameworks == sample_training_pair.frameworks
+
+    def test_frameworks_field(self) -> None:
+        """Test TrainingPair with frameworks."""
+        pair = TrainingPair(
+            anchor="AuthService",
+            positive="TokenManager",
+            negative="DatabaseConfig",
+            pair_type=PairType.CALLS,
+            weight=0.9,
+            source_repo="owner/repo",
+            frameworks=["flask", "sqlalchemy"],
+        )
+        assert pair.frameworks == ["flask", "sqlalchemy"]
+        data = pair.to_dict()
+        assert data["frameworks"] == ["flask", "sqlalchemy"]
+        restored = TrainingPair.from_dict(data)
+        assert restored.frameworks == ["flask", "sqlalchemy"]
 
     @pytest.mark.parametrize(
         "pair_type",
@@ -1077,7 +1098,7 @@ class TestDefaultConfigToml:
         toml = get_default_config_toml()
 
         assert 'question_model = "claude-3-haiku-20240307"' in toml
-        assert 'answer_model = "claude-3-5-sonnet-20241022"' in toml
+        assert 'answer_model = "claude-sonnet-4-20250514"' in toml
         assert "min_stars = 500" in toml
         assert "questions_per_repo = 30" in toml
 
@@ -1439,3 +1460,134 @@ class TestExtractStructuralPairsMocked:
             pairs = extract_structural_pairs(Path(f.name), "test/repo", max_pairs_per_type=10)
             # Should return empty list on error
             assert pairs == []
+
+
+# =============================================================================
+# Framework Detection Tests
+# =============================================================================
+
+
+class TestFrameworkSignatures:
+    """Tests for framework signature definitions."""
+
+    def test_framework_signatures_not_empty(self) -> None:
+        """Test that FRAMEWORK_SIGNATURES is not empty."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        assert len(FRAMEWORK_SIGNATURES) > 0
+
+    def test_all_signatures_have_patterns(self) -> None:
+        """Test that all frameworks have at least one pattern."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        for framework, patterns in FRAMEWORK_SIGNATURES.items():
+            assert len(patterns) > 0, f"Framework {framework} has no patterns"
+
+    def test_expected_python_frameworks(self) -> None:
+        """Test that expected Python frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        python_frameworks = ["fastapi", "flask", "django", "pytorch", "pandas", "sqlalchemy"]
+        for fw in python_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing Python framework: {fw}"
+
+    def test_expected_typescript_frameworks(self) -> None:
+        """Test that expected TypeScript frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        ts_frameworks = ["react", "vue", "angular", "nextjs", "express", "nestjs"]
+        for fw in ts_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing TypeScript framework: {fw}"
+
+    def test_expected_rust_frameworks(self) -> None:
+        """Test that expected Rust frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        rust_frameworks = ["tokio", "axum", "actix", "serde", "diesel"]
+        for fw in rust_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing Rust framework: {fw}"
+
+    def test_expected_go_frameworks(self) -> None:
+        """Test that expected Go frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        go_frameworks = ["gin", "fiber", "echo", "gorm"]
+        for fw in go_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing Go framework: {fw}"
+
+    def test_expected_java_frameworks(self) -> None:
+        """Test that expected Java frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        java_frameworks = ["spring", "hibernate", "junit"]
+        for fw in java_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing Java framework: {fw}"
+
+    def test_expected_csharp_frameworks(self) -> None:
+        """Test that expected C# frameworks are in signatures."""
+        from mu.sigma.frameworks import FRAMEWORK_SIGNATURES
+
+        csharp_frameworks = ["aspnet", "entityframework", "xunit"]
+        for fw in csharp_frameworks:
+            assert fw in FRAMEWORK_SIGNATURES, f"Missing C# framework: {fw}"
+
+
+class TestGetFrameworkCategory:
+    """Tests for get_framework_category function."""
+
+    def test_web_frameworks(self) -> None:
+        """Test that web frameworks are categorized correctly."""
+        from mu.sigma.frameworks import get_framework_category
+
+        web_frameworks = ["flask", "django", "express", "react", "vue", "angular"]
+        for fw in web_frameworks:
+            assert get_framework_category(fw) == "web", f"{fw} should be web"
+
+    def test_ml_frameworks(self) -> None:
+        """Test that ML frameworks are categorized correctly."""
+        from mu.sigma.frameworks import get_framework_category
+
+        ml_frameworks = ["pytorch", "tensorflow"]
+        for fw in ml_frameworks:
+            assert get_framework_category(fw) == "ml", f"{fw} should be ml"
+
+    def test_orm_frameworks(self) -> None:
+        """Test that ORM frameworks are categorized correctly."""
+        from mu.sigma.frameworks import get_framework_category
+
+        orm_frameworks = ["sqlalchemy", "prisma", "gorm", "hibernate"]
+        for fw in orm_frameworks:
+            assert get_framework_category(fw) == "orm", f"{fw} should be orm"
+
+    def test_testing_frameworks(self) -> None:
+        """Test that testing frameworks are categorized correctly."""
+        from mu.sigma.frameworks import get_framework_category
+
+        testing_frameworks = ["pytest", "jest", "junit", "xunit"]
+        for fw in testing_frameworks:
+            assert get_framework_category(fw) == "testing", f"{fw} should be testing"
+
+    def test_unknown_framework_is_utility(self) -> None:
+        """Test that unknown frameworks default to utility."""
+        from mu.sigma.frameworks import get_framework_category
+
+        assert get_framework_category("unknown_framework") == "utility"
+
+
+class TestDetectFrameworks:
+    """Tests for detect_frameworks function."""
+
+    def test_detect_frameworks_invalid_path(self) -> None:
+        """Test that detect_frameworks handles invalid paths gracefully."""
+        from mu.sigma.frameworks import detect_frameworks
+
+        result = detect_frameworks(Path("/nonexistent/path.mubase"))
+        assert result == []
+
+    def test_detect_frameworks_returns_sorted_list(self) -> None:
+        """Test that detect_frameworks returns a sorted list."""
+        from mu.sigma.frameworks import detect_frameworks
+
+        # Even with an invalid path, should return an empty list (not None)
+        result = detect_frameworks(Path("/nonexistent/path.mubase"))
+        assert isinstance(result, list)

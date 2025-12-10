@@ -42,6 +42,50 @@ LOCAL_MODELS: dict[str, dict[str, Any]] = {
 }
 
 
+def _get_model_dimensions(model_path: str) -> int:
+    """Detect embedding dimensions from a model's config.
+
+    Args:
+        model_path: Path to the model directory
+
+    Returns:
+        Embedding dimensions (default: 384 if detection fails)
+    """
+    import json
+    from pathlib import Path
+
+    config_path = Path(model_path) / "config_sentence_transformers.json"
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text())
+            # sentence-transformers stores dims in various places
+            if "embedding_dimension" in config:
+                dim_val = config["embedding_dimension"]
+                if isinstance(dim_val, int):
+                    return dim_val
+                return int(str(dim_val))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass
+
+    # Try to get from the model config.json
+    config_path = Path(model_path) / "config.json"
+    if config_path.exists():
+        try:
+            config = json.loads(config_path.read_text())
+            # Common locations for hidden size (embedding dim)
+            for key in ["hidden_size", "dim", "d_model"]:
+                if key in config:
+                    dim_val = config[key]
+                    if isinstance(dim_val, int):
+                        return dim_val
+                    return int(str(dim_val))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            pass
+
+    # Fallback to default MiniLM dimensions
+    return 384
+
+
 def _detect_device() -> str:
     """Detect best available device for inference.
 
@@ -73,20 +117,44 @@ class LocalEmbeddingProvider:
         self,
         model: str = DEFAULT_MODEL,
         device: str = "auto",
+        model_path: str | None = None,
     ) -> None:
         """Initialize local embedding provider.
 
         Args:
             model: Model name (default: all-MiniLM-L6-v2)
             device: Device to use ('auto', 'cpu', 'cuda', 'mps')
+            model_path: Path to a custom sentence-transformers model directory.
+                       If provided, this takes precedence over model name.
         """
-        if model not in LOCAL_MODELS:
-            raise ValueError(
-                f"Unknown model: {model}. Available models: {list(LOCAL_MODELS.keys())}"
-            )
+        self._model_path = model_path
+        self._is_custom_model = model_path is not None
 
-        self._model_name = model
-        self._model_config = LOCAL_MODELS[model]
+        if self._is_custom_model:
+            # Custom model from local path
+            import os
+
+            assert model_path is not None  # for type checker
+            if not os.path.isdir(model_path):
+                raise ValueError(f"Model path does not exist: {model_path}")
+            self._model_name = os.path.basename(model_path)
+            # Detect dimensions from config
+            dims = _get_model_dimensions(model_path)
+            self._model_config: dict[str, Any] = {
+                "dimensions": dims,
+                "max_tokens": 256,
+                "version": "custom",
+                "hf_name": model_path,  # Use path as hf_name
+            }
+        else:
+            # Standard model from registry
+            if model not in LOCAL_MODELS:
+                raise ValueError(
+                    f"Unknown model: {model}. Available models: {list(LOCAL_MODELS.keys())}"
+                )
+            self._model_name = model
+            self._model_config = LOCAL_MODELS[model]
+
         self._device = device if device != "auto" else _detect_device()
         self._model: Any = None  # Lazy loaded
         self._executor = ThreadPoolExecutor(max_workers=1)
@@ -122,7 +190,7 @@ class LocalEmbeddingProvider:
         try:
             from sentence_transformers import SentenceTransformer
 
-            hf_name = self._model_config["hf_name"]
+            hf_name = str(self._model_config["hf_name"])
             logger.info(f"Loading model {hf_name} on {self._device}")
 
             model = SentenceTransformer(hf_name, device=self._device)

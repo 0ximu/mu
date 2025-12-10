@@ -222,9 +222,11 @@ class MUQLTransformer(Transformer[Token, Any]):
         return Condition(comparisons=flat_comparisons, operator="and")
 
     def or_condition(self, items: list[Condition]) -> Condition:
-        if len(items) == 1:
-            return items[0]
-        return Condition(comparisons=[], operator="or", nested=items)
+        # Filter out OR_KW tokens that may be in the items list
+        conditions = [item for item in items if isinstance(item, Condition)]
+        if len(conditions) == 1:
+            return conditions[0]
+        return Condition(comparisons=[], operator="or", nested=conditions)
 
     # -------------------------------------------------------------------------
     # SELECT Fields

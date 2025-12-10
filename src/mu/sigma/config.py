@@ -22,7 +22,7 @@ class LLMSettings(BaseModel):
         description="Model for question generation (cost-efficient)",
     )
     answer_model: str = Field(
-        default="claude-3-5-sonnet-20241022",
+        default="claude-sonnet-4-20250514",
         description="Model for answer generation (higher quality)",
     )
     validation_model: str = Field(
@@ -173,6 +173,26 @@ class SigmaConfig(BaseSettings):
     paths: PathSettings = Field(default_factory=PathSettings)
     costs: CostSettings = Field(default_factory=CostSettings)
 
+    def with_data_dir(self, data_dir: Path) -> SigmaConfig:
+        """Return a copy of this config with a different data directory.
+
+        This enables parallel pipeline runs with isolated paths.
+
+        Args:
+            data_dir: New base directory for all pipeline data
+
+        Returns:
+            New SigmaConfig with updated paths
+        """
+        return SigmaConfig(
+            version=self.version,
+            llm=self.llm,
+            repos=self.repos,
+            pipeline=self.pipeline,
+            paths=PathSettings(data_dir=data_dir),
+            costs=self.costs,
+        )
+
     @classmethod
     def load(cls, config_path: Path | None = None) -> SigmaConfig:
         """Load configuration from file and environment.
@@ -260,7 +280,7 @@ def get_default_config_toml() -> str:
 
 [llm]
 question_model = "claude-3-haiku-20240307"
-answer_model = "claude-3-5-sonnet-20241022"
+answer_model = "claude-sonnet-4-20250514"
 validation_model = "claude-3-haiku-20240307"
 timeout_seconds = 60
 max_retries = 2

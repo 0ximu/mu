@@ -259,43 +259,97 @@ class ProactiveWarningGenerator:
         return target_type, nodes, file_path
 
     def _check_impact(self, nodes: list[Any]) -> list[ProactiveWarning]:
-        """Check for high-impact targets with many dependents."""
+        """Check for high-impact targets with many dependents.
+
+        For file-level targets (multiple nodes from same file), aggregates
+        impact from all contained nodes and reports as a single file-level warning.
+        """
         warnings = []
 
-        for node in nodes:
-            try:
-                # Use graph to find dependents
-                from mu.kernel.graph import GraphManager
+        try:
+            from mu.kernel.graph import GraphManager
 
-                gm = GraphManager(self.db.conn)
-                gm.load()
+            gm = GraphManager(self.db.conn)
+            gm.load()
+        except Exception as e:
+            logger.debug(f"Failed to load graph manager: {e}")
+            return warnings
 
+        # Check if this is a file-level analysis (module + children)
+        # Detect by checking if first node is a module and there are multiple nodes
+        is_file_level = (
+            len(nodes) > 1
+            and nodes
+            and hasattr(nodes[0], "type")
+            and (
+                (hasattr(nodes[0].type, "value") and nodes[0].type.value == "module")
+                or str(nodes[0].type) == "module"
+            )
+        )
+
+        if is_file_level:
+            # Aggregate impact from all contained nodes for file-level warning
+            all_impacted: set[str] = set()
+            node_ids_in_file = {n.id for n in nodes}
+
+            for node in nodes:
                 if gm.has_node(node.id):
-                    # Get all nodes that would be impacted
                     impacted = gm.impact(node.id)
-                    dependent_count = len(impacted)
+                    # Only count external dependents (not other nodes in same file)
+                    external_impacted = [i for i in impacted if i not in node_ids_in_file]
+                    all_impacted.update(external_impacted)
 
-                    if dependent_count > self.config.high_impact_threshold:
-                        level = (
-                            "error"
-                            if dependent_count > self.config.high_impact_threshold * 3
-                            else "warn"
-                        )
-                        warnings.append(
-                            ProactiveWarning(
-                                category=WarningCategory.HIGH_IMPACT,
-                                level=level,
-                                message=f"{dependent_count} nodes depend on {node.name} - changes may have wide impact",
-                                details={
-                                    "dependent_count": dependent_count,
-                                    "node_id": node.id,
-                                    "node_name": node.name,
-                                    "sample_dependents": impacted[:5],
-                                },
+            dependent_count = len(all_impacted)
+            if dependent_count > self.config.high_impact_threshold:
+                level = (
+                    "error"
+                    if dependent_count > self.config.high_impact_threshold * 3
+                    else "warn"
+                )
+                file_path = nodes[0].file_path if nodes[0].file_path else "unknown"
+                warnings.append(
+                    ProactiveWarning(
+                        category=WarningCategory.HIGH_IMPACT,
+                        level=level,
+                        message=f"{dependent_count} external nodes depend on this file - changes may have wide impact",
+                        details={
+                            "dependent_count": dependent_count,
+                            "file_path": file_path,
+                            "contained_nodes": len(nodes),
+                            "sample_dependents": list(all_impacted)[:5],
+                        },
+                    )
+                )
+        else:
+            # Individual node analysis
+            for node in nodes:
+                try:
+                    if gm.has_node(node.id):
+                        # Get all nodes that would be impacted
+                        impacted = gm.impact(node.id)
+                        dependent_count = len(impacted)
+
+                        if dependent_count > self.config.high_impact_threshold:
+                            level = (
+                                "error"
+                                if dependent_count > self.config.high_impact_threshold * 3
+                                else "warn"
                             )
-                        )
-            except Exception as e:
-                logger.debug(f"Impact check failed for {node.id}: {e}")
+                            warnings.append(
+                                ProactiveWarning(
+                                    category=WarningCategory.HIGH_IMPACT,
+                                    level=level,
+                                    message=f"{dependent_count} nodes depend on {node.name} - changes may have wide impact",
+                                    details={
+                                        "dependent_count": dependent_count,
+                                        "node_id": node.id,
+                                        "node_name": node.name,
+                                        "sample_dependents": impacted[:5],
+                                    },
+                                )
+                            )
+                except Exception as e:
+                    logger.debug(f"Impact check failed for {node.id}: {e}")
 
         return warnings
 
@@ -613,13 +667,30 @@ class ProactiveWarningGenerator:
         return warnings
 
     def _find_project_root(self, file_path: Path) -> Path | None:
-        """Find project root by looking for pyproject.toml, setup.py, or .git."""
+        """Find project root by looking for common project markers.
+
+        Checks for:
+        - Python: pyproject.toml, setup.py
+        - .NET/C#: *.sln, *.csproj
+        - Node.js: package.json
+        - General: .git
+        """
         current = file_path.parent
         for _ in range(10):  # Max 10 levels up
+            # Python
             if (current / "pyproject.toml").exists():
                 return current
             if (current / "setup.py").exists():
                 return current
+            # .NET/C# - look for .sln or .csproj files
+            if list(current.glob("*.sln")):
+                return current
+            if list(current.glob("*.csproj")):
+                return current
+            # Node.js
+            if (current / "package.json").exists():
+                return current
+            # General fallback
             if (current / ".git").exists():
                 return current
             if current.parent == current:

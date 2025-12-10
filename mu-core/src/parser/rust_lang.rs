@@ -4,7 +4,8 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 use super::helpers::{
-    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
+    collect_type_strings_from_methods, count_lines, extract_referenced_types, find_child_by_type,
+    get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
 use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
@@ -81,14 +82,28 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         if let Some(methods) = impl_methods.remove(&class.name) {
             class.methods.extend(methods);
         }
+        // Collect type annotations from all methods and extract referenced types
+        let type_strings = collect_type_strings_from_methods(&class.methods);
+        class.referenced_types = extract_referenced_types(
+            type_strings.iter().map(|s| s.as_str()),
+            &class.name,
+            "rust",
+        );
     }
 
     // Add remaining impl methods as standalone (for trait impls on external types)
     for (type_name, methods) in impl_methods {
+        let type_strings = collect_type_strings_from_methods(&methods);
+        let referenced_types = extract_referenced_types(
+            type_strings.iter().map(|s| s.as_str()),
+            &type_name,
+            "rust",
+        );
         let class = ClassDef {
             name: type_name,
             decorators: vec!["impl".to_string()],
             methods,
+            referenced_types,
             ..Default::default()
         };
         if !class.methods.is_empty() {

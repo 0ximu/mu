@@ -99,6 +99,48 @@ def run_server(transport: TransportType = "stdio") -> None:
     mcp.run(transport=transport)
 
 
+def _get_test_node_id() -> str | None:
+    """Find an actual node ID from the graph for testing.
+
+    Returns:
+        A valid node ID from the graph, or None if no nodes found.
+    """
+    try:
+        # Query for any function node (most codebases have functions)
+        result = mu_query("SELECT id FROM functions LIMIT 1")
+        if result.rows and len(result.rows) > 0:
+            return str(result.rows[0][0])
+
+        # Fallback to any class
+        result = mu_query("SELECT id FROM classes LIMIT 1")
+        if result.rows and len(result.rows) > 0:
+            return str(result.rows[0][0])
+
+        # Fallback to any module
+        result = mu_query("SELECT id FROM modules LIMIT 1")
+        if result.rows and len(result.rows) > 0:
+            return str(result.rows[0][0])
+
+        return None
+    except Exception:
+        return None
+
+
+def _get_test_file_path() -> str | None:
+    """Find an actual file path from the graph for testing.
+
+    Returns:
+        A valid file path from the graph, or None if no files found.
+    """
+    try:
+        result = mu_query("SELECT file_path FROM modules WHERE file_path IS NOT NULL LIMIT 1")
+        if result.rows and len(result.rows) > 0:
+            return str(result.rows[0][0])
+        return None
+    except Exception:
+        return None
+
+
 def test_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> dict[str, Any]:
     """Test a specific MCP tool with optional input.
 
@@ -135,20 +177,35 @@ def test_tool(tool_name: str, tool_input: dict[str, Any] | None = None) -> dict[
         if tool_input:
             result = tool_func(**tool_input)
         else:
-            # Use default test arguments
+            # Use default test arguments - query for real nodes when needed
+            test_node_id = None
+            test_file_path = None
+
+            # Tools that need a real node ID
+            node_requiring_tools = {"mu_read", "mu_deps", "mu_impact", "mu_warn"}
+            if tool_name in node_requiring_tools:
+                test_node_id = _get_test_node_id()
+                test_file_path = _get_test_file_path()
+                if not test_node_id and not test_file_path:
+                    return {
+                        "ok": False,
+                        "error": "No nodes found in graph. Run mu_bootstrap first.",
+                        "skipped": True,
+                    }
+
             defaults: dict[str, dict[str, Any]] = {
                 "mu_status": {},
                 "mu_bootstrap": {"path": "."},
                 "mu_query": {"query": "DESCRIBE tables"},
-                "mu_read": {"node_id": "test"},
-                "mu_context": {"question": "test", "max_tokens": 100},
-                "mu_context_omega": {"question": "test", "max_tokens": 100},
-                "mu_deps": {"node_name": "test"},
-                "mu_impact": {"node_id": "test"},
+                "mu_read": {"node_id": test_node_id or ""},
+                "mu_context": {"question": "what does this codebase do", "max_tokens": 100},
+                "mu_context_omega": {"question": "what does this codebase do", "max_tokens": 100},
+                "mu_deps": {"node_name": test_node_id or ""},
+                "mu_impact": {"node_id": test_node_id or ""},
                 "mu_semantic_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
                 "mu_review_diff": {"base_ref": "HEAD~1", "head_ref": "HEAD"},
                 "mu_patterns": {},
-                "mu_warn": {"target": "test"},
+                "mu_warn": {"target": test_file_path or test_node_id or ""},
             }
             tool_defaults = defaults.get(tool_name, {})
             result = tool_func(**tool_defaults)

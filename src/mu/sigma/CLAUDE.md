@@ -26,6 +26,7 @@ GitHub Repos -> Clone -> Build .mubase -> Generate Q&A -> Extract Pairs -> Expor
 | `validate.py` | Q&A validation using Claude Haiku |
 | `pairs.py` | Training pair extraction (structural + Q&A) |
 | `orchestrator.py` | Pipeline coordination with checkpointing |
+| `train.py` | Embedding model fine-tuning with sentence-transformers |
 | `cli.py` | Click commands (sigma subcommand) |
 | `llm_client.py` | Shared Anthropic client singleton |
 
@@ -37,19 +38,63 @@ uv run mu sigma init
 
 # Fetch top repos from GitHub
 uv run mu sigma fetch
+uv run mu sigma fetch -l rust -n 50 --min-stars 3000 --data-dir data/sigma-rust
 
 # Run full pipeline
 uv run mu sigma run [--repos N] [--questions N]
+uv run mu sigma run --data-dir data/sigma-rust  # Isolated run
 
 # Show pipeline statistics
 uv run mu sigma stats
+uv run mu sigma stats --data-dir data/sigma-rust
 
 # Inspect training data
 uv run mu sigma inspect [--sample N] [--type TYPE]
+uv run mu sigma inspect --data-dir data/sigma-rust
+
+# Train embedding model
+uv run mu sigma train [--epochs N] [--batch-size N]
+uv run mu sigma train --max-samples 1000  # Quick test
+uv run mu sigma train -o models/mu-sigma-v2  # Custom output
+uv run mu sigma train --data-dir data/sigma-all  # From merged data
+
+# Merge training data from parallel runs
+uv run mu sigma merge data/sigma-python data/sigma-rust -o data/sigma-all
+uv run mu sigma merge data/sigma-* -o data/sigma-combined --dry-run
 
 # Clean up (remove clones, mubases, checkpoints)
 uv run mu sigma clean [--all]
+uv run mu sigma clean --data-dir data/sigma-rust
 ```
+
+## Parallel Pipeline Runs
+
+Use `--data-dir` to run multiple pipelines in parallel with isolated data:
+
+```bash
+# Terminal 1: Python repos
+mu sigma fetch -l python -n 50 --min-stars 3000 --data-dir data/sigma-python
+mu sigma run --data-dir data/sigma-python
+
+# Terminal 2: Rust repos
+mu sigma fetch -l rust -n 50 --min-stars 3000 --data-dir data/sigma-rust
+mu sigma run --data-dir data/sigma-rust
+
+# Terminal 3: Go repos
+mu sigma fetch -l go -n 50 --min-stars 3000 --data-dir data/sigma-go
+mu sigma run --data-dir data/sigma-go
+
+# After all complete, merge and train
+mu sigma merge data/sigma-python data/sigma-rust data/sigma-go -o data/sigma-all
+mu sigma train --data-dir data/sigma-all --epochs 5 -o models/mu-sigma-v2
+```
+
+Each data directory contains:
+- `repos.json` - Repository list
+- `checkpoint.json` - Pipeline progress
+- `mubases/` - Built graph databases
+- `training/` - Generated training pairs
+- `clones/` - Temporary repo clones
 
 ## Configuration
 

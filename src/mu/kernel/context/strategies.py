@@ -471,6 +471,7 @@ class ListStrategy:
 
         node_type = node_type_map.get(target_type.lower(), NodeType.FUNCTION)
         stats["node_type"] = node_type.value
+        type_label = node_type.value.capitalize() + "s"
 
         # Get all nodes of this type
         all_nodes = mubase.get_nodes(node_type)
@@ -488,6 +489,52 @@ class ListStrategy:
                 )
                 if matches:
                     filtered_nodes.append(node)
+
+            # If no matches found, try semantic search fallback
+            if not filtered_nodes and mubase.has_embeddings():
+                stats["entity_filter_empty"] = True
+                stats["fallback"] = "semantic_search"
+                # Use entity terms as query
+                query = " ".join(intent.entities)
+                try:
+                    import asyncio
+
+                    from mu.kernel.embeddings.service import create_embedding_service
+
+                    service = create_embedding_service(provider="local")
+                    query_embedding = asyncio.get_event_loop().run_until_complete(
+                        service.embed_query(query)
+                    )
+                    if query_embedding:
+                        # Search for similar nodes of this type
+                        search_results = mubase.vector_search(
+                            query_embedding,
+                            limit=50,
+                            node_type=node_type,
+                        )
+                        filtered_nodes = [r[0] for r in search_results]
+                        stats["semantic_matches"] = len(filtered_nodes)
+                except Exception as e:
+                    stats["semantic_fallback_error"] = str(e)
+
+            # If still no matches and no semantic fallback, return empty with message
+            if not filtered_nodes:
+                stats["filtered_to"] = 0
+                stats["no_matches"] = True
+                # Return helpful message for empty results
+                list_header = [
+                    f":: {type_label} matching '{', '.join(intent.entities)}'",
+                    f":: Showing 0 of {stats['total_found']} total",
+                    f":: No relevant context found",
+                ]
+                return ContextResult(
+                    mu_text="\n".join(list_header),
+                    nodes=[],
+                    token_count=len("\n".join(list_header)) // 4,
+                    relevance_scores={},
+                    extraction_stats=stats,
+                )
+
             all_nodes = filtered_nodes
             stats["filtered_to"] = len(all_nodes)
 
@@ -514,7 +561,6 @@ class ListStrategy:
         mu_text = exporter.export_mu(selected)
 
         # Add list header
-        type_label = node_type.value.capitalize() + "s"
         filter_info = f" matching '{', '.join(intent.entities)}'" if intent.entities else ""
         list_header = [
             f":: {type_label}{filter_info}",

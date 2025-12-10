@@ -43,52 +43,58 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     # Core commands (most common workflows)
     "bootstrap": ("mu.commands.core", "bootstrap"),
     "status": ("mu.commands.core", "status"),
-    "read": ("mu.commands.core", "read"),
-    "context": ("mu.commands.core", "context"),
-    "search": ("mu.commands.core", "search"),
-    # Query commands
-    "query": ("mu.commands.query", "query"),
+    "compress": ("mu.commands.compress", "compress"),
+    # Query & Navigation
     "q": ("mu.commands.query", "q"),
-    # Graph reasoning commands (petgraph-backed)
-    "deps": ("mu.commands.deps", "deps"),  # Promoted from kernel deps
+    "read": ("mu.commands.core", "read"),
+    "search": ("mu.commands.core", "search"),
+    # Graph Reasoning (petgraph-backed)
+    "deps": ("mu.commands.deps", "deps"),
     "impact": ("mu.commands.graph", "impact"),
     "ancestors": ("mu.commands.graph", "ancestors"),
     "cycles": ("mu.commands.graph", "cycles"),
-    # Intelligence Layer commands
-    "patterns": ("mu.commands.patterns", "patterns"),
-    "warn": ("mu.commands.warn", "warn"),
     "related": ("mu.commands.core", "related"),
-    # Output commands
-    "compress": ("mu.commands.compress", "compress"),
+    # Intelligence Layer
+    "patterns": ("mu.commands.patterns", "patterns"),
     "diff": ("mu.commands.diff", "diff"),
-    # Services - consolidated
-    "serve": ("mu.commands.serve", "serve"),  # Unified server command
+    # History (promoted from kernel)
+    "snapshot": ("mu.commands.kernel.snapshot", "kernel_snapshot"),
+    "snapshots": ("mu.commands.kernel.snapshot", "kernel_snapshots"),
+    "history": ("mu.commands.kernel.history", "kernel_history"),
+    "blame": ("mu.commands.kernel.blame", "kernel_blame"),
+    # Export (promoted from kernel)
+    "export": ("mu.commands.kernel.export", "kernel_export"),
+    "embed": ("mu.commands.kernel.embed", "kernel_embed"),
+    # Services
+    "serve": ("mu.commands.serve", "serve"),
     "mcp": ("mu.commands.mcp", "mcp"),
-    # Advanced/power-user commands
-    "kernel": ("mu.commands.kernel", "kernel"),
-    # Vibes commands - developer-friendly CLI with personality
-    "omg": ("mu.commands.vibes", "omg"),  # OMEGA context
-    "grok": ("mu.commands.vibes", "grok"),  # Smart context
-    "wtf": ("mu.commands.vibes", "wtf"),  # Git archaeology
-    "yolo": ("mu.commands.vibes", "yolo"),  # Impact analysis
-    "sus": ("mu.commands.vibes", "sus"),  # Proactive warnings
-    "vibe": ("mu.commands.vibes", "vibe"),  # Pattern validation
-    "zen": ("mu.commands.vibes", "zen"),  # Cache cleanup
-    # Training data pipeline
-    "sigma": ("mu.sigma.cli", "sigma"),  # MU-SIGMA training data
 }
 
-# Hidden commands (power-user, deprecated, or for compatibility)
+# Hidden commands (still work, not in Commands list - featured in docstring instead)
 HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
+    # Quick Commands - featured prominently in docstring, hidden from Commands list
+    "grok": ("mu.commands.vibes", "grok"),  # Understand code - extract relevant context
+    "omg": ("mu.commands.vibes", "omg"),  # Ship mode - OMEGA compressed context
+    "yolo": ("mu.commands.vibes", "yolo"),  # Impact check - what breaks if I change this?
+    "sus": ("mu.commands.vibes", "sus"),  # Smell check - warnings before touching code
+    "vibe": ("mu.commands.vibes", "vibe"),  # Pattern check - does this code fit?
+    "wtf": ("mu.commands.vibes", "wtf"),  # Git archaeology - why does this code exist?
+    "zen": ("mu.commands.vibes", "zen"),  # Clean up - clear caches
+    # Utility commands (not in main help)
     "migrate": ("mu.commands.migrate", "migrate"),
     "view": ("mu.commands.view", "view"),
     "describe": ("mu.commands.describe", "describe"),
     "man": ("mu.commands.man", "man_command"),
     "llm": ("mu.commands.llm_spec", "llm_command"),
-    # Deprecated - use 'mu serve' instead
-    "daemon": ("mu.commands.daemon", "daemon"),
-    # Hidden - accessible but not in main help
     "cache": ("mu.commands.cache", "cache"),
+    # Deprecated aliases - still work, not in help
+    "query": ("mu.commands.query", "query"),  # Use 'q' instead
+    "context": ("mu.commands.core", "context"),  # Use 'grok' instead
+    "warn": ("mu.commands.warn", "warn"),  # Use 'sus' instead
+    "daemon": ("mu.commands.daemon", "daemon"),  # Use 'serve' instead
+    # Power-user commands (hidden)
+    "kernel": ("mu.commands.kernel", "kernel"),  # Advanced graph ops
+    "sigma": ("mu.sigma.cli", "sigma"),  # Training data pipeline (easter egg)
 }
 
 
@@ -140,20 +146,29 @@ def cli(
     """MU - Machine Understanding for Codebases.
 
     \b
-    Core Commands:
+    Quick Commands:
+      grok         Understand code - extract relevant context
+      omg          Ship mode - OMEGA compressed context
+      yolo         Impact check - what breaks if I change this?
+      sus          Smell check - warnings before touching code
+      vibe         Pattern check - does this code fit?
+      wtf          Git archaeology - why does this code exist?
+      zen          Clean up - clear caches
+
+    \b
+    Core:
       bootstrap    Initialize MU for a codebase
       status       Show MU status and guidance
       compress     Compress code to MU format
 
     \b
-    Query & Navigation:
-      query, q     Execute MUQL queries
-      context      Smart context extraction
+    Query:
+      q            Execute MUQL queries
       read         Read source code for a node
       search       Search for code entities
 
     \b
-    Graph Reasoning:
+    Graph:
       deps         Show dependencies
       impact       What breaks if I change this?
       ancestors    What depends on this?
@@ -163,25 +178,24 @@ def cli(
     \b
     Intelligence:
       patterns     Detect codebase patterns
-      warn         Proactive code warnings
       diff         Semantic diff between refs
+
+    \b
+    History:
+      snapshot     Create a temporal snapshot
+      snapshots    List all snapshots
+      history      Show change history for a node
+      blame        Show who last modified a node
+
+    \b
+    Export:
+      export       Export graph in various formats
+      embed        Generate embeddings for semantic search
 
     \b
     Services:
       serve        Start MU daemon (HTTP/WebSocket API)
       mcp          MCP server tools
-
-    \b
-    Vibes (fun aliases):
-      omg, grok, wtf, yolo, sus, vibe, zen
-
-    \b
-    Training:
-      sigma        Training data pipeline (MU-SIGMA)
-
-    \b
-    Advanced:
-      kernel       Advanced graph operations (power users)
 
     Use 'mu <command> --help' for details.
     Use --debug to show full tracebacks on errors.

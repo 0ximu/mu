@@ -181,20 +181,16 @@ def deps(
         print_info("Try: mu serve --stop && mu serve")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    # Find the node by name
-    matching_nodes = db.find_by_name(f"%{node}%")
+    # Resolve node using NodeResolver (proper disambiguation)
+    from mu.commands.utils import resolve_node_for_command
 
-    if not matching_nodes:
-        print_error(f"No node found matching '{node}'")
-        db.close()
-        sys.exit(ExitCode.CONFIG_ERROR)
-
-    # Use the first match
-    target_node = matching_nodes[0]
-    if len(matching_nodes) > 1:
-        print_info(
-            f"Multiple matches found, using: {target_node.qualified_name or target_node.name}"
+    try:
+        target_node, resolution = resolve_node_for_command(
+            db, node, no_interactive=False, quiet=False
         )
+    except SystemExit:
+        db.close()
+        raise
 
     # Get dependencies or dependents
     if reverse:

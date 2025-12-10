@@ -181,6 +181,10 @@ class LocalEmbeddingsConfig(BaseModel):
         default="all-MiniLM-L6-v2",
         description="Sentence-transformers model to use",
     )
+    model_path: str | None = Field(
+        default=None,
+        description="Path to custom sentence-transformers model directory (overrides model)",
+    )
     device: Literal["auto", "cpu", "cuda", "mps"] = Field(
         default="auto",
         description="Device for local inference",

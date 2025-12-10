@@ -23,9 +23,9 @@ def kernel_snapshot(path: Path, commit: str | None, force: bool, as_json: bool) 
 
     \b
     Examples:
-        mu kernel snapshot .                 # Snapshot at HEAD
-        mu kernel snapshot . --commit abc123 # Snapshot at specific commit
-        mu kernel snapshot . --force         # Overwrite existing
+        mu snapshot .                 # Snapshot at HEAD
+        mu snapshot . --commit abc123 # Snapshot at specific commit
+        mu snapshot . --force         # Overwrite existing
     """
     import json as json_module
 
@@ -41,7 +41,18 @@ def kernel_snapshot(path: Path, commit: str | None, force: bool, as_json: bool) 
         print_info("Run 'mu kernel build' first")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked by another process.\n\n"
+            "This usually means the daemon is running. Options:\n"
+            "  1. Stop the daemon: mu serve --stop\n"
+            "  2. Let the daemon handle it: Use the MCP server or daemon API"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         manager = SnapshotManager(db, path.resolve())
@@ -76,8 +87,8 @@ def kernel_snapshots(path: Path, limit: int, as_json: bool) -> None:
 
     \b
     Examples:
-        mu kernel snapshots .
-        mu kernel snapshots . --limit 50
+        mu snapshots .
+        mu snapshots . --limit 50
     """
     import json as json_module
 
@@ -94,7 +105,15 @@ def kernel_snapshots(path: Path, limit: int, as_json: bool) -> None:
         print_error(f"No .mu/mubase found at {mubase_path}")
         sys.exit(ExitCode.CONFIG_ERROR)
 
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path, read_only=True)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked. Daemon should auto-route queries. Try: mu serve --stop && mu serve"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     try:
         manager = SnapshotManager(db, path.resolve())

@@ -52,6 +52,11 @@ from mu.intelligence.related import (
     RelatedFilesResult,
 )
 from mu.intelligence.synthesizer import MacroSynthesizer
+from mu.intelligence.task_context import (
+    TaskAnalyzer,
+    TaskContextConfig,
+    TaskContextExtractor,
+)
 from mu.intelligence.warnings import ProactiveWarningGenerator, WarningConfig
 from mu.intelligence.why import CommitInfo, WhyAnalyzer, WhyResult
 
@@ -78,6 +83,9 @@ __all__ = [
     "RelatedFilesResult",
     "Suggestion",
     "SynthesisResult",
+    "TaskAnalyzer",
+    "TaskContextConfig",
+    "TaskContextExtractor",
     "TaskAnalysis",
     "TaskContextResult",
     "TaskType",

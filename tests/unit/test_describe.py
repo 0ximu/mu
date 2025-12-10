@@ -209,9 +209,10 @@ class TestDescribeCli:
         assert main.name == "mu"
 
         # Should have visible subcommands (hidden commands excluded from describe)
+        # Note: 'query' renamed to 'q' (short alias is the visible primary command)
         subcommand_names = [c.name for c in main.subcommands]
         assert "compress" in subcommand_names
-        assert "query" in subcommand_names
+        assert "q" in subcommand_names  # 'query' renamed to 'q'
         assert "deps" in subcommand_names  # promoted from kernel deps
 
 

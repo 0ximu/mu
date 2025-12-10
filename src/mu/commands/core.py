@@ -22,6 +22,36 @@ if TYPE_CHECKING:
     from mu.cli import MUContext
 
 
+def _update_gitignore(root_path: Path) -> bool:
+    """Add MU entries to .gitignore if not already present.
+
+    Returns True if .gitignore was updated, False otherwise.
+    """
+    gitignore_path = root_path / ".gitignore"
+    mu_entries = [".mu/"]
+    marker = "# MU (Machine Understanding)"
+
+    # Read existing content
+    existing_content = ""
+    if gitignore_path.exists():
+        existing_content = gitignore_path.read_text()
+
+        # Check if MU entries already exist
+        if marker in existing_content or ".mu/" in existing_content:
+            return False
+
+    # Add MU entries
+    new_section = f"\n{marker}\n" + "\n".join(mu_entries) + "\n"
+
+    # Append to .gitignore
+    with gitignore_path.open("a") as f:
+        if existing_content and not existing_content.endswith("\n"):
+            f.write("\n")
+        f.write(new_section)
+
+    return True
+
+
 @click.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path), default=".")
 @click.option("--force", "-f", is_flag=True, help="Force rebuild even if .mu/mubase exists")
@@ -38,8 +68,9 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
 
     \b
     1. Creates .murc.toml config if missing
-    2. Builds the .mu/mubase code graph
-    3. Optionally generates embeddings
+    2. Adds .mu/ to .gitignore
+    3. Builds the .mu/mubase code graph
+    4. Optionally generates embeddings
 
     Safe to run multiple times. Use --force to rebuild.
 
@@ -73,9 +104,24 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
             print_error(f"Permission denied: {config_path}")
             sys.exit(ExitCode.CONFIG_ERROR)
 
-    # Step 2: Check if rebuild is needed
+    # Step 2: Update .gitignore
+    if _update_gitignore(root_path):
+        print_success("Added .mu/ to .gitignore")
+
+    # Step 3: Check if rebuild is needed
+    from mu.kernel import MUbaseLockError
+
     if mubase_path.exists() and not force:
-        db = MUbase(mubase_path)
+        try:
+            db = MUbase(mubase_path, read_only=True)
+        except MUbaseLockError:
+            print_error(
+                "Database is locked by another process.\n\n"
+                "This usually means the daemon is running. Options:\n"
+                "  1. Stop the daemon: mu serve --stop\n"
+                "  2. Use --force to rebuild when daemon isn't running"
+            )
+            sys.exit(ExitCode.CONFIG_ERROR)
         try:
             stats = db.stats()
             print_success(f"MU ready. Graph exists: {stats['nodes']} nodes, {stats['edges']} edges")
@@ -84,7 +130,7 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
         finally:
             db.close()
 
-    # Step 3: Load config and scan
+    # Step 4: Load config and scan
     try:
         config = MUConfig.load()
     except Exception:
@@ -102,7 +148,7 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
 
     print_info(f"Found {len(scan_result.files)} files")
 
-    # Step 4: Parse all files
+    # Step 5: Parse all files
     print_info("Parsing files...")
     modules = []
     errors = 0
@@ -125,9 +171,18 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
 
     print_info(f"Parsed {len(modules)} modules")
 
-    # Step 5: Build graph
+    # Step 6: Build graph
     print_info("Building graph...")
-    db = MUbase(mubase_path)
+    try:
+        db = MUbase(mubase_path)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked by another process.\n\n"
+            "This usually means the daemon is running. Options:\n"
+            "  1. Stop the daemon: mu serve --stop\n"
+            "  2. Try again when daemon isn't running"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
     db.build(modules, root_path)
     stats = db.stats()
 
@@ -142,7 +197,7 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
         for node_type, count in stats.get("nodes_by_type", {}).items():
             print_info(f"  {node_type}: {count}")
 
-    # Step 6: Generate embeddings if requested
+    # Step 7: Generate embeddings if requested
     if embed:
         import asyncio
 
@@ -227,13 +282,23 @@ def status(ctx: MUContext, as_json: bool) -> None:
         try:
             daemon_status = client.status(cwd=str(cwd))
             stats = daemon_status.get("stats", {})
+            # Check embeddings via daemon or direct access
             if mubase_path:
-                embeddings_db = mubase_path.parent / ".mu-embeddings.db"
-                embeddings_exist = embeddings_db.exists()
+                from mu.kernel import MUbase, MUbaseLockError
+
+                try:
+                    db = MUbase(mubase_path, read_only=True)
+                    try:
+                        embeddings_exist = db.has_embeddings()
+                    finally:
+                        db.close()
+                except MUbaseLockError:
+                    # Can't check, assume no embeddings
+                    embeddings_exist = False
 
             if not embeddings_exist:
-                next_action = "mu bootstrap --embed"
-                message = "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+                next_action = "mu kernel embed ."
+                message = "MU ready. Run 'mu kernel embed .' to enable semantic search."
             else:
                 next_action = None
                 message = "MU ready. All systems operational."
@@ -244,26 +309,25 @@ def status(ctx: MUContext, as_json: bool) -> None:
     # Fallback to direct MUbase access
     if not daemon_running:
         if mubase_path:
-            embeddings_db = mubase_path.parent / ".mu-embeddings.db"
-            embeddings_exist = embeddings_db.exists()
-
             from mu.kernel import MUbase, MUbaseLockError
 
             try:
                 db = MUbase(mubase_path, read_only=True)
                 try:
                     stats = db.stats()
+                    embeddings_exist = db.has_embeddings()
                 finally:
                     db.close()
             except MUbaseLockError:
                 # Database locked - daemon might be running but we couldn't connect
                 stats = {}
+                embeddings_exist = False
                 message = "Database locked. Start daemon with 'mu daemon start' for queries."
 
             if not embeddings_exist:
-                next_action = "mu bootstrap --embed"
+                next_action = "mu kernel embed ."
                 message = (
-                    message or "MU ready. Run 'mu bootstrap --embed' to enable semantic search."
+                    message or "MU ready. Run 'mu kernel embed .' to enable semantic search."
                 )
             else:
                 next_action = None
@@ -296,7 +360,7 @@ def status(ctx: MUContext, as_json: bool) -> None:
             if embeddings_exist:
                 print_info("  Embeddings: Yes")
             else:
-                print_warning("  Embeddings: No (run 'mu bootstrap --embed')")
+                print_warning("  Embeddings: No (run 'mu kernel embed .')")
         else:
             print_warning("MU Status: Not initialized")
             print_info(f"  Config: {'Yes' if config_exists else 'No'}")
@@ -515,8 +579,20 @@ def read(
     "--task", is_flag=True, help="Use task-aware context extraction (includes patterns, warnings)"
 )
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "--model-path",
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to custom embedding model (must match model used for indexing)",
+)
 @click.pass_obj
-def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json: bool) -> None:
+def context(
+    ctx: MUContext,
+    question: str,
+    max_tokens: int,
+    task: bool,
+    as_json: bool,
+    model_path: str | None,
+) -> None:
     """Extract smart context for a natural language question or task.
 
     Analyzes the question, finds relevant code nodes, and returns
@@ -534,6 +610,7 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
         mu context 'What calls the payment processor?' --max-tokens 4000
         mu context --task 'Add rate limiting to API endpoints'
         mu context --task 'Fix the login bug' --json
+        mu context 'auth logic' --model-path ./models/mu-sigma-v2
     """
     import json
 
@@ -656,7 +733,7 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
             # Standard context extraction (local fallback)
             from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
-            cfg = ExtractionConfig(max_tokens=max_tokens)
+            cfg = ExtractionConfig(max_tokens=max_tokens, embedding_model_path=model_path)
             smart_extractor = SmartContextExtractor(db, cfg)
             context_result = smart_extractor.extract(question)
 
@@ -697,8 +774,13 @@ def context(ctx: MUContext, question: str, max_tokens: int, task: bool, as_json:
 @click.argument("query")
 @click.option("--limit", "-l", default=20, help="Maximum results")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+@click.option(
+    "--model-path",
+    type=click.Path(exists=True, file_okay=False),
+    help="Path to custom embedding model (must match model used for indexing)",
+)
 @click.pass_obj
-def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
+def search(ctx: MUContext, query: str, limit: int, as_json: bool, model_path: str | None) -> None:
     """Semantic search for code nodes.
 
     Search for code elements using natural language or keywords.
@@ -709,6 +791,7 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
         mu search 'authentication logic'
         mu search 'database connection' --limit 10
         mu search 'error handling' --json
+        mu search 'auth' --model-path ./models/mu-sigma-v2
     """
     import asyncio
     import json as json_module
@@ -748,7 +831,22 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool) -> None:
             except Exception:
                 config = MUConfig()
 
-            service = EmbeddingService(config=config.embeddings, provider="local")
+            # Check if custom model was used for indexing
+            model_dist = embed_stats.get("model_distribution", {})
+            if model_path is None and model_dist:
+                # Warn if custom model was used but --model-path not provided
+                for model_key in model_dist:
+                    if ":custom" in model_key:
+                        model_name = model_key.split(":")[0]
+                        print_warning(
+                            f"Embeddings were created with custom model '{model_name}'. "
+                            f"Use --model-path to specify the model directory for accurate search."
+                        )
+                        break
+
+            service = EmbeddingService(
+                config=config.embeddings, provider="local", model_path=model_path
+            )
 
             async def get_query_embedding() -> list[float] | None:
                 return await service.embed_query(query)
@@ -923,7 +1021,8 @@ def related(
 
     try:
         # Determine root path
-        root_path = mubase_path.parent if mubase_path else cwd
+        # mubase_path is .mu/mubase, so root is two levels up (parent of .mu/)
+        root_path = mubase_path.parent.parent if mubase_path else cwd
 
         detector = RelatedFilesDetector(db=db, root_path=root_path)
         result = detector.detect(

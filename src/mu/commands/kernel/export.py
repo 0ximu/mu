@@ -90,13 +90,13 @@ def kernel_export(
 
     \b
     Examples:
-        mu kernel export . --format mu > system.mu
-        mu kernel export . --format json -o graph.json
-        mu kernel export . --format mermaid --types class,function
-        mu kernel export . --format d2 --max-nodes 50 --direction down
-        mu kernel export . --format cytoscape -o viz.cyjs
-        mu kernel export . --format lisp > system.mulisp
-        mu kernel export . --list-formats
+        mu export . --format mu > system.mu
+        mu export . --format json -o graph.json
+        mu export . --format mermaid --types class,function
+        mu export . --format d2 --max-nodes 50 --direction down
+        mu export . --format cytoscape -o viz.cyjs
+        mu export . --format lisp > system.mulisp
+        mu export . --list-formats
     """
     from mu.errors import ExitCode
     from mu.kernel import MUbase, NodeType

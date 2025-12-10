@@ -89,7 +89,8 @@ class MUQLEngine:
         query: str,
         output_format: OutputFormat | str = OutputFormat.TABLE,
         no_color: bool = False,
-        truncate_paths: bool = True,
+        no_truncate: bool = False,
+        terminal_width: int | None = None,
     ) -> str | dict[str, Any]:
         """Execute a query and return formatted output.
 
@@ -99,13 +100,14 @@ class MUQLEngine:
             query: The MUQL query string.
             output_format: Output format (table, json, csv, tree, dict).
             no_color: If True, disable ANSI colors.
-            truncate_paths: If True, truncate file paths to last 3 segments.
+            no_truncate: If True, disable truncation (show full values).
+            terminal_width: Optional terminal width override.
 
         Returns:
             Formatted output string, or dict if output_format is "dict".
         """
         result = self.execute(query)
-        return format_result(result, output_format, no_color, truncate_paths)
+        return format_result(result, output_format, no_color, no_truncate, terminal_width)
 
     def query_dict(self, query: str) -> dict[str, Any]:
         """Execute a query and return result as dict.

@@ -147,6 +147,7 @@ class EmbeddingService:
         config: EmbeddingsConfig | None = None,
         provider: str = "openai",
         model: str | None = None,
+        model_path: str | None = None,
         concurrency: int = DEFAULT_CONCURRENCY,
     ) -> None:
         """Initialize the embedding service.
@@ -155,11 +156,13 @@ class EmbeddingService:
             config: Embeddings configuration (optional)
             provider: Provider to use ('openai' or 'local')
             model: Model to use (defaults to provider's default)
+            model_path: Path to a custom local model directory (local provider only)
             concurrency: Maximum concurrent embedding requests
         """
         self._config = config
         self._provider_type = EmbeddingProviderType(provider)
         self._model = model
+        self._model_path = model_path
         self._concurrency = concurrency
         self._provider: EmbeddingProvider | None = None
         self.stats = EmbeddingStats()
@@ -175,12 +178,17 @@ class EmbeddingService:
         elif self._provider_type == EmbeddingProviderType.LOCAL:
             model = self._model
             device = "auto"
+            model_path = self._model_path
             if self._config:
                 model = model or self._config.local.model
                 device = self._config.local.device
+                # Fall back to config model_path if not explicitly provided
+                if model_path is None:
+                    model_path = self._config.local.model_path
             return LocalEmbeddingProvider(
                 model=model or "all-MiniLM-L6-v2",
                 device=device,
+                model_path=model_path,
             )
 
         raise ValueError(f"Unknown provider: {self._provider_type}")

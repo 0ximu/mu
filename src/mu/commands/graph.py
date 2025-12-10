@@ -425,7 +425,13 @@ def _ancestors_local(
     "--edge-types",
     "-e",
     multiple=True,
-    help="Filter by edge type (imports, calls, inherits, contains). Can specify multiple.",
+    default=("imports", "inherits"),
+    help="Filter by edge type (imports, calls, inherits, contains). Defaults to imports,inherits (architectural cycles).",
+)
+@click.option(
+    "--all-edges",
+    is_flag=True,
+    help="Include all edge types (imports, calls, inherits, contains). Shows recursive patterns too.",
 )
 @click.option(
     "--format",
@@ -442,6 +448,7 @@ def cycles(
     ctx: click.Context,
     path: Path,
     edge_types: tuple[str, ...],
+    all_edges: bool,
     output_format: str,
     no_color: bool,
     no_truncate: bool,
@@ -450,10 +457,14 @@ def cycles(
 
     Uses Kosaraju's strongly connected components algorithm via petgraph: O(V + E)
 
+    By default, only checks imports and inherits edges (architectural cycles).
+    Use --all-edges to include call cycles (recursive functions).
+
     \b
     Examples:
-        mu cycles                           # All cycles
-        mu cycles --edge-types imports      # Only import cycles
+        mu cycles                           # Architectural cycles (imports, inherits)
+        mu cycles --all-edges               # All cycles including recursive calls
+        mu cycles -e calls                  # Only call cycles
         mu cycles -e imports -e calls       # Import and call cycles
         mu cycles -f json                   # JSON output
         mu cycles --no-truncate             # Show full node IDs
@@ -464,12 +475,16 @@ def cycles(
     # Build output config from context and options
     config = _get_output_config(ctx, output_format, no_color, no_truncate)
 
+    # Determine effective edge types
+    # --all-edges overrides --edge-types to None (all edges)
+    # Otherwise use the provided/default edge_types
+    effective_edge_types: list[str] | None = None if all_edges else list(edge_types)
+
     # Try daemon HTTP client first (no lock)
     client = DaemonClient()
     if client.is_running():
         try:
-            edge_type_list = list(edge_types) if edge_types else None
-            result = client.cycles(edge_types=edge_type_list, cwd=str(path.resolve()))
+            result = client.cycles(edge_types=effective_edge_types, cwd=str(path.resolve()))
 
             # Handle daemon response format
             data = result.get("data", result)
@@ -491,13 +506,13 @@ def cycles(
             print_warning(f"MCP tool failed, falling back to local: {e}")
 
     # Fallback: Local mode (requires lock)
-    _cycles_local(ctx, path, edge_types, output_format, no_color, no_truncate)
+    _cycles_local(ctx, path, effective_edge_types, output_format, no_color, no_truncate)
 
 
 def _cycles_local(
     ctx: click.Context,
     path: Path,
-    edge_types: tuple[str, ...],
+    edge_types: list[str] | None,
     output_format: str,
     no_color: bool,
     no_truncate: bool = False,
@@ -525,11 +540,11 @@ def _cycles_local(
         stats = gm.load()
 
         print_info(f"Analyzing graph: {stats.node_count} nodes, {stats.edge_count} edges")
-        print_info(f"Edge types: {', '.join(stats.edge_types)}")
+        edge_type_desc = ", ".join(edge_types) if edge_types else "all"
+        print_info(f"Edge types: {edge_type_desc}")
 
         # Run cycle detection
-        edge_type_list = list(edge_types) if edge_types else None
-        detected_cycles = gm.find_cycles(edge_type_list)
+        detected_cycles = gm.find_cycles(edge_types)
 
         # Format and output
         output = _format_cycles_output(detected_cycles, config)

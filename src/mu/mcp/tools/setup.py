@@ -32,16 +32,25 @@ def mu_status() -> dict[str, Any]:
     mubase_path = find_mubase()
     embeddings_exist = False
 
-    if mubase_path:
-        embeddings_db = mubase_path.parent / "embeddings.db"
-        embeddings_exist = embeddings_db.exists()
-
     try:
         client = get_client()
         with client:
             status = client.status(cwd=cwd)
 
         language_stats = status.get("language_stats", {})
+
+        # Check embeddings directly from mubase
+        if mubase_path:
+            from mu.kernel import MUbase
+
+            try:
+                db = MUbase(mubase_path, read_only=True)
+                try:
+                    embeddings_exist = db.has_embeddings()
+                finally:
+                    db.close()
+            except Exception:
+                embeddings_exist = False
 
         return {
             "daemon_running": True,
@@ -53,8 +62,12 @@ def mu_status() -> dict[str, Any]:
             "language_stats": language_stats,
             "connections": status.get("connections", 0),
             "uptime_seconds": status.get("uptime_seconds", 0),
-            "next_action": None,
-            "message": "MU ready. All systems operational.",
+            "next_action": "mu_embed" if not embeddings_exist else None,
+            "message": (
+                "MU ready. Run `mu kernel embed .` to enable mu_search()."
+                if not embeddings_exist
+                else "MU ready. All systems operational."
+            ),
         }
     except DaemonError:
         if mubase_path:
@@ -64,6 +77,7 @@ def mu_status() -> dict[str, Any]:
             try:
                 stats = db.stats()
                 language_stats = db.get_language_stats()
+                embeddings_exist = db.has_embeddings()
                 return {
                     "daemon_running": False,
                     "config_exists": config_exists,

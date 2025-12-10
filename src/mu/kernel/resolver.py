@@ -375,7 +375,7 @@ class NodeResolver:
     def _find_candidates(self, reference: str) -> list[NodeCandidate]:
         """Find all candidate nodes matching the reference.
 
-        Tries in order: exact ID -> exact name -> suffix -> fuzzy.
+        Tries in order: exact ID -> file path -> exact name -> suffix -> fuzzy.
         Returns all matches with scores.
 
         Args:
@@ -401,7 +401,69 @@ class NodeResolver:
                 )
                 return candidates  # Exact ID is definitive
 
-        # 2. Try exact name match
+        # 2. Check if it looks like a file path
+        looks_like_path = (
+            "/" in reference
+            or "\\" in reference
+            or reference.endswith(
+                (".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs")
+            )
+        )
+
+        if looks_like_path:
+            # Normalize path separators
+            normalized_path = reference.replace("\\", "/")
+
+            # Try exact file_path match
+            try:
+                result = self.mubase.execute(
+                    "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+                    [normalized_path],
+                )
+                if result:
+                    node = self.mubase.get_node(str(result[0][0]))
+                    if node:
+                        is_test = _is_test_node(node)
+                        candidates.append(
+                            NodeCandidate(
+                                node=node,
+                                score=95,  # High score but below exact ID
+                                is_test=is_test,
+                                is_exact_match=True,
+                                match_type=MatchType.EXACT_ID,
+                            )
+                        )
+                        return candidates  # Exact file path is definitive
+            except Exception:
+                pass
+
+            # Try matching with path suffix (handles relative vs absolute paths)
+            try:
+                result = self.mubase.execute(
+                    "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 5",
+                    [f"%{normalized_path}"],
+                )
+                for row in result:
+                    node = self.mubase.get_node(str(row[0]))
+                    if node:
+                        is_test = _is_test_node(node)
+                        score = 85 if not is_test else 75
+                        candidates.append(
+                            NodeCandidate(
+                                node=node,
+                                score=score,
+                                is_test=is_test,
+                                is_exact_match=True,
+                                match_type=MatchType.SUFFIX_MATCH,
+                            )
+                        )
+            except Exception:
+                pass
+
+            if candidates:
+                return self._apply_path_scoring(candidates)
+
+        # 3. Try exact name match
         # Use parameterized query - name is escaped by DuckDB
         exact_nodes = self.mubase.find_by_name(reference)
         for node in exact_nodes:
@@ -423,7 +485,7 @@ class NodeResolver:
             # Have exact matches, apply path-length scoring and return
             return self._apply_path_scoring(candidates)
 
-        # 3. Try suffix match (name ends with reference)
+        # 4. Try suffix match (name ends with reference)
         suffix_nodes = self.mubase.find_nodes_by_suffix(reference)
         for node in suffix_nodes:
             is_test = _is_test_node(node)
@@ -443,7 +505,7 @@ class NodeResolver:
         if candidates:
             return self._apply_path_scoring(candidates)
 
-        # 4. Try fuzzy match (contains reference)
+        # 5. Try fuzzy match (contains reference)
         # Use LIKE with wildcards - DuckDB handles escaping
         fuzzy_pattern = f"%{reference}%"
         fuzzy_nodes = self.mubase.find_by_name(fuzzy_pattern)

@@ -41,6 +41,11 @@ if TYPE_CHECKING:
     help="Force local embeddings (sentence-transformers)",
 )
 @click.option(
+    "--model-path",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="Path to a custom sentence-transformers model directory",
+)
+@click.option(
     "--type",
     "-t",
     "node_types",
@@ -56,19 +61,21 @@ def kernel_embed(
     model: str | None,
     batch_size: int,
     local: bool,
+    model_path: Path | None,
     node_types: tuple[str, ...],
 ) -> None:
     """Generate embeddings for codebase nodes.
 
     Creates vector embeddings for code graph nodes to enable semantic search.
-    Requires a .mubase file - run 'mu kernel build' first.
+    Requires a .mubase file - run 'mu bootstrap' first.
 
     \b
     Examples:
-        mu kernel embed .                    # Embed all nodes with OpenAI
-        mu kernel embed . --local            # Use local sentence-transformers
-        mu kernel embed . --type function    # Only embed functions
-        mu kernel embed . --provider openai --model text-embedding-3-large
+        mu embed .                    # Embed all nodes with OpenAI
+        mu embed . --local            # Use local sentence-transformers
+        mu embed . --type function    # Only embed functions
+        mu embed . --provider openai --model text-embedding-3-large
+        mu embed . --model-path ./models/my-model  # Use custom local model
     """
     import asyncio
 
@@ -91,7 +98,10 @@ def kernel_embed(
 
     # Determine provider
     embed_provider = provider
-    if local:
+    if model_path is not None:
+        # Custom model path implies local provider
+        embed_provider = "local"
+    elif local:
         embed_provider = "local"
     elif embed_provider is None:
         embed_provider = ctx.config.embeddings.provider
@@ -106,10 +116,24 @@ def kernel_embed(
             print_info("Set the environment variable or use --local for local embeddings")
             sys.exit(ExitCode.CONFIG_ERROR)
 
-    print_info(f"Using {embed_provider} embedding provider")
+    if model_path:
+        print_info(f"Using custom model from {model_path}")
+    else:
+        print_info(f"Using {embed_provider} embedding provider")
 
     # Open database
-    db = MUbase(mubase_path)
+    from mu.kernel import MUbaseLockError
+
+    try:
+        db = MUbase(mubase_path)
+    except MUbaseLockError:
+        print_error(
+            "Database is locked by another process.\n\n"
+            "This usually means the daemon is running. Options:\n"
+            "  1. Stop the daemon: mu serve --stop\n"
+            "  2. Let the daemon handle it: Use the MCP server or daemon API"
+        )
+        sys.exit(ExitCode.CONFIG_ERROR)
 
     # Get nodes to embed
     nodes = []
@@ -133,6 +157,7 @@ def kernel_embed(
         config=ctx.config.embeddings,
         provider=embed_provider,
         model=model,
+        model_path=str(model_path) if model_path else None,
     )
 
     async def run_embedding() -> list[NodeEmbedding]:

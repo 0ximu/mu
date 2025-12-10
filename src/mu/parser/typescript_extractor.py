@@ -169,7 +169,64 @@ class TypeScriptExtractor:
             elif child.type == "class_body":
                 self._extract_class_body(child, source, class_def)
 
+        # Collect referenced types from methods
+        class_def.referenced_types = self._collect_referenced_types(class_def)
+
         return class_def
+
+    def _collect_referenced_types(self, class_def: ClassDef) -> list[str]:
+        """Collect all type references from a class's methods.
+
+        Extracts type names from:
+        - Method parameter type annotations
+        - Method return type annotations
+        """
+        type_refs: set[str] = set()
+
+        for method in class_def.methods:
+            # Extract from parameters
+            for param in method.parameters:
+                if param.type_annotation:
+                    types = self._extract_type_names(param.type_annotation)
+                    type_refs.update(types)
+
+            # Extract from return type
+            if method.return_type:
+                types = self._extract_type_names(method.return_type)
+                type_refs.update(types)
+
+        # Remove self-references and common built-in types
+        builtin_types = {
+            "string", "number", "boolean", "void", "null", "undefined", "any",
+            "never", "unknown", "object", "symbol", "bigint",
+            "Array", "Object", "String", "Number", "Boolean", "Symbol",
+            "Promise", "Map", "Set", "WeakMap", "WeakSet",
+            "Record", "Partial", "Required", "Readonly", "Pick", "Omit",
+            "Exclude", "Extract", "NonNullable", "ReturnType", "Parameters",
+            "ConstructorParameters", "InstanceType", "ThisType",
+            "Awaited", "Uppercase", "Lowercase", "Capitalize", "Uncapitalize",
+            class_def.name,  # Exclude self-reference
+        }
+        type_refs -= builtin_types
+
+        return sorted(type_refs)
+
+    def _extract_type_names(self, type_annotation: str) -> list[str]:
+        """Extract type names from a type annotation string.
+
+        Handles:
+        - Simple types: Node, MyClass
+        - Generic types: Array<Node>, Map<string, Node>
+        - Union types: Node | null
+        - Nested types: Array<Map<string, Node>>
+        """
+        import re
+
+        # Extract all identifiers that look like type names (capitalized)
+        pattern = r'\b([A-Z][a-zA-Z0-9_]*)\b'
+        matches = re.findall(pattern, type_annotation)
+
+        return matches
 
     def _extract_class_body(self, body: Node, source: bytes, class_def: ClassDef) -> None:
         """Extract class body contents."""

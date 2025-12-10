@@ -640,7 +640,12 @@ class SmartContextExtractor:
                 config = MUConfig()
 
             # Use local embeddings for fallback (faster, no API key needed)
-            service = EmbeddingService(config=config.embeddings, provider="local")
+            # Pass model_path from extraction config to match model used during indexing
+            service = EmbeddingService(
+                config=config.embeddings,
+                provider="local",
+                model_path=self.config.embedding_model_path,
+            )
 
             async def get_query_embedding() -> list[float] | None:
                 return await service.embed_query(question)

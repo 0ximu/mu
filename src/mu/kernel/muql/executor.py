@@ -36,6 +36,7 @@ class QueryResult:
     row_count: int = 0
     error: str | None = None
     warning: str | None = None
+    message: str | None = None  # Informational message (not an error)
     execution_time_ms: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
@@ -48,6 +49,8 @@ class QueryResult:
         }
         if self.warning:
             result["warning"] = self.warning
+        if self.message:
+            result["message"] = self.message
         return result
 
     @property
@@ -148,6 +151,7 @@ class QueryExecutor:
         - A full node ID: mod:src/cli.py, cls:src/kernel/mubase.py:MUbase
         - A simple name: MUbase, TransactionService
         - A qualified name: kernel.mubase.MUbase
+        - A file path: src/auth.py, backend/src/file.py
 
         Returns the full node ID if found, otherwise returns None.
         """
@@ -156,12 +160,64 @@ class QueryExecutor:
             node = self._db.get_node(target)
             if node:
                 return target
+            # If not found directly, try suffix match for mod: IDs
+            if target.startswith("mod:"):
+                path_part = target[4:]  # Remove "mod:" prefix
+                result = self._db.execute(
+                    "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+                    [f"%{path_part}"],
+                )
+                if result:
+                    return str(result[0][0])
             # Fall through to try name-based lookup
+
+        # Check if it looks like a file path
+        looks_like_path = (
+            "/" in target
+            or "\\" in target
+            or target.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".rs", ".cs"))
+        )
+
+        if looks_like_path:
+            # Normalize path separators
+            normalized_path = target.replace("\\", "/")
+
+            # Try exact file_path match via SQL
+            result = self._db.execute(
+                "SELECT id FROM nodes WHERE file_path = ? AND type = 'module' LIMIT 1",
+                [normalized_path],
+            )
+            if result:
+                return str(result[0][0])
+
+            # Try matching with path suffix (handles relative vs absolute paths)
+            result = self._db.execute(
+                "SELECT id FROM nodes WHERE file_path LIKE ? AND type = 'module' LIMIT 1",
+                [f"%{normalized_path}"],
+            )
+            if result:
+                return str(result[0][0])
+
+            # Try constructing the node ID directly
+            possible_id = f"mod:{normalized_path}"
+            if self._db.get_node(possible_id):
+                return possible_id
 
         # Try to find by exact name match
         nodes = self._db.find_by_name(target)
         if nodes:
             return nodes[0].id
+
+        # Try case-insensitive name match
+        try:
+            result = self._db.execute(
+                "SELECT id FROM nodes WHERE LOWER(name) = LOWER(?) LIMIT 1",
+                [target],
+            )
+            if result:
+                return str(result[0][0])
+        except Exception:
+            pass
 
         # Try pattern match
         nodes = self._db.find_by_name(f"%{target}%")
@@ -246,7 +302,16 @@ class QueryExecutor:
                 return self._nodes_to_result(nodes, "Implementations")
 
             elif operation == "find_path":
-                to_node = plan.extra_args.get("to_node", "")
+                to_node_raw = plan.extra_args.get("to_node", "")
+                # Resolve the to_node as well (critical for path finding)
+                resolved_to = self._resolve_node_id(to_node_raw) if to_node_raw else None
+                to_node = resolved_to or ""
+                if to_node_raw and not to_node:
+                    return QueryResult(
+                        error=f"Destination node not found: '{to_node_raw}'. "
+                        f"Try using a full node ID or verify the node exists with: "
+                        f"SELECT * FROM nodes WHERE name LIKE '%{to_node_raw}%'"
+                    )
                 # Use GraphManager for path finding if available
                 return self._execute_path(plan, target, to_node, depth)
 
@@ -316,13 +381,26 @@ class QueryExecutor:
         limit = plan.extra_args.get("limit", 100)
 
         if not target:
-            return QueryResult(error=f"FIND {operation} requires a target node")
+            # Node not found - return empty result with helpful suggestion instead of error
+            return QueryResult(
+                columns=["id", "name", "type", "path"],
+                rows=[],
+                row_count=0,
+                message=f"No node found matching '{plan.target_node}'. "
+                f"Try: SELECT * FROM nodes WHERE name LIKE '%{plan.target_node}%'",
+            )
 
         try:
             gm = self._get_graph_manager()
 
             if not gm.has_node(target):
-                return QueryResult(error=f"Node not found: {plan.target_node}")
+                # Node resolved to an ID but not in graph - return empty result
+                return QueryResult(
+                    columns=["id", "name", "type", "path"],
+                    rows=[],
+                    row_count=0,
+                    message=f"Node '{plan.target_node}' not found in call graph.",
+                )
 
             result_ids: list[str] = []
 

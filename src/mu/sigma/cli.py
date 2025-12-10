@@ -55,9 +55,14 @@ def sigma(ctx: click.Context, config: Path | None, verbose: bool) -> None:
     "--output",
     "-o",
     type=click.Path(path_type=Path),
-    help="Output file (default: data/sigma/repos.json)",
+    help="Output file (default: {data-dir}/repos.json)",
 )
 @click.option("--force", "-f", is_flag=True, help="Overwrite existing repos file")
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
 @click.pass_context
 def fetch(
     ctx: click.Context,
@@ -66,6 +71,7 @@ def fetch(
     min_stars: int | None,
     output: Path | None,
     force: bool,
+    data_dir: Path | None,
 ) -> None:
     """Fetch top GitHub repositories by stars.
 
@@ -75,11 +81,15 @@ def fetch(
     Examples:
         mu sigma fetch
         mu sigma fetch -l python -l typescript -n 100
-        mu sigma fetch --min-stars 1000
+        mu sigma fetch --min-stars 1000 --data-dir data/sigma-python
     """
     from mu.sigma.repos import load_repos, save_repos
 
     config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override first (affects all derived paths)
+    if data_dir:
+        config = config.with_data_dir(data_dir)
 
     # Apply CLI overrides
     if languages:
@@ -129,6 +139,11 @@ def fetch(
 @click.option("--repo", help="Process single repo (for testing)")
 @click.option("--dry-run", is_flag=True, help="Show what would be processed")
 @click.option("--limit", "-n", type=int, help="Limit number of repos to process")
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
 @click.pass_context
 def run(
     ctx: click.Context,
@@ -136,6 +151,7 @@ def run(
     repo: str | None,
     dry_run: bool,
     limit: int | None,
+    data_dir: Path | None,
 ) -> None:
     """Run the training data pipeline.
 
@@ -153,12 +169,18 @@ def run(
         mu sigma run --resume
         mu sigma run --repo owner/repo
         mu sigma run --limit 10 --dry-run
+        mu sigma run --data-dir data/sigma-rust
     """
     from mu.sigma.models import RepoInfo
     from mu.sigma.orchestrator import run_pipeline_sync
     from mu.sigma.repos import load_repos
 
     config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override first (affects all derived paths)
+    if data_dir:
+        config = config.with_data_dir(data_dir)
+
     config.ensure_directories()
 
     # Load repos
@@ -241,16 +263,29 @@ def run(
 
 
 @sigma.command()
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
 @click.pass_context
-def stats(ctx: click.Context) -> None:
+def stats(ctx: click.Context, data_dir: Path | None) -> None:
     """Show pipeline statistics.
 
     Displays statistics from the most recent pipeline run,
     including repos processed, pairs generated, and costs.
+
+    Examples:
+        mu sigma stats
+        mu sigma stats --data-dir data/sigma-rust
     """
     from mu.sigma.models import Checkpoint
 
     config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override
+    if data_dir:
+        config = config.with_data_dir(data_dir)
 
     checkpoint = Checkpoint.load(config.paths.checkpoint_file)
     if not checkpoint:
@@ -286,12 +321,18 @@ def stats(ctx: click.Context) -> None:
 @click.argument("parquet_path", type=click.Path(exists=True, path_type=Path), required=False)
 @click.option("--sample", "-n", default=10, help="Number of samples to show")
 @click.option("--type", "-t", "pair_type", help="Filter by pair type")
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
 @click.pass_context
 def inspect(
     ctx: click.Context,
     parquet_path: Path | None,
     sample: int,
     pair_type: str | None,
+    data_dir: Path | None,
 ) -> None:
     """Inspect training data.
 
@@ -302,8 +343,13 @@ def inspect(
         mu sigma inspect
         mu sigma inspect --sample 20
         mu sigma inspect --type qa_relevance
+        mu sigma inspect --data-dir data/sigma-rust
     """
     config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override
+    if data_dir:
+        config = config.with_data_dir(data_dir)
 
     path = parquet_path or config.paths.training_dir / "training_pairs.parquet"
 
@@ -388,8 +434,257 @@ def init(output: Path) -> None:
 
 
 @sigma.command()
+@click.option(
+    "--input",
+    "-i",
+    "input_path",
+    type=click.Path(exists=True, path_type=Path),
+    help="Path to training_pairs.json (default: {data-dir}/training/training_pairs.json)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    default=Path("models/mu-sigma-v1"),
+    help="Output directory for trained model",
+)
+@click.option(
+    "--base-model",
+    default="all-MiniLM-L6-v2",
+    help="Base model to fine-tune",
+)
+@click.option("--epochs", "-e", default=3, help="Number of training epochs")
+@click.option("--batch-size", "-b", default=64, help="Training batch size")
+@click.option("--margin", default=0.5, help="Triplet loss margin")
+@click.option("--lr", default=2e-5, help="Learning rate")
+@click.option("--max-samples", "-n", type=int, help="Limit samples (for testing)")
+@click.option("--device", type=click.Choice(["cpu", "cuda", "mps"]), help="Device to use")
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
 @click.pass_context
-def clean(ctx: click.Context) -> None:
+def train(
+    ctx: click.Context,
+    input_path: Path | None,
+    output: Path,
+    base_model: str,
+    epochs: int,
+    batch_size: int,
+    margin: float,
+    lr: float,
+    max_samples: int | None,
+    device: str | None,
+    data_dir: Path | None,
+) -> None:
+    """Train embedding model on generated triplets.
+
+    Fine-tunes a sentence-transformer model (default: all-MiniLM-L6-v2)
+    using triplet loss to learn code structure relationships.
+
+    Examples:
+        mu sigma train
+        mu sigma train --epochs 5 --batch-size 128
+        mu sigma train --max-samples 1000 --device cpu
+        mu sigma train -o models/mu-sigma-v2
+        mu sigma train --data-dir data/sigma-all
+    """
+    from mu.sigma.train import TrainingConfig, train_embeddings
+
+    config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override first (affects all derived paths)
+    if data_dir:
+        config = config.with_data_dir(data_dir)
+
+    # Default input path
+    data_path = input_path or config.paths.training_dir / "training_pairs.json"
+
+    if not data_path.exists():
+        click.echo(f"Training data not found: {data_path}")
+        click.echo("Run 'mu sigma run' first to generate training pairs.")
+        return
+
+    # Build training config
+    train_config = TrainingConfig(
+        base_model=base_model,
+        output_dir=output,
+        epochs=epochs,
+        batch_size=batch_size,
+        triplet_margin=margin,
+        learning_rate=lr,
+        max_samples=max_samples,
+        device=device,
+    )
+
+    click.echo("MU-SIGMA Embedding Training")
+    click.echo("=" * 40)
+    click.echo(f"\nInput: {data_path}")
+    click.echo(f"Output: {output}")
+    click.echo(f"Base model: {base_model}")
+    click.echo(f"Epochs: {epochs}")
+    click.echo(f"Batch size: {batch_size}")
+    click.echo(f"Triplet margin: {margin}")
+    click.echo(f"Learning rate: {lr}")
+    if max_samples:
+        click.echo(f"Max samples: {max_samples}")
+    click.echo()
+
+    def on_progress(status: str, progress: float) -> None:
+        bar_width = 30
+        filled = int(bar_width * progress)
+        bar = "=" * filled + "-" * (bar_width - filled)
+        click.echo(f"[{bar}] {progress * 100:.0f}% {status}")
+
+    result = train_embeddings(data_path, train_config, on_progress)
+
+    if result.success:
+        click.echo("\n" + "=" * 40)
+        click.echo("TRAINING COMPLETE")
+        click.echo("=" * 40)
+        click.echo(f"\nModel saved: {result.model_path}")
+        click.echo(f"Train samples: {result.train_samples:,}")
+        click.echo(f"Eval samples: {result.eval_samples:,}")
+        click.echo(f"Epochs completed: {result.epochs_completed}")
+        if result.eval_accuracy is not None:
+            click.echo(f"Eval accuracy: {result.eval_accuracy:.4f}")
+        click.echo("\nTo use the trained model:")
+        click.echo("  from sentence_transformers import SentenceTransformer")
+        click.echo(f'  model = SentenceTransformer("{result.model_path}")')
+    else:
+        click.echo(f"\nTraining failed: {result.error}")
+        raise SystemExit(1)
+
+
+@sigma.command()
+@click.argument("data_dirs", nargs=-1, type=click.Path(exists=True, path_type=Path), required=True)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="Output directory for merged data",
+)
+@click.option("--dry-run", is_flag=True, help="Show what would be merged without writing")
+@click.pass_context
+def merge(
+    ctx: click.Context,
+    data_dirs: tuple[Path, ...],
+    output: Path,
+    dry_run: bool,
+) -> None:
+    """Merge training data from multiple parallel runs.
+
+    Combines training_pairs.json or training_pairs.parquet files from multiple
+    data directories, deduplicates by (anchor, positive, negative) tuple,
+    and outputs a merged training_pairs.json file.
+
+    Examples:
+        mu sigma merge data/sigma-python data/sigma-rust -o data/sigma-all
+        mu sigma merge data/sigma data/sigma-rust data/sigma-go -o data/sigma-combined
+        mu sigma merge data/sigma-* -o data/sigma-all --dry-run
+    """
+    import json
+
+    click.echo("MU-SIGMA Merge")
+    click.echo("=" * 40)
+    click.echo(f"\nMerging {len(data_dirs)} data directories:")
+    for d in data_dirs:
+        click.echo(f"  - {d}")
+    click.echo(f"\nOutput: {output}")
+
+    # Collect all pairs
+    all_pairs: list[dict[str, str | float]] = []
+    seen: set[tuple[str, str, str]] = set()
+    stats_by_dir: dict[str, dict[str, int]] = {}
+
+    for data_dir in data_dirs:
+        json_file = data_dir / "training" / "training_pairs.json"
+        parquet_file = data_dir / "training" / "training_pairs.parquet"
+
+        pairs: list[dict[str, str | float]] = []
+
+        # Try JSON first, then Parquet
+        if json_file.exists():
+            with open(json_file, encoding="utf-8") as f:
+                pairs = json.load(f)
+            click.echo(f"\n{data_dir}: (JSON)")
+        elif parquet_file.exists():
+            try:
+                import pyarrow.parquet as pq
+
+                table = pq.read_table(parquet_file)
+                pairs = table.to_pylist()
+                click.echo(f"\n{data_dir}: (Parquet)")
+            except ImportError:
+                click.echo(f"\nWarning: pyarrow not installed, can't read {parquet_file}")
+                stats_by_dir[str(data_dir)] = {"loaded": 0, "unique": 0}
+                continue
+        else:
+            click.echo(f"\nWarning: No training_pairs.json or .parquet in {data_dir}")
+            stats_by_dir[str(data_dir)] = {"loaded": 0, "unique": 0}
+            continue
+
+        loaded = len(pairs)
+        unique = 0
+
+        for pair in pairs:
+            key = (pair.get("anchor", ""), pair.get("positive", ""), pair.get("negative", ""))
+            if key not in seen:
+                seen.add(key)
+                all_pairs.append(pair)
+                unique += 1
+
+        stats_by_dir[str(data_dir)] = {"loaded": loaded, "unique": unique}
+        click.echo(f"  Loaded: {loaded:,} pairs")
+        click.echo(f"  New unique: {unique:,} pairs")
+
+    # Summary
+    click.echo("\n" + "-" * 40)
+    click.echo(f"Total unique pairs: {len(all_pairs):,}")
+    click.echo(
+        f"Duplicates removed: {sum(s['loaded'] for s in stats_by_dir.values()) - len(all_pairs):,}"
+    )
+
+    if dry_run:
+        click.echo("\n[DRY RUN] Would write merged data to:")
+        click.echo(f"  {output / 'training' / 'training_pairs.json'}")
+        return
+
+    # Create output directory
+    output_training_dir = output / "training"
+    output_training_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write merged file
+    output_file = output_training_dir / "training_pairs.json"
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(all_pairs, f)
+
+    click.echo(f"\nMerged data written to: {output_file}")
+    click.echo(f"Total pairs: {len(all_pairs):,}")
+
+    # Also write a merge manifest for traceability
+    manifest_file = output / "merge_manifest.json"
+    manifest = {
+        "source_dirs": [str(d) for d in data_dirs],
+        "stats_by_dir": stats_by_dir,
+        "total_pairs": len(all_pairs),
+        "duplicates_removed": sum(s["loaded"] for s in stats_by_dir.values()) - len(all_pairs),
+    }
+    with open(manifest_file, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, indent=2)
+    click.echo(f"Merge manifest: {manifest_file}")
+
+
+@sigma.command()
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
+@click.pass_context
+def clean(ctx: click.Context, data_dir: Path | None) -> None:
     """Clean up pipeline data.
 
     Removes temporary files including:
@@ -400,12 +695,21 @@ def clean(ctx: click.Context) -> None:
     - .mubase files (can be reused)
     - Q&A pairs (for inspection)
     - Training data (the output)
+
+    Examples:
+        mu sigma clean
+        mu sigma clean --data-dir data/sigma-rust
     """
     import shutil
 
     config: SigmaConfig = ctx.obj["config"]
 
+    # Apply data-dir override
+    if data_dir:
+        config = config.with_data_dir(data_dir)
+
     click.echo("Cleaning up pipeline data...")
+    click.echo(f"Data directory: {config.paths.data_dir}")
 
     # Clean clones
     if config.paths.clones_dir.exists():
@@ -418,6 +722,105 @@ def clean(ctx: click.Context) -> None:
         click.echo(f"  Removed: {config.paths.checkpoint_file}")
 
     click.echo("Done.")
+
+
+@sigma.command("retrofit-frameworks")
+@click.option(
+    "--data-dir",
+    type=click.Path(path_type=Path),
+    help="Data directory for isolated runs (default: data/sigma)",
+)
+@click.option("--dry-run", is_flag=True, help="Preview without saving")
+@click.pass_context
+def retrofit_frameworks(ctx: click.Context, data_dir: Path | None, dry_run: bool) -> None:
+    """Add framework tags to existing training pairs.
+
+    Detects frameworks from mubases and updates training pairs that
+    don't have framework tags. This is a local operation - no API calls.
+
+    Examples:
+        mu sigma retrofit-frameworks
+        mu sigma retrofit-frameworks --dry-run
+        mu sigma retrofit-frameworks --data-dir data/sigma-all
+    """
+    import json
+
+    from mu.sigma.frameworks import detect_frameworks
+    from mu.sigma.models import TrainingPair
+
+    config: SigmaConfig = ctx.obj["config"]
+
+    # Apply data-dir override
+    if data_dir:
+        config = config.with_data_dir(data_dir)
+
+    pairs_path = config.paths.training_dir / "training_pairs.json"
+
+    if not pairs_path.exists():
+        click.echo(f"No training pairs found at {pairs_path}")
+        click.echo("Run 'mu sigma run' first to generate training pairs.")
+        return
+
+    click.echo(f"Retrofitting frameworks for {config.paths.data_dir}...")
+
+    # Load existing pairs
+    with open(pairs_path, encoding="utf-8") as f:
+        data = json.load(f)
+    pairs = [TrainingPair.from_dict(d) for d in data]
+    click.echo(f"Loaded {len(pairs):,} training pairs")
+
+    # Get unique repos
+    repos = {p.source_repo for p in pairs}
+    click.echo(f"Found {len(repos)} unique repos")
+
+    # Detect frameworks for each repo's mubase
+    repo_frameworks: dict[str, list[str]] = {}
+    mubases_found = 0
+    for repo in repos:
+        # Convert owner/repo to owner__repo for filename
+        mubase_name = f"{repo.replace('/', '__')}.mubase"
+        mubase_path = config.paths.mubases_dir / mubase_name
+        if mubase_path.exists():
+            mubases_found += 1
+            frameworks = detect_frameworks(mubase_path)
+            repo_frameworks[repo] = frameworks
+        else:
+            repo_frameworks[repo] = []
+
+    click.echo(f"Found {mubases_found}/{len(repos)} mubases")
+
+    # Update pairs with frameworks
+    updated = 0
+    for pair in pairs:
+        if not pair.frameworks:  # Only update if empty
+            frameworks = repo_frameworks.get(pair.source_repo, [])
+            if frameworks:
+                pair.frameworks = frameworks
+                updated += 1
+
+    # Report summary
+    click.echo()
+    click.echo(f"Repos processed: {len(repos)}")
+    click.echo(f"Pairs updated: {updated:,}/{len(pairs):,}")
+
+    # Show frameworks per repo (only repos with detected frameworks)
+    repos_with_frameworks = sorted(
+        [(repo, fw) for repo, fw in repo_frameworks.items() if fw],
+        key=lambda x: x[0],
+    )
+    if repos_with_frameworks:
+        click.echo()
+        click.echo("Detected frameworks:")
+        for repo, fw in repos_with_frameworks:
+            click.echo(f"  {repo}: {', '.join(fw)}")
+
+    # Save unless dry-run
+    if not dry_run:
+        with open(pairs_path, "w", encoding="utf-8") as f:
+            json.dump([p.to_dict() for p in pairs], f)
+        click.echo(f"\nSaved to {pairs_path}")
+    else:
+        click.echo("\n[DRY RUN] No changes saved")
 
 
 def register_sigma_commands(cli: click.Group) -> None:

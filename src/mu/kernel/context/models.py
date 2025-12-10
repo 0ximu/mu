@@ -62,6 +62,10 @@ class ExtractionConfig:
     min_complexity_to_show: int = 0
     """Minimum complexity to show (0 = show all)."""
 
+    embedding_model_path: str | None = None
+    """Path to custom embedding model directory for semantic search.
+    Must match the model used during indexing."""
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -79,6 +83,7 @@ class ExtractionConfig:
             "include_docstrings": self.include_docstrings,
             "include_line_numbers": self.include_line_numbers,
             "min_complexity_to_show": self.min_complexity_to_show,
+            "embedding_model_path": self.embedding_model_path,
         }
 
 

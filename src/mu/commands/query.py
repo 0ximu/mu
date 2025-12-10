@@ -66,7 +66,7 @@ def _execute_muql(
     output_format: str,
     no_color: bool,
     explain: bool,
-    full_paths: bool = False,
+    no_truncate: bool = False,
     offline: bool = False,
 ) -> None:
     """Shared MUQL execution logic for query commands.
@@ -91,7 +91,6 @@ def _execute_muql(
         offline = True
 
     mubase_path = get_mubase_path(path)
-    truncate_paths = not full_paths
 
     if not mubase_path.exists():
         print_error(f"No .mu/mubase found at {mubase_path}")
@@ -101,7 +100,7 @@ def _execute_muql(
     # For non-query operations (interactive, explain), always use local mode
     if interactive or explain:
         _execute_muql_local(
-            mubase_path, query_str, interactive, output_format, no_color, explain, truncate_paths
+            mubase_path, query_str, interactive, output_format, no_color, explain, no_truncate
         )
         return
 
@@ -114,7 +113,7 @@ def _execute_muql(
     # Offline mode: skip daemon entirely
     if offline:
         _execute_muql_local(
-            mubase_path, query_str, interactive, output_format, no_color, explain, truncate_paths
+            mubase_path, query_str, interactive, output_format, no_color, explain, no_truncate
         )
         return
 
@@ -134,7 +133,7 @@ def _execute_muql(
                 error=result_dict.get("error"),
                 execution_time_ms=result_dict.get("execution_time_ms", 0.0),
             )
-            output = format_result(result, output_format, no_color, truncate_paths)
+            output = format_result(result, output_format, no_color, no_truncate)
             console.print(output)
             return
         except DaemonError as e:
@@ -143,7 +142,7 @@ def _execute_muql(
 
     # Fallback: Local mode (requires lock)
     _execute_muql_local(
-        mubase_path, query_str, interactive, output_format, no_color, explain, truncate_paths
+        mubase_path, query_str, interactive, output_format, no_color, explain, no_truncate
     )
 
 
@@ -154,7 +153,7 @@ def _execute_muql_local(
     output_format: str,
     no_color: bool,
     explain: bool,
-    truncate_paths: bool = True,
+    no_truncate: bool = False,
 ) -> None:
     """Execute MUQL query in local mode (direct MUbase access).
 
@@ -196,7 +195,7 @@ def _execute_muql_local(
                 console.print(explanation)
             else:
                 # Execute and format
-                output = engine.query(query_str, output_format, no_color, truncate_paths)
+                output = engine.query(query_str, output_format, no_color, no_truncate)
                 console.print(output)
         else:
             # No query provided and not interactive mode

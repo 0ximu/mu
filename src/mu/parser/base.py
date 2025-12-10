@@ -200,6 +200,7 @@ def _rust_module_to_python(rust_module: Any, stored_path: str) -> ModuleDef:
             attributes=list(c.attributes),
             start_line=c.start_line,
             end_line=c.end_line,
+            referenced_types=list(c.referenced_types) if c.referenced_types else [],
         )
 
     def convert_import(i: Any) -> ImportDef:

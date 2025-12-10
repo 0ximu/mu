@@ -22,7 +22,56 @@ class EntityExtractor:
     - Qualified names (e.g., auth.service.login, mu.parser.models)
     - Quoted strings (e.g., 'config.py', "UserService")
     - Known name matching (exact and suffix match)
+    - Domain term mapping (e.g., "services" -> *Service classes)
     """
+
+    # Domain terms that map to code naming patterns
+    # Maps common domain words to (suffix_pattern, type_hint)
+    DOMAIN_TERM_PATTERNS: dict[str, tuple[str, str]] = {
+        # Plural domain terms -> class suffix patterns
+        "services": ("Service", "class"),
+        "service": ("Service", "class"),
+        "controllers": ("Controller", "class"),
+        "controller": ("Controller", "class"),
+        "handlers": ("Handler", "class"),
+        "handler": ("Handler", "class"),
+        "managers": ("Manager", "class"),
+        "manager": ("Manager", "class"),
+        "repositories": ("Repository", "class"),
+        "repository": ("Repository", "class"),
+        "factories": ("Factory", "class"),
+        "factory": ("Factory", "class"),
+        "providers": ("Provider", "class"),
+        "provider": ("Provider", "class"),
+        "adapters": ("Adapter", "class"),
+        "adapter": ("Adapter", "class"),
+        "validators": ("Validator", "class"),
+        "validator": ("Validator", "class"),
+        "models": ("Model", "class"),
+        "model": ("Model", "class"),
+        "entities": ("Entity", "class"),
+        "entity": ("Entity", "class"),
+        "components": ("Component", "class"),
+        "component": ("Component", "class"),
+        "middleware": ("Middleware", "class"),
+        "middlewares": ("Middleware", "class"),
+        "helpers": ("Helper", "class"),
+        "helper": ("Helper", "class"),
+        "utils": ("Utils", "class"),
+        "utilities": ("Utility", "class"),
+        "tests": ("Test", "class"),
+        "test": ("Test", "class"),
+        # Domain concepts -> function patterns
+        "authentication": ("auth", "function"),
+        "authorization": ("auth", "function"),
+        "auth": ("auth", "function"),
+        "login": ("login", "function"),
+        "logout": ("logout", "function"),
+        "validation": ("validate", "function"),
+        "parsing": ("parse", "function"),
+        "parser": ("Parser", "class"),
+        "parsers": ("Parser", "class"),
+    }
 
     # Pattern definitions with confidence scores
     PATTERNS: list[tuple[str, Pattern[str], float]] = [
@@ -189,10 +238,77 @@ class EntityExtractor:
                     is_known=True,
                 )
 
+        # Extract domain terms and map to code patterns
+        domain_entities = self._extract_domain_terms(text)
+        for entity in domain_entities:
+            # Only add if not already found with higher confidence
+            if entity.name not in entities or entities[entity.name].confidence < entity.confidence:
+                entities[entity.name] = entity
+
         # Sort by confidence descending
         result = sorted(entities.values(), key=lambda e: -e.confidence)
 
         return result
+
+    def _extract_domain_terms(self, text: str) -> list[ExtractedEntity]:
+        """Extract domain terms and map them to code naming patterns.
+
+        For example, "services" maps to entities with "Service" suffix.
+
+        Args:
+            text: The question or text to analyze.
+
+        Returns:
+            List of extracted entities from domain term mapping.
+        """
+        entities = []
+        text_lower = text.lower()
+        words = set(re.findall(r"\b(\w+)\b", text_lower))
+
+        for term, (suffix_pattern, _type_hint) in self.DOMAIN_TERM_PATTERNS.items():
+            if term in words:
+                # Find known names that match this domain pattern
+                matching_names = self._find_names_by_suffix(suffix_pattern)
+                for name in matching_names:
+                    entities.append(
+                        ExtractedEntity(
+                            name=name,
+                            confidence=0.75,  # Moderate confidence for domain mapping
+                            extraction_method="domain_term",
+                            is_known=True,
+                        )
+                    )
+
+                # If no known names match, create a pattern-based entity
+                # that can be used for suffix search
+                if not matching_names:
+                    entities.append(
+                        ExtractedEntity(
+                            name=f"*{suffix_pattern}",  # Wildcard pattern
+                            confidence=0.6,
+                            extraction_method="domain_pattern",
+                            is_known=False,
+                        )
+                    )
+
+        return entities
+
+    def _find_names_by_suffix(self, suffix: str) -> list[str]:
+        """Find known names that end with the given suffix.
+
+        Args:
+            suffix: The suffix to search for (e.g., "Service").
+
+        Returns:
+            List of matching known names.
+        """
+        matches = []
+        for name in self.known_names:
+            # Get the simple name (last part after . or :)
+            simple_name = name.split(".")[-1].split(":")[-1]
+            if simple_name.endswith(suffix):
+                matches.append(name)
+        return matches
 
     def _is_known_name(self, name: str) -> bool:
         """Check if a name matches a known entity.

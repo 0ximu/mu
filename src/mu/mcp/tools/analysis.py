@@ -74,6 +74,7 @@ def mu_deps(
                             id=node_data.get("id", dep_id),
                             type=node_data.get("type", "unknown"),
                             name=node_data.get("name", ""),
+                            file_path=node_data.get("file_path"),  # Include file_path in minimal
                         )
                     )
                 else:
@@ -157,6 +158,7 @@ def mu_deps(
                             id=node.id,
                             type=node.type.value if hasattr(node.type, "value") else str(node.type),
                             name=node.name,
+                            file_path=node.file_path,  # Include file_path in minimal
                         )
                     )
                 else:

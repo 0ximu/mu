@@ -14,7 +14,14 @@ import duckdb
 
 from mu.kernel.builder import GraphBuilder
 from mu.kernel.models import Edge, Node
-from mu.kernel.schema import EMBEDDINGS_SCHEMA_SQL, SCHEMA_SQL, EdgeType, NodeType
+from mu.kernel.schema import (
+    EMBEDDINGS_SCHEMA_SQL,
+    PATTERNS_SCHEMA_SQL,
+    SCHEMA_SQL,
+    TEMPORAL_SCHEMA_SQL,
+    EdgeType,
+    NodeType,
+)
 from mu.paths import MUBASE_FILE, get_mu_dir
 
 if TYPE_CHECKING:
@@ -123,13 +130,34 @@ class MUbase:
                 version = result[0]
                 if version != self.VERSION:
                     self._migrate(version)
+            # Ensure temporal and patterns tables exist (may be missing from older versions)
+            self._ensure_optional_schemas()
         except duckdb.CatalogException:
             # Tables don't exist yet, create them
             self._create_schema()
 
+    def _ensure_optional_schemas(self) -> None:
+        """Ensure optional schemas exist (temporal, patterns).
+
+        These may be missing from databases created before these features
+        were added. Safe to run multiple times (CREATE TABLE IF NOT EXISTS).
+        """
+        if self.read_only:
+            return
+        try:
+            self.conn.execute(TEMPORAL_SCHEMA_SQL)
+            self.conn.execute(PATTERNS_SCHEMA_SQL)
+        except Exception:
+            # Ignore errors - tables may already exist or db may be read-only
+            pass
+
     def _create_schema(self) -> None:
         """Create all tables and indexes."""
         self.conn.execute(SCHEMA_SQL)
+        # Create temporal schema (snapshots, node_history, edge_history)
+        self.conn.execute(TEMPORAL_SCHEMA_SQL)
+        # Create patterns schema
+        self.conn.execute(PATTERNS_SCHEMA_SQL)
         self.conn.execute(
             "INSERT INTO metadata VALUES ('version', ?)",
             [self.VERSION],

@@ -154,7 +154,64 @@ class PythonExtractor:
             elif child.type == "block":
                 self._extract_class_body(child, source, class_def)
 
+        # Collect referenced types from methods
+        class_def.referenced_types = self._collect_referenced_types(class_def)
+
         return class_def
+
+    def _collect_referenced_types(self, class_def: ClassDef) -> list[str]:
+        """Collect all type references from a class's methods.
+
+        Extracts type names from:
+        - Method parameter type annotations
+        - Method return type annotations
+        """
+        type_refs: set[str] = set()
+
+        for method in class_def.methods:
+            # Extract from parameters
+            for param in method.parameters:
+                if param.type_annotation:
+                    types = self._extract_type_names(param.type_annotation)
+                    type_refs.update(types)
+
+            # Extract from return type
+            if method.return_type:
+                types = self._extract_type_names(method.return_type)
+                type_refs.update(types)
+
+        # Remove self-references and common built-in types
+        builtin_types = {
+            "str", "int", "float", "bool", "bytes", "None", "Any", "Self",
+            "list", "dict", "set", "tuple", "List", "Dict", "Set", "Tuple",
+            "Optional", "Union", "Callable", "Iterable", "Iterator", "Generator",
+            "Sequence", "Mapping", "Type", "ClassVar", "Final", "Literal",
+            "TypeVar", "Generic", "Protocol", "Awaitable", "Coroutine",
+            "AsyncIterator", "AsyncIterable", "AsyncGenerator",
+            class_def.name,  # Exclude self-reference
+        }
+        type_refs -= builtin_types
+
+        return sorted(type_refs)
+
+    def _extract_type_names(self, type_annotation: str) -> list[str]:
+        """Extract type names from a type annotation string.
+
+        Handles:
+        - Simple types: Node, MyClass
+        - Generic types: list[Node], dict[str, Node]
+        - Union types: Node | None, Union[Node, Error]
+        - Nested types: list[dict[str, Node]]
+        """
+        import re
+
+        # Extract all identifiers that look like type names (capitalized or contain uppercase)
+        # This regex matches: Node, MyClass, HTTPClient, etc.
+        # But not: str, int, list, dict (common lowercase built-ins)
+        pattern = r'\b([A-Z][a-zA-Z0-9_]*)\b'
+        matches = re.findall(pattern, type_annotation)
+
+        return matches
 
     def _extract_class_body(self, block: Node, source: bytes, class_def: ClassDef) -> None:
         """Extract class body contents."""

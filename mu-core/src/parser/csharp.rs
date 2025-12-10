@@ -4,7 +4,8 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 use super::helpers::{
-    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
+    collect_type_strings_from_methods, count_lines, extract_referenced_types, find_child_by_type,
+    get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
 use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
@@ -159,6 +160,16 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
             _ => {}
         }
     }
+
+    // Collect type annotations from all methods and extract referenced types
+    // Strip generic parameters from name for filtering (e.g., "MyClass<T>" -> "MyClass")
+    let base_name = class_def.name.split('<').next().unwrap_or(&class_def.name);
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        base_name,
+        "csharp",
+    );
 
     class_def
 }
@@ -443,6 +454,14 @@ fn extract_interface(node: &Node, source: &str) -> ClassDef {
             _ => {}
         }
     }
+
+    // Collect type annotations from all methods and extract referenced types
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "csharp",
+    );
 
     class_def
 }

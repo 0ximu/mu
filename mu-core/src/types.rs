@@ -231,12 +231,15 @@ pub struct ClassDef {
     pub start_line: u32,
     #[pyo3(get, set)]
     pub end_line: u32,
+    #[pyo3(get, set)]
+    pub referenced_types: Vec<String>,
 }
 
 #[pymethods]
 impl ClassDef {
     #[new]
-    #[pyo3(signature = (name, bases=vec![], decorators=vec![], methods=vec![], attributes=vec![], docstring=None, start_line=0, end_line=0))]
+    #[pyo3(signature = (name, bases=vec![], decorators=vec![], methods=vec![], attributes=vec![], docstring=None, start_line=0, end_line=0, referenced_types=vec![]))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
         bases: Vec<String>,
@@ -246,6 +249,7 @@ impl ClassDef {
         docstring: Option<String>,
         start_line: u32,
         end_line: u32,
+        referenced_types: Vec<String>,
     ) -> Self {
         Self {
             name,
@@ -256,6 +260,7 @@ impl ClassDef {
             docstring,
             start_line,
             end_line,
+            referenced_types,
         }
     }
 
@@ -275,6 +280,11 @@ impl ClassDef {
         dict.set_item("attributes", &self.attributes)?;
         dict.set_item("docstring", &self.docstring)?;
         dict.set_item("lines", (self.start_line, self.end_line))?;
+
+        // Only include referenced_types if non-empty (avoid bloating JSON output)
+        if !self.referenced_types.is_empty() {
+            dict.set_item("referenced_types", &self.referenced_types)?;
+        }
 
         Ok(dict.into())
     }
