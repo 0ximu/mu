@@ -1,0 +1,402 @@
+[
+  {
+    "name": "iluwatar/java-design-patterns",
+    "url": "https://github.com/iluwatar/java-design-patterns.git",
+    "stars": 93470,
+    "language": "java",
+    "size_kb": 46754,
+    "description": "Design patterns implemented in Java"
+  },
+  {
+    "name": "macrozheng/mall",
+    "url": "https://github.com/macrozheng/mall.git",
+    "stars": 82382,
+    "language": "java",
+    "size_kb": 58711,
+    "description": "mall\u9879\u76ee\u662f\u4e00\u5957\u7535\u5546\u7cfb\u7edf\uff0c\u5305\u62ec\u524d\u53f0\u5546\u57ce\u7cfb\u7edf\u53ca\u540e\u53f0\u7ba1\u7406\u7cfb\u7edf\uff0c\u57fa\u4e8eSpring Boot+MyBatis\u5b9e\u73b0\uff0c\u91c7\u7528Docker\u5bb9\u5668\u5316\u90e8\u7f72\u3002 \u524d\u53f0\u5546\u57ce\u7cfb\u7edf\u5305\u542b\u9996\u9875\u95e8\u6237\u3001\u5546\u54c1\u63a8\u8350\u3001\u5546\u54c1\u641c\u7d22\u3001\u5546\u54c1\u5c55\u793a\u3001\u8d2d\u7269\u8f66\u3001\u8ba2\u5355\u6d41\u7a0b\u3001\u4f1a\u5458\u4e2d\u5fc3\u3001\u5ba2\u6237\u670d\u52a1\u3001\u5e2e\u52a9\u4e2d\u5fc3\u7b49\u6a21\u5757\u3002 \u540e\u53f0\u7ba1\u7406\u7cfb\u7edf\u5305\u542b\u5546\u54c1\u7ba1\u7406\u3001\u8ba2\u5355\u7ba1\u7406\u3001\u4f1a\u5458\u7ba1\u7406\u3001\u4fc3\u9500\u7ba1\u7406\u3001\u8fd0\u8425\u7ba1\u7406\u3001\u5185\u5bb9\u7ba1\u7406\u3001\u7edf\u8ba1\u62a5\u8868\u3001\u8d22\u52a1\u7ba1\u7406\u3001\u6743\u9650\u7ba1\u7406\u3001\u8bbe\u7f6e\u7b49\u6a21\u5757\u3002"
+  },
+  {
+    "name": "doocs/advanced-java",
+    "url": "https://github.com/doocs/advanced-java.git",
+    "stars": 78608,
+    "language": "java",
+    "size_kb": 26614,
+    "description": "\ud83d\ude2e Core Interview Questions & Answers For Experienced Java(Backend) Developers | \u4e92\u8054\u7f51 Java \u5de5\u7a0b\u5e08\u8fdb\u9636\u77e5\u8bc6\u5b8c\u5168\u626b\u76f2\uff1a\u6db5\u76d6\u9ad8\u5e76\u53d1\u3001\u5206\u5e03\u5f0f\u3001\u9ad8\u53ef\u7528\u3001\u5fae\u670d\u52a1\u3001\u6d77\u91cf\u6570\u636e\u5904\u7406\u7b49\u9886\u57df\u77e5\u8bc6"
+  },
+  {
+    "name": "kdn251/interviews",
+    "url": "https://github.com/kdn251/interviews.git",
+    "stars": 64719,
+    "language": "java",
+    "size_kb": 24462,
+    "description": "Everything you need to know to get the job."
+  },
+  {
+    "name": "TheAlgorithms/Java",
+    "url": "https://github.com/TheAlgorithms/Java.git",
+    "stars": 64456,
+    "language": "java",
+    "size_kb": 7080,
+    "description": "All Algorithms implemented in Java"
+  },
+  {
+    "name": "termux/termux-app",
+    "url": "https://github.com/termux/termux-app.git",
+    "stars": 47607,
+    "language": "java",
+    "size_kb": 4979,
+    "description": "Termux - a terminal emulator application for Android OS extendible by variety of packages."
+  },
+  {
+    "name": "skylot/jadx",
+    "url": "https://github.com/skylot/jadx.git",
+    "stars": 46452,
+    "language": "java",
+    "size_kb": 24580,
+    "description": "Dex to Java decompiler"
+  },
+  {
+    "name": "jeecgboot/JeecgBoot",
+    "url": "https://github.com/jeecgboot/JeecgBoot.git",
+    "stars": 44637,
+    "language": "java",
+    "size_kb": 90133,
+    "description": "\ud83d\udd25AI\u4f4e\u4ee3\u7801\u5e73\u53f0\uff0c\u52a9\u529b\u4f01\u4e1a\u5feb\u901f\u5b9e\u73b0\u4f4e\u4ee3\u7801\u5f00\u53d1\u548c\u6784\u5efaAI\u5e94\u7528\uff01 \u6210\u719f\u7684AI\u5e94\u7528\u5e73\u53f0\uff1a\u6db5\u76d6AI\u5e94\u7528\u3001AI\u6a21\u578b\u3001AI\u804a\u5929\u52a9\u624b\u3001\u77e5\u8bc6\u5e93\u3001AI\u6d41\u7a0b\u7f16\u6392\u3001MCP\u548c\u63d2\u4ef6\uff0c\u804a\u5929\u5f0f\u4e1a\u52a1\u64cd\u4f5c\u7b49\uff0c\u517c\u5bb9\u591a\u79cd\u5927\u6a21\u578b\uff1b\u63d0\u4f9b\u5f3a\u5927\u4ee3\u7801\u751f\u6210\u5668\uff1a\u5b9e\u73b0\u524d\u540e\u7aef\u4e00\u952e\u751f\u6210\uff0c\u65e0\u9700\u624b\u5199\u4ee3\u7801! \u5f15\u9886AI\u5f00\u53d1\u6a21\u5f0f\uff1aAI\u751f\u6210\u2192\u5728\u7ebf\u914d\u7f6e\u2192\u4ee3\u7801\u751f\u6210\u2192\u624b\u5de5\u5408\u5e76\uff0c\u89e3\u51b3Java\u9879\u76ee80%\u91cd\u590d\u5de5\u4f5c\uff0c\u63d0\u5347\u6548\u7387\u8282\u7701\u6210\u672c\uff0c\u53c8\u4e0d\u5931\u7075\u6d3b~"
+  },
+  {
+    "name": "apache/dubbo",
+    "url": "https://github.com/apache/dubbo.git",
+    "stars": 41636,
+    "language": "java",
+    "size_kb": 60896,
+    "description": "The java implementation of Apache Dubbo. An RPC and microservice framework."
+  },
+  {
+    "name": "PhilJay/MPAndroidChart",
+    "url": "https://github.com/PhilJay/MPAndroidChart.git",
+    "stars": 38172,
+    "language": "java",
+    "size_kb": 21593,
+    "description": "A powerful \ud83d\ude80 Android chart view / graph view library, supporting line- bar- pie- radar- bubble- and candlestick charts as well as scaling, panning and animations."
+  },
+  {
+    "name": "halo-dev/halo",
+    "url": "https://github.com/halo-dev/halo.git",
+    "stars": 37402,
+    "language": "java",
+    "size_kb": 81451,
+    "description": "\u5f3a\u5927\u6613\u7528\u7684\u5f00\u6e90\u5efa\u7ad9\u5de5\u5177\u3002"
+  },
+  {
+    "name": "alibaba/arthas",
+    "url": "https://github.com/alibaba/arthas.git",
+    "stars": 36910,
+    "language": "java",
+    "size_kb": 62343,
+    "description": "Alibaba Java Diagnostic Tool Arthas/Alibaba Java\u8bca\u65ad\u5229\u5668Arthas"
+  },
+  {
+    "name": "TeamNewPipe/NewPipe",
+    "url": "https://github.com/TeamNewPipe/NewPipe.git",
+    "stars": 35871,
+    "language": "java",
+    "size_kb": 83587,
+    "description": "A libre lightweight streaming front-end for Android."
+  },
+  {
+    "name": "bumptech/glide",
+    "url": "https://github.com/bumptech/glide.git",
+    "stars": 34988,
+    "language": "java",
+    "size_kb": 97832,
+    "description": "An image loading and caching library for Android focused on smooth scrolling"
+  },
+  {
+    "name": "xkcoding/spring-boot-demo",
+    "url": "https://github.com/xkcoding/spring-boot-demo.git",
+    "stars": 34026,
+    "language": "java",
+    "size_kb": 14194,
+    "description": "\ud83d\ude80\u4e00\u4e2a\u7528\u6765\u6df1\u5165\u5b66\u4e60\u5e76\u5b9e\u6218 Spring Boot \u7684\u9879\u76ee\u3002"
+  },
+  {
+    "name": "alibaba/easyexcel",
+    "url": "https://github.com/alibaba/easyexcel.git",
+    "stars": 33722,
+    "language": "java",
+    "size_kb": 26334,
+    "description": "\u5feb\u901f\u3001\u7b80\u6d01\u3001\u89e3\u51b3\u5927\u6587\u4ef6\u5185\u5b58\u6ea2\u51fa\u7684java\u5904\u7406Excel\u5de5\u5177"
+  },
+  {
+    "name": "Blankj/AndroidUtilCode",
+    "url": "https://github.com/Blankj/AndroidUtilCode.git",
+    "stars": 33682,
+    "language": "java",
+    "size_kb": 47329,
+    "description": ":fire: Android developers should collect the following utils(updating)."
+  },
+  {
+    "name": "alibaba/nacos",
+    "url": "https://github.com/alibaba/nacos.git",
+    "stars": 32371,
+    "language": "java",
+    "size_kb": 68061,
+    "description": "an easy-to-use dynamic service discovery, configuration and service management platform for building AI cloud native applications."
+  },
+  {
+    "name": "binarywang/WxJava",
+    "url": "https://github.com/binarywang/WxJava.git",
+    "stars": 32257,
+    "language": "java",
+    "size_kb": 19310,
+    "description": "\u5fae\u4fe1\u5f00\u53d1 Java SDK \uff0c\u652f\u6301\u5305\u62ec\u5fae\u4fe1\u652f\u4ed8\uff0c\u5f00\u653e\u5e73\u53f0\uff0c\u5c0f\u7a0b\u5e8f\uff0c\u4f01\u4e1a\u5fae\u4fe1\uff0c\u89c6\u9891\u53f7\uff0c\u516c\u4f17\u53f7\u7b49\u7684\u540e\u7aef\u5f00\u53d1"
+  },
+  {
+    "name": "conductor-oss/conductor",
+    "url": "https://github.com/conductor-oss/conductor.git",
+    "stars": 31013,
+    "language": "java",
+    "size_kb": 29847,
+    "description": "Conductor is an event driven orchestration platform providing durable and highly resilient execution engine for your applications"
+  },
+  {
+    "name": "ityouknow/spring-boot-examples",
+    "url": "https://github.com/ityouknow/spring-boot-examples.git",
+    "stars": 30635,
+    "language": "java",
+    "size_kb": 1074,
+    "description": "about learning Spring Boot via examples. Spring Boot \u6559\u7a0b\u3001\u6280\u672f\u6808\u793a\u4f8b\u4ee3\u7801\uff0c\u5feb\u901f\u7b80\u5355\u4e0a\u624b\u6559\u7a0b\u3002 "
+  },
+  {
+    "name": "chinabugotech/hutool",
+    "url": "https://github.com/chinabugotech/hutool.git",
+    "stars": 30254,
+    "language": "java",
+    "size_kb": 71996,
+    "description": "\ud83c\udf6cA set of tools that keep Java sweet."
+  },
+  {
+    "name": "apolloconfig/apollo",
+    "url": "https://github.com/apolloconfig/apollo.git",
+    "stars": 29730,
+    "language": "java",
+    "size_kb": 56829,
+    "description": "Apollo is a reliable configuration management system suitable for microservice configuration management scenarios."
+  },
+  {
+    "name": "xuxueli/xxl-job",
+    "url": "https://github.com/xuxueli/xxl-job.git",
+    "stars": 29662,
+    "language": "java",
+    "size_kb": 38772,
+    "description": "A distributed task scheduling framework.\uff08\u5206\u5e03\u5f0f\u4efb\u52a1\u8c03\u5ea6\u5e73\u53f0XXL-JOB\uff09"
+  },
+  {
+    "name": "alibaba/canal",
+    "url": "https://github.com/alibaba/canal.git",
+    "stars": 29515,
+    "language": "java",
+    "size_kb": 24182,
+    "description": "\u963f\u91cc\u5df4\u5df4 MySQL binlog \u589e\u91cf\u8ba2\u9605&\u6d88\u8d39\u7ec4\u4ef6 "
+  },
+  {
+    "name": "wuyouzhuguli/SpringAll",
+    "url": "https://github.com/wuyouzhuguli/SpringAll.git",
+    "stars": 28989,
+    "language": "java",
+    "size_kb": 1069,
+    "description": "\u5faa\u5e8f\u6e10\u8fdb\uff0c\u5b66\u4e60Spring Boot\u3001Spring Boot & Shiro\u3001Spring Batch\u3001Spring Cloud\u3001Spring Cloud Alibaba\u3001Spring Security & Spring Security OAuth2\uff0c\u535a\u5ba2Spring\u7cfb\u5217\u6e90\u7801\uff1ahttps://mrbird.cc"
+  },
+  {
+    "name": "alibaba/spring-cloud-alibaba",
+    "url": "https://github.com/alibaba/spring-cloud-alibaba.git",
+    "stars": 28930,
+    "language": "java",
+    "size_kb": 55863,
+    "description": "Spring Cloud Alibaba provides a one-stop solution for application development for the distributed solutions of Alibaba middleware."
+  },
+  {
+    "name": "alibaba/druid",
+    "url": "https://github.com/alibaba/druid.git",
+    "stars": 28214,
+    "language": "java",
+    "size_kb": 91337,
+    "description": "\u963f\u91cc\u4e91\u8ba1\u7b97\u5e73\u53f0DataWorks(https://help.aliyun.com/document_detail/137663.html) \u56e2\u961f\u51fa\u54c1\uff0c\u4e3a\u76d1\u63a7\u800c\u751f\u7684\u6570\u636e\u5e93\u8fde\u63a5\u6c60"
+  },
+  {
+    "name": "ashishps1/awesome-system-design-resources",
+    "url": "https://github.com/ashishps1/awesome-system-design-resources.git",
+    "stars": 28139,
+    "language": "java",
+    "size_kb": 2257,
+    "description": "Learn System Design concepts and prepare for interviews using free resources."
+  },
+  {
+    "name": "lenve/vhr",
+    "url": "https://github.com/lenve/vhr.git",
+    "stars": 28039,
+    "language": "java",
+    "size_kb": 8480,
+    "description": "\u5fae\u4eba\u4e8b\u662f\u4e00\u4e2a\u524d\u540e\u7aef\u5206\u79bb\u7684\u4eba\u529b\u8d44\u6e90\u7ba1\u7406\u7cfb\u7edf\uff0c\u9879\u76ee\u91c7\u7528SpringBoot+Vue\u5f00\u53d1\u3002"
+  },
+  {
+    "name": "crossoverJie/JCSprout",
+    "url": "https://github.com/crossoverJie/JCSprout.git",
+    "stars": 27052,
+    "language": "java",
+    "size_kb": 1191,
+    "description": "\ud83d\udc68\u200d\ud83c\udf93 Java Core Sprout : basic, concurrent, algorithm "
+  },
+  {
+    "name": "qiurunze123/miaosha",
+    "url": "https://github.com/qiurunze123/miaosha.git",
+    "stars": 26573,
+    "language": "java",
+    "size_kb": 65716,
+    "description": "\u2b50\u2b50\u2b50\u2b50\u79d2\u6740\u7cfb\u7edf\u8bbe\u8ba1\u4e0e\u5b9e\u73b0.\u4e92\u8054\u7f51\u5de5\u7a0b\u5e08\u8fdb\u9636\u4e0e\u5206\u6790\ud83d\ude4b\ud83d\udc13"
+  },
+  {
+    "name": "kestra-io/kestra",
+    "url": "https://github.com/kestra-io/kestra.git",
+    "stars": 25978,
+    "language": "java",
+    "size_kb": 83853,
+    "description": "Orchestrate everything - from scripts to data, infra, AI, and business - as code, with UI and AI Copilot. Simple. Fast. Scalable."
+  },
+  {
+    "name": "apache/incubator-seata",
+    "url": "https://github.com/apache/incubator-seata.git",
+    "stars": 25893,
+    "language": "java",
+    "size_kb": 29675,
+    "description": ":fire: Seata is an easy-to-use, high-performance, open source distributed transaction solution."
+  },
+  {
+    "name": "alibaba/fastjson",
+    "url": "https://github.com/alibaba/fastjson.git",
+    "stars": 25737,
+    "language": "java",
+    "size_kb": 15513,
+    "description": "FASTJSON 2.0.x has been released, faster and more secure, recommend you upgrade."
+  },
+  {
+    "name": "hollischuang/toBeTopJavaer",
+    "url": "https://github.com/hollischuang/toBeTopJavaer.git",
+    "stars": 25485,
+    "language": "java",
+    "size_kb": 8004,
+    "description": "To Be Top Javaer - Java\u5de5\u7a0b\u5e08\u6210\u795e\u4e4b\u8def"
+  },
+  {
+    "name": "JakeWharton/butterknife",
+    "url": "https://github.com/JakeWharton/butterknife.git",
+    "stars": 25448,
+    "language": "java",
+    "size_kb": 3909,
+    "description": "Bind Android views and callbacks to fields and methods."
+  },
+  {
+    "name": "proxyee-down-org/proxyee-down",
+    "url": "https://github.com/proxyee-down-org/proxyee-down.git",
+    "stars": 24840,
+    "language": "java",
+    "size_kb": 26864,
+    "description": "http\u4e0b\u8f7d\u5de5\u5177\uff0c\u57fa\u4e8ehttp\u4ee3\u7406\uff0c\u652f\u6301\u591a\u8fde\u63a5\u5206\u5757\u4e0b\u8f7d"
+  },
+  {
+    "name": "CodePhiliaX/Chat2DB",
+    "url": "https://github.com/CodePhiliaX/Chat2DB.git",
+    "stars": 24794,
+    "language": "java",
+    "size_kb": 18843,
+    "description": "\ud83d\udd25\ud83d\udd25\ud83d\udd25AI-driven database tool and SQL client, The hottest GUI client, supporting MySQL, Oracle, PostgreSQL, DB2, SQL Server, DB2, SQLite, H2, ClickHouse, and more."
+  },
+  {
+    "name": "greenrobot/EventBus",
+    "url": "https://github.com/greenrobot/EventBus.git",
+    "stars": 24760,
+    "language": "java",
+    "size_kb": 1742,
+    "description": "Event bus for Android and Java that simplifies communication between Activities, Fragments, Threads, Services, etc. Less code, better quality."
+  },
+  {
+    "name": "Netflix/Hystrix",
+    "url": "https://github.com/Netflix/Hystrix.git",
+    "stars": 24444,
+    "language": "java",
+    "size_kb": 9799,
+    "description": "Hystrix is a latency and fault tolerance library designed to isolate points of access to remote systems, services and 3rd party libraries, stop cascading failure and enable resilience in complex distributed systems where failure is inevitable."
+  },
+  {
+    "name": "google/gson",
+    "url": "https://github.com/google/gson.git",
+    "stars": 24258,
+    "language": "java",
+    "size_kb": 13822,
+    "description": "A Java serialization/deserialization library to convert Java Objects into JSON and back"
+  },
+  {
+    "name": "redisson/redisson",
+    "url": "https://github.com/redisson/redisson.git",
+    "stars": 24155,
+    "language": "java",
+    "size_kb": 32155,
+    "description": "Redisson - Valkey & Redis Java client. Real-Time Data Platform. Sync/Async/RxJava/Reactive API. Over 50 Valkey and Redis based Java objects and services: Set, Multimap, SortedSet, Map, List, Queue, Deque, Semaphore, Lock, AtomicLong, Map Reduce, Bloom filter, Spring, Tomcat, Scheduler, JCache API, Hibernate, RPC, local cache.."
+  },
+  {
+    "name": "EnterpriseQualityCoding/FizzBuzzEnterpriseEdition",
+    "url": "https://github.com/EnterpriseQualityCoding/FizzBuzzEnterpriseEdition.git",
+    "stars": 23028,
+    "language": "java",
+    "size_kb": 340,
+    "description": "FizzBuzz Enterprise Edition is a no-nonsense implementation of FizzBuzz made by serious businessmen for serious business purposes."
+  },
+  {
+    "name": "alibaba/Sentinel",
+    "url": "https://github.com/alibaba/Sentinel.git",
+    "stars": 23005,
+    "language": "java",
+    "size_kb": 8527,
+    "description": "A powerful flow control component enabling reliability, resilience and monitoring for microservices. (\u9762\u5411\u4e91\u539f\u751f\u5fae\u670d\u52a1\u7684\u9ad8\u53ef\u7528\u6d41\u63a7\u9632\u62a4\u7ec4\u4ef6)"
+  },
+  {
+    "name": "LSPosed/LSPosed",
+    "url": "https://github.com/LSPosed/LSPosed.git",
+    "stars": 22239,
+    "language": "java",
+    "size_kb": 21605,
+    "description": "LSPosed Framework"
+  },
+  {
+    "name": "apache/rocketmq",
+    "url": "https://github.com/apache/rocketmq.git",
+    "stars": 22235,
+    "language": "java",
+    "size_kb": 44830,
+    "description": "Apache RocketMQ is a cloud native messaging and streaming platform, making it simple to build event-driven applications."
+  },
+  {
+    "name": "elunez/eladmin",
+    "url": "https://github.com/elunez/eladmin.git",
+    "stars": 21883,
+    "language": "java",
+    "size_kb": 7461,
+    "description": "eladmin jpa \u7248\u672c\uff1a\u9879\u76ee\u57fa\u4e8e Spring Boot 2.7.18\u3001 Jpa\u3001 Spring Security\u3001Redis\u3001Vue\u7684\u524d\u540e\u7aef\u5206\u79bb\u7684\u540e\u53f0\u7ba1\u7406\u7cfb\u7edf\uff0c\u9879\u76ee\u91c7\u7528\u5206\u6a21\u5757\u5f00\u53d1\u65b9\u5f0f\uff0c \u6743\u9650\u63a7\u5236\u91c7\u7528 RBAC\uff0c\u652f\u6301\u6570\u636e\u5b57\u5178\u4e0e\u6570\u636e\u6743\u9650\u7ba1\u7406\uff0c\u652f\u6301\u4e00\u952e\u751f\u6210\u524d\u540e\u7aef\u4ee3\u7801\uff0c\u652f\u6301\u52a8\u6001\u8def\u7531"
+  },
+  {
+    "name": "xiaojieonly/Ehviewer_CN_SXJ",
+    "url": "https://github.com/xiaojieonly/Ehviewer_CN_SXJ.git",
+    "stars": 21157,
+    "language": "java",
+    "size_kb": 14752,
+    "description": "ehviewer\uff0c\u7528\u7231\u53d1\u7535\uff0c\u5feb\u4e50\u524d\u884c"
+  },
+  {
+    "name": "brettwooldridge/HikariCP",
+    "url": "https://github.com/brettwooldridge/HikariCP.git",
+    "stars": 20901,
+    "language": "java",
+    "size_kb": 5042,
+    "description": "\u5149 HikariCP\u30fbA solid, high-performance, JDBC connection pool at last."
+  }
+]

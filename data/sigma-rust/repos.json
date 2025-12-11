@@ -1,0 +1,402 @@
+[
+  {
+    "name": "rustdesk/rustdesk",
+    "url": "https://github.com/rustdesk/rustdesk.git",
+    "stars": 103732,
+    "language": "rust",
+    "size_kb": 65014,
+    "description": "An open-source remote desktop application designed for self-hosting, as an alternative to TeamViewer."
+  },
+  {
+    "name": "alacritty/alacritty",
+    "url": "https://github.com/alacritty/alacritty.git",
+    "stars": 61363,
+    "language": "rust",
+    "size_kb": 14099,
+    "description": "A cross-platform, OpenGL terminal emulator."
+  },
+  {
+    "name": "rust-lang/rustlings",
+    "url": "https://github.com/rust-lang/rustlings.git",
+    "stars": 60928,
+    "language": "rust",
+    "size_kb": 4215,
+    "description": ":crab: Small exercises to get you used to reading and writing Rust code!"
+  },
+  {
+    "name": "BurntSushi/ripgrep",
+    "url": "https://github.com/BurntSushi/ripgrep.git",
+    "stars": 57956,
+    "language": "rust",
+    "size_kb": 5523,
+    "description": "ripgrep recursively searches directories for a regex pattern while respecting your gitignore"
+  },
+  {
+    "name": "topjohnwu/Magisk",
+    "url": "https://github.com/topjohnwu/Magisk.git",
+    "stars": 57460,
+    "language": "rust",
+    "size_kb": 61715,
+    "description": "The Magic Mask for Android"
+  },
+  {
+    "name": "sharkdp/bat",
+    "url": "https://github.com/sharkdp/bat.git",
+    "stars": 56147,
+    "language": "rust",
+    "size_kb": 34679,
+    "description": "A cat(1) clone with wings."
+  },
+  {
+    "name": "meilisearch/meilisearch",
+    "url": "https://github.com/meilisearch/meilisearch.git",
+    "stars": 54879,
+    "language": "rust",
+    "size_kb": 85493,
+    "description": "A lightning-fast search engine API bringing AI-powered hybrid search to your sites and applications."
+  },
+  {
+    "name": "lencx/ChatGPT",
+    "url": "https://github.com/lencx/ChatGPT.git",
+    "stars": 54343,
+    "language": "rust",
+    "size_kb": 32499,
+    "description": "\ud83d\udd2e ChatGPT Desktop Application (Mac, Windows and Linux)"
+  },
+  {
+    "name": "rust-unofficial/awesome-rust",
+    "url": "https://github.com/rust-unofficial/awesome-rust.git",
+    "stars": 54242,
+    "language": "rust",
+    "size_kb": 8086,
+    "description": "A curated list of Rust code and resources."
+  },
+  {
+    "name": "starship/starship",
+    "url": "https://github.com/starship/starship.git",
+    "stars": 52706,
+    "language": "rust",
+    "size_kb": 44030,
+    "description": "\u2604\ud83c\udf0c\ufe0f  The minimal, blazing-fast, and infinitely customizable prompt for any shell!"
+  },
+  {
+    "name": "openai/codex",
+    "url": "https://github.com/openai/codex.git",
+    "stars": 52244,
+    "language": "rust",
+    "size_kb": 78670,
+    "description": "Lightweight coding agent that runs in your terminal"
+  },
+  {
+    "name": "dani-garcia/vaultwarden",
+    "url": "https://github.com/dani-garcia/vaultwarden.git",
+    "stars": 51794,
+    "language": "rust",
+    "size_kb": 11746,
+    "description": "Unofficial Bitwarden compatible server written in Rust, formerly known as bitwarden_rs"
+  },
+  {
+    "name": "tw93/Pake",
+    "url": "https://github.com/tw93/Pake.git",
+    "stars": 43776,
+    "language": "rust",
+    "size_kb": 61337,
+    "description": "\ud83e\udd31\ud83c\udffb Turn any webpage into a desktop app with one command. \u4e00\u952e\u6253\u5305\u7f51\u9875\u751f\u6210\u8f7b\u91cf\u684c\u9762\u5e94\u7528"
+  },
+  {
+    "name": "FuelLabs/fuels-rs",
+    "url": "https://github.com/FuelLabs/fuels-rs.git",
+    "stars": 43509,
+    "language": "rust",
+    "size_kb": 20116,
+    "description": "Fuel Network Rust SDK"
+  },
+  {
+    "name": "helix-editor/helix",
+    "url": "https://github.com/helix-editor/helix.git",
+    "stars": 41755,
+    "language": "rust",
+    "size_kb": 74403,
+    "description": "A post-modern modal text editor."
+  },
+  {
+    "name": "sharkdp/fd",
+    "url": "https://github.com/sharkdp/fd.git",
+    "stars": 40759,
+    "language": "rust",
+    "size_kb": 2209,
+    "description": "A simple, fast and user-friendly alternative to 'find'"
+  },
+  {
+    "name": "lapce/lapce",
+    "url": "https://github.com/lapce/lapce.git",
+    "stars": 37704,
+    "language": "rust",
+    "size_kb": 28616,
+    "description": "Lightning-fast and Powerful Code Editor written in Rust"
+  },
+  {
+    "name": "nushell/nushell",
+    "url": "https://github.com/nushell/nushell.git",
+    "stars": 37489,
+    "language": "rust",
+    "size_kb": 58871,
+    "description": "A new type of shell"
+  },
+  {
+    "name": "DioxusLabs/dioxus",
+    "url": "https://github.com/DioxusLabs/dioxus.git",
+    "stars": 32582,
+    "language": "rust",
+    "size_kb": 51082,
+    "description": "Fullstack app framework for web, desktop, and mobile."
+  },
+  {
+    "name": "google/comprehensive-rust",
+    "url": "https://github.com/google/comprehensive-rust.git",
+    "stars": 32377,
+    "language": "rust",
+    "size_kb": 26648,
+    "description": "This is the Rust course used by the Android team at Google. It provides you the material to quickly teach Rust."
+  },
+  {
+    "name": "yewstack/yew",
+    "url": "https://github.com/yewstack/yew.git",
+    "stars": 32191,
+    "language": "rust",
+    "size_kb": 17259,
+    "description": "Rust / Wasm framework for creating reliable and efficient web applications"
+  },
+  {
+    "name": "ajeetdsouza/zoxide",
+    "url": "https://github.com/ajeetdsouza/zoxide.git",
+    "stars": 31691,
+    "language": "rust",
+    "size_kb": 4305,
+    "description": "A smarter cd command. Supports all major shells."
+  },
+  {
+    "name": "firecracker-microvm/firecracker",
+    "url": "https://github.com/firecracker-microvm/firecracker.git",
+    "stars": 31327,
+    "language": "rust",
+    "size_kb": 37586,
+    "description": "Secure and fast microVMs for serverless computing."
+  },
+  {
+    "name": "sxyazi/yazi",
+    "url": "https://github.com/sxyazi/yazi.git",
+    "stars": 30521,
+    "language": "rust",
+    "size_kb": 6859,
+    "description": "\ud83d\udca5 Blazing fast terminal file manager written in Rust, based on async I/O."
+  },
+  {
+    "name": "surrealdb/surrealdb",
+    "url": "https://github.com/surrealdb/surrealdb.git",
+    "stars": 30517,
+    "language": "rust",
+    "size_kb": 45644,
+    "description": "A scalable, distributed, collaborative, document-graph database, for the realtime web"
+  },
+  {
+    "name": "tokio-rs/tokio",
+    "url": "https://github.com/tokio-rs/tokio.git",
+    "stars": 30469,
+    "language": "rust",
+    "size_kb": 16273,
+    "description": "A runtime for writing reliable asynchronous applications with Rust. Provides I/O, networking, scheduling, timers, ..."
+  },
+  {
+    "name": "sunface/rust-course",
+    "url": "https://github.com/sunface/rust-course.git",
+    "stars": 29394,
+    "language": "rust",
+    "size_kb": 9958,
+    "description": "\u201c\u8fde\u7eed\u516b\u5e74\u6210\u4e3a\u5168\u4e16\u754c\u6700\u53d7\u559c\u7231\u7684\u8bed\u8a00\uff0c\u65e0 GC \u4e5f\u65e0\u9700\u624b\u52a8\u5185\u5b58\u7ba1\u7406\u3001\u6781\u9ad8\u7684\u6027\u80fd\u548c\u5b89\u5168\u6027\u3001\u8fc7\u7a0b/OO/\u51fd\u6570\u5f0f\u7f16\u7a0b\u3001\u4f18\u79c0\u7684\u5305\u7ba1\u7406\u3001JS \u672a\u6765\u57fa\u77f3\" \u2014 \u5de5\u4f5c\u4e4b\u4f59\u7684\u7b2c\u4e8c\u8bed\u8a00\u6765\u8bd5\u8bd5 Rust \u5427\u3002\u672c\u4e66\u62e5\u6709\u5168\u9762\u4e14\u6df1\u5165\u7684\u8bb2\u89e3\u3001\u751f\u52a8\u8d34\u5207\u7684\u793a\u4f8b\u3001\u5fb7\u8299\u822c\u4e1d\u6ed1\u7684\u5185\u5bb9\uff0c\u8fd9\u53ef\u80fd\u662f\u76ee\u524d\u6700\u7528\u5fc3\u7684 Rust \u4e2d\u6587\u5b66\u4e60\u6559\u7a0b / Book "
+  },
+  {
+    "name": "casey/just",
+    "url": "https://github.com/casey/just.git",
+    "stars": 29113,
+    "language": "rust",
+    "size_kb": 14820,
+    "description": "\ud83e\udd16 Just a command runner"
+  },
+  {
+    "name": "iced-rs/iced",
+    "url": "https://github.com/iced-rs/iced.git",
+    "stars": 28595,
+    "language": "rust",
+    "size_kb": 21978,
+    "description": "A cross-platform GUI library for Rust, inspired by Elm"
+  },
+  {
+    "name": "dandavison/delta",
+    "url": "https://github.com/dandavison/delta.git",
+    "stars": 28336,
+    "language": "rust",
+    "size_kb": 11176,
+    "description": "A syntax-highlighting pager for git, diff, grep, and blame output"
+  },
+  {
+    "name": "qdrant/qdrant",
+    "url": "https://github.com/qdrant/qdrant.git",
+    "stars": 27555,
+    "language": "rust",
+    "size_kb": 40523,
+    "description": "Qdrant - High-performance, massive-scale Vector Database and Vector Search Engine for the next generation of AI. Also available in the cloud https://cloud.qdrant.io/"
+  },
+  {
+    "name": "qarmin/czkawka",
+    "url": "https://github.com/qarmin/czkawka.git",
+    "stars": 27405,
+    "language": "rust",
+    "size_kb": 7973,
+    "description": "Multi functional app to find duplicates, empty folders, similar images etc."
+  },
+  {
+    "name": "atuinsh/atuin",
+    "url": "https://github.com/atuinsh/atuin.git",
+    "stars": 27388,
+    "language": "rust",
+    "size_kb": 47037,
+    "description": "\u2728 Magical shell history"
+  },
+  {
+    "name": "emilk/egui",
+    "url": "https://github.com/emilk/egui.git",
+    "stars": 27367,
+    "language": "rust",
+    "size_kb": 89396,
+    "description": "egui: an easy-to-use immediate mode GUI in Rust that runs on both web and native"
+  },
+  {
+    "name": "sharkdp/hyperfine",
+    "url": "https://github.com/sharkdp/hyperfine.git",
+    "stars": 26960,
+    "language": "rust",
+    "size_kb": 2063,
+    "description": "A command-line benchmarking tool"
+  },
+  {
+    "name": "zama-ai/fhevm",
+    "url": "https://github.com/zama-ai/fhevm.git",
+    "stars": 26292,
+    "language": "rust",
+    "size_kb": 56413,
+    "description": "FHEVM, a full-stack framework for integrating Fully Homomorphic Encryption (FHE) with blockchain applications"
+  },
+  {
+    "name": "cloudflare/pingora",
+    "url": "https://github.com/cloudflare/pingora.git",
+    "stars": 25689,
+    "language": "rust",
+    "size_kb": 4521,
+    "description": "A library for building fast, reliable and evolvable network services."
+  },
+  {
+    "name": "rwf2/Rocket",
+    "url": "https://github.com/rwf2/Rocket.git",
+    "stars": 25532,
+    "language": "rust",
+    "size_kb": 8445,
+    "description": "A web framework for Rust."
+  },
+  {
+    "name": "TheAlgorithms/Rust",
+    "url": "https://github.com/TheAlgorithms/Rust.git",
+    "stars": 25156,
+    "language": "rust",
+    "size_kb": 1337,
+    "description": " All Algorithms implemented in Rust "
+  },
+  {
+    "name": "ankitects/anki",
+    "url": "https://github.com/ankitects/anki.git",
+    "stars": 25134,
+    "language": "rust",
+    "size_kb": 46679,
+    "description": "Anki is a smart spaced repetition flashcard program"
+  },
+  {
+    "name": "ogham/exa",
+    "url": "https://github.com/ogham/exa.git",
+    "stars": 24246,
+    "language": "rust",
+    "size_kb": 3747,
+    "description": "A modern replacement for \u2018ls\u2019."
+  },
+  {
+    "name": "tokio-rs/axum",
+    "url": "https://github.com/tokio-rs/axum.git",
+    "stars": 24077,
+    "language": "rust",
+    "size_kb": 5466,
+    "description": "Ergonomic and modular web framework built with Tokio, Tower, and Hyper"
+  },
+  {
+    "name": "actix/actix-web",
+    "url": "https://github.com/actix/actix-web.git",
+    "stars": 24003,
+    "language": "rust",
+    "size_kb": 17273,
+    "description": "Actix Web is a powerful, pragmatic, and extremely fast web framework for Rust."
+  },
+  {
+    "name": "GraphiteEditor/Graphite",
+    "url": "https://github.com/GraphiteEditor/Graphite.git",
+    "stars": 23055,
+    "language": "rust",
+    "size_kb": 44601,
+    "description": "Open source comprehensive 2D content creation tool suite for graphic design, digital art, and interactive real-time motion graphics \u2014 featuring node-based procedural editing"
+  },
+  {
+    "name": "tree-sitter/tree-sitter",
+    "url": "https://github.com/tree-sitter/tree-sitter.git",
+    "stars": 22955,
+    "language": "rust",
+    "size_kb": 20657,
+    "description": "An incremental parsing system for programming tools"
+  },
+  {
+    "name": "Schniz/fnm",
+    "url": "https://github.com/Schniz/fnm.git",
+    "stars": 22932,
+    "language": "rust",
+    "size_kb": 4300,
+    "description": "\ud83d\ude80 Fast and simple Node.js version manager, built in Rust"
+  },
+  {
+    "name": "jj-vcs/jj",
+    "url": "https://github.com/jj-vcs/jj.git",
+    "stars": 22904,
+    "language": "rust",
+    "size_kb": 64468,
+    "description": "A Git-compatible VCS that is both simple and powerful"
+  },
+  {
+    "name": "uutils/coreutils",
+    "url": "https://github.com/uutils/coreutils.git",
+    "stars": 22270,
+    "language": "rust",
+    "size_kb": 33430,
+    "description": "Cross-platform Rust rewrite of the GNU coreutils"
+  },
+  {
+    "name": "jdx/mise",
+    "url": "https://github.com/jdx/mise.git",
+    "stars": 22034,
+    "language": "rust",
+    "size_kb": 33359,
+    "description": "dev tools, env vars, task runner"
+  },
+  {
+    "name": "slint-ui/slint",
+    "url": "https://github.com/slint-ui/slint.git",
+    "stars": 21197,
+    "language": "rust",
+    "size_kb": 60581,
+    "description": "Slint is an open-source declarative GUI toolkit to build native user interfaces for Rust, C++, JavaScript, or Python apps."
+  }
+]

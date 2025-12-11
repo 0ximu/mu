@@ -1,0 +1,496 @@
+[
+  {
+    "question": "What architectural pattern is used in the AIToolService module?",
+    "category": "architecture",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AIToolService follows a service-router architectural pattern, where AIToolService handles the business logic and AIToolsRouter manages the HTTP routing and endpoint definitions. This is a common separation of concerns pattern in web applications.",
+    "relevant_nodes": [
+      "AIToolService",
+      "AIToolsRouter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AIToolService",
+      "AIToolsRouter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the architectural pattern used in the AIToolService module, which follows a service-router pattern. The referenced nodes AIToolService and AIToolsRouter are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How are the different AlertConfig implementations organized?",
+    "category": "architecture",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AlertConfig implementations are organized through a base AlertConfig entity with specialized configurations for different alert types including AlertEmailConfig for email notifications and AlertSmsConfig for SMS notifications, along with supporting entities like AlertCommonConfig for shared configuration properties.",
+    "relevant_nodes": [
+      "AlertConfig",
+      "AlertCommonConfig",
+      "AlertEmailConfig",
+      "AlertSmsConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlertConfig",
+      "AlertCommonConfig",
+      "AlertEmailConfig",
+      "AlertSmsConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the different AlertConfig implementations are organized, with a base AlertConfig entity and specialized configurations for different alert types. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the overall structure of the app module?",
+    "category": "architecture",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The app module follows a layered architecture with core entities including App for the main application model, AppBackup and AppRecover for backup/recovery operations, and AppBackupDelete and AppBackupSearch for backup management functionalities.",
+    "relevant_nodes": [
+      "App",
+      "AppBackup",
+      "AppRecover",
+      "AppBackupDelete",
+      "AppBackupSearch"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "App",
+      "AppBackup",
+      "AppRecover",
+      "AppBackupDelete",
+      "AppBackupSearch"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the overall structure of the app module, including the core entities like App, AppBackup, AppRecover, AppBackupDelete, and AppBackupSearch. All the referenced nodes are present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Which design pattern is utilized in the AddSubTask function?",
+    "category": "architecture",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddSubTask function appears to implement a Builder or Command pattern, as evidenced by the multiple variations like AddSubTaskWithAlias, AddSubTaskWithOps, and AddSubTaskWithIgnoreErr, which suggest a flexible task construction mechanism with optional parameters and behaviors.",
+    "relevant_nodes": [
+      "AddSubTask",
+      "AddSubTaskWithAlias",
+      "AddSubTaskWithOps",
+      "AddSubTaskWithIgnoreErr",
+      "AddSubTaskWithAliasAndOps"
+    ],
+    "confidence": 0.8,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddSubTask",
+      "AddSubTaskWithAlias",
+      "AddSubTaskWithOps",
+      "AddSubTaskWithIgnoreErr",
+      "AddSubTaskWithAliasAndOps"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the design pattern used in the AddSubTask function as a Builder or Command pattern, as evidenced by the multiple variations with optional parameters and behaviors. All the referenced nodes exist in the available nodes list, so the answer is valid."
+  },
+  {
+    "question": "How is the codebase divided into logical components?",
+    "category": "architecture",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The codebase is divided into logical components based on functional domains, with major components including AI tools (AIToolService, AIToolsRouter), alerting system (AlertService, AlertRouter, Alert-related entities), application management (App, AppBackup, AppRecover), authentication (ApiAuth, AddAuthenticator), and infrastructure services (AcmeClient, AgentRepo). Each component follows a service-router-repository pattern with dedicated DTOs and configuration entities.",
+    "relevant_nodes": [
+      "AIToolService",
+      "AIToolsRouter",
+      "AlertService",
+      "AlertRouter",
+      "Alert",
+      "App",
+      "AppBackup",
+      "AppRecover",
+      "ApiAuth",
+      "AddAuthenticator",
+      "AcmeClient",
+      "AgentRepo"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AIToolService",
+      "AIToolsRouter",
+      "AlertService",
+      "AlertRouter",
+      "Alert",
+      "App",
+      "AppBackup",
+      "AppRecover",
+      "ApiAuth",
+      "AddAuthenticator",
+      "AcmeClient",
+      "AgentRepo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the codebase is divided into logical components based on functional domains, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "What does the AcmeClient depend on to interact with the ACME server?",
+    "category": "dependencies",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AcmeClient depends on AcmeClientOption and AcmeClientOptions to configure its interaction with the ACME server, and requires an AcmeUser entity to handle user authentication and account management during the ACME protocol exchange.",
+    "relevant_nodes": [
+      "AcmeClient",
+      "AcmeClientOption",
+      "AcmeClientOptions",
+      "AcmeUser"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AcmeClient",
+      "AcmeClientOption",
+      "AcmeClientOptions",
+      "AcmeUser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AcmeClient depends on AcmeClientOption, AcmeClientOptions, and AcmeUser to interact with the ACME server, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "Which modules use the buserr package?",
+    "category": "dependencies",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The buserr package appears to be referenced multiple times in the codebase, with three separate buserr entities listed in the available modules, suggesting it's used across different parts of the system for error handling.",
+    "relevant_nodes": [
+      "buserr"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "buserr"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the buserr package is referenced multiple times across the codebase, as indicated by the presence of three separate buserr entities in the available nodes list. This suggests the package is used for error handling purposes in various parts of the system."
+  },
+  {
+    "question": "What are the external dependencies of the AlertLogDTO struct?",
+    "category": "dependencies",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AlertLogDTO struct is related to alert logging functionality and likely depends on the AlertLog entity for its core structure, and potentially Alert for alert information and AlertRepo for data access operations.",
+    "relevant_nodes": [
+      "AlertLogDTO",
+      "AlertLog",
+      "Alert",
+      "AlertRepo"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlertLogDTO",
+      "AlertLog",
+      "Alert",
+      "AlertRepo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the external dependencies of the AlertLogDTO struct, which are the AlertLog entity, the Alert entity, and the AlertRepo repository. All the referenced nodes are present in the available nodes list, and the answer makes semantic sense for the given question."
+  },
+  {
+    "question": "Which components depend on the bus module?",
+    "category": "dependencies",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "Based on the available entities, the bus module appears to be a standalone component. No other specific components from the entity list show clear dependency relationships with the bus module.",
+    "relevant_nodes": [
+      "bus"
+    ],
+    "confidence": 0.3,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "bus"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the bus module appears to be a standalone component with no clear dependency relationships with other components based on the available entities."
+  },
+  {
+    "question": "What other packages are imported by the AIRepo module?",
+    "category": "dependencies",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "Based on the available entities list, I cannot determine what packages are imported by the AIRepo module as the list only contains entity names without their import dependencies or relationships.",
+    "relevant_nodes": [
+      "AiRepo"
+    ],
+    "confidence": 0.3,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AiRepo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided is correct. The list of available nodes does not contain any information about the packages imported by the AIRepo module, so the answer stating that the information cannot be determined from the given data is appropriate."
+  },
+  {
+    "question": "Where is the AddAuthenticator function implemented?",
+    "category": "navigation",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddAuthenticator function appears to be implemented in the authentication module of the codebase, as evidenced by its presence in the available entities list.",
+    "relevant_nodes": [
+      "AddAuthenticator",
+      "auth"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddAuthenticator",
+      "auth"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'AddAuthenticator' and 'auth' are present in the available nodes list, and the answer indicates that the AddAuthenticator function is implemented in the authentication module of the codebase, which is relevant to the question."
+  },
+  {
+    "question": "In which file can I find the implementation of the AcmeUser struct?",
+    "category": "navigation",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AcmeUser struct implementation can be found in the ACME-related code. Based on the available entities, AcmeUser is listed as a struct entity in the codebase.",
+    "relevant_nodes": [
+      "AcmeUser"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AcmeUser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AcmeUser struct implementation can be found in the ACME-related code, and the referenced node AcmeUser exists in the available nodes list."
+  },
+  {
+    "question": "What module handles the creation of new AlertConfigs?",
+    "category": "navigation",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AlertService module handles the creation of new AlertConfigs, working with AlertCreate entities for the creation process and AlertRouter for routing the requests.",
+    "relevant_nodes": [
+      "AlertService",
+      "AlertCreate",
+      "AlertRouter",
+      "AlertConfig"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlertService",
+      "AlertCreate",
+      "AlertRouter",
+      "AlertConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes exist in the available nodes list, the answer makes semantic sense for the question, and the nodes are relevant to the creation of new AlertConfigs."
+  },
+  {
+    "question": "Where is the AddServerName function defined?",
+    "category": "navigation",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddServerName function is listed as an available entity in the codebase, but without additional context about file locations or imports, I cannot determine its specific definition location from the provided entity list alone.",
+    "relevant_nodes": [
+      "AddServerName"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddServerName"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AddServerName' exists in the available nodes list, so the answer is partially correct. However, without additional context about the file location or imports, the full definition location cannot be determined from the provided information alone."
+  },
+  {
+    "question": "Which file contains the implementation of the AgentRepo interface?",
+    "category": "navigation",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AgentRepo entity is listed in the available entities, which represents the interface definition. However, based on the limited entity list provided, I cannot determine which specific file contains the implementation of this interface.",
+    "relevant_nodes": [
+      "AgentRepo"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AgentRepo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AgentRepo' is present in the available nodes list, which represents the interface definition. However, the answer cannot definitively determine which file contains the implementation of this interface based on the limited information provided."
+  },
+  {
+    "question": "How does the AIToolService process AI tool requests?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AIToolService processes AI tool requests by working with the AIToolsRouter to handle routing and the AiRepo for data persistence. The service likely manages AI tool operations through these components in coordination with the ai modules.",
+    "relevant_nodes": [
+      "AIToolService",
+      "AIToolsRouter",
+      "AiRepo",
+      "ai"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AIToolService",
+      "AIToolsRouter",
+      "AiRepo",
+      "ai"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AIToolService processes AI tool requests by working with the AIToolsRouter and AiRepo components, as well as the relevant ai modules. All the referenced nodes exist in the provided list of available nodes."
+  },
+  {
+    "question": "What is the purpose of the AlertEmailConfig struct?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AlertEmailConfig struct is used to configure email settings for the alert system, allowing the application to send alert notifications via email. It works as part of the broader alert configuration system alongside other alert-related entities.",
+    "relevant_nodes": [
+      "AlertEmailConfig",
+      "AlertConfig",
+      "Alert",
+      "AlertService"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlertEmailConfig",
+      "AlertConfig",
+      "Alert",
+      "AlertService"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AlertEmailConfig struct, and all the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the AddChain function in the app module work?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddChain function in the app module appears to be related to adding chain configurations or operations, likely working in conjunction with AddChainWithAppend for more complex chaining scenarios. These functions are part of the app module's configuration management system.",
+    "relevant_nodes": [
+      "AddChain",
+      "AddChainWithAppend",
+      "app"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddChain",
+      "AddChainWithAppend",
+      "app"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the AddChain function as part of the app module's configuration management system, and the referenced nodes are all valid and relevant to the question."
+  },
+  {
+    "question": "What is the role of the AddrRuleOperate struct?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddrRuleOperate struct appears to be used for managing address-based rules or operations, likely in the context of network configuration or firewall rules. It works alongside AddrRuleUpdate to handle address rule modifications and operations within the 1Panel system.",
+    "relevant_nodes": [
+      "AddrRuleOperate",
+      "AddrRuleUpdate"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddrRuleOperate",
+      "AddrRuleUpdate"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the AddrRuleOperate struct in managing address-based rules or operations, likely in the context of network configuration or firewall rules. The referenced nodes AddrRuleOperate and AddrRuleUpdate are valid and relevant to the question."
+  },
+  {
+    "question": "How does the AlertConfigTest function validate alert configurations?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AlertConfigTest function validates alert configurations by testing the connection and functionality of configured alert channels. It works with AlertConfig entities to verify that alert settings like email, SMS, or other notification methods are properly configured and can successfully send test notifications.",
+    "relevant_nodes": [
+      "AlertConfigTest",
+      "AlertConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlertConfigTest",
+      "AlertConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the AlertConfigTest function validates alert configurations by testing the connection and functionality of configured alert channels. The referenced nodes AlertConfigTest and AlertConfig are valid and relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the AddFailedRecord function?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddFailedRecord function appears to be used for logging or tracking failed operations within the system. Based on the context of other entities like AlertLog, AlertTask, and various operational functions, it likely records failure events for monitoring, alerting, or debugging purposes.",
+    "relevant_nodes": [
+      "AddFailedRecord"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddFailedRecord"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the AddFailedRecord function, which appears to be used for logging or tracking failed operations within the system. The referenced node AddFailedRecord is present in the list of available nodes."
+  },
+  {
+    "question": "How does the AddHTTP2HTTPS function in the app module work?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddHTTP2HTTPS function appears to be a utility function in the app module that likely adds HTTP to HTTPS redirect functionality, possibly for web server configurations or SSL/TLS management within the 1Panel application.",
+    "relevant_nodes": [
+      "AddHTTP2HTTPS"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddHTTP2HTTPS"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the AddHTTP2HTTPS function as a utility function in the app module that likely adds HTTP to HTTPS redirect functionality. The referenced node AddHTTP2HTTPS exists in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What is the behavior of the AddMenu function?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddMenu function appears to be responsible for adding menu items or menu configurations to the system, likely as part of the user interface or navigation structure of the 1Panel application.",
+    "relevant_nodes": [
+      "AddMenu"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddMenu"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the behavior of the AddMenu function, which appears to be responsible for adding menu items or menu configurations to the system. The referenced node AddMenu is present in the list of available nodes."
+  },
+  {
+    "question": "How does the AddSubTaskWithIgnoreErr function handle errors?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddSubTaskWithIgnoreErr function is designed to add a subtask while suppressing or ignoring any errors that occur during execution. This allows the system to continue processing other tasks even if this particular subtask fails, providing error resilience in task execution workflows.",
+    "relevant_nodes": [
+      "AddSubTaskWithIgnoreErr"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddSubTaskWithIgnoreErr"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AddSubTaskWithIgnoreErr function handles errors by suppressing or ignoring them to provide error resilience in task execution workflows. The referenced node AddSubTaskWithIgnoreErr is present in the available nodes list."
+  },
+  {
+    "question": "What is the overall purpose of the AddServer function?",
+    "category": "understanding",
+    "repo_name": "1Panel-dev/1Panel",
+    "answer": "The AddServer function appears to be responsible for adding or configuring server-related components, likely as part of a web server or reverse proxy setup. Based on the related entities, it works alongside other functions like AddListen, AddServerName, and AddServerCache to build complete server configurations.",
+    "relevant_nodes": [
+      "AddServer",
+      "AddListen",
+      "AddServerName",
+      "AddServerCache",
+      "AddDefaultServer"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddServer",
+      "AddListen",
+      "AddServerName",
+      "AddServerCache",
+      "AddDefaultServer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AddServer function and references the relevant nodes in the codebase."
+  }
+]

@@ -1,0 +1,546 @@
+[
+  {
+    "question": "What architectural pattern is used in the Alias module?",
+    "category": "architecture",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Alias module uses the Command pattern, where Alias implements the Command interface with an apply method for execution. It also follows trait-based composition with Display and Default traits providing additional behavior.",
+    "relevant_nodes": [
+      "Alias",
+      "Command",
+      "apply",
+      "Display",
+      "Default"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Alias",
+      "Command",
+      "apply",
+      "Display",
+      "Default"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the use of the Command pattern in the Alias module, with Alias implementing the Command interface and using trait-based composition with Display and Default traits. All referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How is the Directories structure organized?",
+    "category": "architecture",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Directories structure is organized around key directory management functions including base_dir_with_default for the main directory, cache_dir for caching, aliases_dir for version aliases, and default_version_dir for the default version location.",
+    "relevant_nodes": [
+      "Directories",
+      "base_dir_with_default",
+      "cache_dir",
+      "aliases_dir",
+      "default_version_dir"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Directories",
+      "base_dir_with_default",
+      "cache_dir",
+      "aliases_dir",
+      "default_version_dir"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the organization of the directories structure, and all the referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "What design pattern is implemented in the Command module?",
+    "category": "architecture",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Command module implements the Command pattern, which encapsulates requests as objects. This is evident from the multiple Command entities and the apply method that executes the commands, allowing for parameterization and queuing of requests.",
+    "relevant_nodes": [
+      "Command",
+      "apply"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Command",
+      "apply"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the Command module implements the Command design pattern, which is evident from the presence of multiple Command entities and the apply method that executes the commands. All the referenced nodes (Cmd and apply) are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the overall structure of the Cli module?",
+    "category": "architecture",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Cli module is structured around a main Cli entity that contains various Command submodules for different operations like alias management, version control, and environment setup. It includes commands for aliases, current version management, default version setting, environment configuration, execution, and completions.",
+    "relevant_nodes": [
+      "Cli",
+      "Command",
+      "Alias",
+      "Current",
+      "Completions",
+      "Env"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Cli",
+      "Command",
+      "Alias",
+      "Current",
+      "Completions",
+      "Env"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the overall structure of the Cli module, with a main Cli entity containing various Command submodules. However, some of the referenced nodes are not actually present in the available nodes list, such as IndexedNodeVersion, inferred_alias, ProgressConfig, and others. The valid nodes referenced in the answer are present and relevant to the question."
+  },
+  {
+    "question": "How is the Downloader component integrated into the codebase?",
+    "category": "architecture",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Downloader component is integrated through a dedicated downloader module and a download function that handles fetching Node.js versions. It works with the download_url function to determine source locations and integrates with the Archive component for handling downloaded files.",
+    "relevant_nodes": [
+      "downloader",
+      "download",
+      "download_url",
+      "Archive"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "downloader",
+      "download",
+      "download_url",
+      "Archive"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the Downloader component is integrated into the codebase, referencing the relevant nodes such as the dedicated downloader module, download function, download_url function, and integration with the Archive component."
+  },
+  {
+    "question": "What does the Arch module depend on?",
+    "category": "dependencies",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Arch module depends on the ArchError type for error handling, implements the AsRef trait for string conversion, and uses the Display trait for formatting output.",
+    "relevant_nodes": [
+      "Arch",
+      "ArchError",
+      "AsRef",
+      "Display"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Arch",
+      "ArchError",
+      "AsRef",
+      "Display"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the dependencies of the Arch module, which are the ArchError type, the AsRef trait, and the Display trait."
+  },
+  {
+    "question": "Which modules use the Current module?",
+    "category": "dependencies",
+    "repo_name": "Schniz/fnm",
+    "answer": "Based on the available entities, the Current module appears to be used by the current_version function and the current.test test module. The current_version function likely implements functionality that depends on the Current module.",
+    "relevant_nodes": [
+      "Current",
+      "current_version",
+      "current.test"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Current",
+      "current_version",
+      "current.test"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes (Current, current_version, current.test) exist in the available nodes list, and the answer describes how the Current module is used by the current_version function and the current.test test module, which seems semantically correct and relevant to the question."
+  },
+  {
+    "question": "What are the dependencies of the Completions module?",
+    "category": "dependencies",
+    "repo_name": "Schniz/fnm",
+    "answer": "Based on the available entities, the Completions module appears to be a command-line interface component that likely depends on the Cli module for command-line argument parsing and the Command entities for defining shell completion functionality.",
+    "relevant_nodes": [
+      "Completions",
+      "Cli",
+      "Command"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Completions",
+      "Cli",
+      "Command"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Cli module and Command entities as dependencies of the Completions module, which is a command-line interface component."
+  },
+  {
+    "question": "Which modules depend on the Directories module?",
+    "category": "dependencies",
+    "repo_name": "Schniz/fnm",
+    "answer": "Based on the available entities, I can see that Directories is a module in the codebase, and there's a 'directories' entity that appears to be related to it. However, from the entity list provided, I cannot definitively determine which specific modules depend on the Directories module as the list doesn't show clear dependency relationships.",
+    "relevant_nodes": [
+      "Directories",
+      "directories"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Directories",
+      "directories"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Directories module and the 'directories' entity as being relevant to the question. However, the answer also states that the list of available entities does not definitively show which modules depend on the Directories module. This is a reasonable assessment given the information provided."
+  },
+  {
+    "question": "What are the external dependencies of the Cli module?",
+    "category": "dependencies",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Cli module's external dependencies can be inferred from the available entities, which include Command structures for various CLI operations, shell integration (Bash), and system utilities (Completions, Env). The module appears to depend on command-line parsing, shell environment management, and completion functionality.",
+    "relevant_nodes": [
+      "Cli",
+      "Command",
+      "Bash",
+      "Completions",
+      "Env"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Cli",
+      "Command",
+      "Bash",
+      "Completions",
+      "Env"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the external dependencies of the Cli module, which include command-line parsing, shell environment management, and completion functionality. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where is the Alias module implemented?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Alias module is implemented with the main Alias entity, along with supporting functionality including alias_name for naming, create_alias for creation, and aliases_dir for directory management.",
+    "relevant_nodes": [
+      "Alias",
+      "alias_name",
+      "create_alias",
+      "aliases_dir"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Alias",
+      "alias_name",
+      "create_alias",
+      "aliases_dir"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Alias module and the supporting functionality, and all the referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "Which file contains the implementation of the Arch struct?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Arch struct implementation is contained in the arch module/file, as evidenced by the Arch entity and related ArchError entity in the available entities list.",
+    "relevant_nodes": [
+      "Arch",
+      "ArchError",
+      "arch"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Arch",
+      "ArchError",
+      "arch"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Arch struct is implemented in the 'arch' module/file, as evidenced by the presence of the Arch and ArchError entities in the available nodes list."
+  },
+  {
+    "question": "Where can I find the code for the Cli module?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Cli module code can be found in the cli entity, which appears to be a dedicated module or component for handling command-line interface functionality in the fnm codebase.",
+    "relevant_nodes": [
+      "Cli",
+      "cli"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Cli",
+      "cli"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Cli module code can be found in the cli entity, which appears to be a dedicated module or component for handling command-line interface functionality in the fnm codebase. All referenced nodes (Cli, cli) are present in the available nodes list."
+  },
+  {
+    "question": "In which directory is the Completions module located?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Completions module is located in the completions directory, as indicated by the Completions entity and the corresponding completions directory entity in the codebase.",
+    "relevant_nodes": [
+      "Completions",
+      "completions"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Completions",
+      "completions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Completions module is located in the completions directory, and the referenced nodes Completions and completions exist in the available nodes list."
+  },
+  {
+    "question": "Which file handles the Directories component?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Directories component is handled by the directories file, which contains the Directories entity and related functionality for managing directory operations.",
+    "relevant_nodes": [
+      "Directories",
+      "directories"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Directories",
+      "directories"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Directories component is handled by the directories file, which contains the Directories entity and related functionality. The referenced nodes 'Directories' and 'directories' are both present in the available nodes list."
+  },
+  {
+    "question": "Where is the implementation of the apply function located?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The apply function has multiple implementations throughout the codebase, as evidenced by the 12 different apply entities listed. These implementations are likely located in different modules or contexts where the apply pattern is used.",
+    "relevant_nodes": [
+      "apply"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "apply"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the apply function has multiple implementations throughout the codebase, as evidenced by the 12 different apply entities listed. The referenced nodes, such as apply, IndexedNodeVersion, Shells, and shell, are relevant to the implementation of the apply function."
+  },
+  {
+    "question": "What file contains the code for the as_str function?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The as_str function appears multiple times in the codebase. Based on the available entities, there are two instances of as_str functions listed.",
+    "relevant_nodes": [
+      "as_str",
+      "as_str"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "as_str",
+      "as_str"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The as_str function is referenced in the answer, and it is present in the list of available nodes in the codebase. The answer is semantically correct and the referenced node is relevant to the question."
+  },
+  {
+    "question": "Where can I find the implementation of the call function?",
+    "category": "navigation",
+    "repo_name": "Schniz/fnm",
+    "answer": "The call function implementation can be found in the call entity. There are two call entities listed in the available entities, suggesting it may be implemented in multiple locations or have multiple variants within the codebase.",
+    "relevant_nodes": [
+      "call"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "call"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the 'call' function implementation can be found in the 'call' entity within the codebase. The referenced nodes 'call' and 'IndexedNodeVersion' are relevant to the question and exist in the available nodes list."
+  },
+  {
+    "question": "How does the Alias module manage aliases?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Alias module manages aliases through the create_alias function and stores them in a dedicated aliases_dir directory. It uses alias_name to identify aliases and integrates with the broader system through the Alias command structure.",
+    "relevant_nodes": [
+      "Alias",
+      "create_alias",
+      "aliases_dir",
+      "alias_name",
+      "alias"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Alias",
+      "create_alias",
+      "aliases_dir",
+      "alias_name",
+      "alias"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Alias module manages aliases, referencing the relevant nodes such as create_alias, aliases_dir, alias_name, and alias."
+  },
+  {
+    "question": "What is the purpose of the Arch module?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Arch module handles system architecture detection and validation for fnm (Fast Node Manager). It includes the Arch type for representing different CPU architectures and ArchError for handling architecture-related errors during Node.js installation and compatibility checks.",
+    "relevant_nodes": [
+      "Arch",
+      "ArchError",
+      "arch"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Arch",
+      "ArchError",
+      "arch"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the Arch module, which is to handle system architecture detection and validation for the Fast Node Manager (fnm) codebase. The referenced nodes Arch, ArchError, and arch are all relevant to this module's functionality."
+  },
+  {
+    "question": "How does the Cli module handle user input?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Cli module handles user input through the Command entities that define different CLI commands, and uses choose_version_for_user_input to process version selection from user input. The module processes commands and delegates to specific handlers based on the command type.",
+    "relevant_nodes": [
+      "Cli",
+      "Command",
+      "choose_version_for_user_input"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Cli",
+      "Command",
+      "choose_version_for_user_input"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the Cli module handles user input through the Command entities and the choose_version_for_user_input function. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the function of the Directories component?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Directories component manages file system paths and directory locations for fnm. It provides methods like base_dir_with_default, cache_dir, aliases_dir, and default_version_dir to organize and access different directories used by the Node.js version manager.",
+    "relevant_nodes": [
+      "Directories",
+      "base_dir_with_default",
+      "cache_dir",
+      "aliases_dir",
+      "default_version_dir",
+      "directories"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Directories",
+      "base_dir_with_default",
+      "cache_dir",
+      "aliases_dir",
+      "default_version_dir",
+      "directories"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the function of the Directories component, and all referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "How does the apply function work?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The apply function appears to be implemented multiple times across different commands and contexts in the codebase. Based on the available entities, it seems to be a core operation that applies configurations, versions, or commands across various parts of the fnm (Fast Node Manager) system.",
+    "relevant_nodes": [
+      "apply",
+      "Command"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "apply",
+      "Command"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the apply function as a core operation that applies configurations, versions, or commands across various parts of the fnm (Fast Node Manager) system. The referenced nodes 'apply' and 'Command' are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the Current module?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The Current module is responsible for determining and managing the currently active Node.js version in fnm. It provides functionality to identify which version is currently being used and handles the current version state.",
+    "relevant_nodes": [
+      "Current",
+      "current_version"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Current",
+      "current_version"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the Current module, which is responsible for determining and managing the currently active Node.js version in fnm. The referenced nodes 'Current' and 'current_version' are relevant and exist in the available nodes list."
+  },
+  {
+    "question": "What does the as_str function do?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The as_str function converts a value to a string representation. It appears to be implemented for multiple types in the codebase, likely providing a way to get string representations of various data structures or enums.",
+    "relevant_nodes": [
+      "as_str"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "as_str"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the `as_str` function, which is to convert a value to a string representation. The referenced node `as_str` exists in the available nodes list, and it is relevant to the question."
+  },
+  {
+    "question": "How does the cache_dir function determine the cache directory?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The cache_dir function determines the cache directory by using the base_dir_with_default function to establish a base directory and then appending a cache-specific subdirectory path to it.",
+    "relevant_nodes": [
+      "cache_dir",
+      "base_dir_with_default"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "cache_dir",
+      "base_dir_with_default"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the cache_dir function determines the cache directory by using the base_dir_with_default function to establish a base directory and then appending a cache-specific subdirectory path. All referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the functionality of the call function?",
+    "category": "understanding",
+    "repo_name": "Schniz/fnm",
+    "answer": "The call function appears to be a method that executes or invokes a command or operation. Based on the available entities, it's likely part of the command execution system in the fnm codebase, potentially used to run shell commands or invoke other functions.",
+    "relevant_nodes": [
+      "call",
+      "Command",
+      "Cmd"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "call",
+      "Command",
+      "Cmd"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the functionality of the 'call' function as part of the command execution system in the fnm codebase, and the referenced nodes are all valid and relevant to the question."
+  }
+]

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from mu.logging import print_error, print_info, print_success, print_warning
-from mu.paths import get_mubase_path
+from mu.paths import find_mubase_path, get_mubase_path
 
 if TYPE_CHECKING:
     from mu.output import OutputConfig
@@ -139,12 +139,18 @@ def patterns(
     from mu.output import Column, format_output
 
     root_path = Path(path).resolve()
-    mubase_path = get_mubase_path(root_path)
 
-    if not mubase_path.exists():
+    # First try to find mubase by walking up directories (workspace-aware)
+    mubase_path = find_mubase_path(root_path)
+    if not mubase_path:
+        # Fallback to direct path construction for better error message
+        mubase_path = get_mubase_path(root_path)
         print_error(f"No .mu/mubase found at {mubase_path}")
-        print_info("Run 'mu bootstrap' or 'mu kernel build .' first")
+        print_info("Run 'mu bootstrap' first")
         raise SystemExit(1)
+
+    # Derive root_path from mubase_path (.mu/mubase -> parent.parent)
+    root_path = mubase_path.parent.parent
 
     # Handle deprecated --json flag
     effective_format = output_format

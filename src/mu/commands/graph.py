@@ -22,18 +22,27 @@ if TYPE_CHECKING:
     from mu.output import OutputConfig
 
 
-def _get_mubase_path(path: Path) -> Path:
-    """Resolve and validate .mu/mubase path."""
+def _get_mubase_path(path: Path) -> tuple[Path, Path]:
+    """Resolve and validate .mu/mubase path, returning (mubase_path, root_path).
+
+    Uses find_mubase_path() to walk up directories, making commands workspace-aware.
+    """
     from mu.errors import ExitCode
     from mu.logging import print_error, print_info
-    from mu.paths import get_mubase_path
+    from mu.paths import find_mubase_path, get_mubase_path
 
-    mubase_path = get_mubase_path(path)
-    if not mubase_path.exists():
+    # First try to find mubase by walking up directories (workspace-aware)
+    mubase_path = find_mubase_path(path)
+    if not mubase_path:
+        # Fallback to direct path construction for better error message
+        mubase_path = get_mubase_path(path)
         print_error(f"No .mu/mubase found at {mubase_path}")
-        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        print_info("Run 'mu bootstrap' first")
         sys.exit(ExitCode.CONFIG_ERROR)
-    return mubase_path
+
+    # Derive root_path from mubase_path (.mu/mubase -> parent.parent)
+    root_path = mubase_path.parent.parent
+    return mubase_path, root_path
 
 
 def _get_output_config(
@@ -210,7 +219,7 @@ def _impact_local(
     from mu.kernel.graph import GraphManager
     from mu.logging import print_error, print_info
 
-    mubase_path = _get_mubase_path(path)
+    mubase_path, _root_path = _get_mubase_path(path)
 
     # Build output config
     config = _get_output_config(ctx, output_format, no_color, no_truncate)
@@ -370,7 +379,7 @@ def _ancestors_local(
     from mu.kernel.graph import GraphManager
     from mu.logging import print_error, print_info
 
-    mubase_path = _get_mubase_path(path)
+    mubase_path, _root_path = _get_mubase_path(path)
 
     # Build output config
     config = _get_output_config(ctx, output_format, no_color, no_truncate)
@@ -523,7 +532,7 @@ def _cycles_local(
     from mu.kernel.graph import GraphManager
     from mu.logging import print_error, print_info
 
-    mubase_path = _get_mubase_path(path)
+    mubase_path, _root_path = _get_mubase_path(path)
 
     # Build output config
     config = _get_output_config(ctx, output_format, no_color, no_truncate)

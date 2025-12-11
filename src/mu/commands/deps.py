@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from mu.paths import get_mubase_path
+from mu.paths import find_mubase_path, get_mubase_path
 
 if TYPE_CHECKING:
     from mu.output import OutputConfig
@@ -115,12 +115,19 @@ def deps(
     from mu.logging import print_error, print_info
     from mu.output import Column, format_output
 
-    mubase_path = get_mubase_path(path)
+    root_path = Path(path).resolve()
 
-    if not mubase_path.exists():
+    # First try to find mubase by walking up directories (workspace-aware)
+    mubase_path = find_mubase_path(root_path)
+    if not mubase_path:
+        # Fallback to direct path construction for better error message
+        mubase_path = get_mubase_path(root_path)
         print_error(f"No .mu/mubase found at {mubase_path}")
         print_info("Run 'mu bootstrap' first.")
         sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Derive root_path from mubase_path (.mu/mubase -> parent.parent)
+    root_path = mubase_path.parent.parent
 
     # Handle deprecated --json flag
     effective_format = output_format
@@ -137,7 +144,7 @@ def deps(
     if client.is_running():
         try:
             direction = "incoming" if reverse else "outgoing"
-            result = client.deps(node, depth=depth, direction=direction, cwd=str(path))
+            result = client.deps(node, depth=depth, direction=direction, cwd=str(root_path))
 
             deps_list = result.get("dependencies", [])
 

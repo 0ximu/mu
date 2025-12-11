@@ -202,6 +202,37 @@ mu query -p ./myproject "SELECT * FROM nodes WHERE complexity > 10"
 mu q --format json "SELECT name, complexity FROM nodes"
 ```
 
+**Terse Syntax:**
+
+MUQL supports a terse syntax for 60-85% token reduction:
+
+```bash
+# Verbose vs Terse
+mu q "SELECT * FROM functions WHERE complexity > 50"
+mu q "fn c>50"
+
+mu q "SELECT name, complexity FROM functions ORDER BY complexity DESC LIMIT 10"
+mu q "s n,c fn sort c- 10"
+
+mu q "SHOW DEPENDENCIES OF AuthService DEPTH 2"
+mu q "deps AuthService d2"
+
+mu q "SELECT * FROM functions WHERE name LIKE '%auth%'"
+mu q "fn n~auth"
+```
+
+| Alias | Meaning |
+|-------|---------|
+| `fn`, `cls`, `mod` | Node types (functions, classes, modules) |
+| `c`, `n`, `fp` | Fields (complexity, name, file_path) |
+| `~` | LIKE operator |
+| `deps`, `rdeps`, `callers`, `callees`, `impact` | SHOW commands |
+| `d2`, `d3` | DEPTH clause |
+| `sort c-`, `sort c+` | ORDER BY DESC/ASC |
+| trailing number | LIMIT |
+
+See [CLI Reference - MUQL Terse Syntax](../CLI.md#muql-terse-syntax) for full reference.
+
 ### `mu describe`
 
 Output MU representation of CLI interface (for AI agents).

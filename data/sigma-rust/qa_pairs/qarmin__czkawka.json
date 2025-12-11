@@ -1,0 +1,540 @@
+[
+  {
+    "question": "What architectural patterns are used in the Czkawka codebase?",
+    "category": "architecture",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase uses a modular CLI/GUI architecture with command pattern for operations like search and file management. The architecture separates concerns through dedicated modules for different file analysis types (duplicates, broken files, big files, etc.) with corresponding parameter structs and result types, along with GUI connection functions that handle user interactions.",
+    "relevant_nodes": [
+      "Commands",
+      "Args",
+      "BasicSettings",
+      "BadExtensionsParameters",
+      "BigFileParameters",
+      "BrokenFilesParameters",
+      "connect_button_search",
+      "connect_button_delete",
+      "connect_directories_changes",
+      "AllTraits",
+      "basic_gui_cli"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Commands",
+      "Args",
+      "BasicSettings",
+      "BadExtensionsParameters",
+      "BigFileParameters",
+      "BrokenFilesParameters",
+      "connect_button_search",
+      "connect_button_delete",
+      "connect_directories_changes",
+      "AllTraits",
+      "basic_gui_cli"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the modular CLI/GUI architecture with command pattern used in the Czkawka codebase, and all the referenced nodes are present in the available nodes list. The answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "How are the different modules in the Czkawka codebase organized?",
+    "category": "architecture",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase is organized around different file analysis modules, each with their own search functions and parameters. Core modules include duplicate detection (connect_duplicate_buttons), broken files analysis (broken_files_search, BrokenFilesParameters), big files detection (big_files_search, BigFileParameters), bad extensions checking (bad_extensions_search, BadExtensionsParameters), and GUI components (basic_gui_cli, connect_button_* functions).",
+    "relevant_nodes": [
+      "broken_files_search",
+      "BrokenFilesParameters",
+      "big_files_search",
+      "BigFileParameters",
+      "bad_extensions_search",
+      "BadExtensionsParameters",
+      "connect_duplicate_buttons",
+      "basic_gui_cli",
+      "connect_button_search",
+      "connect_button_delete"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "broken_files_search",
+      "BrokenFilesParameters",
+      "big_files_search",
+      "BigFileParameters",
+      "bad_extensions_search",
+      "BadExtensionsParameters",
+      "connect_duplicate_buttons",
+      "basic_gui_cli",
+      "connect_button_search",
+      "connect_button_delete"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The provided answer accurately describes the organization of the Czkawka codebase around different file analysis modules. All the referenced nodes in the answer exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What design principles guide the structure of the Czkawka codebase?",
+    "category": "architecture",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase follows a modular design with clear separation of concerns - GUI components (like BasicSettings, BuildConfig), core functionality modules (like BrokenFiles, BigFile, BadExtensions), and CLI interface (Commands, Args, CliOutput). The architecture uses trait-based design (AllTraits, ComboBoxTraits) for shared behavior and maintains separation between data structures and their corresponding parameter/argument types.",
+    "relevant_nodes": [
+      "BasicSettings",
+      "BuildConfig",
+      "BrokenFiles",
+      "BigFile",
+      "BadExtensions",
+      "Commands",
+      "Args",
+      "CliOutput",
+      "AllTraits",
+      "ComboBoxTraits",
+      "BrokenFilesParameters",
+      "BadExtensionsParameters",
+      "BigFileParameters"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "BasicSettings",
+      "BuildConfig",
+      "BrokenFiles",
+      "BigFile",
+      "BadExtensions",
+      "Commands",
+      "Args",
+      "CliOutput",
+      "AllTraits",
+      "ComboBoxTraits",
+      "BrokenFilesParameters",
+      "BadExtensionsParameters",
+      "BigFileParameters"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the modular design and trait-based architecture of the Czkawka codebase. However, the referenced nodes 'BrokenFilesParameters', 'BadExtensionsParameters', and 'BigFileParameters' do not exist in the provided list of available nodes."
+  },
+  {
+    "question": "How does the Czkawka codebase handle error handling and logging?",
+    "category": "architecture",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase handles error handling and logging through the `add_to_messages` and `add_text_to_text_view` functions for displaying messages to users. The `CliOutput` and `CliResult` entities manage command-line interface results and output formatting for error reporting.",
+    "relevant_nodes": [
+      "add_to_messages",
+      "add_text_to_text_view",
+      "CliOutput",
+      "CliResult"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "add_to_messages",
+      "add_text_to_text_view",
+      "CliOutput",
+      "CliResult"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the Czkawka codebase handles error handling and logging through the referenced nodes. All the mentioned nodes are valid and relevant to the question."
+  },
+  {
+    "question": "What are the main components that make up the Czkawka application?",
+    "category": "architecture",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka application consists of several main components: GUI components (basic_gui_cli, build_ui) that handle the user interface, core search modules for different file types (bad_extensions, broken_files, big_files_search, duplicate detection), and various utility modules (common, cache, commands) that provide shared functionality across the application.",
+    "relevant_nodes": [
+      "basic_gui_cli",
+      "build_ui",
+      "bad_extensions",
+      "broken_files",
+      "big_files_search",
+      "common",
+      "cache",
+      "commands"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "basic_gui_cli",
+      "build_ui",
+      "bad_extensions",
+      "broken_files",
+      "big_files_search",
+      "common",
+      "cache",
+      "commands"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the main components of the Czkawka application, including the GUI components, core search modules, and utility modules. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What external libraries or frameworks does the Czkawka codebase depend on?",
+    "category": "dependencies",
+    "repo_name": "qarmin/czkawka",
+    "answer": "Based on the available entities, I cannot determine the external libraries or frameworks that Czkawka depends on. The entity list contains mainly internal code structures, function names, and UI components, but does not include dependency information or import statements that would reveal external dependencies.",
+    "relevant_nodes": [],
+    "confidence": 0.8,
+    "validation_status": "rejected",
+    "valid_nodes": [],
+    "invalid_nodes": [],
+    "reasoning": "No answer or relevant nodes"
+  },
+  {
+    "question": "Which Czkawka modules interact with the cache module?",
+    "category": "dependencies",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The cache module appears to interact with modules through the config_cache_path entity, which likely manages cache configuration and file paths. The cache entity itself is present in the available entities list, suggesting it's a core module that other parts of the system reference.",
+    "relevant_nodes": [
+      "cache",
+      "config_cache_path"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "cache",
+      "config_cache_path"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the cache module and the config_cache_path entity as the relevant nodes that interact with the cache module. The referenced nodes are present in the available nodes list, and the answer makes sense in the context of the question."
+  },
+  {
+    "question": "How do the BadExtensions and BadExtensionsParameters modules relate to each other?",
+    "category": "dependencies",
+    "repo_name": "qarmin/czkawka",
+    "answer": "BadExtensions and BadExtensionsParameters are related modules where BadExtensionsParameters likely contains the configuration and parameter structures needed by the BadExtensions module to perform its bad file extension detection functionality.",
+    "relevant_nodes": [
+      "BadExtensions",
+      "BadExtensionsParameters"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BadExtensions",
+      "BadExtensionsParameters"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the relationship between the BadExtensions and BadExtensionsParameters modules, where the latter likely contains the configuration and parameter structures needed by the BadExtensions module to perform its bad file extension detection functionality. All referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Which Czkawka modules are responsible for file scanning and analysis?",
+    "category": "dependencies",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka modules responsible for file scanning and analysis include various search functions like bad_extensions_search, big_files_search, broken_files_search, and bad_symlinks_search, along with specialized checkers like check_broken_audio, check_broken_image, check_broken_pdf, and check_broken_zip for analyzing different file types.",
+    "relevant_nodes": [
+      "bad_extensions_search",
+      "big_files_search",
+      "broken_files_search",
+      "bad_symlinks_search",
+      "check_broken_audio",
+      "check_broken_image",
+      "check_broken_pdf",
+      "check_broken_zip",
+      "calculate_fingerprint",
+      "calc_fingerprint_helper"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "bad_extensions_search",
+      "big_files_search",
+      "broken_files_search",
+      "bad_symlinks_search",
+      "check_broken_audio",
+      "check_broken_image",
+      "check_broken_pdf",
+      "check_broken_zip",
+      "calculate_fingerprint",
+      "calc_fingerprint_helper"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Czkawka modules responsible for file scanning and analysis, including the various search functions and specialized checkers. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where is the main entry point for the Czkawka application?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The main entry point for the Czkawka application is handled through the Commands entity which processes command-line arguments, and the Args entity which defines the application's argument structure. The basic_gui_cli entity appears to be the main dispatcher that handles both GUI and CLI modes.",
+    "relevant_nodes": [
+      "Commands",
+      "Args",
+      "basic_gui_cli"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Commands",
+      "Args",
+      "basic_gui_cli"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the main entry point of the Czkawka application as being handled through the Commands entity, the Args entity, and the basic_gui_cli entity, which are all present in the available nodes list."
+  },
+  {
+    "question": "Which module handles the configuration settings for Czkawka?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The configuration settings for Czkawka are handled by the cache module, which includes config_cache_path for determining where configuration files are stored, and BuildConfig/BuildConfigRead entities for managing build and runtime configuration settings.",
+    "relevant_nodes": [
+      "cache",
+      "config_cache_path",
+      "BuildConfig",
+      "BuildConfigRead"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "cache",
+      "config_cache_path",
+      "BuildConfig",
+      "BuildConfigRead"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the cache module as handling the configuration settings for Czkawka, and the referenced nodes (config_cache_path, BuildConfig, BuildConfigRead) are all relevant to the configuration management."
+  },
+  {
+    "question": "In which file is the BadFileEntry struct defined?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The BadFileEntry struct is defined and used in the broken files functionality of the codebase, as indicated by the presence of the BadFileEntry entity alongside other broken file related entities.",
+    "relevant_nodes": [
+      "BadFileEntry",
+      "BrokenFiles",
+      "BrokenEntry"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BadFileEntry",
+      "BrokenFiles",
+      "BrokenEntry"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The BadFileEntry struct is correctly referenced as being defined and used in the broken files functionality of the codebase."
+  },
+  {
+    "question": "Where can I find the implementation of the big_files_search function?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The big_files_search function implementation can be found in the codebase. This function is likely part of the big files functionality alongside the BigFile struct and related parameters.",
+    "relevant_nodes": [
+      "big_files_search",
+      "BigFile",
+      "BigFileParameters"
+    ],
+    "confidence": 0.95,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "big_files_search",
+      "BigFile",
+      "BigFileParameters"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the implementation of the big_files_search function can be found in the codebase, and it is likely part of the big files functionality alongside the BigFile struct and related parameters. The referenced nodes are all valid and relevant to the question."
+  },
+  {
+    "question": "What module contains the code for the GUI's tree view component?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The GUI's tree view component code is contained in modules with tree view setup and connection functions. The relevant entities include _setup_tree_view for tree view configuration, _setup_tree_view_config for tree view configuration setup, and common_tree_view which likely contains shared tree view functionality.",
+    "relevant_nodes": [
+      "_setup_tree_view",
+      "_setup_tree_view_config",
+      "common_tree_view",
+      "common_upper_tree_view"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "_setup_tree_view",
+      "_setup_tree_view_config",
+      "common_tree_view",
+      "common_upper_tree_view"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the modules containing the code for the GUI's tree view component, including _setup_tree_view, _setup_tree_view_config, common_tree_view, and common_upper_tree_view. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Which file implements the logic for handling duplicate files?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The duplicate files functionality is implemented through the ColumnsDuplicates entity for display/UI handling and connect_duplicate_buttons for connecting the duplicate-related button interactions in the interface.",
+    "relevant_nodes": [
+      "ColumnsDuplicates",
+      "connect_duplicate_buttons"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ColumnsDuplicates",
+      "connect_duplicate_buttons"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the ColumnsDuplicates entity and connect_duplicate_buttons function as the components that implement the logic for handling duplicate files. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where is the code for the BadExtensionsParameters struct located?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The BadExtensionsParameters struct is one of the available entities in the codebase. It is likely related to the bad_extensions module and used in conjunction with BadExtensions and BadExtensionsArgs for handling file extension validation functionality.",
+    "relevant_nodes": [
+      "BadExtensionsParameters",
+      "BadExtensions",
+      "BadExtensionsArgs"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BadExtensionsParameters",
+      "BadExtensions",
+      "BadExtensionsArgs"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'BadExtensionsParameters', 'BadExtensions', and 'BadExtensionsArgs' are all present in the available nodes list, and the answer provided seems semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where can I find the implementation of the connect_button_compare function?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The connect_button_compare function can be found in the codebase as it's listed among the available entities. This function is likely part of the GUI connection logic that handles compare button interactions.",
+    "relevant_nodes": [
+      "connect_button_compare"
+    ],
+    "confidence": 0.95,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "connect_button_compare"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the connect_button_compare function can be found in the codebase, and this function is listed among the available entities in the provided list."
+  },
+  {
+    "question": "Which module handles the GUI's notebook tabs?",
+    "category": "navigation",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The GUI's notebook tabs are handled by the connect_notebook_tabs function, which manages the connection and behavior of the notebook tab interface in the application.",
+    "relevant_nodes": [
+      "connect_notebook_tabs"
+    ],
+    "confidence": 0.95,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "connect_notebook_tabs"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the 'connect_notebook_tabs' function as the module that handles the GUI's notebook tabs. The referenced node exists in the available nodes list and is relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the CheckingMethod struct in the Czkawka codebase?",
+    "category": "understanding",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The CheckingMethod struct in the Czkawka codebase appears to define different methods or algorithms used for checking and comparing files during duplicate detection or file analysis operations. It likely provides configuration options for how files should be examined and compared.",
+    "relevant_nodes": [
+      "CheckingMethod"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CheckingMethod"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the CheckingMethod struct in the Czkawka codebase, and the referenced node CheckingMethod is present in the list of available nodes."
+  },
+  {
+    "question": "How does the Czkawka codebase handle the detection of duplicate files?",
+    "category": "understanding",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase handles duplicate file detection through fingerprint calculation and comparison mechanisms. The calc_fingerprint_helper and calculate_fingerprint entities perform the core hash-based duplicate detection, while connect_duplicate_buttons manages the UI interactions for duplicate file operations.",
+    "relevant_nodes": [
+      "calc_fingerprint_helper",
+      "calculate_fingerprint",
+      "connect_duplicate_buttons",
+      "ColumnsDuplicates"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "calc_fingerprint_helper",
+      "calculate_fingerprint",
+      "connect_duplicate_buttons",
+      "ColumnsDuplicates"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the Czkawka codebase handles the detection of duplicate files through fingerprint calculation and comparison mechanisms, with the referenced nodes being relevant to this functionality."
+  },
+  {
+    "question": "How does the Czkawka codebase calculate file hashes for comparison?",
+    "category": "understanding",
+    "repo_name": "qarmin/czkawka",
+    "answer": "The Czkawka codebase calculates file hashes through the calculate_fingerprint and calc_fingerprint_helper functions, with performance benchmarking handled by benchmark_hash_calculation_arr and benchmark_hash_calculation_vec functions that test different calculation methods.",
+    "relevant_nodes": [
+      "calculate_fingerprint",
+      "calc_fingerprint_helper",
+      "benchmark_hash_calculation_arr",
+      "benchmark_hash_calculation_vec"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "calculate_fingerprint",
+      "calc_fingerprint_helper",
+      "benchmark_hash_calculation_arr",
+      "benchmark_hash_calculation_vec"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Czkawka codebase calculates file hashes, referencing the relevant functions. All the referenced nodes exist in the available nodes list, so the answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "How does the Czkawka codebase manage the different file types it supports?",
+    "category": "understanding",
+    "repo_name": "qarmin/czkawka",
+    "answer": "Czkawka manages different file types through specialized checker functions and type-specific structures. It uses dedicated functions like check_broken_audio, check_broken_image, check_broken_pdf, and check_broken_zip to handle different file formats, along with AudioTypeStruct for audio file management and BadExtensions for filtering unwanted file extensions.",
+    "relevant_nodes": [
+      "check_broken_audio",
+      "check_broken_image",
+      "check_broken_pdf",
+      "check_broken_zip",
+      "AudioTypeStruct",
+      "BadExtensions"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "check_broken_audio",
+      "check_broken_image",
+      "check_broken_pdf",
+      "check_broken_zip",
+      "AudioTypeStruct",
+      "BadExtensions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how Czkawka handles different file types, with references to the relevant nodes in the codebase."
+  },
+  {
+    "question": "What is the role of the BottomButtonsEnum in the Czkawka GUI?",
+    "category": "understanding",
+    "repo_name": "qarmin/czkawka",
+    "answer": "BottomButtonsEnum appears to be an enumeration that defines the different types of buttons available in the bottom section of the Czkawka GUI, likely corresponding to action buttons like search, delete, move, save, etc. that are connected through various connect functions.",
+    "relevant_nodes": [
+      "BottomButtonsEnum",
+      "connect_button_search",
+      "connect_button_delete",
+      "connect_button_move",
+      "connect_button_save",
+      "connect_button_compare",
+      "connect_button_hardlink",
+      "connect_button_select",
+      "connect_button_sort",
+      "connect_button_stop"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BottomButtonsEnum",
+      "connect_button_search",
+      "connect_button_delete",
+      "connect_button_move",
+      "connect_button_save",
+      "connect_button_compare",
+      "connect_button_hardlink",
+      "connect_button_select",
+      "connect_button_sort",
+      "connect_button_stop"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the BottomButtonsEnum as defining the different types of buttons available in the bottom section of the Czkawka GUI, and the referenced nodes are all relevant to the functionality of these buttons."
+  }
+]

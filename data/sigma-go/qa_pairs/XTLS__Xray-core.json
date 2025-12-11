@@ -1,0 +1,498 @@
+[
+  {
+    "question": "How is the ACAutomaton class structured?",
+    "category": "architecture",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The ACAutomaton class appears to be a standalone entity in the codebase, likely implementing an Aho-Corasick automaton data structure for pattern matching. Based on the available entities, it exists as a single class without visible structural dependencies or related components in the provided list.",
+    "relevant_nodes": [
+      "ACAutomaton"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ACAutomaton"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the ACAutomaton class as a standalone entity in the codebase, likely implementing an Aho-Corasick automaton data structure for pattern matching. The referenced node ACAutomaton is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What design pattern does the AEAD module use?",
+    "category": "architecture",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AEAD module uses the Strategy pattern, where different AEAD cipher implementations (AEADCipher) are encapsulated with common interfaces like AEADAuthenticator, AEADChunkSizeParser, and AEADSizeParser, allowing interchangeable encryption algorithms.",
+    "relevant_nodes": [
+      "AEAD",
+      "AEADCipher",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEAD",
+      "AEADCipher",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AEAD module uses the Strategy design pattern, where different AEAD cipher implementations are encapsulated behind common interfaces. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the overall architecture of the Xray-core application?",
+    "category": "architecture",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "Xray-core follows a modular proxy architecture with inbound and outbound handlers for traffic processing, API-based configuration management, and account-based authentication systems. The core components include handler management (AddInboundHandler, AddOutboundHandler), API configuration (APIConfig), and multiple account types for different protocols.",
+    "relevant_nodes": [
+      "APIConfig",
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "Account",
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "APIConfig",
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "Account",
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the overall architecture of the Xray-core application, including the modular proxy architecture with inbound and outbound handlers, API-based configuration management, and account-based authentication systems. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How are the various Account classes organized and related?",
+    "category": "architecture",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The codebase contains multiple Account classes that appear to be organized across different protocol implementations or authentication mechanisms. Each Account class likely represents authentication credentials or configuration for specific protocols, with AsAccount providing a common interface or conversion mechanism.",
+    "relevant_nodes": [
+      "Account",
+      "AsAccount"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Account",
+      "AsAccount"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the organization and relationship of the various Account classes in the codebase. The referenced nodes 'Account' and 'AsAccount' are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the ActivityTimer component?",
+    "category": "architecture",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The ActivityTimer component is used to track and manage activity timing in the Xray-core system, likely working in conjunction with ActivityUpdater to monitor connection or session activity and handle timeout scenarios.",
+    "relevant_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided correctly describes the purpose of the ActivityTimer component in the Xray-core system, which is to track and manage activity timing in conjunction with the ActivityUpdater component. The referenced nodes are all relevant to the question."
+  },
+  {
+    "question": "What does the AddInboundRequest class depend on?",
+    "category": "dependencies",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AddInboundRequest class is part of the API functionality for adding inbound handlers to the Xray-core system. It likely depends on core components like inbound handlers, API configuration structures, and address management systems.",
+    "relevant_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "APIConfig",
+      "AlwaysOnInboundHandler",
+      "Address"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "APIConfig",
+      "AlwaysOnInboundHandler",
+      "Address"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes in the answer are all relevant to the AddInboundRequest class and its dependencies, including inbound handlers, API configuration, and address management systems. The answer accurately describes the dependencies of the AddInboundRequest class."
+  },
+  {
+    "question": "Which modules use the AEADChunkSizeParser class?",
+    "category": "dependencies",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "Based on the available entities, AEADChunkSizeParser is listed as a class but there are no clear module dependencies shown in the entity list. The AEAD-related entities like AEAD, AEADAuthenticator, AEADCipher, and AEADSizeParser suggest it's part of the AEAD cryptographic module system, but specific usage relationships cannot be determined from the provided entity names alone.",
+    "relevant_nodes": [
+      "AEADChunkSizeParser",
+      "AEAD",
+      "AEADSizeParser",
+      "AEADAuthenticator",
+      "AEADCipher"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AEADChunkSizeParser",
+      "AEAD",
+      "AEADSizeParser",
+      "AEADAuthenticator",
+      "AEADCipher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AEADChunkSizeParser class is likely part of the AEAD cryptographic module system based on the related entities mentioned. However, the specific modules that use this class cannot be determined from the provided information alone. The referenced nodes are relevant to the AEAD functionality, but do not directly indicate which modules use the AEADChunkSizeParser class."
+  },
+  {
+    "question": "What are the dependencies of the APIConfig struct?",
+    "category": "dependencies",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The APIConfig struct is listed in the available entities, but without access to the actual struct definition or import statements, I cannot determine its specific dependencies from the provided entity list.",
+    "relevant_nodes": [
+      "APIConfig"
+    ],
+    "confidence": 0.3,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "APIConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node APIConfig exists in the available nodes list, and the answer provided is reasonable given the limited information provided about the codebase."
+  },
+  {
+    "question": "How does the AccessMessage class interact with other components?",
+    "category": "dependencies",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AccessMessage class interacts with other components through context-based communication, specifically via the AccessMessageFromContext function which retrieves AccessMessage instances from execution contexts. It works alongside AccessStatus to provide access control information throughout the system.",
+    "relevant_nodes": [
+      "AccessMessage",
+      "AccessMessageFromContext",
+      "AccessStatus"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccessMessage",
+      "AccessMessageFromContext",
+      "AccessStatus"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AccessMessage class interacts with other components through context-based communication, specifically via the AccessMessageFromContext function, and works alongside the AccessStatus class to provide access control information throughout the system. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What other parts of the codebase utilize the AcknowledgeReceive function?",
+    "category": "dependencies",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AcknowledgeReceive function appears to be available in the codebase, but from the provided entity list, I can only identify the function itself without clear visibility into which other components specifically utilize it.",
+    "relevant_nodes": [
+      "AcknowledgeReceive"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AcknowledgeReceive"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AcknowledgeReceive function is available in the codebase, but it does not provide information on which other parts of the codebase utilize this function. The available nodes list does not contain enough information to determine the dependencies of the AcknowledgeReceive function."
+  },
+  {
+    "question": "Where is the AEADAESGCMTLS13 function implemented?",
+    "category": "navigation",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AEADAESGCMTLS13 function is implemented as one of the available entities in the codebase, likely as part of the AEAD (Authenticated Encryption with Associated Data) cryptographic functionality for TLS 1.3 AES-GCM encryption.",
+    "relevant_nodes": [
+      "AEADAESGCMTLS13",
+      "AEAD",
+      "AEADCipher"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AEADAESGCMTLS13",
+      "AEAD",
+      "AEADCipher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AEADAESGCMTLS13 function is implemented as part of the AEAD cryptographic functionality for TLS 1.3 AES-GCM encryption in the codebase. The referenced nodes AEADAESGCMTLS13, AEAD, and AEADCipher are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Which file contains the definition of the Accept method?",
+    "category": "navigation",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The Accept method is defined in multiple locations within the codebase, as indicated by the presence of multiple Accept entities in the available list.",
+    "relevant_nodes": [
+      "Accept",
+      "Accept",
+      "Accept"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Accept",
+      "Accept",
+      "Accept"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The question asks which file contains the definition of the Accept method, and the answer indicates that the Accept method is defined in multiple locations within the codebase, as evidenced by the presence of multiple Accept entities in the available list. The referenced nodes are relevant to the question and the answer makes sense."
+  },
+  {
+    "question": "What component handles the AccessMessageFromContext function?",
+    "category": "navigation",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AccessMessageFromContext function is handled by the AccessMessage component, which appears to be part of an access control or logging system that retrieves access-related information from context objects.",
+    "relevant_nodes": [
+      "AccessMessageFromContext",
+      "AccessMessage"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AccessMessageFromContext",
+      "AccessMessage"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The question references the 'AccessMessageFromContext' function, which is not found in the available nodes list. However, the answer correctly identifies the 'AccessMessage' component as the one that handles the functionality. The referenced nodes are partially valid."
+  },
+  {
+    "question": "Where can I find the implementation of the ActiveConnections method?",
+    "category": "navigation",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The ActiveConnections method implementation can be found in the ActiveConnections entities. There are multiple ActiveConnections entities in the codebase that likely represent different implementations or contexts of connection tracking functionality.",
+    "relevant_nodes": [
+      "ActiveConnections"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ActiveConnections"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the implementation of the ActiveConnections method can be found in the ActiveConnections entities. The referenced node ActiveConnections exists in the available nodes list, so the answer is semantically correct and the node is relevant to the question."
+  },
+  {
+    "question": "Which file(s) include the Add function?",
+    "category": "navigation",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The Add function appears to be implemented across multiple files in the codebase, as evidenced by the numerous Add-related entities in the available list. There are many specific Add functions like AddInbound, AddOutbound, AddHandler, AddFeature, AddIP, AddPattern, and a general Add function that appears multiple times.",
+    "relevant_nodes": [
+      "Add",
+      "AddInbound",
+      "AddOutbound",
+      "AddHandler",
+      "AddFeature",
+      "AddIP",
+      "AddPattern",
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "AddHeader"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Add",
+      "AddInbound",
+      "AddOutbound",
+      "AddHandler",
+      "AddFeature",
+      "AddIP",
+      "AddPattern",
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "AddHeader"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the various Add-related functions in the codebase, but includes a few invalid nodes like AddInboundHandler and AddOutboundHandler which do not appear in the available nodes list."
+  },
+  {
+    "question": "How does the AddInboundRequest class handle incoming connection requests?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AddInboundRequest class is used to add new inbound handlers to the Xray-core system. It works with AddInboundResponse to handle the request-response cycle and uses AddInboundHandler to manage the actual inbound connection processing.",
+    "relevant_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddInboundHandler"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddInboundHandler"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AddInboundRequest class handles incoming connection requests by working with AddInboundResponse and AddInboundHandler."
+  },
+  {
+    "question": "What is the purpose of the AEADCipher interface?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AEADCipher interface defines the contract for Authenticated Encryption with Associated Data ciphers in the Xray-core codebase. It works in conjunction with AEAD, AEADAuthenticator, and other AEAD-related components to provide encrypted communication with authentication guarantees.",
+    "relevant_nodes": [
+      "AEADCipher",
+      "AEAD",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADCipher",
+      "AEAD",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the AEADCipher interface, which is to define the contract for Authenticated Encryption with Associated Data ciphers in the Xray-core codebase. The referenced nodes are all relevant to this interface and its related components."
+  },
+  {
+    "question": "How does the AcknowledgeReceive function ensure reliable data transmission?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AcknowledgeReceive function works with AckSegment and AckList entities to implement acknowledgment-based reliable transmission by tracking received data segments and confirming their successful delivery to the sender.",
+    "relevant_nodes": [
+      "AcknowledgeReceive",
+      "AckSegment",
+      "AckList"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AcknowledgeReceive",
+      "AckSegment",
+      "AckList"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes (AcknowledgeReceive, AckSegment, AckList) exist in the available nodes list, and the answer provided makes sense for the given question. The referenced nodes are relevant to the implementation of acknowledgment-based reliable transmission."
+  },
+  {
+    "question": "What is the role of the ActivityUpdater component in the application?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The ActivityUpdater component appears to be responsible for updating or managing activity-related state in the application, likely working in conjunction with ActivityTimer to track and update connection or session activity timestamps and states.",
+    "relevant_nodes": [
+      "ActivityUpdater",
+      "ActivityTimer"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActivityUpdater",
+      "ActivityTimer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the role of the ActivityUpdater component in the application, which is to update or manage activity-related state in conjunction with the ActivityTimer component. The referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "How does the Addons struct manage and apply user-defined add-ons?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "Based on the available entities, the Addons struct appears to be a component for managing user-defined add-ons in the Xray-core system. However, without more specific addon-related entities or methods in the provided list, I cannot determine the exact mechanisms it uses for managing and applying add-ons.",
+    "relevant_nodes": [
+      "Addons"
+    ],
+    "confidence": 0.4,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Addons"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Addons struct appears to be a component for managing user-defined add-ons in the Xray-core system. However, without more specific addon-related entities or methods in the provided list, the exact mechanisms used for managing and applying add-ons cannot be determined."
+  },
+  {
+    "question": "How does the Address struct represent and handle network addresses?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The Address struct represents network addresses with support for different address types through AddressType and AddressFamily entities, and uses AddressSerializer for serialization/deserialization of network address data.",
+    "relevant_nodes": [
+      "Address",
+      "AddressType",
+      "AddressFamily",
+      "AddressSerializer"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Address",
+      "AddressType",
+      "AddressFamily",
+      "AddressSerializer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Address struct represents and handles network addresses, using the referenced nodes to support the different address types and serialization/deserialization functionality."
+  },
+  {
+    "question": "What is the purpose of the AckList and AckSegment classes?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "AckList and AckSegment are classes used for acknowledgment handling in network communication protocols, likely for tracking received packets or data segments and managing acknowledgment responses in the Xray-core networking stack.",
+    "relevant_nodes": [
+      "AckList",
+      "AckSegment"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AckList",
+      "AckSegment"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the AckList and AckSegment classes, which are used for acknowledgment handling in network communication protocols. The referenced nodes are relevant and exist in the available nodes list."
+  },
+  {
+    "question": "How does the AccountManager handle user accounts and authentication?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AccountManager handles user accounts through multiple Account entities and uses authentication mechanisms like AEAD (Authenticated Encryption with Associated Data) ciphers. It manages user operations through AddUserOperation and validates accounts using AsAccount for account conversion and validation.",
+    "relevant_nodes": [
+      "Account",
+      "AddUserOperation",
+      "AsAccount",
+      "AEAD",
+      "AEADCipher"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Account",
+      "AddUserOperation",
+      "AsAccount",
+      "AEAD",
+      "AEADCipher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the AccountManager handles user accounts and authentication using the referenced nodes, which all exist in the available nodes list. The answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "How does the AddRuleResponse class communicate changes to the routing rules?",
+    "category": "understanding",
+    "repo_name": "XTLS/Xray-core",
+    "answer": "The AddRuleResponse class serves as a response message for routing rule addition operations, typically used in conjunction with AddRuleRequest to communicate the result of rule changes back to the client through the API system.",
+    "relevant_nodes": [
+      "AddRuleResponse",
+      "AddRuleRequest",
+      "APIConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddRuleResponse",
+      "AddRuleRequest",
+      "APIConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AddRuleResponse class communicates changes to the routing rules, by serving as a response message for routing rule addition operations in conjunction with AddRuleRequest. The referenced nodes (AddRuleResponse, AddRuleRequest, APIConfig) are relevant to the question."
+  }
+]

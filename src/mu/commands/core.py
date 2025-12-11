@@ -297,8 +297,8 @@ def status(ctx: MUContext, as_json: bool) -> None:
                     embeddings_exist = False
 
             if not embeddings_exist:
-                next_action = "mu kernel embed ."
-                message = "MU ready. Run 'mu kernel embed .' to enable semantic search."
+                next_action = "mu embed . (optional - enables semantic search)"
+                message = "MU ready. Run 'mu embed .' to enable semantic search (optional, requires OPENAI_API_KEY)."
             else:
                 next_action = None
                 message = "MU ready. All systems operational."
@@ -325,9 +325,9 @@ def status(ctx: MUContext, as_json: bool) -> None:
                 message = "Database locked. Start daemon with 'mu daemon start' for queries."
 
             if not embeddings_exist:
-                next_action = "mu kernel embed ."
+                next_action = "mu embed . (optional - enables semantic search)"
                 message = (
-                    message or "MU ready. Run 'mu kernel embed .' to enable semantic search."
+                    message or "MU ready. Run 'mu embed .' to enable semantic search (optional, requires OPENAI_API_KEY)."
                 )
             else:
                 next_action = None
@@ -358,9 +358,11 @@ def status(ctx: MUContext, as_json: bool) -> None:
             print_info(f"  Nodes: {stats.get('nodes', 0)}")
             print_info(f"  Edges: {stats.get('edges', 0)}")
             if embeddings_exist:
-                print_info("  Embeddings: Yes")
+                print_info("  Embeddings: Yes (semantic search enabled)")
             else:
-                print_warning("  Embeddings: No (run 'mu kernel embed .')")
+                print_warning("  Embeddings: No")
+                print_info("    → Enables: mu search, mu grok (semantic matching)")
+                print_info("    → Generate: mu embed . (requires OPENAI_API_KEY, ~1-5 min)")
         else:
             print_warning("MU Status: Not initialized")
             print_info(f"  Config: {'Yes' if config_exists else 'No'}")

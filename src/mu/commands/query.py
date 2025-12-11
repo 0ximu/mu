@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from mu.paths import get_mubase_path
+from mu.paths import find_mubase_path, get_mubase_path
 
 MUQL_EXAMPLES = """
 MUQL Query Examples
@@ -58,6 +58,42 @@ DESCRIBE (schema):
 For more details: https://github.com/dominaite/mu#muql
 """
 
+MUQL_SCHEMA = """
+MUQL Schema Reference
+=====================
+
+Tables (node types):
+  nodes      - All nodes (modules, classes, functions)
+  modules    - File/module level entities
+  classes    - Class/struct/interface definitions
+  functions  - Function/method definitions
+
+Columns (all tables share these):
+  id            VARCHAR   Node identifier (e.g., "cls:src/auth.py:AuthService")
+  type          VARCHAR   Node type: module, class, function
+  name          VARCHAR   Simple name (e.g., "AuthService")
+  qualified_name VARCHAR  Full qualified name
+  file_path     VARCHAR   Source file path
+  line_start    INTEGER   Start line number
+  line_end      INTEGER   End line number
+  complexity    INTEGER   Cyclomatic complexity score
+
+Edge types (for SHOW/PATH queries):
+  contains   - Module→Class, Class→Function (structural)
+  imports    - Module→Module (import dependencies)
+  inherits   - Class→Class (inheritance)
+  calls      - Function→Function (call graph)
+  uses       - Class→Class (type references)
+
+Common filters:
+  WHERE complexity > 20        # High complexity
+  WHERE name LIKE 'test_%'     # Name pattern
+  WHERE file_path LIKE 'src/%' # Path pattern
+  WHERE type = 'function'      # Node type
+
+Tip: Use DESCRIBE tables or DESCRIBE <table> for live schema info.
+"""
+
 
 def _execute_muql(
     path: Path,
@@ -90,12 +126,17 @@ def _execute_muql(
     if os.environ.get("MU_OFFLINE", "").lower() in ("1", "true", "yes"):
         offline = True
 
-    mubase_path = get_mubase_path(path)
-
-    if not mubase_path.exists():
+    # First try to find mubase by walking up directories (workspace-aware)
+    mubase_path = find_mubase_path(path)
+    if not mubase_path:
+        # Fallback to direct path construction for better error message
+        mubase_path = get_mubase_path(path)
         print_error(f"No .mu/mubase found at {mubase_path}")
-        print_info("Run 'mu kernel init' and 'mu kernel build' first")
+        print_info("Run 'mu bootstrap' first")
         sys.exit(ExitCode.CONFIG_ERROR)
+
+    # Derive root_path from mubase_path (.mu/mubase -> parent.parent)
+    root_path = mubase_path.parent.parent
 
     # For non-query operations (interactive, explain), always use local mode
     if interactive or explain:
@@ -121,9 +162,8 @@ def _execute_muql(
     client = DaemonClient()
     if client.is_running():
         try:
-            # Pass cwd for multi-project routing
-            cwd = str(path.resolve())
-            result_dict = client.query(query_str, cwd=cwd)
+            # Pass cwd for multi-project routing (use resolved root_path)
+            result_dict = client.query(query_str, cwd=str(root_path))
             # Convert daemon response to QueryResult for formatting
             rows = [tuple(row) for row in result_dict.get("rows", [])]
             result = QueryResult(
@@ -230,6 +270,7 @@ def _execute_muql_local(
 @click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
 @click.option("--full-paths", is_flag=True, help="Show full file paths (alias for --no-truncate)")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
+@click.option("--schema", is_flag=True, help="Show MUQL schema reference (tables, columns, edge types)")
 @click.option(
     "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
 )
@@ -245,6 +286,7 @@ def query(
     no_truncate: bool,
     full_paths: bool,
     examples: bool,
+    schema: bool,
     offline: bool,
 ) -> None:
     """Execute MUQL query against the codebase graph.
@@ -260,10 +302,15 @@ def query(
         mu query -f json "SELECT * FROM classes"
         mu query --no-truncate "SELECT * FROM modules"
         mu query --examples                 # Show query examples
+        mu query --schema                   # Show schema reference
         mu query --offline "SELECT ..."     # Skip daemon, use local DB
     """
     if examples:
         click.echo(MUQL_EXAMPLES)
+        return
+
+    if schema:
+        click.echo(MUQL_SCHEMA)
         return
 
     # Combine no_truncate and full_paths (either one disables truncation)
@@ -310,6 +357,7 @@ def query(
 @click.option("--no-truncate", is_flag=True, help="Show full values without truncation")
 @click.option("--full-paths", is_flag=True, help="Show full file paths (alias for --no-truncate)")
 @click.option("--examples", is_flag=True, help="Show MUQL query examples")
+@click.option("--schema", is_flag=True, help="Show MUQL schema reference (tables, columns, edge types)")
 @click.option(
     "--offline", is_flag=True, help="Skip daemon, use local DB directly (also: MU_OFFLINE=1)"
 )
@@ -325,6 +373,7 @@ def q(
     no_truncate: bool,
     full_paths: bool,
     examples: bool,
+    schema: bool,
     offline: bool,
 ) -> None:
     """Execute MUQL query (short alias for 'mu query').
@@ -334,10 +383,15 @@ def q(
         mu q "SELECT * FROM functions LIMIT 10"
         mu q -i
         mu q --examples
+        mu q --schema
         mu q --offline "SELECT ..."
     """
     if examples:
         click.echo(MUQL_EXAMPLES)
+        return
+
+    if schema:
+        click.echo(MUQL_SCHEMA)
         return
 
     # Combine no_truncate and full_paths (either one disables truncation)

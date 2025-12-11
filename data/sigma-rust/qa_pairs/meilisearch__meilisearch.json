@@ -1,0 +1,486 @@
+[
+  {
+    "question": "What is the architecture of the MeiliSearch codebase?",
+    "category": "architecture",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The MeiliSearch codebase appears to follow a modular architecture with key components including API management (ApiKeyApi), analytics tracking (Analytics), batch processing systems (autobatcher, AllBatches), and vector similarity search capabilities using both Arroy and Hannoy algorithms for indexing and retrieval.",
+    "relevant_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "autobatcher",
+      "AllBatches",
+      "_arroy_nns_by_vector",
+      "_hannoy_nns_by_vector",
+      "_create_index",
+      "_add_documents"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "autobatcher",
+      "AllBatches",
+      "_arroy_nns_by_vector",
+      "_hannoy_nns_by_vector",
+      "_create_index",
+      "_add_documents"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided is mostly correct, describing the modular architecture of MeiliSearch with key components like API management, analytics, batch processing, and vector similarity search capabilities. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What design pattern does the Aggregate module use?",
+    "category": "architecture",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The Aggregate module appears to implement the Strategy pattern, with multiple Aggregate entities likely representing different aggregation strategies or implementations. The presence of AggregateMethod suggests a common interface or enumeration for different aggregation approaches.",
+    "relevant_nodes": [
+      "Aggregate",
+      "AggregateMethod"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Aggregate",
+      "AggregateMethod"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Aggregate module as using the Strategy pattern, with multiple Aggregate entities representing different aggregation strategies or implementations. The referenced nodes Aggregate and AggregateMethod are relevant to the question and exist in the available nodes list."
+  },
+  {
+    "question": "How is the Action class organized and structured?",
+    "category": "architecture",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The Action class appears to be structured as a core entity in the codebase with multiple instances listed in the available entities, suggesting it may be used in different contexts or modules within the Meilisearch architecture.",
+    "relevant_nodes": [
+      "Action"
+    ],
+    "confidence": 0.6,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Action"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Action class appears to be a core entity in the codebase, as it is listed in the available nodes. The referenced node is relevant to the question about the organization and structure of the Action class."
+  },
+  {
+    "question": "What is the overall structure of the meilisearch/meilisearch repository?",
+    "category": "architecture",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The meilisearch repository appears to have a modular architecture with core components including API key management (ApiKeyApi), analytics tracking (Analytics), document indexing operations (_add_documents, _create_index, _delete_document_by_filter), batch processing systems (autobatcher, AllBatches), and vector search functionality using both Arroy and Hannoy libraries for nearest neighbor search.",
+    "relevant_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "_add_documents",
+      "_create_index",
+      "_delete_document_by_filter",
+      "autobatcher",
+      "AllBatches",
+      "_arroy_nns_by_vector",
+      "_hannoy_nns_by_vector"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "_add_documents",
+      "_create_index",
+      "_delete_document_by_filter",
+      "autobatcher",
+      "AllBatches",
+      "_arroy_nns_by_vector",
+      "_hannoy_nns_by_vector"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the modular architecture of the meilisearch repository, including the core components referenced. All the mentioned nodes exist in the provided list, so the answer is considered valid."
+  },
+  {
+    "question": "What is the high-level organization of the modules in this codebase?",
+    "category": "architecture",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The codebase appears to be organized around key functional modules including API key management (ApiKeyApi), analytics and statistics tracking (Analytics, AddNewStats), batch processing operations (AllBatches, AllTasks, autobatcher), and document indexing with vector search capabilities using both Arroy and Hannoy algorithms for nearest neighbor search.",
+    "relevant_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "AddNewStats",
+      "AllBatches",
+      "AllTasks",
+      "autobatcher"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ApiKeyApi",
+      "Analytics",
+      "AddNewStats",
+      "AllBatches",
+      "AllTasks",
+      "autobatcher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the high-level organization of the modules in the codebase, including API key management, analytics and statistics tracking, and batch processing operations. However, the references to 'Arroy' and 'Hannoy' algorithms for nearest neighbor search are not present in the list of available nodes, so those are considered invalid."
+  },
+  {
+    "question": "What does the Aborted class depend on?",
+    "category": "dependencies",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "Based on the available entities list, there are two Aborted entities present, but no dependency information can be determined from the provided entity names alone. The list only shows entity names without their actual dependencies or relationships.",
+    "relevant_nodes": [
+      "Aborted"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Aborted"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The available nodes list contains the 'Aborted' entity, which is referenced in the question. However, the answer correctly states that no dependency information can be determined from the entity names alone, as the list only shows entity names without their actual dependencies or relationships."
+  },
+  {
+    "question": "Which modules use the AddNewStats class?",
+    "category": "dependencies",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "Based on the available entities, AddNewStats appears to be a class in the codebase, but there are no other entities in the provided list that clearly indicate which modules use this class. The entity list contains many function and trait names but doesn't show clear module usage relationships.",
+    "relevant_nodes": [
+      "AddNewStats"
+    ],
+    "confidence": 0.3,
+    "validation_status": "rejected",
+    "valid_nodes": [
+      "AddNewStats"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The provided answer mentions the AddNewStats class, but there are no other entities in the available nodes list that clearly indicate which modules use this class. The available nodes list contains many function and trait names, but does not show clear module usage relationships. Without more information about the codebase structure and dependencies, it is not possible to determine which modules use the AddNewStats class."
+  },
+  {
+    "question": "What are the dependencies of the Aggregate module?",
+    "category": "dependencies",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "Based on the available entities, there are multiple Aggregate instances listed, but the specific dependencies of the Aggregate module cannot be determined from the entity names alone. The list shows various Aggregate entities but doesn't provide information about their actual dependencies or relationships.",
+    "relevant_nodes": [
+      "Aggregate"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Aggregate"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The available nodes list contains the 'Aggregate' entity, which is referenced in the answer. However, the answer correctly notes that the specific dependencies of the Aggregate module cannot be determined from the entity names alone. The available information is limited to the fact that there are multiple Aggregate instances, but their actual dependencies or relationships are not provided."
+  },
+  {
+    "question": "What other classes or modules rely on the AllowedType type?",
+    "category": "dependencies",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "Based on the available entities, I can see AllowedType appears twice in the list, suggesting it may have multiple definitions or usages. However, without more detailed information about the relationships between entities, I cannot definitively identify which specific classes or modules depend on AllowedType.",
+    "relevant_nodes": [
+      "AllowedType"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AllowedType"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that AllowedType appears to have multiple definitions or usages based on the available entities, but the answer cannot definitively identify which specific classes or modules depend on it without more detailed information about the relationships between entities. The answer is reasonable given the limited information provided."
+  },
+  {
+    "question": "Which parts of the codebase use the AllBatches module?",
+    "category": "dependencies",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The AllBatches module is used in the batches functionality of the codebase. It appears to be related to batch processing operations alongside other batch-related components.",
+    "relevant_nodes": [
+      "AllBatches",
+      "batches"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AllBatches",
+      "batches"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AllBatches module is used in the batches functionality of the codebase. The referenced nodes AllBatches and batches are both present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where is the _add_documents function implemented?",
+    "category": "navigation",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _add_documents function is available as an entity in the codebase and is likely implemented in a module related to document indexing operations.",
+    "relevant_nodes": [
+      "_add_documents"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_add_documents"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The _add_documents function is referenced in the answer, and it exists in the available nodes list. The answer also makes sense for the given question, as the _add_documents function is likely to be implemented in a module related to document indexing operations."
+  },
+  {
+    "question": "In which file can I find the _arroy_add_item_in_store function?",
+    "category": "navigation",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _arroy_add_item_in_store function is available as an entity in the codebase and appears to be related to the Arroy vector search functionality for adding items to a store.",
+    "relevant_nodes": [
+      "_arroy_add_item_in_store"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_arroy_add_item_in_store"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the _arroy_add_item_in_store function is available as an entity in the codebase and is related to the Arroy vector search functionality for adding items to a store. All referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "What module handles the _arroy_angular_db functionality?",
+    "category": "navigation",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _arroy_angular_db functionality is handled by the arroy vector search module, which provides angular distance-based similarity search capabilities for the vector database operations.",
+    "relevant_nodes": [
+      "_arroy_angular_db"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_arroy_angular_db"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the _arroy_angular_db functionality is handled by the arroy vector search module, which is a valid node in the available nodes list."
+  },
+  {
+    "question": "Where is the _create_index function defined?",
+    "category": "navigation",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _create_index function is available as an entity in the codebase. Based on the available entities list, it appears to be defined as a function entity, likely related to index creation operations in the Meilisearch system.",
+    "relevant_nodes": [
+      "_create_index"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_create_index"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the _create_index function is defined as a function entity in the codebase, based on the available nodes list."
+  },
+  {
+    "question": "Which file contains the implementation of the _delete_document_by_filter function?",
+    "category": "navigation",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _delete_document_by_filter function is listed among the available entities in the codebase, indicating it exists as an implementation function for deleting documents based on filter criteria.",
+    "relevant_nodes": [
+      "_delete_document_by_filter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_delete_document_by_filter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node '_delete_document_by_filter' is present in the available nodes list, and the answer provides a reasonable explanation that this function is used for deleting documents based on filter criteria."
+  },
+  {
+    "question": "How does the _hannoy_add_item_in_store function work?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _hannoy_add_item_in_store function appears to be part of the Hannoy vector database integration, responsible for adding vector items to a specific store within the Hannoy system. It likely works alongside other Hannoy functions like _hannoy_add_item and _hannoy_clear_store to manage vector storage operations.",
+    "relevant_nodes": [
+      "_hannoy_add_item_in_store",
+      "_hannoy_add_item",
+      "_hannoy_clear_store"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_hannoy_add_item_in_store",
+      "_hannoy_add_item",
+      "_hannoy_clear_store"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality of the _hannoy_add_item_in_store function and references the relevant Hannoy-related nodes that are present in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the _arroy_nns_by_item function?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _arroy_nns_by_item function is part of the Arroy vector database integration that finds nearest neighbors by item ID. It complements _arroy_nns_by_vector to provide item-based nearest neighbor search functionality within Meilisearch's vector search capabilities.",
+    "relevant_nodes": [
+      "_arroy_nns_by_item",
+      "_arroy_nns_by_vector"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_arroy_nns_by_item",
+      "_arroy_nns_by_vector"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the _arroy_nns_by_item function and references the relevant _arroy_nns_by_vector function. All the nodes mentioned in the answer are present in the available nodes list."
+  },
+  {
+    "question": "How does the _hannoy_nns_by_vector function perform nearest neighbor search?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _hannoy_nns_by_vector function performs nearest neighbor search using the Hannoy library to find the closest vectors to a given query vector. It operates on quantized vector databases and works alongside other Hannoy functions like _hannoy_quantized_db for efficient approximate nearest neighbor retrieval.",
+    "relevant_nodes": [
+      "_hannoy_nns_by_vector",
+      "_hannoy_quantized_db",
+      "_hannoy_nns_by_item"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_hannoy_nns_by_vector",
+      "_hannoy_quantized_db",
+      "_hannoy_nns_by_item"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the _hannoy_nns_by_vector function performs nearest neighbor search using the Hannoy library, and the referenced nodes (_hannoy_nns_by_vector, _hannoy_quantized_db, _hannoy_nns_by_item) are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the functionality of the _hannoy_quantized_db module?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _hannoy_quantized_db module appears to be part of a vector database system that handles quantized vector operations using the Hannoy algorithm. It works alongside other Hannoy-related functions like _hannoy_add_item, _hannoy_nns_by_vector, and _hannoy_readers to provide approximate nearest neighbor search capabilities with quantized vectors for efficient storage and retrieval.",
+    "relevant_nodes": [
+      "_hannoy_quantized_db",
+      "_hannoy_add_item",
+      "_hannoy_nns_by_vector",
+      "_hannoy_readers",
+      "_hannoy_nns_by_item"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_hannoy_quantized_db",
+      "_hannoy_add_item",
+      "_hannoy_nns_by_vector",
+      "_hannoy_readers",
+      "_hannoy_nns_by_item"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the functionality of the _hannoy_quantized_db module and references the relevant Hannoy-related nodes that are part of the vector database system. All the mentioned nodes are present in the available nodes list, indicating the answer is semantically correct and the referenced nodes are relevant."
+  },
+  {
+    "question": "What is the role of the _hannoy_readers module in the codebase?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The _hannoy_readers module appears to be part of a vector similarity search system, likely providing functionality to read data from Hannoy (a approximate nearest neighbor search library) indices. It works alongside other Hannoy-related modules like _hannoy_nns_by_item and _hannoy_nns_by_vector to support vector search operations in Meilisearch.",
+    "relevant_nodes": [
+      "_hannoy_readers",
+      "_hannoy_nns_by_item",
+      "_hannoy_nns_by_vector"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_hannoy_readers",
+      "_hannoy_nns_by_item",
+      "_hannoy_nns_by_vector"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the _hannoy_readers module as part of a vector similarity search system, and the referenced nodes are all relevant to this functionality."
+  },
+  {
+    "question": "How does the add_documents module handle document addition?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The add_documents module handles document addition through the _add_documents function, which appears to be the core implementation for adding documents to the search index. This works in conjunction with the add_documents public interface and likely integrates with the autobatcher system for efficient batch processing of document additions.",
+    "relevant_nodes": [
+      "_add_documents",
+      "add_documents",
+      "autobatcher"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_add_documents",
+      "add_documents",
+      "autobatcher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the add_documents module handles document addition, referencing the key nodes involved in the process: _add_documents, add_documents, and autobatcher. All of these nodes are present in the available nodes list, indicating the answer is accurate and the referenced nodes are relevant."
+  },
+  {
+    "question": "What is the purpose of the api_key module?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The api_key module handles API key management functionality in Meilisearch, including operations for adding API keys and providing API key-related endpoints. It works alongside authorization mechanisms to control access to different index patterns and operations.",
+    "relevant_nodes": [
+      "api_key",
+      "ApiKeyApi",
+      "add_api_key"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "api_key",
+      "ApiKeyApi",
+      "add_api_key"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the api_key module, which is to handle API key management functionality in Meilisearch. The referenced nodes (api_key, ApiKeyApi, add_api_key) are all relevant to this functionality."
+  },
+  {
+    "question": "How does the api_keys module manage API keys?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The api_keys module manages API keys through the ApiKeyApi entity which provides the interface for API key operations, and the add_api_key function which handles adding new API keys to the system.",
+    "relevant_nodes": [
+      "ApiKeyApi",
+      "add_api_key",
+      "api_keys"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ApiKeyApi",
+      "add_api_key",
+      "api_keys"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the api_keys module manages API keys through the ApiKeyApi entity and the add_api_key function. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What functionality does the args module provide?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "Based on the available entities, I can only identify that there is an 'args' module in the codebase, but the specific functionality it provides cannot be determined from the entity list alone.",
+    "relevant_nodes": [
+      "args"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "args"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that there is an 'args' module in the codebase, but the specific functionality it provides cannot be determined from the available entity list alone. The answer is partially correct, hence the 'corrected' status."
+  },
+  {
+    "question": "What is the role of the asc_desc module in the codebase?",
+    "category": "understanding",
+    "repo_name": "meilisearch/meilisearch",
+    "answer": "The asc_desc module handles sorting order specification in the codebase, providing functionality to define and parse ascending/descending sort directions. It includes the AscDesc enum type for representing sort orders, AscDescError for handling parsing errors, and AscDescId for associating sort directions with identifiers.",
+    "relevant_nodes": [
+      "asc_desc",
+      "AscDesc",
+      "AscDescError",
+      "AscDescId"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "asc_desc",
+      "AscDesc",
+      "AscDescError",
+      "AscDescId"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the asc_desc module in the codebase, and all the referenced nodes exist in the available nodes list."
+  }
+]

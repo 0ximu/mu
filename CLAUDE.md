@@ -47,9 +47,10 @@ uv run mu compress <path> --llm # With LLM summarization
 uv run mu view <file.mu>       # Render with syntax highlighting
 uv run mu diff <base> <head>   # Semantic diff
 
-# MUQL Queries
-uv run mu query "SELECT..."    # Execute MUQL query
-uv run mu q "SELECT..."        # Short alias
+# MUQL Queries (supports terse syntax for 60-85% token reduction)
+uv run mu query "SELECT..."    # Execute MUQL query (verbose)
+uv run mu q "fn c>50"          # Terse: functions with complexity > 50
+uv run mu q "deps Auth d2"     # Terse: dependencies of Auth, depth 2
 uv run mu query -i             # Interactive REPL
 
 # Bootstrap & Status (recommended workflow)

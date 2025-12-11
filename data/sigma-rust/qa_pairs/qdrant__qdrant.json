@@ -1,0 +1,358 @@
+[
+  {
+    "question": "How is the AbortReshardingOperation class structured?",
+    "category": "architecture",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The AbortReshardingOperation class is part of the resharding system in Qdrant, working alongside AbortResharding and related abort operations. It represents an operation to abort an ongoing resharding process, likely containing the necessary data and logic to safely terminate resharding activities.",
+    "relevant_nodes": [
+      "AbortReshardingOperation",
+      "AbortResharding",
+      "abort_resharding"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AbortReshardingOperation",
+      "AbortResharding",
+      "abort_resharding"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the AbortReshardingOperation class and its relationship to the AbortResharding operation. However, 'abort_resharding' is not a referenced node in the provided list, so it is considered invalid."
+  },
+  {
+    "question": "What pattern does the AddTimeout function use?",
+    "category": "architecture",
+    "repo_name": "qdrant/qdrant",
+    "answer": "Based on the available entities, AddTimeout appears to be a function that likely implements a timeout pattern for asynchronous operations, but without access to the actual implementation details, I cannot determine the specific architectural pattern it uses.",
+    "relevant_nodes": [
+      "AddTimeout"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddTimeout"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AddTimeout function likely implements a timeout pattern for asynchronous operations, but without access to the actual implementation details, the specific architectural pattern it uses cannot be determined. The referenced node AddTimeout exists in the available nodes list, so the answer is mostly correct."
+  },
+  {
+    "question": "What is the architecture of the ActixTelemetryService?",
+    "category": "architecture",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The ActixTelemetryService architecture consists of a core service component (ActixTelemetryService) that works with a telemetry collector (ActixTelemetryCollector) and transform layer (ActixTelemetryTransform). The architecture also includes a specialized worker telemetry collector (ActixWorkerTelemetryCollector) for handling worker-specific telemetry data collection.",
+    "relevant_nodes": [
+      "ActixTelemetryService",
+      "ActixTelemetryCollector",
+      "ActixTelemetryTransform",
+      "ActixWorkerTelemetryCollector"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActixTelemetryService",
+      "ActixTelemetryCollector",
+      "ActixTelemetryTransform",
+      "ActixWorkerTelemetryCollector"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the architecture of the ActixTelemetryService, including the core service component, telemetry collector, transform layer, and specialized worker telemetry collector. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the Aggregation component work?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The Aggregation component appears to be a core entity in the Qdrant system, likely responsible for aggregating or combining data operations. It works alongside the AggregatorError component which handles error cases during aggregation processes.",
+    "relevant_nodes": [
+      "Aggregation",
+      "AggregatorError"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Aggregation",
+      "AggregatorError"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided is mostly correct, as it correctly identifies the Aggregation and AggregatorError components as being relevant to the question. The answer accurately describes the Aggregation component as being responsible for aggregating or combining data operations, and the AggregatorError component as handling error cases during aggregation processes. All the referenced nodes in the answer are present in the list of available nodes."
+  },
+  {
+    "question": "What is the purpose of the AliasDescription class?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The AliasDescription class appears to be used for describing or defining aliases within the Qdrant system, likely as part of the alias management functionality that works alongside AliasMapping and AliasOperations to handle collection aliases.",
+    "relevant_nodes": [
+      "AliasDescription",
+      "AliasMapping",
+      "AliasOperations"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AliasDescription",
+      "AliasMapping",
+      "AliasOperations"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AliasDescription class and references the relevant nodes in the codebase."
+  },
+  {
+    "question": "What dependencies does the AdviceSetting class have?",
+    "category": "dependencies",
+    "repo_name": "qdrant/qdrant",
+    "answer": "Based on the available entities, I can see AdviceSetting is present in the codebase, but the entity list doesn't provide sufficient information about its specific dependencies or related classes.",
+    "relevant_nodes": [
+      "AdviceSetting"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AdviceSetting"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AdviceSetting class is present in the codebase, but it does not provide specific information about its dependencies. The available nodes list does not contain enough information to determine the dependencies of the AdviceSetting class."
+  },
+  {
+    "question": "What other components use the AccessCollectionBuilder?",
+    "category": "dependencies",
+    "repo_name": "qdrant/qdrant",
+    "answer": "Based on the available entities, I can see AccessCollectionBuilder in the list but cannot determine what other components use it from the provided entity names alone. The entity list appears to be filtered and may not include all the components that actually depend on AccessCollectionBuilder.",
+    "relevant_nodes": [
+      "AccessCollectionBuilder"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AccessCollectionBuilder"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AccessCollectionBuilder is present in the available nodes list, but it cannot determine what other components use it based on the provided information. The entity list appears to be filtered and may not include all the components that depend on AccessCollectionBuilder."
+  },
+  {
+    "question": "Which modules depend on the async_io module?",
+    "category": "dependencies",
+    "repo_name": "qdrant/qdrant",
+    "answer": "Based on the available entities, I can see async_io is listed as a module, and there's also async_io_mock which appears to be a mock version for testing. However, from the provided entity list alone, I cannot definitively identify which specific modules depend on async_io.",
+    "relevant_nodes": [
+      "async_io",
+      "async_io_mock"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "async_io",
+      "async_io_mock"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the async_io and async_io_mock modules as being present in the available nodes list. However, the answer cannot definitively state which other modules depend on the async_io module, as the provided information does not contain that level of detail."
+  },
+  {
+    "question": "Where is the _do_recover_from_snapshot function implemented?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The _do_recover_from_snapshot function is listed as an available entity in the Qdrant codebase, indicating it is implemented as a private function that handles the core logic for recovering from snapshots.",
+    "relevant_nodes": [
+      "_do_recover_from_snapshot"
+    ],
+    "confidence": 0.95,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_do_recover_from_snapshot"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the _do_recover_from_snapshot function is implemented in the Qdrant codebase, and the referenced node exists in the list of available nodes."
+  },
+  {
+    "question": "Which file contains the implementation of the AbortShardTransfer class?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The AbortShardTransfer class appears to be defined in the codebase, and there are related operations and functions like AbortTransferOperation and abort_shard_transfer that work with it.",
+    "relevant_nodes": [
+      "AbortShardTransfer",
+      "AbortTransferOperation",
+      "abort_shard_transfer"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AbortShardTransfer",
+      "AbortTransferOperation",
+      "abort_shard_transfer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the AbortShardTransfer class and related operations as being present in the codebase. All the referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "What handles the AddPeerToKnownMessage message?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The AddPeerToKnownMessage is handled by the distributed system's peer management components, likely processed through the AllPeers entity which manages known peers in the cluster.",
+    "relevant_nodes": [
+      "AddPeerToKnownMessage",
+      "AllPeers"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddPeerToKnownMessage",
+      "AllPeers"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AddPeerToKnownMessage is handled by the peer management components, specifically the AllPeers entity. The referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "Where can I find the code for the ActixWorkerTelemetryCollector?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The ActixWorkerTelemetryCollector is available as an entity in the codebase. It appears to be part of the telemetry system alongside other Actix-related telemetry components like ActixTelemetryCollector and ActixTelemetryService.",
+    "relevant_nodes": [
+      "ActixWorkerTelemetryCollector",
+      "ActixTelemetryCollector",
+      "ActixTelemetryService"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ActixWorkerTelemetryCollector",
+      "ActixTelemetryCollector",
+      "ActixTelemetryService"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the ActixWorkerTelemetryCollector is available as an entity in the codebase and is part of the telemetry system alongside other Actix-related telemetry components. All the referenced nodes exist in the available nodes list, so the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "In which module is the AdvanceStatus function defined?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The AdvanceStatus function is listed as an available entity in the codebase, but the provided entity list does not include module information to determine which specific module it is defined in.",
+    "relevant_nodes": [
+      "AdvanceStatus"
+    ],
+    "confidence": 0.3,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AdvanceStatus"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The AdvanceStatus function is listed as an available entity in the codebase, so it exists. The answer provided is correct in stating that the module containing the AdvanceStatus function is not specified in the given information."
+  },
+  {
+    "question": "Where is the Advice class located?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The Advice class is available as an entity in the codebase, along with a related AdviceSetting class that likely contains configuration options for the Advice functionality.",
+    "relevant_nodes": [
+      "Advice",
+      "AdviceSetting"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Advice",
+      "AdviceSetting"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'Advice' and 'AdviceSetting' exist in the available nodes list, and the answer provided is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Which file implements the Aggregator component?",
+    "category": "navigation",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The Aggregator component is implemented in the aggregator module/file, as indicated by the 'aggregator' entity in the available entities list. There is also an 'AggregatorError' entity which suggests error handling for aggregation operations.",
+    "relevant_nodes": [
+      "aggregator",
+      "AggregatorError"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "aggregator",
+      "AggregatorError"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Aggregator component is implemented in the 'aggregator' module/file, and the 'AggregatorError' entity suggests error handling for aggregation operations. All referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "How does the _build_with_metric function determine the appropriate metric?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "Based on the available entities, I can see that _build_with_metric is a function in the codebase, but without access to the actual implementation details, I cannot determine how it specifically chooses the appropriate metric. The function name suggests it builds something using a metric parameter, but the logic for metric selection is not visible in the entity list.",
+    "relevant_nodes": [
+      "_build_with_metric"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "_build_with_metric"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the _build_with_metric function is responsible for determining the appropriate metric, based on the available entities. However, without access to the implementation details, the specific logic for how it selects the metric cannot be determined. The answer is mostly correct, but could be improved by acknowledging the limited information available in the provided entities."
+  },
+  {
+    "question": "What is the purpose of the _check_fs_info function?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The _check_fs_info function appears to be used for checking filesystem information, likely as part of system validation or health checks within the Qdrant codebase.",
+    "relevant_nodes": [
+      "_check_fs_info"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_check_fs_info"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node '_check_fs_info' exists in the available nodes list, and the answer provided seems to correctly describe the purpose of this function within the Qdrant codebase."
+  },
+  {
+    "question": "How does the _do_create_full_snapshot process work?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The _do_create_full_snapshot function is responsible for creating complete snapshots of the system state. It works as part of the snapshot creation process, likely extracting storage data and snapshot data through helper functions like _extract_snapshot_data and _extract_storage_data.",
+    "relevant_nodes": [
+      "_do_create_full_snapshot",
+      "_extract_snapshot_data",
+      "_extract_storage_data"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_do_create_full_snapshot",
+      "_extract_snapshot_data",
+      "_extract_storage_data"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality of the _do_create_full_snapshot process, which is responsible for creating complete snapshots of the system state. The referenced nodes (_extract_snapshot_data and _extract_storage_data) are also relevant to the snapshot creation process, as they likely assist in extracting the necessary data for the snapshot."
+  },
+  {
+    "question": "What is the behavior of the _encode_scalar_query_vector function?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The _encode_scalar_query_vector function appears to be an internal utility function that handles the encoding or conversion of scalar query vectors, likely transforming them into a format suitable for vector search operations within the Qdrant system.",
+    "relevant_nodes": [
+      "_encode_scalar_query_vector"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_encode_scalar_query_vector"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the behavior of the _encode_scalar_query_vector function, and the referenced node exists in the available nodes list."
+  },
+  {
+    "question": "How does the _init_pool_for_uri function initialize the connection pool?",
+    "category": "understanding",
+    "repo_name": "qdrant/qdrant",
+    "answer": "The _init_pool_for_uri function is listed as an available entity in the codebase, but without access to its implementation details, I cannot determine the specific mechanism it uses to initialize connection pools.",
+    "relevant_nodes": [
+      "_init_pool_for_uri"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "_init_pool_for_uri"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node '_init_pool_for_uri' exists in the available nodes list, so the answer is mostly correct. However, without access to the implementation details, the specific mechanism used to initialize the connection pool cannot be determined."
+  }
+]
