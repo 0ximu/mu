@@ -260,6 +260,7 @@ def _execute_muql_local(
 @click.option(
     "--format",
     "-f",
+    "-F",  # Also accept -F for consistency with global flag
     "output_format",
     type=click.Choice(["table", "json", "csv", "tree"]),
     default="table",
@@ -347,6 +348,7 @@ def query(
 @click.option(
     "--format",
     "-f",
+    "-F",  # Also accept -F for consistency with global flag
     "output_format",
     type=click.Choice(["table", "json", "csv", "tree"]),
     default="table",

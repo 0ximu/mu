@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from mu.config import LLMConfig
-from mu.llm import (
+from mu.extras.llm import (
     CostEstimate,
     LLMPool,
     LLMProvider,
@@ -16,7 +16,7 @@ from mu.llm import (
     get_model_config,
     parse_summary_response,
 )
-from mu.llm.providers import MODELS, get_default_model
+from mu.extras.llm.providers import MODELS, get_default_model
 
 
 class TestLLMTypes:
@@ -339,7 +339,7 @@ class TestLLMPoolIntegration:
         ]
         mock_response.usage = MagicMock(total_tokens=50)
 
-        with patch("mu.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
+        with patch("mu.extras.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
             mock_completion.return_value = mock_response
             result = await pool.summarize(req)
 
@@ -369,7 +369,7 @@ class TestLLMPoolIntegration:
         ]
         mock_response.usage = MagicMock(total_tokens=20)
 
-        with patch("mu.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
+        with patch("mu.extras.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
             mock_completion.return_value = mock_response
             results = await pool.summarize_batch(requests)
 
@@ -390,7 +390,7 @@ class TestLLMPoolIntegration:
             language="python",
         )
 
-        with patch("mu.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
+        with patch("mu.extras.llm.pool.acompletion", new_callable=AsyncMock) as mock_completion:
             mock_completion.side_effect = litellm.exceptions.AuthenticationError(
                 message="Invalid API key",
                 llm_provider="anthropic",

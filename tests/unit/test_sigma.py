@@ -14,6 +14,9 @@ from pathlib import Path
 
 import pytest
 
+# Skip this entire module if mu.sigma is not available (moved to mu-sigma package)
+pytest.importorskip("mu.sigma", reason="mu.sigma moved to mu-sigma package")
+
 from mu.sigma.config import (
     CostSettings,
     PathSettings,

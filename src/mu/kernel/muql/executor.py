@@ -243,10 +243,11 @@ class QueryExecutor:
             resolved = self._resolve_node_id(plan.target_node)
             if resolved is None:
                 # Node not found - return helpful error message
+                # Note: We don't embed user input in SQL suggestions to avoid confusion
                 return QueryResult(
                     error=f"Node not found: '{plan.target_node}'. "
                     f"Try using a full node ID (e.g., cls:path/to/file.py:ClassName) "
-                    f"or verify the node exists with: SELECT * FROM nodes WHERE name LIKE '%{plan.target_node}%'"
+                    f"or verify the node exists with: SELECT * FROM nodes WHERE name LIKE '%<name>%'"
                 )
             target = resolved
 
@@ -310,7 +311,7 @@ class QueryExecutor:
                     return QueryResult(
                         error=f"Destination node not found: '{to_node_raw}'. "
                         f"Try using a full node ID or verify the node exists with: "
-                        f"SELECT * FROM nodes WHERE name LIKE '%{to_node_raw}%'"
+                        f"SELECT * FROM nodes WHERE name LIKE '%<name>%'"
                     )
                 # Use GraphManager for path finding if available
                 return self._execute_path(plan, target, to_node, depth)
@@ -382,12 +383,13 @@ class QueryExecutor:
 
         if not target:
             # Node not found - return empty result with helpful suggestion instead of error
+            # Note: We don't embed user input in SQL suggestions for safety
             return QueryResult(
                 columns=["id", "name", "type", "path"],
                 rows=[],
                 row_count=0,
                 message=f"No node found matching '{plan.target_node}'. "
-                f"Try: SELECT * FROM nodes WHERE name LIKE '%{plan.target_node}%'",
+                f"Try: SELECT * FROM nodes WHERE name LIKE '%<name>%'",
             )
 
         try:

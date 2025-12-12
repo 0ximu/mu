@@ -10,21 +10,17 @@ import pytest
 
 from mu.config import EmbeddingsConfig
 from mu.kernel import MUbase, Node, NodeType
-from mu.kernel.embeddings.models import EmbeddingStats, NodeEmbedding
-from mu.kernel.embeddings.providers.base import (
+from mu.extras.embeddings.models import EmbeddingStats, NodeEmbedding
+from mu.extras.embeddings.providers.base import (
     BatchEmbeddingResult,
     EmbeddingProviderType,
     EmbeddingResult,
 )
-from mu.kernel.embeddings.providers.local import (
+from mu.extras.embeddings.providers.local import (
     LOCAL_MODELS,
     LocalEmbeddingProvider,
 )
-from mu.kernel.embeddings.providers.openai import (
-    OPENAI_MODELS,
-    OpenAIEmbeddingProvider,
-)
-from mu.kernel.embeddings.service import (
+from mu.extras.embeddings.service import (
     EmbeddingService,
     _generate_docstring_text,
     _generate_name_text,
@@ -32,6 +28,18 @@ from mu.kernel.embeddings.service import (
     _truncate_text,
     create_embedding_service,
 )
+
+# OpenAI provider is optional - skip related tests if not available
+try:
+    from mu.extras.embeddings.providers.openai import (
+        OPENAI_MODELS,
+        OpenAIEmbeddingProvider,
+    )
+    HAS_OPENAI_PROVIDER = True
+except ImportError:
+    HAS_OPENAI_PROVIDER = False
+    OPENAI_MODELS = {}
+    OpenAIEmbeddingProvider = None  # type: ignore
 
 # =============================================================================
 # TestEmbeddingModels (40% coverage focus)
@@ -351,6 +359,7 @@ class TestEmbeddingProviderBase:
 # =============================================================================
 
 
+@pytest.mark.skipif(not HAS_OPENAI_PROVIDER, reason="OpenAI provider not available")
 class TestOpenAIEmbeddingProvider:
     """Tests for OpenAI embedding provider."""
 
@@ -648,7 +657,7 @@ class TestLocalEmbeddingProvider:
 
     def test_device_detection_cpu_fallback(self) -> None:
         """Device detection falls back to CPU when GPU unavailable."""
-        from mu.kernel.embeddings.providers.local import _detect_device
+        from mu.extras.embeddings.providers.local import _detect_device
 
         # When torch is not available, should return 'cpu'
         with patch.dict("sys.modules", {"torch": None}):
@@ -864,6 +873,7 @@ class TestEmbeddingService:
 
         assert service._concurrency == 10
 
+    @pytest.mark.skipif(not HAS_OPENAI_PROVIDER, reason="OpenAI provider not available")
     def test_create_provider_openai(self) -> None:
         """_create_provider() creates OpenAI provider."""
         service = EmbeddingService(provider="openai")

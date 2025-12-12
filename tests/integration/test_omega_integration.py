@@ -975,7 +975,7 @@ class TestMCPToolsUnit:
 
     def test_macro_synthesizer_direct(self, mcp_mubase: Path) -> None:
         """Test MacroSynthesizer directly (mu_macros removed from MCP in Phase 3)."""
-        from mu.intelligence.synthesizer import MacroSynthesizer
+        from mu.extras.intelligence.synthesizer import MacroSynthesizer
         from mu.kernel import MUbase
 
         db = MUbase(mcp_mubase, read_only=True)

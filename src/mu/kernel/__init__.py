@@ -18,7 +18,7 @@ Example:
     >>> deps = db.get_dependencies("mod:src/cli.py", depth=2)
     >>>
     >>> # Semantic search (after embedding)
-    >>> from mu.kernel.embeddings import EmbeddingService
+    >>> from mu.extras.embeddings import EmbeddingService
     >>> service = EmbeddingService()
     >>> results = db.vector_search(query_embedding, limit=10)
     >>>
@@ -29,6 +29,12 @@ Example:
     >>> db.close()
 """
 
+# Re-export key embeddings classes for convenience
+from mu.extras.embeddings import (
+    EmbeddingService,
+    EmbeddingStats,
+    NodeEmbedding,
+)
 from mu.kernel.builder import GraphBuilder
 
 # Re-export key context classes for convenience
@@ -36,13 +42,6 @@ from mu.kernel.context import (
     ContextResult,
     ExtractionConfig,
     SmartContextExtractor,
-)
-
-# Re-export key embeddings classes for convenience
-from mu.kernel.embeddings import (
-    EmbeddingService,
-    EmbeddingStats,
-    NodeEmbedding,
 )
 
 # Re-export key export classes for convenience

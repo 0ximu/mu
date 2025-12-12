@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mu.intelligence.why import CommitInfo, WhyAnalyzer, WhyResult
+from mu.extras.intelligence.why import CommitInfo, WhyAnalyzer, WhyResult
 
 
 class TestCommitInfo:

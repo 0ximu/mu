@@ -201,8 +201,8 @@ def bootstrap(ctx: MUContext, path: Path, force: bool, embed: bool) -> None:
     if embed:
         import asyncio
 
+        from mu.extras.embeddings import EmbeddingService
         from mu.kernel import NodeType
-        from mu.kernel.embeddings import EmbeddingService
         from mu.logging import create_progress
 
         print_info("\nGenerating embeddings...")
@@ -327,7 +327,8 @@ def status(ctx: MUContext, as_json: bool) -> None:
             if not embeddings_exist:
                 next_action = "mu embed . (optional - enables semantic search)"
                 message = (
-                    message or "MU ready. Run 'mu embed .' to enable semantic search (optional, requires OPENAI_API_KEY)."
+                    message
+                    or "MU ready. Run 'mu embed .' to enable semantic search (optional, requires OPENAI_API_KEY)."
                 )
             else:
                 next_action = None
@@ -673,7 +674,7 @@ def context(
     try:
         if task:
             # Task-aware context extraction
-            from mu.intelligence import TaskContextConfig, TaskContextExtractor
+            from mu.extras.intelligence import TaskContextConfig, TaskContextExtractor
 
             config = TaskContextConfig(max_tokens=max_tokens)
             extractor = TaskContextExtractor(db, config)
@@ -799,8 +800,8 @@ def search(ctx: MUContext, query: str, limit: int, as_json: bool, model_path: st
     import json as json_module
 
     from mu.config import MUConfig
+    from mu.extras.embeddings import EmbeddingService
     from mu.kernel import MUbase
-    from mu.kernel.embeddings import EmbeddingService
     from mu.logging import print_error, print_info, print_warning
 
     # Find mubase
@@ -1005,7 +1006,7 @@ def related(
     """
     import json
 
-    from mu.intelligence import RelatedFilesDetector
+    from mu.extras.intelligence import RelatedFilesDetector
     from mu.kernel import MUbase
     from mu.logging import print_info, print_success, print_warning
 

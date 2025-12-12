@@ -12,6 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
+# Skip this entire module if mu.daemon is not available (moved to mu-daemon package)
+pytest.importorskip("mu.daemon", reason="mu.daemon moved to mu-daemon package")
+
 from mu.daemon.config import DaemonConfig
 from mu.daemon.lifecycle import DaemonLifecycle, find_rust_daemon_binary
 

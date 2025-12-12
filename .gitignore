@@ -71,3 +71,6 @@ data/sigma/
 # ML Models and training artifacts
 models/
 checkpoints/
+
+# MU (Machine Understanding)
+.mu/

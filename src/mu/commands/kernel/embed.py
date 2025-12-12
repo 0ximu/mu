@@ -81,9 +81,9 @@ def kernel_embed(
 
     from mu.config import MUConfig
     from mu.errors import ExitCode
+    from mu.extras.embeddings import EmbeddingService
+    from mu.extras.embeddings.models import NodeEmbedding
     from mu.kernel import MUbase, NodeType
-    from mu.kernel.embeddings import EmbeddingService
-    from mu.kernel.embeddings.models import NodeEmbedding
     from mu.logging import create_progress, print_error, print_info, print_success, print_warning
 
     if ctx.config is None:

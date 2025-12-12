@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mu.intelligence import (
+from mu.extras.intelligence import (
     Pattern,
     PatternCategory,
     PatternDetector,

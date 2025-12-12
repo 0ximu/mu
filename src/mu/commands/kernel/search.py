@@ -93,8 +93,8 @@ def kernel_search(
 
     from mu.config import MUConfig
     from mu.errors import ExitCode
+    from mu.extras.embeddings import EmbeddingService
     from mu.kernel import MUbase, NodeType
-    from mu.kernel.embeddings import EmbeddingService
     from mu.logging import console, print_error, print_info
 
     if ctx.config is None:

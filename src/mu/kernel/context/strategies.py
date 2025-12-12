@@ -499,7 +499,7 @@ class ListStrategy:
                 try:
                     import asyncio
 
-                    from mu.kernel.embeddings.service import create_embedding_service
+                    from mu.extras.embeddings.service import create_embedding_service
 
                     service = create_embedding_service(provider="local")
                     query_embedding = asyncio.get_event_loop().run_until_complete(
@@ -525,7 +525,7 @@ class ListStrategy:
                 list_header = [
                     f":: {type_label} matching '{', '.join(intent.entities)}'",
                     f":: Showing 0 of {stats['total_found']} total",
-                    f":: No relevant context found",
+                    ":: No relevant context found",
                 ]
                 return ContextResult(
                     mu_text="\n".join(list_header),

@@ -102,7 +102,7 @@ def warn(
     import sys
 
     from mu.errors import ExitCode
-    from mu.intelligence.warnings import ProactiveWarningGenerator
+    from mu.extras.intelligence.warnings import ProactiveWarningGenerator
     from mu.kernel import MUbase, MUbaseLockError
 
     # Handle deprecated --json flag

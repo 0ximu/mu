@@ -4,6 +4,9 @@ import pytest
 from pathlib import Path
 import tempfile
 
+# Skip this entire module if mu.viewer is not available (moved to mu-viz package)
+pytest.importorskip("mu.viewer", reason="mu.viewer moved to mu-viz package")
+
 from mu.viewer import (
     TokenType,
     Token,

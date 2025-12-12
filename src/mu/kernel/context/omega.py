@@ -451,7 +451,7 @@ class OmegaContextExtractor:
     def synthesizer(self) -> MacroSynthesizer:
         """Lazy-load macro synthesizer."""
         if self._synthesizer is None:
-            from mu.intelligence.synthesizer import MacroSynthesizer
+            from mu.extras.intelligence.synthesizer import MacroSynthesizer
 
             self._synthesizer = MacroSynthesizer(self.mubase)
         return self._synthesizer
@@ -599,7 +599,7 @@ class OmegaContextExtractor:
         stats: dict[str, Any] = {"task": task}
 
         try:
-            from mu.intelligence.task_context import TaskContextConfig, TaskContextExtractor
+            from mu.extras.intelligence.task_context import TaskContextConfig, TaskContextExtractor
 
             # Use task context extractor
             body_budget = int(self.config.max_tokens * (1 - self.config.header_budget_ratio))
@@ -706,7 +706,7 @@ class OmegaContextExtractor:
 
         # Sort by tier for prompt cache optimization
         if self.config.enable_prompt_cache_optimization:
-            from mu.intelligence.models import MacroTier
+            from mu.extras.intelligence.models import MacroTier
 
             # CORE → STANDARD → SYNTHESIZED
             tier_order = {MacroTier.CORE: 0, MacroTier.STANDARD: 1, MacroTier.SYNTHESIZED: 2}
@@ -1155,7 +1155,7 @@ class OmegaContextExtractor:
         Returns:
             OmegaManifest with macro categorization.
         """
-        from mu.intelligence.models import MacroTier
+        from mu.extras.intelligence.models import MacroTier
 
         core_macros: list[str] = []
         standard_macros: list[str] = []
@@ -1218,8 +1218,8 @@ except ImportError:
 
 # Lazy imports for type hints
 if TYPE_CHECKING:
-    from mu.intelligence.models import MacroDefinition, SynthesisResult
-    from mu.intelligence.synthesizer import MacroSynthesizer
+    from mu.extras.intelligence.models import MacroDefinition, SynthesisResult
+    from mu.extras.intelligence.synthesizer import MacroSynthesizer
     from mu.kernel.export.lisp import LispExporter
     from mu.kernel.models import Node
     from mu.kernel.mubase import MUbase

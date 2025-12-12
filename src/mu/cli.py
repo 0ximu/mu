@@ -39,6 +39,7 @@ pass_context = click.make_pass_decorator(MUContext, ensure=True)
 
 
 # Define lazy subcommands: name -> (module_path, attribute_name)
+# These appear in `mu --help`
 LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     # Core commands (most common workflows)
     "bootstrap": ("mu.commands.core", "bootstrap"),
@@ -51,26 +52,14 @@ LAZY_COMMANDS: dict[str, tuple[str, str]] = {
     # Graph Reasoning (petgraph-backed)
     "deps": ("mu.commands.deps", "deps"),
     "impact": ("mu.commands.graph", "impact"),
-    "ancestors": ("mu.commands.graph", "ancestors"),
     "cycles": ("mu.commands.graph", "cycles"),
-    "related": ("mu.commands.core", "related"),
     # Intelligence Layer
-    "patterns": ("mu.commands.patterns", "patterns"),
     "diff": ("mu.commands.diff", "diff"),
-    # History (promoted from kernel)
-    "snapshot": ("mu.commands.kernel.snapshot", "kernel_snapshot"),
-    "snapshots": ("mu.commands.kernel.snapshot", "kernel_snapshots"),
-    "history": ("mu.commands.kernel.history", "kernel_history"),
-    "blame": ("mu.commands.kernel.blame", "kernel_blame"),
-    # Export (promoted from kernel)
-    "export": ("mu.commands.kernel.export", "kernel_export"),
-    "embed": ("mu.commands.kernel.embed", "kernel_embed"),
-    # Services
-    "serve": ("mu.commands.serve", "serve"),
-    "mcp": ("mu.commands.mcp", "mcp"),
+    # Meta
+    "?": ("mu.commands.helpalot", "helpalot"),
 }
 
-# Hidden commands (still work, not in Commands list - featured in docstring instead)
+# Hidden commands (still work, shown via `mu helpalot`)
 HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
     # Quick Commands - featured prominently in docstring, hidden from Commands list
     "grok": ("mu.commands.vibes", "grok"),  # Understand code - extract relevant context
@@ -80,7 +69,19 @@ HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
     "vibe": ("mu.commands.vibes", "vibe"),  # Pattern check - does this code fit?
     "wtf": ("mu.commands.vibes", "wtf"),  # Git archaeology - why does this code exist?
     "zen": ("mu.commands.vibes", "zen"),  # Clean up - clear caches
-    # Utility commands (not in main help)
+    # Power-user commands (use `mu helpalot` to see all)
+    "ancestors": ("mu.commands.graph", "ancestors"),
+    "related": ("mu.commands.core", "related"),
+    "patterns": ("mu.commands.patterns", "patterns"),
+    "snapshot": ("mu.commands.kernel.snapshot", "kernel_snapshot"),
+    "snapshots": ("mu.commands.kernel.snapshot", "kernel_snapshots"),
+    "history": ("mu.commands.kernel.history", "kernel_history"),
+    "blame": ("mu.commands.kernel.blame", "kernel_blame"),
+    "export": ("mu.commands.kernel.export", "kernel_export"),
+    "embed": ("mu.commands.kernel.embed", "kernel_embed"),
+    "serve": ("mu.commands.serve", "serve"),
+    "mcp": ("mu.commands.mcp", "mcp"),
+    # Utility commands
     "migrate": ("mu.commands.migrate", "migrate"),
     "view": ("mu.commands.view", "view"),
     "describe": ("mu.commands.describe", "describe"),
@@ -88,13 +89,14 @@ HIDDEN_COMMANDS: dict[str, tuple[str, str]] = {
     "llm": ("mu.commands.llm_spec", "llm_command"),
     "cache": ("mu.commands.cache", "cache"),
     # Deprecated aliases - still work, not in help
+    "helpalot": ("mu.commands.helpalot", "helpalot"),  # Use '?' instead
     "query": ("mu.commands.query", "query"),  # Use 'q' instead
     "context": ("mu.commands.core", "context"),  # Use 'grok' instead
     "warn": ("mu.commands.warn", "warn"),  # Use 'sus' instead
     "daemon": ("mu.commands.daemon", "daemon"),  # Use 'serve' instead
-    # Power-user commands (hidden)
+    # Advanced (easter eggs)
     "kernel": ("mu.commands.kernel", "kernel"),  # Advanced graph ops
-    "sigma": ("mu.sigma.cli", "sigma"),  # Training data pipeline (easter egg)
+    "sigma": ("mu.sigma.cli", "sigma"),  # Training data pipeline
 }
 
 
@@ -145,60 +147,11 @@ def cli(
 ) -> None:
     """MU - Machine Understanding for Codebases.
 
-    \b
-    Quick Commands:
-      grok         Understand code - extract relevant context
-      omg          Ship mode - OMEGA compressed context
-      yolo         Impact check - what breaks if I change this?
-      sus          Smell check - warnings before touching code
-      vibe         Pattern check - does this code fit?
-      wtf          Git archaeology - why does this code exist?
-      zen          Clean up - clear caches
+    Semantic compression for LLM context. Get what you need, fast.
 
     \b
-    Core:
-      bootstrap    Initialize MU for a codebase
-      status       Show MU status and guidance
-      compress     Compress code to MU format
-
-    \b
-    Query:
-      q            Execute MUQL queries
-      read         Read source code for a node
-      search       Search for code entities
-
-    \b
-    Graph:
-      deps         Show dependencies
-      impact       What breaks if I change this?
-      ancestors    What depends on this?
-      cycles       Find circular dependencies
-      related      Find related files
-
-    \b
-    Intelligence:
-      patterns     Detect codebase patterns
-      diff         Semantic diff between refs
-
-    \b
-    History:
-      snapshot     Create a temporal snapshot
-      snapshots    List all snapshots
-      history      Show change history for a node
-      blame        Show who last modified a node
-
-    \b
-    Export:
-      export       Export graph in various formats
-      embed        Generate embeddings for semantic search
-
-    \b
-    Services:
-      serve        Start MU daemon (HTTP/WebSocket API)
-      mcp          MCP server tools
-
-    Use 'mu <command> --help' for details.
-    Use --debug to show full tracebacks on errors.
+    Also try: grok, omg, yolo, sus, wtf (fun aliases)
+    Use 'mu ?' for ALL commands.
     """
     import sys
 

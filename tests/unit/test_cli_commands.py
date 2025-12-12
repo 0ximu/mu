@@ -24,8 +24,9 @@ class TestCLIHelp:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         assert "MU - Machine Understanding" in result.output
-        # CLI uses shortened section headers like "Core:" instead of "Core Commands"
-        assert "Core:" in result.output or "Core Commands" in result.output
+        # Lean help points to ? for full command list
+        assert "mu ?" in result.output
+        assert "Commands:" in result.output
 
     def test_main_version(self, runner: CliRunner) -> None:
         """Test mu --version shows version."""
@@ -45,25 +46,30 @@ class TestCLIHelp:
             "q",  # Primary query command (short alias visible, 'query' hidden)
             "diff",
             "compress",
-            "serve",  # New unified server command
             "deps",
             "bootstrap",
             "status",
             "search",
+            "?",  # Shows all commands
         ]
         for cmd in expected_commands:
             assert cmd in result.output, f"Command '{cmd}' not found in help output"
 
-    def test_subgroups_registered(self, runner: CliRunner) -> None:
-        """Test all subgroups are registered."""
-        result = runner.invoke(cli, ["--help"])
-        assert result.exit_code == 0
+        # These commands are now hidden (use `mu ?` to see all)
+        hidden_commands = ["serve", "mcp", "patterns", "export", "embed"]
+        for cmd in hidden_commands:
+            assert cmd not in result.output, f"Hidden command '{cmd}' should not be in main help"
 
-        # Visible subgroups (kernel promoted commands to top-level, daemon hidden)
-        # Only mcp is now visible as a subgroup; kernel commands are top-level
-        expected_groups = ["mcp"]
-        for group in expected_groups:
-            assert group in result.output, f"Subgroup '{group}' not found in help output"
+    def test_hidden_commands_work(self, runner: CliRunner) -> None:
+        """Test hidden commands still work even though not in main help."""
+        # Hidden commands should still be invocable
+        result = runner.invoke(cli, ["serve", "--help"])
+        assert result.exit_code == 0
+        assert "daemon" in result.output.lower() or "server" in result.output.lower()
+
+        result = runner.invoke(cli, ["mcp", "--help"])
+        assert result.exit_code == 0
+        assert "mcp" in result.output.lower()
 
 
 class TestKernelSubgroup:

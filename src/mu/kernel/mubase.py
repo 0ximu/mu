@@ -2,30 +2,42 @@
 
 DuckDB-based storage for the codebase graph with support for
 recursive dependency queries.
+
+This module provides the main MUbase class which acts as a facade
+over specialized store modules:
+- queries.py: Graph traversal and search operations
+- embeddings_store.py: Vector embeddings storage and similarity search
+- patterns_store.py: Codebase pattern storage
+- memory_store.py: Cross-session learning storage
+- stats_store.py: Codebase statistics
 """
 
 from __future__ import annotations
 
-from datetime import UTC
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 from mu.kernel.builder import GraphBuilder
+from mu.kernel.embeddings_store import EmbeddingsStore
+from mu.kernel.memory_store import MemoryStore
 from mu.kernel.models import Edge, Node
+from mu.kernel.patterns_store import PatternsStore
+from mu.kernel.queries import GraphQueries
 from mu.kernel.schema import (
-    EMBEDDINGS_SCHEMA_SQL,
     PATTERNS_SCHEMA_SQL,
     SCHEMA_SQL,
     TEMPORAL_SCHEMA_SQL,
     EdgeType,
     NodeType,
 )
+from mu.kernel.stats_store import StatsStore
 from mu.paths import MUBASE_FILE, get_mu_dir
 
 if TYPE_CHECKING:
-    from mu.kernel.embeddings.models import NodeEmbedding
+    from mu.extras.embeddings.models import NodeEmbedding
+    from mu.extras.intelligence.models import Memory, Pattern
     from mu.parser.models import ModuleDef
 
 
@@ -55,6 +67,9 @@ class MUbase:
 
     Stores the codebase as nodes (modules, classes, functions) and
     edges (contains, imports, inherits) in a DuckDB database file.
+
+    This class acts as a facade over specialized store modules,
+    providing a unified API for all database operations.
     """
 
     VERSION = "1.0.0"
@@ -120,6 +135,17 @@ class MUbase:
                 ) from e
             raise
 
+        # Initialize specialized stores (delegation pattern)
+        self._queries = GraphQueries(self.conn)
+        self._embeddings = EmbeddingsStore(self.conn, read_only)
+        self._patterns = PatternsStore(self.conn, read_only)
+        self._memory = MemoryStore(self.conn, read_only)
+        self._stats = StatsStore(self.conn, read_only)
+
+    # =========================================================================
+    # Schema Management
+    # =========================================================================
+
     def _init_schema(self) -> None:
         """Initialize database schema if needed."""
         try:
@@ -154,9 +180,7 @@ class MUbase:
     def _create_schema(self) -> None:
         """Create all tables and indexes."""
         self.conn.execute(SCHEMA_SQL)
-        # Create temporal schema (snapshots, node_history, edge_history)
         self.conn.execute(TEMPORAL_SCHEMA_SQL)
-        # Create patterns schema
         self.conn.execute(PATTERNS_SCHEMA_SQL)
         self.conn.execute(
             "INSERT INTO metadata VALUES ('version', ?)",
@@ -167,15 +191,15 @@ class MUbase:
         )
 
     def _migrate(self, from_version: str) -> None:
-        """Migrate schema from older version.
-
-        For now, just recreate the schema. Future versions may need
-        actual migration logic.
-        """
+        """Migrate schema from older version."""
         self.conn.execute("DROP TABLE IF EXISTS edges")
         self.conn.execute("DROP TABLE IF EXISTS nodes")
         self.conn.execute("DROP TABLE IF EXISTS metadata")
         self._create_schema()
+
+    # =========================================================================
+    # Build Operations
+    # =========================================================================
 
     def build(self, modules: list[ModuleDef], root_path: Path) -> None:
         """Build graph from parsed modules.
@@ -199,16 +223,14 @@ class MUbase:
             [str(root_path)],
         )
 
-        # Insert nodes
+        # Insert nodes and edges
         for node in nodes:
             self.add_node(node)
-
-        # Insert edges
         for edge in edges:
             self.add_edge(edge)
 
         # Compute and store language statistics
-        self._compute_and_store_language_stats(modules)
+        self._stats.compute_and_store_language_stats(modules)
 
     def add_node(self, node: Node) -> None:
         """Add or update a node in the graph."""
@@ -224,7 +246,6 @@ class MUbase:
 
     def add_edge(self, edge: Edge) -> None:
         """Add or update an edge in the graph."""
-        # Delete existing edge with same ID first, then insert
         self.conn.execute("DELETE FROM edges WHERE id = ?", [edge.id])
         self.conn.execute(
             """
@@ -235,52 +256,21 @@ class MUbase:
             edge.to_tuple(),
         )
 
+    # =========================================================================
+    # Query Operations (delegated to GraphQueries)
+    # =========================================================================
+
     def get_node(self, node_id: str) -> Node | None:
-        """Get a node by ID.
-
-        Args:
-            node_id: The node ID
-
-        Returns:
-            Node if found, None otherwise
-        """
-        row = self.conn.execute(
-            "SELECT * FROM nodes WHERE id = ?",
-            [node_id],
-        ).fetchone()
-        return Node.from_row(row) if row else None
+        """Get a node by ID."""
+        return self._queries.get_node(node_id)
 
     def get_nodes(
         self,
         node_type: NodeType | None = None,
         file_path: str | None = None,
     ) -> list[Node]:
-        """Get nodes with optional filtering.
-
-        Args:
-            node_type: Filter by node type
-            file_path: Filter by file path
-
-        Returns:
-            List of matching nodes
-        """
-        conditions = []
-        params: list[Any] = []
-
-        if node_type:
-            conditions.append("type = ?")
-            params.append(node_type.value)
-
-        if file_path:
-            conditions.append("file_path = ?")
-            params.append(file_path)
-
-        query = "SELECT * FROM nodes"
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-
-        rows = self.conn.execute(query, params).fetchall()
-        return [Node.from_row(r) for r in rows]
+        """Get nodes with optional filtering."""
+        return self._queries.get_nodes(node_type, file_path)
 
     def get_edges(
         self,
@@ -288,37 +278,8 @@ class MUbase:
         target_id: str | None = None,
         edge_type: EdgeType | None = None,
     ) -> list[Edge]:
-        """Get edges with optional filtering.
-
-        Args:
-            source_id: Filter by source node ID
-            target_id: Filter by target node ID
-            edge_type: Filter by edge type
-
-        Returns:
-            List of matching edges
-        """
-        conditions = []
-        params: list[Any] = []
-
-        if source_id:
-            conditions.append("source_id = ?")
-            params.append(source_id)
-
-        if target_id:
-            conditions.append("target_id = ?")
-            params.append(target_id)
-
-        if edge_type:
-            conditions.append("type = ?")
-            params.append(edge_type.value)
-
-        query = "SELECT * FROM edges"
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-
-        rows = self.conn.execute(query, params).fetchall()
-        return [Edge.from_row(r) for r in rows]
+        """Get edges with optional filtering."""
+        return self._queries.get_edges(source_id, target_id, edge_type)
 
     def get_dependencies(
         self,
@@ -326,53 +287,8 @@ class MUbase:
         depth: int = 1,
         edge_types: list[EdgeType] | None = None,
     ) -> list[Node]:
-        """Get nodes that this node depends on (outgoing edges).
-
-        Args:
-            node_id: The source node ID
-            depth: How many levels of dependencies to traverse (1 = direct only)
-            edge_types: Filter by edge types (default: all types)
-
-        Returns:
-            List of dependent nodes
-        """
-        type_filter = ""
-        if edge_types:
-            types = ", ".join(f"'{t.value}'" for t in edge_types)
-            type_filter = f"AND e.type IN ({types})"
-
-        if depth == 1:
-            rows = self.conn.execute(
-                f"""
-                SELECT n.* FROM nodes n
-                JOIN edges e ON n.id = e.target_id
-                WHERE e.source_id = ? {type_filter}
-                """,
-                [node_id],
-            ).fetchall()
-        else:
-            # Recursive CTE for multi-level traversal
-            rows = self.conn.execute(
-                f"""
-                WITH RECURSIVE deps AS (
-                    SELECT target_id, 1 as depth
-                    FROM edges
-                    WHERE source_id = ? {type_filter}
-
-                    UNION ALL
-
-                    SELECT e.target_id, d.depth + 1
-                    FROM deps d
-                    JOIN edges e ON e.source_id = d.target_id
-                    WHERE d.depth < ? {type_filter}
-                )
-                SELECT DISTINCT n.* FROM nodes n
-                JOIN deps d ON n.id = d.target_id
-                """,
-                [node_id, depth],
-            ).fetchall()
-
-        return [Node.from_row(r) for r in rows]
+        """Get nodes that this node depends on (outgoing edges)."""
+        return self._queries.get_dependencies(node_id, depth, edge_types)
 
     def get_dependents(
         self,
@@ -380,138 +296,40 @@ class MUbase:
         depth: int = 1,
         edge_types: list[EdgeType] | None = None,
     ) -> list[Node]:
-        """Get nodes that depend on this node (incoming edges).
-
-        Args:
-            node_id: The target node ID
-            depth: How many levels to traverse (1 = direct only)
-            edge_types: Filter by edge types (default: all types)
-
-        Returns:
-            List of nodes that depend on this node
-        """
-        type_filter = ""
-        if edge_types:
-            types = ", ".join(f"'{t.value}'" for t in edge_types)
-            type_filter = f"AND e.type IN ({types})"
-
-        if depth == 1:
-            rows = self.conn.execute(
-                f"""
-                SELECT n.* FROM nodes n
-                JOIN edges e ON n.id = e.source_id
-                WHERE e.target_id = ? {type_filter}
-                """,
-                [node_id],
-            ).fetchall()
-        else:
-            # Recursive CTE for multi-level traversal
-            rows = self.conn.execute(
-                f"""
-                WITH RECURSIVE deps AS (
-                    SELECT source_id, 1 as depth
-                    FROM edges
-                    WHERE target_id = ? {type_filter}
-
-                    UNION ALL
-
-                    SELECT e.source_id, d.depth + 1
-                    FROM deps d
-                    JOIN edges e ON e.target_id = d.source_id
-                    WHERE d.depth < ? {type_filter}
-                )
-                SELECT DISTINCT n.* FROM nodes n
-                JOIN deps d ON n.id = d.source_id
-                """,
-                [node_id, depth],
-            ).fetchall()
-
-        return [Node.from_row(r) for r in rows]
+        """Get nodes that depend on this node (incoming edges)."""
+        return self._queries.get_dependents(node_id, depth, edge_types)
 
     def get_children(self, node_id: str) -> list[Node]:
-        """Get nodes contained by this node (CONTAINS edges).
-
-        Args:
-            node_id: The parent node ID
-
-        Returns:
-            List of child nodes
-        """
-        return self.get_dependencies(node_id, depth=1, edge_types=[EdgeType.CONTAINS])
+        """Get nodes contained by this node (CONTAINS edges)."""
+        return self._queries.get_children(node_id)
 
     def get_parent(self, node_id: str) -> Node | None:
-        """Get the node that contains this node.
+        """Get the node that contains this node."""
+        return self._queries.get_parent(node_id)
 
-        Args:
-            node_id: The child node ID
-
-        Returns:
-            Parent node if found, None otherwise
-        """
-        parents = self.get_dependents(node_id, depth=1, edge_types=[EdgeType.CONTAINS])
-        return parents[0] if parents else None
+    def get_neighbors(self, node_id: str, direction: str = "both") -> list[Node]:
+        """Get neighboring nodes in the graph."""
+        return self._queries.get_neighbors(node_id, direction)
 
     def find_by_name(self, name: str, node_type: NodeType | None = None) -> list[Node]:
-        """Find nodes by name (exact or pattern match).
+        """Find nodes by name (exact or pattern match)."""
+        return self._queries.find_by_name(name, node_type)
 
-        Args:
-            name: The name to search for (supports SQL LIKE patterns with %)
-            node_type: Optional filter by node type
-
-        Returns:
-            List of matching nodes
-        """
-        conditions = []
-        params: list[Any] = []
-
-        if "%" in name:
-            conditions.append("name LIKE ?")
-        else:
-            conditions.append("name = ?")
-        params.append(name)
-
-        if node_type:
-            conditions.append("type = ?")
-            params.append(node_type.value)
-
-        query = "SELECT * FROM nodes WHERE " + " AND ".join(conditions)
-        rows = self.conn.execute(query, params).fetchall()
-        return [Node.from_row(r) for r in rows]
+    def find_nodes_by_suffix(
+        self,
+        suffix: str,
+        node_type: NodeType | None = None,
+    ) -> list[Node]:
+        """Find nodes whose name ends with the given suffix."""
+        return self._queries.find_nodes_by_suffix(suffix, node_type)
 
     def find_by_complexity(
         self,
         min_complexity: int,
         max_complexity: int | None = None,
     ) -> list[Node]:
-        """Find nodes with complexity in range.
-
-        Args:
-            min_complexity: Minimum complexity (inclusive)
-            max_complexity: Maximum complexity (inclusive, optional)
-
-        Returns:
-            List of nodes ordered by complexity descending
-        """
-        if max_complexity:
-            rows = self.conn.execute(
-                """
-                SELECT * FROM nodes
-                WHERE complexity >= ? AND complexity <= ?
-                ORDER BY complexity DESC
-                """,
-                [min_complexity, max_complexity],
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                """
-                SELECT * FROM nodes
-                WHERE complexity >= ?
-                ORDER BY complexity DESC
-                """,
-                [min_complexity],
-            ).fetchall()
-
-        return [Node.from_row(r) for r in rows]
+        """Find nodes with complexity in range."""
+        return self._queries.find_by_complexity(min_complexity, max_complexity)
 
     def find_path(
         self,
@@ -519,55 +337,15 @@ class MUbase:
         to_id: str,
         max_depth: int = 10,
     ) -> list[str] | None:
-        """Find shortest path between two nodes.
+        """Find shortest path between two nodes."""
+        return self._queries.find_path(from_id, to_id, max_depth)
 
-        Args:
-            from_id: Starting node ID
-            to_id: Target node ID
-            max_depth: Maximum path length to search
-
-        Returns:
-            List of node IDs in the path, or None if no path exists
-        """
-        result = self.conn.execute(
-            """
-            WITH RECURSIVE paths AS (
-                SELECT
-                    source_id,
-                    target_id,
-                    [source_id, target_id] as path,
-                    1 as depth
-                FROM edges
-                WHERE source_id = ?
-
-                UNION ALL
-
-                SELECT
-                    p.source_id,
-                    e.target_id,
-                    list_append(p.path, e.target_id),
-                    p.depth + 1
-                FROM paths p
-                JOIN edges e ON p.target_id = e.source_id
-                WHERE p.depth < ?
-                  AND NOT list_contains(p.path, e.target_id)
-            )
-            SELECT path FROM paths
-            WHERE target_id = ?
-            ORDER BY depth
-            LIMIT 1
-            """,
-            [from_id, max_depth, to_id],
-        ).fetchone()
-
-        return list(result[0]) if result else None
+    # =========================================================================
+    # Statistics
+    # =========================================================================
 
     def stats(self) -> dict[str, Any]:
-        """Get database statistics.
-
-        Returns:
-            Dictionary with node/edge counts and other stats
-        """
+        """Get database statistics."""
         node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
         node_count = node_result[0] if node_result else 0
 
@@ -582,7 +360,6 @@ class MUbase:
         for row in self.conn.execute("SELECT type, COUNT(*) FROM edges GROUP BY type").fetchall():
             edges_by_type[row[0]] = row[1]
 
-        # Get metadata
         metadata: dict[str, str] = {}
         for row in self.conn.execute("SELECT key, value FROM metadata").fetchall():
             metadata[row[0]] = row[1]
@@ -601,106 +378,30 @@ class MUbase:
         }
 
     def execute(self, sql: str, params: list[Any] | None = None) -> list[tuple[Any, ...]]:
-        """Execute raw SQL query.
-
-        For advanced queries not covered by convenience methods.
-
-        Args:
-            sql: SQL query string
-            params: Query parameters
-
-        Returns:
-            List of result rows as tuples
-        """
+        """Execute raw SQL query."""
         if params:
             return self.conn.execute(sql, params).fetchall()
         return self.conn.execute(sql).fetchall()
 
     # =========================================================================
-    # Embeddings Methods
+    # Embeddings Operations (delegated to EmbeddingsStore)
     # =========================================================================
 
     def _ensure_embeddings_schema(self) -> None:
-        """Create embeddings table if it doesn't exist.
-
-        In read-only mode, just checks if table exists without creating.
-        """
-        try:
-            self.conn.execute("SELECT 1 FROM embeddings LIMIT 1")
-        except duckdb.CatalogException:
-            if self.read_only:
-                # In read-only mode, we can't create the table
-                # Just let the caller handle the missing table
-                raise
-            # Table doesn't exist, create it
-            self.conn.execute(EMBEDDINGS_SCHEMA_SQL)
+        """Create embeddings table if it doesn't exist."""
+        self._embeddings._ensure_schema()
 
     def add_embedding(self, embedding: NodeEmbedding) -> None:
-        """Add or update an embedding for a node.
-
-        Args:
-            embedding: The NodeEmbedding to store
-        """
-        self._ensure_embeddings_schema()
-        self.conn.execute("DELETE FROM embeddings WHERE node_id = ?", [embedding.node_id])
-        self.conn.execute(
-            """
-            INSERT INTO embeddings
-            (node_id, code_embedding, docstring_embedding, name_embedding,
-             model_name, model_version, dimensions, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            embedding.to_tuple(),
-        )
+        """Add or update an embedding for a node."""
+        self._embeddings.add_embedding(embedding)
 
     def add_embeddings_batch(self, embeddings: list[NodeEmbedding]) -> None:
-        """Add multiple embeddings in a batch.
-
-        Args:
-            embeddings: List of NodeEmbedding objects to store
-        """
-        if not embeddings:
-            return
-
-        self._ensure_embeddings_schema()
-
-        # Delete existing embeddings for these nodes
-        node_ids = [e.node_id for e in embeddings]
-        placeholders = ", ".join(["?"] * len(node_ids))
-        self.conn.execute(
-            f"DELETE FROM embeddings WHERE node_id IN ({placeholders})",
-            node_ids,
-        )
-
-        # Insert all embeddings
-        for embedding in embeddings:
-            self.conn.execute(
-                """
-                INSERT INTO embeddings
-                (node_id, code_embedding, docstring_embedding, name_embedding,
-                 model_name, model_version, dimensions, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                embedding.to_tuple(),
-            )
+        """Add multiple embeddings in a batch."""
+        self._embeddings.add_embeddings_batch(embeddings)
 
     def get_embedding(self, node_id: str) -> NodeEmbedding | None:
-        """Get embedding for a node.
-
-        Args:
-            node_id: The node ID
-
-        Returns:
-            NodeEmbedding if found, None otherwise
-        """
-        from mu.kernel.embeddings.models import NodeEmbedding
-
-        self._ensure_embeddings_schema()
-        row = self.conn.execute(
-            "SELECT * FROM embeddings WHERE node_id = ?",
-            [node_id],
-        ).fetchone()
-        return NodeEmbedding.from_row(row) if row else None
+        """Get embedding for a node."""
+        return self._embeddings.get_embedding(node_id)
 
     def vector_search(
         self,
@@ -709,156 +410,16 @@ class MUbase:
         limit: int = 10,
         node_type: NodeType | None = None,
     ) -> list[tuple[Node, float]]:
-        """Find similar nodes by cosine similarity.
+        """Find similar nodes by cosine similarity."""
+        return self._embeddings.vector_search(query_embedding, embedding_type, limit, node_type)
 
-        Args:
-            query_embedding: The query embedding vector
-            embedding_type: Which embedding to search ('code', 'docstring', 'name')
-            limit: Maximum number of results
-            node_type: Optional filter by node type
-
-        Returns:
-            List of (Node, similarity_score) tuples, sorted by similarity descending
-        """
-        self._ensure_embeddings_schema()
-
-        # Map embedding type to column
-        column_map = {
-            "code": "code_embedding",
-            "docstring": "docstring_embedding",
-            "name": "name_embedding",
-        }
-        if embedding_type not in column_map:
-            raise ValueError(f"Invalid embedding_type: {embedding_type}")
-
-        column = column_map[embedding_type]
-
-        # Build type filter
-        type_filter = ""
-        params: list[Any] = [query_embedding]
-        if node_type:
-            type_filter = "AND n.type = ?"
-            params.append(node_type.value)
-
-        params.append(limit)
-
-        # DuckDB cosine similarity using list functions
-        # cosine_similarity = dot(a, b) / (norm(a) * norm(b))
-        rows = self.conn.execute(
-            f"""
-            WITH query_vec AS (
-                SELECT ?::FLOAT[] as vec
-            ),
-            similarities AS (
-                SELECT
-                    n.*,
-                    list_cosine_similarity(e.{column}, q.vec) as similarity
-                FROM nodes n
-                JOIN embeddings e ON n.id = e.node_id
-                CROSS JOIN query_vec q
-                WHERE e.{column} IS NOT NULL
-                {type_filter}
-            )
-            SELECT * FROM similarities
-            WHERE similarity IS NOT NULL
-            ORDER BY similarity DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
-
-        results: list[tuple[Node, float]] = []
-        for row in rows:
-            # Last column is similarity, rest are node columns
-            similarity = row[-1]
-            node_row = row[:-1]
-            node = Node.from_row(node_row)
-            results.append((node, float(similarity)))
-
-        return results
+    def has_embeddings(self) -> bool:
+        """Check if the database has any embeddings."""
+        return self._embeddings.has_embeddings()
 
     def embedding_stats(self) -> dict[str, Any]:
-        """Get embedding statistics.
-
-        Returns:
-            Dictionary with embedding coverage and model info.
-            Returns empty stats if embeddings table doesn't exist.
-        """
-        try:
-            self._ensure_embeddings_schema()
-        except duckdb.CatalogException:
-            # Table doesn't exist (possibly in read-only mode)
-            node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
-            total_nodes = node_result[0] if node_result else 0
-            return {
-                "total_nodes": total_nodes,
-                "nodes_with_embeddings": 0,
-                "nodes_without_embeddings": total_nodes,
-                "coverage_percent": 0.0,
-                "coverage_by_type": {},
-                "model_distribution": {},
-                "dimensions": [],
-            }
-
-        # Total nodes
-        node_result = self.conn.execute("SELECT COUNT(*) FROM nodes").fetchone()
-        total_nodes = node_result[0] if node_result else 0
-
-        # Nodes with embeddings
-        embed_result = self.conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()
-        nodes_with_embeddings = embed_result[0] if embed_result else 0
-
-        # Nodes without embeddings
-        nodes_without = total_nodes - nodes_with_embeddings
-
-        # Coverage by node type
-        coverage_by_type: dict[str, dict[str, int]] = {}
-        type_rows = self.conn.execute(
-            """
-            SELECT
-                n.type,
-                COUNT(n.id) as total,
-                COUNT(e.node_id) as with_embedding
-            FROM nodes n
-            LEFT JOIN embeddings e ON n.id = e.node_id
-            GROUP BY n.type
-            """
-        ).fetchall()
-        for row in type_rows:
-            coverage_by_type[row[0]] = {
-                "total": row[1],
-                "with_embedding": row[2],
-                "without_embedding": row[1] - row[2],
-            }
-
-        # Model distribution
-        model_dist: dict[str, int] = {}
-        model_rows = self.conn.execute(
-            """
-            SELECT model_name, model_version, COUNT(*)
-            FROM embeddings
-            GROUP BY model_name, model_version
-            """
-        ).fetchall()
-        for row in model_rows:
-            key = f"{row[0]}:{row[1]}"
-            model_dist[key] = row[2]
-
-        # Dimensions (should be consistent)
-        dim_result = self.conn.execute("SELECT DISTINCT dimensions FROM embeddings").fetchall()
-        dimensions = [r[0] for r in dim_result]
-
-        return {
-            "total_nodes": total_nodes,
-            "nodes_with_embeddings": nodes_with_embeddings,
-            "nodes_without_embeddings": nodes_without,
-            "coverage_percent": (
-                (nodes_with_embeddings / total_nodes * 100) if total_nodes > 0 else 0
-            ),
-            "coverage_by_type": coverage_by_type,
-            "model_distribution": model_dist,
-            "dimensions": dimensions,
-        }
+        """Get embedding statistics."""
+        return self._embeddings.stats()
 
     # =========================================================================
     # Smart Context Methods
@@ -879,29 +440,11 @@ class MUbase:
         Args:
             question: Natural language question about the code.
             max_tokens: Maximum tokens in output (default: 8000).
-            **kwargs: Additional ExtractionConfig options:
-                - include_imports: bool (default: True)
-                - include_parent: bool (default: True)
-                - expand_depth: int (default: 1)
-                - entity_weight: float (default: 1.0)
-                - vector_weight: float (default: 0.7)
-                - proximity_weight: float (default: 0.3)
-                - min_relevance: float (default: 0.1)
-                - exclude_tests: bool (default: False)
+            **kwargs: Additional ExtractionConfig options.
 
         Returns:
             ContextResult with MU format context, selected nodes,
             token count, relevance scores, and extraction stats.
-
-        Example:
-            >>> db = MUbase(".mubase")
-            >>> result = db.get_context_for_question(
-            ...     "How does authentication work?",
-            ...     max_tokens=4000,
-            ...     exclude_tests=True,
-            ... )
-            >>> print(result.mu_text)
-            >>> print(f"Tokens: {result.token_count}")
         """
         from mu.kernel.context import ExtractionConfig, SmartContextExtractor
 
@@ -909,244 +452,37 @@ class MUbase:
         extractor = SmartContextExtractor(self, config)
         return extractor.extract(question)
 
-    def has_embeddings(self) -> bool:
-        """Check if the database has any embeddings.
-
-        Returns:
-            True if embeddings exist, False otherwise.
-        """
-        try:
-            self._ensure_embeddings_schema()
-            result = self.conn.execute("SELECT COUNT(*) FROM embeddings LIMIT 1").fetchone()
-            return result is not None and result[0] > 0
-        except Exception:
-            return False
-
-    def find_nodes_by_suffix(
-        self,
-        suffix: str,
-        node_type: NodeType | None = None,
-    ) -> list[Node]:
-        """Find nodes whose name ends with the given suffix.
-
-        Useful for fuzzy matching when the full qualified name is not known.
-
-        Args:
-            suffix: The suffix to match (e.g., "Service", "login")
-            node_type: Optional filter by node type
-
-        Returns:
-            List of matching nodes
-        """
-        return self.find_by_name(f"%{suffix}", node_type)
-
-    def get_neighbors(
-        self,
-        node_id: str,
-        direction: str = "both",
-    ) -> list[Node]:
-        """Get neighboring nodes in the graph.
-
-        Args:
-            node_id: The node to find neighbors for
-            direction: "outgoing" (dependencies), "incoming" (dependents),
-                      or "both" (default)
-
-        Returns:
-            List of neighboring nodes
-        """
-        neighbors: list[Node] = []
-
-        if direction in ("both", "outgoing"):
-            neighbors.extend(self.get_dependencies(node_id, depth=1))
-
-        if direction in ("both", "incoming"):
-            neighbors.extend(self.get_dependents(node_id, depth=1))
-
-        # Deduplicate
-        seen: set[str] = set()
-        unique: list[Node] = []
-        for node in neighbors:
-            if node.id not in seen:
-                seen.add(node.id)
-                unique.append(node)
-
-        return unique
-
     # =========================================================================
-    # Pattern Storage Methods
+    # Pattern Storage (delegated to PatternsStore)
     # =========================================================================
 
     def _ensure_patterns_schema(self) -> None:
-        """Create patterns table if it doesn't exist.
+        """Create patterns table if it doesn't exist."""
+        self._patterns._ensure_schema()
 
-        In read-only mode, just checks if table exists without creating.
-        """
-        from mu.kernel.schema import PATTERNS_SCHEMA_SQL
+    def save_patterns(self, patterns: list[Pattern]) -> None:
+        """Save patterns to the database."""
+        self._patterns.save_patterns(patterns)
 
-        try:
-            self.conn.execute("SELECT 1 FROM patterns LIMIT 1")
-        except duckdb.CatalogException:
-            if self.read_only:
-                # In read-only mode, we can't create the table
-                # Just let the caller handle the missing table
-                raise
-            self.conn.execute(PATTERNS_SCHEMA_SQL)
-
-    def save_patterns(self, patterns: list[Any]) -> None:
-        """Save patterns to the database.
-
-        Args:
-            patterns: List of Pattern objects to save.
-        """
-        from datetime import datetime
-
-        self._ensure_patterns_schema()
-
-        # Clear existing patterns
-        self.conn.execute("DELETE FROM patterns")
-
-        now = datetime.now(UTC).isoformat()
-        for pattern in patterns:
-            import json
-
-            self.conn.execute(
-                """
-                INSERT INTO patterns
-                (id, category, name, description, frequency, confidence,
-                 examples, anti_patterns, related_patterns, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    f"pat:{pattern.category.value}:{pattern.name}",
-                    pattern.category.value,
-                    pattern.name,
-                    pattern.description,
-                    pattern.frequency,
-                    pattern.confidence,
-                    json.dumps([e.to_dict() for e in pattern.examples]),
-                    json.dumps(pattern.anti_patterns),
-                    json.dumps(getattr(pattern, "related_patterns", [])),
-                    now,
-                    now,
-                ],
-            )
-
-    def get_patterns(self, category: str | None = None) -> list[Any]:
-        """Get stored patterns.
-
-        Args:
-            category: Optional category filter.
-
-        Returns:
-            List of Pattern objects.
-        """
-        import json
-
-        from mu.intelligence.models import Pattern, PatternCategory, PatternExample
-
-        self._ensure_patterns_schema()
-
-        if category:
-            rows = self.conn.execute(
-                "SELECT * FROM patterns WHERE category = ? ORDER BY frequency DESC",
-                [category],
-            ).fetchall()
-        else:
-            rows = self.conn.execute("SELECT * FROM patterns ORDER BY frequency DESC").fetchall()
-
-        patterns = []
-        for row in rows:
-            # row: id, category, name, description, frequency, confidence,
-            #      examples, anti_patterns, related_patterns, created_at, updated_at
-            examples_data = json.loads(row[6]) if row[6] else []
-            examples = [
-                PatternExample(
-                    file_path=e.get("file_path", ""),
-                    line_start=e.get("line_start", 0),
-                    line_end=e.get("line_end", 0),
-                    code_snippet=e.get("code_snippet", ""),
-                    annotation=e.get("annotation", ""),
-                )
-                for e in examples_data
-            ]
-            patterns.append(
-                Pattern(
-                    name=row[2],
-                    category=PatternCategory(row[1]),
-                    description=row[3] or "",
-                    frequency=row[4] or 0,
-                    confidence=row[5] or 0.0,
-                    examples=examples,
-                    anti_patterns=json.loads(row[7]) if row[7] else [],
-                    related_patterns=json.loads(row[8]) if row[8] else [],
-                )
-            )
-        return patterns
+    def get_patterns(self, category: str | None = None) -> list[Pattern]:
+        """Get stored patterns."""
+        return self._patterns.get_patterns(category)
 
     def has_patterns(self) -> bool:
-        """Check if patterns are stored in the database.
-
-        Returns:
-            True if patterns exist, False otherwise.
-        """
-        try:
-            self._ensure_patterns_schema()
-            result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
-            return result is not None and result[0] > 0
-        except Exception:
-            return False
+        """Check if patterns are stored in the database."""
+        return self._patterns.has_patterns()
 
     def patterns_stats(self) -> dict[str, Any]:
-        """Get pattern statistics.
-
-        Returns:
-            Dictionary with pattern counts and categories.
-            Returns empty stats if patterns table doesn't exist.
-        """
-        try:
-            self._ensure_patterns_schema()
-        except duckdb.CatalogException:
-            # Table doesn't exist (possibly in read-only mode)
-            return {
-                "total_patterns": 0,
-                "patterns_by_category": {},
-            }
-
-        result = self.conn.execute("SELECT COUNT(*) FROM patterns").fetchone()
-        total = result[0] if result else 0
-
-        by_category: dict[str, int] = {}
-        rows = self.conn.execute(
-            "SELECT category, COUNT(*) FROM patterns GROUP BY category"
-        ).fetchall()
-        for row in rows:
-            by_category[row[0]] = row[1]
-
-        return {
-            "total_patterns": total,
-            "patterns_by_category": by_category,
-        }
+        """Get pattern statistics."""
+        return self._patterns.stats()
 
     # =========================================================================
-    # Memory Storage Methods (Cross-Session Learnings)
+    # Memory Storage (delegated to MemoryStore)
     # =========================================================================
 
     def _ensure_memory_schema(self) -> None:
-        """Create memory table if it doesn't exist.
-
-        In read-only mode, just checks if table exists without creating.
-        """
-        from mu.kernel.schema import MEMORY_SCHEMA_SQL
-
-        try:
-            self.conn.execute("SELECT 1 FROM memories LIMIT 1")
-        except duckdb.CatalogException:
-            if self.read_only:
-                # In read-only mode, we can't create the table
-                # Just let the caller handle the missing table
-                raise
-            self.conn.execute(MEMORY_SCHEMA_SQL)
+        """Create memory table if it doesn't exist."""
+        self._memory._ensure_schema()
 
     def save_memory(
         self,
@@ -1159,134 +495,14 @@ class MUbase:
         tags: list[str] | None = None,
         embedding: list[float] | None = None,
     ) -> str:
-        """Save a memory to the database.
-
-        Args:
-            content: The memory content.
-            category: Memory category (preference, decision, context, etc.).
-            context: Optional additional context.
-            source: Where this memory came from.
-            confidence: Confidence level (0.0 - 1.0).
-            importance: Importance level (1-5).
-            tags: Optional list of tags.
-            embedding: Optional vector embedding.
-
-        Returns:
-            The memory ID.
-        """
-        import hashlib
-        import json
-        from datetime import datetime
-
-        self._ensure_memory_schema()
-
-        # Generate ID from content hash
-        content_hash = hashlib.sha256(content.encode()).hexdigest()[:12]
-        memory_id = f"mem:{category}:{content_hash}"
-
-        now = datetime.now(UTC).isoformat()
-
-        # Check if memory already exists (update if so)
-        existing = self.conn.execute(
-            "SELECT id, access_count FROM memories WHERE id = ?", [memory_id]
-        ).fetchone()
-
-        if existing:
-            # Update existing memory
-            self.conn.execute(
-                """
-                UPDATE memories SET
-                    content = ?, context = ?, source = ?,
-                    confidence = ?, importance = ?, tags = ?,
-                    embedding = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                [
-                    content,
-                    context,
-                    source,
-                    confidence,
-                    importance,
-                    json.dumps(tags or []),
-                    embedding,
-                    now,
-                    memory_id,
-                ],
-            )
-        else:
-            # Insert new memory
-            self.conn.execute(
-                """
-                INSERT INTO memories
-                (id, category, content, context, source, confidence,
-                 importance, tags, embedding, created_at, updated_at,
-                 accessed_at, access_count)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
-                """,
-                [
-                    memory_id,
-                    category,
-                    content,
-                    context,
-                    source,
-                    confidence,
-                    importance,
-                    json.dumps(tags or []),
-                    embedding,
-                    now,
-                    now,
-                ],
-            )
-
-        return memory_id
-
-    def get_memory(self, memory_id: str) -> Any | None:
-        """Get a memory by ID.
-
-        Args:
-            memory_id: The memory ID.
-
-        Returns:
-            Memory object if found, None otherwise.
-        """
-        import json
-        from datetime import datetime
-
-        from mu.intelligence.models import Memory, MemoryCategory
-
-        self._ensure_memory_schema()
-
-        row = self.conn.execute("SELECT * FROM memories WHERE id = ?", [memory_id]).fetchone()
-
-        if not row:
-            return None
-
-        # Update access tracking
-        now = datetime.now(UTC).isoformat()
-        self.conn.execute(
-            "UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id = ?",
-            [now, memory_id],
+        """Save a memory to the database."""
+        return self._memory.save_memory(
+            content, category, context, source, confidence, importance, tags, embedding
         )
 
-        # row: id, category, content, context, source, confidence,
-        #      importance, tags, embedding, created_at, updated_at,
-        #      accessed_at, access_count
-        # Note: Return incremented access_count (row[12] + 1) since we just updated it
-        return Memory(
-            id=row[0],
-            category=MemoryCategory(row[1]),
-            content=row[2],
-            context=row[3] or "",
-            source=row[4] or "",
-            confidence=row[5] or 1.0,
-            importance=row[6] or 1,
-            tags=json.loads(row[7]) if row[7] else [],
-            embedding=row[8],
-            created_at=row[9] or "",
-            updated_at=row[10] or "",
-            accessed_at=now,  # Use the current timestamp we just set
-            access_count=(row[12] or 0) + 1,  # Reflect the increment
-        )
+    def get_memory(self, memory_id: str) -> Memory | None:
+        """Get a memory by ID."""
+        return self._memory.get_memory(memory_id)
 
     def recall_memories(
         self,
@@ -1295,188 +511,43 @@ class MUbase:
         tags: list[str] | None = None,
         min_importance: int = 0,
         limit: int = 10,
-    ) -> list[Any]:
-        """Recall memories based on search criteria.
-
-        Args:
-            query: Optional text search in content/context.
-            category: Optional category filter.
-            tags: Optional tags filter (any match).
-            min_importance: Minimum importance level.
-            limit: Maximum number of results.
-
-        Returns:
-            List of Memory objects.
-        """
-        import json
-        from datetime import datetime
-
-        from mu.intelligence.models import Memory, MemoryCategory
-
-        self._ensure_memory_schema()
-
-        conditions: list[str] = []
-        params: list[Any] = []
-
-        if category:
-            conditions.append("category = ?")
-            params.append(category)
-
-        if min_importance > 0:
-            conditions.append("importance >= ?")
-            params.append(min_importance)
-
-        if query:
-            conditions.append("(content LIKE ? OR context LIKE ?)")
-            params.extend([f"%{query}%", f"%{query}%"])
-
-        if tags:
-            # Check if any tag matches
-            tag_conditions = []
-            for tag in tags:
-                tag_conditions.append("tags LIKE ?")
-                params.append(f'%"{tag}"%')
-            conditions.append(f"({' OR '.join(tag_conditions)})")
-
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
-        sql = f"""
-            SELECT * FROM memories
-            WHERE {where_clause}
-            ORDER BY importance DESC, access_count DESC, updated_at DESC
-            LIMIT ?
-        """
-        params.append(limit)
-
-        rows = self.conn.execute(sql, params).fetchall()
-
-        # Update access tracking for retrieved memories (skip in read-only mode)
-        if not self.read_only:
-            now = datetime.now(UTC).isoformat()
-            memory_ids = [row[0] for row in rows]
-            if memory_ids:
-                placeholders = ", ".join(["?"] * len(memory_ids))
-                self.conn.execute(
-                    f"UPDATE memories SET accessed_at = ?, access_count = access_count + 1 WHERE id IN ({placeholders})",
-                    [now, *memory_ids],
-                )
-
-        memories = []
-        for row in rows:
-            memories.append(
-                Memory(
-                    id=row[0],
-                    category=MemoryCategory(row[1]),
-                    content=row[2],
-                    context=row[3] or "",
-                    source=row[4] or "",
-                    confidence=row[5] or 1.0,
-                    importance=row[6] or 1,
-                    tags=json.loads(row[7]) if row[7] else [],
-                    embedding=row[8],
-                    created_at=row[9] or "",
-                    updated_at=row[10] or "",
-                    accessed_at=row[11],
-                    access_count=row[12] or 0,
-                )
-            )
-
-        return memories
+    ) -> list[Memory]:
+        """Recall memories based on search criteria."""
+        return self._memory.recall_memories(query, category, tags, min_importance, limit)
 
     def delete_memory(self, memory_id: str) -> bool:
-        """Delete a memory.
-
-        Args:
-            memory_id: The memory ID to delete.
-
-        Returns:
-            True if deleted, False if not found.
-        """
-        self._ensure_memory_schema()
-        self.conn.execute("DELETE FROM memories WHERE id = ?", [memory_id])
-        return True
+        """Delete a memory."""
+        return self._memory.delete_memory(memory_id)
 
     def memory_stats(self) -> dict[str, Any]:
-        """Get memory statistics.
-
-        Returns:
-            Dictionary with memory counts and categories.
-            Returns empty stats if memories table doesn't exist.
-        """
-        try:
-            self._ensure_memory_schema()
-        except duckdb.CatalogException:
-            # Table doesn't exist (possibly in read-only mode)
-            return {
-                "total_memories": 0,
-                "memories_by_category": {},
-            }
-
-        result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
-        total = result[0] if result else 0
-
-        by_category: dict[str, int] = {}
-        rows = self.conn.execute(
-            "SELECT category, COUNT(*) FROM memories GROUP BY category"
-        ).fetchall()
-        for row in rows:
-            by_category[row[0]] = row[1]
-
-        return {
-            "total_memories": total,
-            "memories_by_category": by_category,
-        }
+        """Get memory statistics."""
+        return self._memory.stats()
 
     def has_memories(self) -> bool:
-        """Check if any memories exist.
-
-        Returns:
-            True if memories exist, False otherwise.
-        """
-        try:
-            self._ensure_memory_schema()
-            result = self.conn.execute("SELECT COUNT(*) FROM memories").fetchone()
-            return result is not None and result[0] > 0
-        except Exception:
-            return False
+        """Check if any memories exist."""
+        return self._memory.has_memories()
 
     # =========================================================================
     # Incremental Update Methods (for daemon mode)
     # =========================================================================
 
     def get_nodes_by_file(self, file_path: str) -> list[Node]:
-        """Get all nodes from a specific file.
-
-        Args:
-            file_path: The file path to match
-
-        Returns:
-            List of nodes from the specified file
-        """
+        """Get all nodes from a specific file."""
         return self.get_nodes(file_path=file_path)
 
     def remove_nodes_by_file(self, file_path: str) -> list[str]:
-        """Remove all nodes from a file and their edges.
-
-        Args:
-            file_path: The file path whose nodes should be removed
-
-        Returns:
-            List of removed node IDs
-        """
+        """Remove all nodes from a file and their edges."""
         nodes = self.get_nodes_by_file(file_path)
         removed_ids = [n.id for n in nodes]
 
         if not removed_ids:
             return []
 
-        # Remove edges first (to avoid foreign key issues if constraints exist)
         placeholders = ", ".join(["?"] * len(removed_ids))
         self.conn.execute(
             f"DELETE FROM edges WHERE source_id IN ({placeholders}) OR target_id IN ({placeholders})",
             removed_ids + removed_ids,
         )
-
-        # Remove nodes
         self.conn.execute(
             f"DELETE FROM nodes WHERE id IN ({placeholders})",
             removed_ids,
@@ -1485,220 +556,54 @@ class MUbase:
         return removed_ids
 
     def update_node(self, node: Node) -> None:
-        """Update an existing node (upsert pattern).
-
-        Uses the existing add_node which implements INSERT OR REPLACE.
-
-        Args:
-            node: The node to update
-        """
+        """Update an existing node (upsert pattern)."""
         self.add_node(node)
 
     def remove_node(self, node_id: str) -> bool:
-        """Remove a single node and its edges.
-
-        Args:
-            node_id: The ID of the node to remove
-
-        Returns:
-            True if the node was removed, False if it didn't exist
-        """
-        # Check if node exists
+        """Remove a single node and its edges."""
         node = self.get_node(node_id)
         if node is None:
             return False
 
-        # Remove edges first
         self.conn.execute(
             "DELETE FROM edges WHERE source_id = ? OR target_id = ?",
             [node_id, node_id],
         )
-
-        # Remove node
         self.conn.execute("DELETE FROM nodes WHERE id = ?", [node_id])
         return True
 
     def remove_edge(self, edge_id: str) -> bool:
-        """Remove a single edge.
-
-        Args:
-            edge_id: The ID of the edge to remove
-
-        Returns:
-            True if the edge was removed, False if it didn't exist
-        """
+        """Remove a single edge."""
         result = self.conn.execute("DELETE FROM edges WHERE id = ?", [edge_id])
         return result.rowcount > 0 if hasattr(result, "rowcount") else True
 
     # =========================================================================
-    # Codebase Statistics Methods
+    # Codebase Statistics (delegated to StatsStore)
     # =========================================================================
 
     def _ensure_codebase_stats_schema(self) -> None:
-        """Create codebase_stats table if it doesn't exist.
-
-        In read-only mode, just checks if table exists without creating.
-        """
-        from mu.kernel.schema import CODEBASE_STATS_SCHEMA_SQL
-
-        try:
-            self.conn.execute("SELECT 1 FROM codebase_stats LIMIT 1")
-        except duckdb.CatalogException:
-            if self.read_only:
-                # In read-only mode, we can't create the table
-                # Just let the caller handle the missing table
-                raise
-            self.conn.execute(CODEBASE_STATS_SCHEMA_SQL)
+        """Create codebase_stats table if it doesn't exist."""
+        self._stats._ensure_schema()
 
     def _compute_and_store_language_stats(self, modules: list[ModuleDef]) -> None:
-        """Compute language statistics from modules and store in database.
-
-        Args:
-            modules: List of parsed ModuleDef objects.
-        """
-        import json
-        from collections import Counter
-        from datetime import datetime
-
-        # Count files by language
-        languages: Counter[str] = Counter()
-        ext_map = {
-            ".py": "Python",
-            ".ts": "TypeScript",
-            ".tsx": "TypeScript",
-            ".js": "JavaScript",
-            ".jsx": "JavaScript",
-            ".go": "Go",
-            ".rs": "Rust",
-            ".java": "Java",
-            ".cs": "C#",
-            ".rb": "Ruby",
-            ".php": "PHP",
-            ".swift": "Swift",
-            ".kt": "Kotlin",
-            ".scala": "Scala",
-            ".cpp": "C++",
-            ".c": "C",
-            ".h": "C/C++ Header",
-            ".hpp": "C++ Header",
-        }
-
-        for module in modules:
-            # Get extension from file path
-            if module.path:
-                ext = "." + module.path.rsplit(".", 1)[-1] if "." in module.path else ""
-                lang = ext_map.get(ext.lower())
-                if lang:
-                    languages[lang] += 1
-
-        # Calculate percentages
-        total = sum(languages.values())
-        percentages: dict[str, float] = {}
-        if total > 0:
-            for lang, count in languages.items():
-                percentages[lang] = round(count / total * 100, 2)
-
-        # Determine primary language
-        primary_language = languages.most_common(1)[0][0] if languages else None
-
-        # Store in database
-        self._ensure_codebase_stats_schema()
-        now = datetime.now(UTC).isoformat()
-
-        stats_data = {
-            "languages": dict(languages),
-            "percentages": percentages,
-            "primary_language": primary_language,
-            "total_files": total,
-        }
-
-        # Delete existing and insert new
-        self.conn.execute("DELETE FROM codebase_stats WHERE key = 'languages'")
-        self.conn.execute(
-            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
-            ["languages", json.dumps(stats_data), now],
-        )
+        """Compute language statistics from modules and store in database."""
+        self._stats.compute_and_store_language_stats(modules)
 
     def get_language_stats(self) -> dict[str, Any]:
-        """Get stored language statistics.
-
-        Returns:
-            Dictionary with language distribution:
-            {
-                "languages": {"Python": 100, "C#": 784, ...},
-                "percentages": {"Python": 11.3, "C#": 88.7, ...},
-                "primary_language": "C#",
-                "total_files": 884
-            }
-            Returns empty stats if codebase_stats table doesn't exist.
-        """
-        import json
-
-        try:
-            self._ensure_codebase_stats_schema()
-        except duckdb.CatalogException:
-            # Table doesn't exist (possibly in read-only mode)
-            return {
-                "languages": {},
-                "percentages": {},
-                "primary_language": None,
-                "total_files": 0,
-            }
-
-        row = self.conn.execute(
-            "SELECT value FROM codebase_stats WHERE key = 'languages'"
-        ).fetchone()
-
-        if row:
-            result: dict[str, Any] = json.loads(row[0])
-            return result
-
-        return {
-            "languages": {},
-            "percentages": {},
-            "primary_language": None,
-            "total_files": 0,
-        }
+        """Get stored language statistics."""
+        return self._stats.get_language_stats()
 
     def set_codebase_stat(self, key: str, value: Any) -> None:
-        """Store a codebase statistic.
-
-        Args:
-            key: Statistic key.
-            value: Value (must be JSON-serializable).
-        """
-        import json
-        from datetime import datetime
-
-        self._ensure_codebase_stats_schema()
-        now = datetime.now(UTC).isoformat()
-
-        self.conn.execute("DELETE FROM codebase_stats WHERE key = ?", [key])
-        self.conn.execute(
-            "INSERT INTO codebase_stats (key, value, updated_at) VALUES (?, ?, ?)",
-            [key, json.dumps(value), now],
-        )
+        """Store a codebase statistic."""
+        self._stats.set_stat(key, value)
 
     def get_codebase_stat(self, key: str) -> Any | None:
-        """Get a stored codebase statistic.
+        """Get a stored codebase statistic."""
+        return self._stats.get_stat(key)
 
-        Args:
-            key: Statistic key.
-
-        Returns:
-            The stored value, or None if not found.
-        """
-        import json
-
-        try:
-            self._ensure_codebase_stats_schema()
-        except duckdb.CatalogException:
-            # Table doesn't exist (possibly in read-only mode)
-            return None
-
-        row = self.conn.execute("SELECT value FROM codebase_stats WHERE key = ?", [key]).fetchone()
-
-        return json.loads(row[0]) if row else None
+    # =========================================================================
+    # Connection Management
+    # =========================================================================
 
     def close(self) -> None:
         """Close database connection."""

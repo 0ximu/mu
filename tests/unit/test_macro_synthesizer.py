@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mu.intelligence.models import (
+from mu.extras.intelligence.models import (
     MacroDefinition,
     MacroTier,
     Pattern,
@@ -15,7 +15,7 @@ from mu.intelligence.models import (
     PatternsResult,
     SynthesisResult,
 )
-from mu.intelligence.synthesizer import (
+from mu.extras.intelligence.synthesizer import (
     PATTERN_TO_MACRO_MAP,
     MacroSynthesizer,
 )

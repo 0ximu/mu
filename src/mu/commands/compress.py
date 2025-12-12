@@ -300,7 +300,7 @@ def compress(
 
     # Step 4: LLM summarization (if enabled)
     if ctx.config.llm.enabled and stats.get("needs_llm_summary", 0) > 0:
-        from mu.llm import (
+        from mu.extras.llm import (
             LLMPool,
             LLMProvider,
             SummarizationRequest,

@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mu.intelligence import (
+from mu.extras.intelligence import (
     RelatedFile,
     RelatedFilesDetector,
     RelatedFilesResult,
 )
-from mu.intelligence.related import CONVENTION_PATTERNS, ConventionPattern
+from mu.extras.intelligence.related import CONVENTION_PATTERNS, ConventionPattern
 
 
 class TestRelatedFileModel:

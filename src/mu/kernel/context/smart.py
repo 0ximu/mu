@@ -435,7 +435,7 @@ class SmartContextExtractor:
 
         # Import embedding service lazily to avoid circular imports
         try:
-            from mu.kernel.embeddings import EmbeddingService
+            from mu.extras.embeddings import EmbeddingService
         except ImportError:
             logger.debug("Vector search skipped: embeddings module not available")
             return [], {}, "embeddings_module_unavailable"
@@ -632,7 +632,7 @@ class SmartContextExtractor:
             import asyncio
 
             from mu.config import MUConfig
-            from mu.kernel.embeddings import EmbeddingService
+            from mu.extras.embeddings import EmbeddingService
 
             try:
                 config = MUConfig.load()

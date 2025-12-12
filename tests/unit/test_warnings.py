@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mu.intelligence.models import (
+from mu.extras.intelligence.models import (
     ProactiveWarning,
     WarningCategory,
     WarningsResult,
 )
-from mu.intelligence.warnings import (
+from mu.extras.intelligence.warnings import (
     ProactiveWarningGenerator,
     WarningConfig,
 )

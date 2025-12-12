@@ -200,9 +200,10 @@ class QueryPlanner:
         select_clause = self._build_select_clause(query.fields, columns)
         sql_parts.append(f"SELECT {select_clause}")
 
-        # FROM clause
-        table = self._node_type_to_table(query.node_type)
+        # FROM clause (with parameters for type filtering)
+        table, table_params = self._node_type_to_table(query.node_type)
         sql_parts.append(f"FROM {table}")
+        params.extend(table_params)
 
         # WHERE clause
         if query.where:
@@ -255,8 +256,9 @@ class QueryPlanner:
         select_clause = self._build_select_clause(query.fields, columns)
         sql_parts.append(f"SELECT {select_clause}")
 
-        table = self._node_type_to_table(query.node_type)
+        table, table_params = self._node_type_to_table(query.node_type)
         sql_parts.append(f"FROM {table}")
+        params.extend(table_params)
 
         if query.where:
             where_sql, where_params = self._build_where_clause(query.where)
@@ -337,13 +339,18 @@ class QueryPlanner:
 
         return ", ".join(parts)
 
-    def _node_type_to_table(self, node_type: NodeTypeFilter) -> str:
-        """Convert node type filter to table name or subquery."""
+    def _node_type_to_table(self, node_type: NodeTypeFilter) -> tuple[str, list[Any]]:
+        """Convert node type filter to table name or subquery with parameters.
+
+        Returns:
+            Tuple of (table_expression, parameters) for safe parameterized queries.
+        """
         if node_type == NodeTypeFilter.NODES:
-            return "nodes"
+            return "nodes", []
         else:
-            type_value = node_type.value
-            return f"(SELECT * FROM nodes WHERE type = '{type_value}')"
+            # Use parameterized query for defense-in-depth
+            # Even though node_type is from a trusted enum, we use parameters for consistency
+            return "(SELECT * FROM nodes WHERE type = ?)", [node_type.value]
 
     def _build_where_clause(self, condition: Condition) -> tuple[str, list[Any]]:
         """Build WHERE clause from condition."""
@@ -504,10 +511,12 @@ class QueryPlanner:
         # Pattern matching queries can use SQL
         if cond.condition_type == FindConditionType.MATCHING:
             pattern = cond.pattern or ""
-            sql = self._build_find_matching_sql(node_type, pattern, limit)
+            sql, base_params = self._build_find_matching_sql(node_type, pattern, limit)
+            # Combine base params (type filter) with pattern param
+            params = base_params + [f"%{pattern}%"]
             return SQLPlan(
                 sql=sql,
-                parameters=[f"%{pattern}%"],
+                parameters=params,
                 columns=["id", "name", "type", "path"],
             )
 
@@ -517,10 +526,12 @@ class QueryPlanner:
             FindConditionType.WITH_ANNOTATION,
         ):
             pattern = cond.pattern or ""
-            sql = self._build_find_decorator_sql(node_type, pattern, limit)
+            sql, base_params = self._build_find_decorator_sql(node_type, pattern, limit)
+            # Combine base params (type filter) with pattern param
+            params = base_params + [f"%{pattern}%"]
             return SQLPlan(
                 sql=sql,
-                parameters=[f"%{pattern}%"],
+                parameters=params,
                 columns=["id", "name", "type", "path"],
             )
 
@@ -536,11 +547,18 @@ class QueryPlanner:
 
     def _build_find_matching_sql(
         self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
-    ) -> str:
-        """Build SQL for FIND ... MATCHING query."""
+    ) -> tuple[str, list[Any]]:
+        """Build SQL for FIND ... MATCHING query.
+
+        Returns:
+            Tuple of (sql, base_params) where base_params are type filter params.
+            The caller should append the pattern parameter.
+        """
         type_filter = ""
+        base_params: list[Any] = []
         if node_type != NodeTypeFilter.NODES:
-            type_filter = f"type = '{node_type.value}' AND "
+            type_filter = "type = ? AND "
+            base_params.append(node_type.value)
 
         # Apply limit (capped at MAX_LIMIT)
         limit_clause = ""
@@ -548,20 +566,28 @@ class QueryPlanner:
             effective_limit = min(limit, MAX_LIMIT)
             limit_clause = f"\nLIMIT {effective_limit}"
 
-        return f"""
+        sql = f"""
 SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}name LIKE ?
 ORDER BY name{limit_clause}
 """
+        return sql, base_params
 
     def _build_find_decorator_sql(
         self, node_type: NodeTypeFilter, pattern: str, limit: int | None = None
-    ) -> str:
-        """Build SQL for FIND ... WITH DECORATOR query."""
+    ) -> tuple[str, list[Any]]:
+        """Build SQL for FIND ... WITH DECORATOR query.
+
+        Returns:
+            Tuple of (sql, base_params) where base_params are type filter params.
+            The caller should append the pattern parameter.
+        """
         type_filter = ""
+        base_params: list[Any] = []
         if node_type != NodeTypeFilter.NODES:
-            type_filter = f"type = '{node_type.value}' AND "
+            type_filter = "type = ? AND "
+            base_params.append(node_type.value)
 
         # Apply limit (capped at MAX_LIMIT)
         limit_clause = ""
@@ -570,12 +596,13 @@ ORDER BY name{limit_clause}
             limit_clause = f"\nLIMIT {effective_limit}"
 
         # Decorators are stored in node metadata
-        return f"""
+        sql = f"""
 SELECT id, name, type, file_path
 FROM nodes
 WHERE {type_filter}metadata LIKE ?
 ORDER BY name{limit_clause}
 """
+        return sql, base_params
 
     def _find_condition_to_operation(self, condition_type: FindConditionType) -> str:
         """Map FindConditionType to operation name."""
@@ -680,20 +707,24 @@ ORDER BY name{limit_clause}
                     GROUP BY type
                     ORDER BY count DESC
                 """
+                return SQLPlan(
+                    sql=sql,
+                    columns=["type", "count"],
+                )
             else:
-                sql = f"""
+                # Use parameterized query for type filter
+                sql = """
                     SELECT name, file_path as path, complexity
                     FROM nodes
-                    WHERE type = '{type_value}'
+                    WHERE type = ?
                     ORDER BY name
                     LIMIT 100
                 """
-            return SQLPlan(
-                sql=sql,
-                columns=["name", "path", "complexity"]
-                if type_value != "nodes"
-                else ["type", "count"],
-            )
+                return SQLPlan(
+                    sql=sql,
+                    parameters=[type_value],
+                    columns=["name", "path", "complexity"],
+                )
 
 
 # =============================================================================

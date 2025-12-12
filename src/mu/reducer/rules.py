@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mu.parser.models import FunctionDef, ImportDef, ParameterDef
+from mu.reducer.stdlib import (
+    get_stdlib_prefixes,
+    is_stdlib_import,
+)
 
 
 @dataclass
@@ -14,6 +18,12 @@ class TransformationRules:
     Based on MU spec:
     - STRIP: imports, boilerplate, defensive code, verbose logging, object mapping, syntax keywords
     - KEEP: signatures, dependencies, state mutations, control flow, external I/O, business rules, transactions
+
+    Args:
+        language: Optional language hint for language-aware stdlib detection.
+            If provided, only stdlib for that language is used.
+            If None, all known stdlib prefixes are used (backwards compatible).
+            Supported: python, typescript, javascript, csharp, go, rust, java, kotlin, etc.
     """
 
     # Import filtering
@@ -21,57 +31,12 @@ class TransformationRules:
     strip_relative_imports: bool = False
     keep_external_deps: bool = True
 
-    # What to include in stdlib (common across languages)
-    stdlib_prefixes: list[str] = field(
-        default_factory=lambda: [
-            # Python stdlib
-            "os",
-            "sys",
-            "re",
-            "json",
-            "typing",
-            "collections",
-            "itertools",
-            "functools",
-            "pathlib",
-            "datetime",
-            "logging",
-            "unittest",
-            "dataclasses",
-            "abc",
-            "enum",
-            "copy",
-            "io",
-            "string",
-            "textwrap",
-            "math",
-            "random",
-            "hashlib",
-            "hmac",
-            "secrets",
-            "contextlib",
-            "warnings",
-            "traceback",
-            # TypeScript/Node built-ins
-            "fs",
-            "path",
-            "util",
-            "events",
-            "stream",
-            "http",
-            "https",
-            "url",
-            "crypto",
-            "buffer",
-            "process",
-            "child_process",
-            "os",
-            "assert",
-            # C# System namespaces
-            "System",
-            "Microsoft",
-        ]
-    )
+    # Language hint for stdlib detection (None = use all known stdlibs)
+    language: str | None = None
+
+    # Custom stdlib prefixes (for user overrides or extension)
+    # If not provided, uses language-aware detection from stdlib.py
+    stdlib_prefixes: list[str] | None = None
 
     # Method filtering
     strip_dunder_methods: bool = True  # __str__, __repr__, etc.
@@ -130,12 +95,37 @@ class TransformationRules:
 
         return False
 
-    def _is_stdlib(self, module: str) -> bool:
-        """Check if module is part of standard library."""
-        base = module.split(".")[0]
-        return any(
-            base == prefix or base.startswith(prefix + ".") for prefix in self.stdlib_prefixes
-        )
+    def _is_stdlib(self, module: str, language: str | None = None) -> bool:
+        """Check if module is part of standard library.
+
+        Args:
+            module: The module name to check (e.g., "os", "os.path", "System.IO")
+            language: Optional language override. If not provided, uses self.language.
+
+        Returns:
+            True if the module is considered part of the standard library.
+        """
+        # Use custom prefixes if provided (backwards compatibility for explicit overrides)
+        if self.stdlib_prefixes is not None:
+            base = module.split(".")[0]
+            return any(
+                base == prefix or base.startswith(prefix + ".")
+                for prefix in self.stdlib_prefixes
+            )
+
+        # Use language-aware detection from stdlib module
+        effective_language = language or self.language
+        return is_stdlib_import(module, effective_language)
+
+    def get_stdlib_prefixes(self) -> frozenset[str]:
+        """Get the effective stdlib prefixes for the current configuration.
+
+        Returns:
+            FrozenSet of stdlib module prefixes.
+        """
+        if self.stdlib_prefixes is not None:
+            return frozenset(self.stdlib_prefixes)
+        return get_stdlib_prefixes(self.language)
 
     def should_strip_method(self, method: FunctionDef) -> bool:
         """Determine if a method should be stripped."""

@@ -134,7 +134,7 @@ def patterns(
 
     from mu.client import DaemonClient, DaemonError
     from mu.errors import ExitCode
-    from mu.intelligence import PatternCategory, PatternDetector
+    from mu.extras.intelligence import PatternCategory, PatternDetector
     from mu.kernel import MUbase, MUbaseLockError
     from mu.output import Column, format_output
 

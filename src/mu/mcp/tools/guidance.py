@@ -89,7 +89,7 @@ def mu_patterns(
                 f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
             ) from None
 
-        from mu.intelligence import PatternCategory, PatternDetector
+        from mu.extras.intelligence import PatternCategory, PatternDetector
         from mu.kernel import MUbase
 
         # We need write access to save patterns, so don't use read_only mode
@@ -238,7 +238,7 @@ def mu_warn(target: str) -> WarningsOutput:
                 f"No {MU_DIR}/{MUBASE_FILE} found. Run 'mu daemon start .' first."
             ) from None
 
-        from mu.intelligence.warnings import ProactiveWarningGenerator
+        from mu.extras.intelligence.warnings import ProactiveWarningGenerator
         from mu.kernel import MUbase
 
         db = MUbase(mubase_path, read_only=True)

@@ -676,7 +676,7 @@ class TestMacroSynthesizerPatternDetection:
 
     def test_synthesizer_detects_api_patterns(self, api_endpoints_db: MUbase) -> None:
         """Verify synthesizer detects API endpoint patterns."""
-        from mu.intelligence import PatternDetector
+        from mu.extras.intelligence import PatternDetector
 
         detector = PatternDetector(api_endpoints_db)
         result = detector.detect()
@@ -696,7 +696,7 @@ class TestMacroSynthesizerPatternDetection:
 
     def test_synthesizer_detects_dataclass_patterns(self, data_models_db: MUbase) -> None:
         """Verify synthesizer detects dataclass patterns."""
-        from mu.intelligence import PatternDetector
+        from mu.extras.intelligence import PatternDetector
 
         detector = PatternDetector(data_models_db)
         result = detector.detect()
@@ -713,7 +713,7 @@ class TestMacroSynthesizerPatternDetection:
 
     def test_synthesizer_detects_service_patterns(self, services_db: MUbase) -> None:
         """Verify synthesizer detects service class patterns."""
-        from mu.intelligence import PatternDetector
+        from mu.extras.intelligence import PatternDetector
 
         detector = PatternDetector(services_db)
         result = detector.detect()
@@ -738,7 +738,7 @@ class TestMacroApplicationEffectiveness:
 
     def test_macro_application_on_api_endpoints(self, api_endpoints_db: MUbase) -> None:
         """Test macro compression effectiveness on API endpoints."""
-        from mu.intelligence.synthesizer import MacroSynthesizer
+        from mu.extras.intelligence.synthesizer import MacroSynthesizer
 
         synthesizer = MacroSynthesizer(api_endpoints_db)
         synthesis_result = synthesizer.synthesize(max_synthesized=5)

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mu.intelligence.models import MacroDefinition, MacroTier, SynthesisResult
+from mu.extras.intelligence.models import MacroDefinition, MacroTier, SynthesisResult
 from mu.kernel import MUbase, Node, NodeType
 from mu.kernel.context.omega import (
     OmegaConfig,
