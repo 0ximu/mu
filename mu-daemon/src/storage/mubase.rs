@@ -97,9 +97,7 @@ impl MUbase {
     /// Acquire the database connection lock, handling PoisonError gracefully.
     /// If the mutex is poisoned (previous holder panicked), we still acquire
     /// the lock and continue - the database connection itself is likely fine.
-    fn acquire_conn(
-        &self,
-    ) -> Result<std::sync::MutexGuard<'_, Connection>> {
+    fn acquire_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
         self.conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Database lock poisoned: {}", e))
@@ -122,11 +120,9 @@ impl MUbase {
         Ok(())
     }
 
-    /// Clear all data from the database.
+    /// Clear all data from the database (no-op since insert functions handle this).
     pub fn clear(&self) -> Result<()> {
-        let conn = self.acquire_conn()?;
-        conn.execute("DELETE FROM edges", [])?;
-        conn.execute("DELETE FROM nodes", [])?;
+        // Clearing is now handled by insert_nodes and insert_edges
         Ok(())
     }
 
@@ -157,33 +153,51 @@ impl MUbase {
         Ok(())
     }
 
-    /// Insert multiple nodes in a batch.
+    /// Insert multiple nodes in a batch using an appender for better performance.
     pub fn insert_nodes(&self, nodes: &[Node]) -> Result<()> {
-        let conn = self.acquire_conn()?;
-        let mut stmt = conn.prepare(
-            r#"INSERT OR REPLACE INTO nodes
-               (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
-        )?;
+        use duckdb::Appender;
 
+        // Deduplicate by ID (keep last occurrence)
+        let mut unique_nodes: std::collections::HashMap<&str, &Node> = std::collections::HashMap::new();
         for node in nodes {
-            let properties_json = node
-                .properties
-                .as_ref()
-                .map(|p| serde_json::to_string(p).unwrap_or_default());
-
-            stmt.execute(params![
-                node.id,
-                node.node_type.as_str(),
-                node.name,
-                node.qualified_name,
-                node.file_path,
-                node.line_start,
-                node.line_end,
-                properties_json,
-                node.complexity,
-            ])?;
+            unique_nodes.insert(&node.id, node);
         }
+
+        let dedup_nodes: Vec<&Node> = unique_nodes.into_values().collect();
+        tracing::info!("insert_nodes: {} unique nodes (from {} total)", dedup_nodes.len(), nodes.len());
+
+        let conn = self.acquire_conn()?;
+
+        // First clear the table
+        conn.execute("DELETE FROM nodes", [])?;
+
+        // Use appender for bulk insert
+        {
+            let mut appender = conn.appender("nodes")?;
+            for node in &dedup_nodes {
+                let properties_json = node
+                    .properties
+                    .as_ref()
+                    .map(|p| serde_json::to_string(p).unwrap_or_default());
+
+                appender.append_row(params![
+                    node.id,
+                    node.node_type.as_str(),
+                    node.name,
+                    node.qualified_name,
+                    node.file_path,
+                    node.line_start,
+                    node.line_end,
+                    properties_json,
+                    node.complexity,
+                ])?;
+            }
+            appender.flush()?;
+        }
+
+        // Verify insertion
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        tracing::info!("insert_nodes: after insert, DB has {} nodes", count);
         Ok(())
     }
 
@@ -210,29 +224,61 @@ impl MUbase {
         Ok(())
     }
 
-    /// Insert multiple edges in a batch.
+    /// Insert multiple edges in a batch using an appender for better performance.
     pub fn insert_edges(&self, edges: &[Edge]) -> Result<()> {
-        let conn = self.acquire_conn()?;
-        let mut stmt = conn.prepare(
-            r#"INSERT OR REPLACE INTO edges
-               (id, source_id, target_id, type, properties)
-               VALUES (?, ?, ?, ?, ?)"#,
-        )?;
+        use duckdb::Appender;
 
+        // Count by type before dedup
+        let mut type_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         for edge in edges {
-            let properties_json = edge
-                .properties
-                .as_ref()
-                .map(|p| serde_json::to_string(p).unwrap_or_default());
-
-            stmt.execute(params![
-                edge.id,
-                edge.source_id,
-                edge.target_id,
-                edge.edge_type.as_str(),
-                properties_json,
-            ])?;
+            *type_counts.entry(edge.edge_type.as_str()).or_insert(0) += 1;
         }
+        tracing::info!("insert_edges: before dedup - {:?}", type_counts);
+
+        // Deduplicate by ID (keep last occurrence)
+        let mut unique_edges: std::collections::HashMap<&str, &Edge> = std::collections::HashMap::new();
+        for edge in edges {
+            unique_edges.insert(&edge.id, edge);
+        }
+
+        let dedup_edges: Vec<&Edge> = unique_edges.into_values().collect();
+
+        // Count by type after dedup
+        let mut type_counts_after: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for edge in &dedup_edges {
+            *type_counts_after.entry(edge.edge_type.as_str()).or_insert(0) += 1;
+        }
+        tracing::info!("insert_edges: after dedup - {:?}", type_counts_after);
+        tracing::info!("insert_edges: {} unique edges (from {} total)", dedup_edges.len(), edges.len());
+
+        let conn = self.acquire_conn()?;
+
+        // First clear the table
+        conn.execute("DELETE FROM edges", [])?;
+
+        // Use appender for bulk insert
+        {
+            let mut appender = conn.appender("edges")?;
+            for edge in &dedup_edges {
+                let properties_json = edge
+                    .properties
+                    .as_ref()
+                    .map(|p| serde_json::to_string(p).unwrap_or_default());
+
+                appender.append_row(params![
+                    edge.id,
+                    edge.source_id,
+                    edge.target_id,
+                    edge.edge_type.as_str(),
+                    properties_json,
+                ])?;
+            }
+            appender.flush()?;
+        }
+
+        // Verify insertion
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
+        tracing::info!("insert_edges: after insert, DB has {} edges", count);
         Ok(())
     }
 
@@ -332,7 +378,11 @@ impl MUbase {
             // In duckdb-rs, we can get column names from row.as_ref().column_names()
             if columns.is_empty() {
                 let stmt_ref = row.as_ref();
-                columns = stmt_ref.column_names().iter().map(|s| s.to_string()).collect();
+                columns = stmt_ref
+                    .column_names()
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
                 column_count = columns.len();
             }
 
@@ -368,8 +418,10 @@ impl MUbase {
     pub fn stats(&self) -> Result<GraphStats> {
         let conn = self.acquire_conn()?;
 
-        let node_count: usize = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
-        let edge_count: usize = conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
+        let node_count: usize =
+            conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        let edge_count: usize =
+            conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))?;
 
         // Get counts by type
         let mut type_counts = HashMap::new();
@@ -414,6 +466,275 @@ impl MUbase {
 
         Ok(GraphEngine::from_data(nodes, edges))
     }
+
+    // ========================================================================
+    // Embedding Methods
+    // ========================================================================
+
+    /// Check if the embeddings table has any data.
+    pub fn has_embeddings(&self) -> Result<bool> {
+        let conn = self.acquire_conn()?;
+        let count: usize =
+            conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+        Ok(count > 0)
+    }
+
+    /// Insert a batch of (node_id, embedding, optional_text) tuples.
+    ///
+    /// # Arguments
+    /// * `batch` - Slice of (node_id, embedding_vector, optional_text) tuples
+    /// * `model` - Optional model name (defaults to 'mu-sigma-v2')
+    pub fn insert_embeddings_batch(
+        &self,
+        batch: &[(String, Vec<f32>, Option<String>)],
+        model: Option<&str>,
+    ) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        let model_name = model.unwrap_or("mu-sigma-v2");
+
+        let mut stmt = conn.prepare(
+            r#"INSERT OR REPLACE INTO embeddings (node_id, embedding, model, created_at)
+               VALUES (?, ?, ?, CURRENT_TIMESTAMP)"#,
+        )?;
+
+        for (node_id, embedding, _text) in batch {
+            // Convert Vec<f32> to a DuckDB-compatible array representation
+            // DuckDB expects arrays as JSON-like syntax in parameterized queries
+            let embedding_json = serde_json::to_string(embedding)?;
+            stmt.execute(params![node_id, embedding_json, model_name])?;
+        }
+
+        Ok(())
+    }
+
+    /// Get files that have changed compared to stored hashes.
+    ///
+    /// # Arguments
+    /// * `current_hashes` - Map of file_path -> content_hash for current files
+    ///
+    /// # Returns
+    /// List of file paths that are new or have changed content
+    pub fn get_stale_files(&self, current_hashes: &HashMap<String, String>) -> Result<Vec<String>> {
+        let stored_hashes = self.get_all_file_hashes()?;
+        let mut stale_files = Vec::new();
+
+        for (file_path, current_hash) in current_hashes {
+            match stored_hashes.get(file_path) {
+                Some(stored_hash) if stored_hash == current_hash => {
+                    // File unchanged, skip
+                }
+                _ => {
+                    // File is new or hash changed
+                    stale_files.push(file_path.clone());
+                }
+            }
+        }
+
+        Ok(stale_files)
+    }
+
+    /// Search for similar embeddings using cosine similarity.
+    ///
+    /// # Arguments
+    /// * `query_embedding` - The query vector to search for
+    /// * `limit` - Maximum number of results to return
+    /// * `threshold` - Optional minimum similarity threshold (0.0 to 1.0)
+    ///
+    /// # Returns
+    /// Vector of search results sorted by similarity (highest first)
+    pub fn vector_search(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+        threshold: Option<f32>,
+    ) -> Result<Vec<VectorSearchResult>> {
+        let conn = self.acquire_conn()?;
+
+        // Fetch all embeddings with node metadata
+        // DuckDB doesn't have native vector similarity, so we compute in Rust
+        let mut stmt = conn.prepare(
+            r#"SELECT e.node_id, e.embedding, n.name, n.type, n.file_path, n.qualified_name
+               FROM embeddings e
+               JOIN nodes n ON e.node_id = n.id"#,
+        )?;
+
+        let mut rows = stmt.query([])?;
+        let mut results: Vec<VectorSearchResult> = Vec::new();
+
+        // Pre-compute query magnitude for cosine similarity
+        let query_magnitude = (query_embedding.iter().map(|x| x * x).sum::<f32>()).sqrt();
+        if query_magnitude == 0.0 {
+            return Ok(results);
+        }
+
+        let min_similarity = threshold.unwrap_or(0.0);
+
+        while let Some(row) = rows.next()? {
+            let node_id: String = row.get(0)?;
+            let embedding_json: String = row.get(1)?;
+            let name: String = row.get(2)?;
+            let node_type: String = row.get(3)?;
+            let file_path: Option<String> = row.get(4)?;
+            let qualified_name: Option<String> = row.get(5)?;
+
+            // Parse the embedding from JSON array format
+            let stored_embedding: Vec<f32> = match serde_json::from_str(&embedding_json) {
+                Ok(v) => v,
+                Err(_) => continue, // Skip malformed embeddings
+            };
+
+            // Compute cosine similarity
+            let similarity = cosine_similarity(query_embedding, &stored_embedding, query_magnitude);
+
+            if similarity >= min_similarity {
+                results.push(VectorSearchResult {
+                    node_id,
+                    similarity,
+                    name,
+                    node_type,
+                    file_path,
+                    qualified_name,
+                });
+            }
+        }
+
+        // Sort by similarity (highest first) and truncate to limit
+        results.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        results.truncate(limit);
+
+        Ok(results)
+    }
+
+    /// Get embedding statistics.
+    pub fn embedding_stats(&self) -> Result<EmbeddingStats> {
+        let conn = self.acquire_conn()?;
+
+        let total_nodes: usize =
+            conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        let nodes_with_embeddings: usize =
+            conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+
+        // Get the model used (most common one if multiple)
+        let model: Option<String> = conn
+            .query_row(
+                "SELECT model FROM embeddings GROUP BY model ORDER BY COUNT(*) DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let coverage_percent = if total_nodes > 0 {
+            (nodes_with_embeddings as f32 / total_nodes as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(EmbeddingStats {
+            total_nodes,
+            nodes_with_embeddings,
+            model,
+            coverage_percent,
+        })
+    }
+
+    /// Get all stored file hashes.
+    pub fn get_all_file_hashes(&self) -> Result<HashMap<String, String>> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare("SELECT file_path, content_hash FROM file_hashes")?;
+        let mut rows = stmt.query([])?;
+        let mut hashes = HashMap::new();
+
+        while let Some(row) = rows.next()? {
+            let file_path: String = row.get(0)?;
+            let content_hash: String = row.get(1)?;
+            hashes.insert(file_path, content_hash);
+        }
+
+        Ok(hashes)
+    }
+
+    /// Update multiple file hashes in batch.
+    ///
+    /// # Arguments
+    /// * `updates` - Slice of (file_path, content_hash) pairs to insert/update
+    pub fn set_file_hashes_batch(&self, updates: &[(String, String)]) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare(
+            r#"INSERT OR REPLACE INTO file_hashes (file_path, content_hash, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)"#,
+        )?;
+
+        for (file_path, content_hash) in updates {
+            stmt.execute(params![file_path, content_hash])?;
+        }
+
+        Ok(())
+    }
+
+    /// Delete embeddings for nodes that no longer exist.
+    /// Useful for cleanup after incremental updates.
+    pub fn cleanup_orphaned_embeddings(&self) -> Result<usize> {
+        let conn = self.acquire_conn()?;
+        let deleted = conn.execute(
+            "DELETE FROM embeddings WHERE node_id NOT IN (SELECT id FROM nodes)",
+            [],
+        )?;
+        Ok(deleted)
+    }
+
+    /// Delete file hashes for files that no longer exist in the current set.
+    ///
+    /// # Arguments
+    /// * `current_files` - Set of file paths that currently exist
+    pub fn cleanup_stale_file_hashes(
+        &self,
+        current_files: &std::collections::HashSet<String>,
+    ) -> Result<usize> {
+        let conn = self.acquire_conn()?;
+
+        // Get all stored file paths
+        let stored_hashes = self.get_all_file_hashes()?;
+        let mut deleted_count = 0;
+
+        for file_path in stored_hashes.keys() {
+            if !current_files.contains(file_path) {
+                conn.execute(
+                    "DELETE FROM file_hashes WHERE file_path = ?",
+                    params![file_path],
+                )?;
+                deleted_count += 1;
+            }
+        }
+
+        Ok(deleted_count)
+    }
+}
+
+/// Compute cosine similarity between two vectors.
+/// Assumes query_magnitude is pre-computed for efficiency.
+fn cosine_similarity(query: &[f32], stored: &[f32], query_magnitude: f32) -> f32 {
+    if query.len() != stored.len() || query_magnitude == 0.0 {
+        return 0.0;
+    }
+
+    let mut dot_product = 0.0f32;
+    let mut stored_magnitude_sq = 0.0f32;
+
+    for (q, s) in query.iter().zip(stored.iter()) {
+        dot_product += q * s;
+        stored_magnitude_sq += s * s;
+    }
+
+    let stored_magnitude = stored_magnitude_sq.sqrt();
+    if stored_magnitude == 0.0 {
+        return 0.0;
+    }
+
+    dot_product / (query_magnitude * stored_magnitude)
 }
 
 /// Result of a SQL query.
@@ -450,6 +771,36 @@ pub struct GraphStats {
     pub node_count: usize,
     pub edge_count: usize,
     pub type_counts: HashMap<String, usize>,
+}
+
+/// Result of a vector similarity search.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VectorSearchResult {
+    /// Node ID that matched
+    pub node_id: String,
+    /// Cosine similarity score (0.0 to 1.0)
+    pub similarity: f32,
+    /// Node name
+    pub name: String,
+    /// Node type (module, class, function, external)
+    pub node_type: String,
+    /// File path (if available)
+    pub file_path: Option<String>,
+    /// Qualified name (if available)
+    pub qualified_name: Option<String>,
+}
+
+/// Statistics about embeddings in the database.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct EmbeddingStats {
+    /// Total number of nodes in the database
+    pub total_nodes: usize,
+    /// Number of nodes that have embeddings
+    pub nodes_with_embeddings: usize,
+    /// Model used for embeddings (if any)
+    pub model: Option<String>,
+    /// Coverage percentage (nodes_with_embeddings / total_nodes * 100)
+    pub coverage_percent: f32,
 }
 
 #[cfg(test)]
@@ -589,5 +940,198 @@ mod tests {
             "Expected 'node_name' alias, got: {:?}",
             result.columns
         );
+    }
+
+    // ========================================================================
+    // Embedding Tests
+    // ========================================================================
+
+    #[test]
+    fn test_has_embeddings_empty() {
+        let db = create_test_db();
+        assert!(!db.has_embeddings().unwrap());
+    }
+
+    #[test]
+    fn test_insert_and_has_embeddings() {
+        let db = create_test_db();
+
+        // Insert a node first (embeddings reference nodes)
+        let node = Node::module("src/test.py");
+        db.insert_node(&node).unwrap();
+
+        // Insert an embedding
+        let batch = vec![("mod:src/test.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        assert!(db.has_embeddings().unwrap());
+    }
+
+    #[test]
+    fn test_embedding_stats() {
+        let db = create_test_db();
+
+        // Insert nodes
+        let node1 = Node::module("src/a.py");
+        let node2 = Node::module("src/b.py");
+        db.insert_node(&node1).unwrap();
+        db.insert_node(&node2).unwrap();
+
+        // Insert embedding for one node
+        let batch = vec![("mod:src/a.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        db.insert_embeddings_batch(&batch, Some("test-model"))
+            .unwrap();
+
+        let stats = db.embedding_stats().unwrap();
+        assert_eq!(stats.total_nodes, 2);
+        assert_eq!(stats.nodes_with_embeddings, 1);
+        assert_eq!(stats.model, Some("test-model".to_string()));
+        assert!((stats.coverage_percent - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_vector_search() {
+        let db = create_test_db();
+
+        // Insert nodes
+        let node1 = Node::module("src/similar.py");
+        let node2 = Node::module("src/different.py");
+        db.insert_node(&node1).unwrap();
+        db.insert_node(&node2).unwrap();
+
+        // Insert embeddings - one similar to query, one different
+        let batch = vec![
+            ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
+            ("mod:src/different.py".to_string(), vec![0.0, 1.0, 0.0], None),
+        ];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Search for vector similar to first embedding
+        let query = vec![0.9, 0.1, 0.0];
+        let results = db.vector_search(&query, 10, None).unwrap();
+
+        assert_eq!(results.len(), 2);
+        // First result should be the similar one
+        assert_eq!(results[0].node_id, "mod:src/similar.py");
+        assert!(results[0].similarity > results[1].similarity);
+    }
+
+    #[test]
+    fn test_vector_search_with_threshold() {
+        let db = create_test_db();
+
+        // Insert nodes
+        let node1 = Node::module("src/similar.py");
+        let node2 = Node::module("src/different.py");
+        db.insert_node(&node1).unwrap();
+        db.insert_node(&node2).unwrap();
+
+        // Insert embeddings
+        let batch = vec![
+            ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
+            ("mod:src/different.py".to_string(), vec![0.0, 1.0, 0.0], None),
+        ];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Search with high threshold - should only return similar
+        let query = vec![1.0, 0.0, 0.0];
+        let results = db.vector_search(&query, 10, Some(0.9)).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "mod:src/similar.py");
+    }
+
+    #[test]
+    fn test_file_hashes() {
+        let db = create_test_db();
+
+        // Set file hashes
+        let hashes = vec![
+            ("src/a.py".to_string(), "hash_a".to_string()),
+            ("src/b.py".to_string(), "hash_b".to_string()),
+        ];
+        db.set_file_hashes_batch(&hashes).unwrap();
+
+        // Retrieve and verify
+        let retrieved = db.get_all_file_hashes().unwrap();
+        assert_eq!(retrieved.len(), 2);
+        assert_eq!(retrieved.get("src/a.py"), Some(&"hash_a".to_string()));
+        assert_eq!(retrieved.get("src/b.py"), Some(&"hash_b".to_string()));
+    }
+
+    #[test]
+    fn test_get_stale_files() {
+        let db = create_test_db();
+
+        // Set initial file hashes
+        let initial_hashes = vec![
+            ("src/a.py".to_string(), "hash_a".to_string()),
+            ("src/b.py".to_string(), "hash_b".to_string()),
+        ];
+        db.set_file_hashes_batch(&initial_hashes).unwrap();
+
+        // Current hashes - a.py unchanged, b.py changed, c.py new
+        let mut current_hashes = HashMap::new();
+        current_hashes.insert("src/a.py".to_string(), "hash_a".to_string()); // Same
+        current_hashes.insert("src/b.py".to_string(), "hash_b_new".to_string()); // Changed
+        current_hashes.insert("src/c.py".to_string(), "hash_c".to_string()); // New
+
+        let stale = db.get_stale_files(&current_hashes).unwrap();
+        assert_eq!(stale.len(), 2);
+        assert!(stale.contains(&"src/b.py".to_string()));
+        assert!(stale.contains(&"src/c.py".to_string()));
+    }
+
+    #[test]
+    fn test_cleanup_orphaned_embeddings() {
+        let db = create_test_db();
+
+        // Insert a node and its embedding
+        let node = Node::module("src/test.py");
+        db.insert_node(&node).unwrap();
+        let batch = vec![("mod:src/test.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Also insert an orphan embedding (no corresponding node)
+        let orphan_batch = vec![("mod:src/nonexistent.py".to_string(), vec![0.4, 0.5, 0.6], None)];
+        db.insert_embeddings_batch(&orphan_batch, None).unwrap();
+
+        // Verify we have 2 embeddings
+        let stats_before = db.embedding_stats().unwrap();
+        assert_eq!(stats_before.nodes_with_embeddings, 2);
+
+        // Cleanup orphans
+        let deleted = db.cleanup_orphaned_embeddings().unwrap();
+        assert_eq!(deleted, 1);
+
+        // Verify we now have 1 embedding
+        let stats_after = db.embedding_stats().unwrap();
+        assert_eq!(stats_after.nodes_with_embeddings, 1);
+    }
+
+    #[test]
+    fn test_cosine_similarity_identical() {
+        let a = vec![1.0, 0.0, 0.0];
+        let magnitude = 1.0;
+        let similarity = cosine_similarity(&a, &a, magnitude);
+        assert!((similarity - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cosine_similarity_orthogonal() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![0.0, 1.0, 0.0];
+        let magnitude = 1.0;
+        let similarity = cosine_similarity(&a, &b, magnitude);
+        assert!(similarity.abs() < 0.001);
+    }
+
+    #[test]
+    fn test_cosine_similarity_opposite() {
+        let a = vec![1.0, 0.0, 0.0];
+        let b = vec![-1.0, 0.0, 0.0];
+        let magnitude = 1.0;
+        let similarity = cosine_similarity(&a, &b, magnitude);
+        assert!((similarity - (-1.0)).abs() < 0.001);
     }
 }

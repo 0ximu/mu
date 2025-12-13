@@ -41,9 +41,10 @@ impl BuildPipeline {
 
         // 1. Scan files using mu-core scanner (use sync version without Python GIL)
         let root_str = root.to_str().unwrap_or(".");
-        let scan_result = mu_core::scanner::scan_directory_sync(root_str, None, None, false, false, false)
-            .map_err(|e| anyhow::anyhow!(e))
-            .context("Failed to scan directory")?;
+        let scan_result =
+            mu_core::scanner::scan_directory_sync(root_str, None, None, false, false, false)
+                .map_err(|e| anyhow::anyhow!(e))
+                .context("Failed to scan directory")?;
 
         let file_count = scan_result.files.len();
         info!("Scanned {} files", file_count);
@@ -65,9 +66,33 @@ impl BuildPipeline {
         let parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
         info!("Parsed {} files", parse_results.len());
 
-        // 3. Convert parsed modules to nodes and edges (two-pass approach)
+        // 3. Convert parsed modules to nodes and edges (three-pass approach)
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
+
+        // Pre-pass: Build class lookup map (class name -> class ID) for inheritance resolution
+        let mut class_lookup: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        for result in &parse_results {
+            if !result.success {
+                continue;
+            }
+            if let Some(ref module) = result.module {
+                let rel_path = Path::new(&module.path)
+                    .strip_prefix(root)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| module.path.clone());
+
+                for class in &module.classes {
+                    let class_id = format!("cls:{}:{}", rel_path, class.name);
+                    // Map by simple name (may have collisions, last one wins)
+                    class_lookup.insert(class.name.clone(), class_id.clone());
+                    // Also map by qualified name (module:class) for disambiguation
+                    let qualified_name = format!("{}:{}", rel_path, class.name);
+                    class_lookup.insert(qualified_name, class_id);
+                }
+            }
+        }
 
         // Pass 1: Create all nodes and CONTAINS/IMPORTS/INHERITS edges
         for result in &parse_results {
@@ -92,23 +117,23 @@ impl BuildPipeline {
 
                 // Create class nodes
                 for class in &module.classes {
-                    let class_node = Node::class(
-                        &rel_path,
-                        &class.name,
-                        class.start_line,
-                        class.end_line,
-                    );
+                    let class_node =
+                        Node::class(&rel_path, &class.name, class.start_line, class.end_line);
                     let class_id = class_node.id.clone();
                     nodes.push(class_node);
 
                     // Module contains class
                     edges.push(Edge::contains(&module_id, &class_id));
 
-                    // Inheritance edges
+                    // Inheritance edges - resolve to actual class if found
                     for base in &class.bases {
-                        // Try to find the base class in our nodes
-                        // For now, create an external reference
-                        let base_id = format!("ext:{}", base);
+                        let base_id = if let Some(resolved_id) = class_lookup.get(base) {
+                            // Found in codebase - use actual class ID
+                            resolved_id.clone()
+                        } else {
+                            // Not found - mark as external reference
+                            format!("ext:{}", base)
+                        };
                         edges.push(Edge::inherits(&class_id, &base_id));
                     }
 
@@ -127,6 +152,19 @@ impl BuildPipeline {
 
                         // Class contains method
                         edges.push(Edge::contains(&class_id, &method_id));
+                    }
+
+                    // Create USES edges for referenced types (types used in method signatures)
+                    for ref_type in &class.referenced_types {
+                        // Try to resolve to an internal class, otherwise mark as external
+                        let target_id = if let Some(resolved_id) = class_lookup.get(ref_type) {
+                            // Found in codebase - use actual class ID
+                            resolved_id.clone()
+                        } else {
+                            // Not found - mark as external reference
+                            format!("ext:{}", ref_type)
+                        };
+                        edges.push(Edge::uses(&class_id, &target_id));
                     }
                 }
 
@@ -170,6 +208,9 @@ impl BuildPipeline {
         }
 
         // Pass 2: Create CALLS edges (iterate again with func_lookup available)
+        let mut total_call_sites = 0usize;
+        let mut resolved_call_sites = 0usize;
+
         for result in &parse_results {
             if !result.success {
                 continue;
@@ -184,6 +225,7 @@ impl BuildPipeline {
                 for class in &module.classes {
                     for method in &class.methods {
                         let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                        total_call_sites += method.call_sites.len();
                         for call in &method.call_sites {
                             if let Some(target_id) = resolve_call_site(
                                 call,
@@ -193,6 +235,7 @@ impl BuildPipeline {
                                 &module.imports,
                             ) {
                                 edges.push(Edge::calls(&method_id, &target_id));
+                                resolved_call_sites += 1;
                             }
                         }
                     }
@@ -201,15 +244,13 @@ impl BuildPipeline {
                 // Process module-level functions
                 for func in &module.functions {
                     let func_id = format!("fn:{}:{}", rel_path, func.name);
+                    total_call_sites += func.call_sites.len();
                     for call in &func.call_sites {
-                        if let Some(target_id) = resolve_call_site(
-                            call,
-                            &rel_path,
-                            None,
-                            &func_lookup,
-                            &module.imports,
-                        ) {
+                        if let Some(target_id) =
+                            resolve_call_site(call, &rel_path, None, &func_lookup, &module.imports)
+                        {
                             edges.push(Edge::calls(&func_id, &target_id));
+                            resolved_call_sites += 1;
                         }
                     }
                 }
@@ -217,6 +258,7 @@ impl BuildPipeline {
         }
 
         info!("Built {} nodes and {} edges", nodes.len(), edges.len());
+        info!("Call sites: {} found, {} resolved to CALLS edges", total_call_sites, resolved_call_sites);
 
         // 4. Write to DuckDB
         {
@@ -224,12 +266,16 @@ impl BuildPipeline {
             mubase.clear()?;
             mubase.insert_nodes(&nodes)?;
             mubase.insert_edges(&edges)?;
+            // Verify write succeeded
+            let stats = mubase.stats()?;
+            info!("After insert - DB stats: {} nodes, {} edges", stats.node_count, stats.edge_count);
         }
 
         // 5. Reload in-memory graph
         {
             let mubase = self.state.mubase.read().await;
             let new_graph = mubase.load_graph()?;
+            info!("Reloaded graph: {} nodes, {} edges", new_graph.node_count(), new_graph.edge_count());
 
             let mut graph = self.state.graph.write().await;
             *graph = new_graph;
@@ -255,27 +301,48 @@ impl BuildPipeline {
     }
 
     /// Incrementally update the graph for changed files.
-    pub async fn incremental_update(&self, changed_files: &[std::path::PathBuf]) -> Result<BuildResult> {
+    pub async fn incremental_update(
+        &self,
+        changed_files: &[std::path::PathBuf],
+    ) -> Result<BuildResult> {
         let start = Instant::now();
         let root = &self.state.root;
 
         let mut total_nodes = 0;
         let mut total_edges = 0;
 
-        // Build func_lookup from existing database for call resolution
-        let func_lookup: std::collections::HashMap<String, String> = {
+        // Build func_lookup and class_lookup from existing database for resolution
+        let (func_lookup, class_lookup): (
+            std::collections::HashMap<String, String>,
+            std::collections::HashMap<String, String>,
+        ) = {
             let mubase = self.state.mubase.read().await;
+
+            // Build function lookup
             let func_nodes = mubase
                 .get_nodes_by_type(crate::storage::NodeType::Function)
                 .unwrap_or_default();
-            let mut lookup = std::collections::HashMap::new();
+            let mut func_map = std::collections::HashMap::new();
             for node in func_nodes {
-                lookup.insert(node.name.clone(), node.id.clone());
+                func_map.insert(node.name.clone(), node.id.clone());
                 if let Some(ref qname) = node.qualified_name {
-                    lookup.insert(qname.clone(), node.id.clone());
+                    func_map.insert(qname.clone(), node.id.clone());
                 }
             }
-            lookup
+
+            // Build class lookup for inheritance resolution
+            let class_nodes = mubase
+                .get_nodes_by_type(crate::storage::NodeType::Class)
+                .unwrap_or_default();
+            let mut class_map = std::collections::HashMap::new();
+            for node in class_nodes {
+                class_map.insert(node.name.clone(), node.id.clone());
+                if let Some(ref qname) = node.qualified_name {
+                    class_map.insert(qname.clone(), node.id.clone());
+                }
+            }
+
+            (func_map, class_map)
         };
 
         for file_path in changed_files {
@@ -301,8 +368,12 @@ impl BuildPipeline {
 
                         if result.success {
                             if let Some(ref module) = result.module {
-                                let (nodes, edges) =
-                                    build_nodes_for_module(module, &rel_path, Some(&func_lookup));
+                                let (nodes, edges) = build_nodes_for_module(
+                                    module,
+                                    &rel_path,
+                                    Some(&func_lookup),
+                                    Some(&class_lookup),
+                                );
 
                                 let mubase = self.state.mubase.write().await;
                                 mubase.insert_nodes(&nodes)?;
@@ -336,10 +407,12 @@ impl BuildPipeline {
 
 /// Build nodes and edges for a single module.
 /// If func_lookup is provided, CALLS edges will be created.
+/// If class_lookup is provided, inheritance edges will resolve to actual class IDs.
 fn build_nodes_for_module(
     module: &mu_core::types::ModuleDef,
     rel_path: &str,
     func_lookup: Option<&std::collections::HashMap<String, String>>,
+    class_lookup: Option<&std::collections::HashMap<String, String>>,
 ) -> (Vec<Node>, Vec<Edge>) {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
@@ -356,9 +429,18 @@ fn build_nodes_for_module(
         nodes.push(class_node);
         edges.push(Edge::contains(&module_id, &class_id));
 
-        // Inheritance
+        // Inheritance - resolve to actual class if found in class_lookup
         for base in &class.bases {
-            edges.push(Edge::inherits(&class_id, &format!("ext:{}", base)));
+            let base_id = if let Some(lookup) = class_lookup {
+                if let Some(resolved_id) = lookup.get(base) {
+                    resolved_id.clone()
+                } else {
+                    format!("ext:{}", base)
+                }
+            } else {
+                format!("ext:{}", base)
+            };
+            edges.push(Edge::inherits(&class_id, &base_id));
         }
 
         // Methods
@@ -390,6 +472,21 @@ fn build_nodes_for_module(
                 }
             }
         }
+
+        // Create USES edges for referenced types (types used in method signatures)
+        for ref_type in &class.referenced_types {
+            // Try to resolve to an internal class, otherwise mark as external
+            let target_id = if let Some(lookup) = class_lookup {
+                if let Some(resolved_id) = lookup.get(ref_type) {
+                    resolved_id.clone()
+                } else {
+                    format!("ext:{}", ref_type)
+                }
+            } else {
+                format!("ext:{}", ref_type)
+            };
+            edges.push(Edge::uses(&class_id, &target_id));
+        }
     }
 
     // Functions
@@ -409,13 +506,9 @@ fn build_nodes_for_module(
         // Create CALLS edges if func_lookup is available
         if let Some(lookup) = func_lookup {
             for call in &func.call_sites {
-                if let Some(target_id) = resolve_call_site(
-                    call,
-                    rel_path,
-                    None,
-                    lookup,
-                    &module.imports,
-                ) {
+                if let Some(target_id) =
+                    resolve_call_site(call, rel_path, None, lookup, &module.imports)
+                {
                     edges.push(Edge::calls(&func_id, &target_id));
                 }
             }
@@ -442,9 +535,15 @@ fn resolve_call_site(
     let callee = &call.callee;
 
     // 1. Method call on self - look in current class
+    // Python: self, cls | C#/Java: this, base/super
     if call.is_method_call {
         if let Some(receiver) = &call.receiver {
-            if receiver == "self" || receiver == "cls" {
+            if receiver == "self"
+                || receiver == "cls"
+                || receiver == "this"
+                || receiver == "base"
+                || receiver == "super"
+            {
                 if let Some(class_name) = current_class {
                     // Try: fn:module:Class.method
                     let method_id = format!("fn:{}:{}.{}", current_module, class_name, callee);
