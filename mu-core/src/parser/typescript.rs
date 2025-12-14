@@ -4,7 +4,8 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 use super::helpers::{
-    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
+    collect_type_strings_from_methods, count_lines, extract_referenced_types, find_child_by_type,
+    get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
 use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
@@ -184,6 +185,14 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
         }
     }
 
+    // Collect type annotations from all methods and extract referenced types
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "typescript",
+    );
+
     class_def
 }
 
@@ -247,6 +256,16 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
                     complexity::calculate_for_node(&child, source, "typescript");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
                 func_def.call_sites = extract_call_sites(&child, source);
+            }
+            "type_annotation" => {
+                // Extract return type (e.g., `: Node | null`)
+                let mut inner_cursor = child.walk();
+                for inner in child.children(&mut inner_cursor) {
+                    if inner.kind() != ":" {
+                        func_def.return_type = Some(get_node_text(&inner, source).to_string());
+                        break;
+                    }
+                }
             }
             "async" => {
                 func_def.is_async = true;
@@ -471,6 +490,14 @@ fn extract_interface(node: &Node, source: &str) -> ClassDef {
         }
     }
 
+    // Collect type annotations from all methods and extract referenced types
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "typescript",
+    );
+
     class_def
 }
 
@@ -489,10 +516,25 @@ fn extract_interface_body(node: &Node, source: &str, class_def: &mut ClassDef) {
 
                 let mut inner_cursor = child.walk();
                 for inner in child.children(&mut inner_cursor) {
-                    if inner.kind() == "property_identifier" {
-                        method.name = get_node_text(&inner, source).to_string();
-                    } else if inner.kind() == "formal_parameters" {
-                        method.parameters = extract_parameters(&inner, source);
+                    match inner.kind() {
+                        "property_identifier" => {
+                            method.name = get_node_text(&inner, source).to_string();
+                        }
+                        "formal_parameters" => {
+                            method.parameters = extract_parameters(&inner, source);
+                        }
+                        "type_annotation" => {
+                            // Extract return type (e.g., `: HTTPResponse`)
+                            let mut type_cursor = inner.walk();
+                            for type_child in inner.children(&mut type_cursor) {
+                                if type_child.kind() != ":" {
+                                    method.return_type =
+                                        Some(get_node_text(&type_child, source).to_string());
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
 
@@ -799,5 +841,71 @@ const process = (data: string) => {
         );
         assert!(func.call_sites.iter().any(|c| c.callee == "validate"));
         assert!(func.call_sites.iter().any(|c| c.callee == "transform"));
+    }
+
+    #[test]
+    fn test_referenced_types_extraction_ts() {
+        let source = r#"
+class MUbase {
+    getNode(nodeId: string): Node | null {
+        return null;
+    }
+
+    getEdges(source: Node): Edge[] {
+        return [];
+    }
+
+    process(handler: RequestHandler): ResponseData {
+        return {} as ResponseData;
+    }
+}
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let class = &result.classes[0];
+        assert_eq!(class.name, "MUbase");
+        // Should extract Node, Edge, RequestHandler, ResponseData
+        // But NOT: string, null (builtins), MUbase (self-reference)
+        assert_eq!(
+            class.referenced_types,
+            vec!["Edge", "Node", "RequestHandler", "ResponseData"]
+        );
+    }
+
+    #[test]
+    fn test_referenced_types_filters_self_ts() {
+        let source = r#"
+class TreeNode {
+    getChildren(): TreeNode[] {
+        return [];
+    }
+
+    find(predicate: (node: TreeNode) => boolean): TreeNode | null {
+        return null;
+    }
+}
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        let class = &result.classes[0];
+        // TreeNode should be filtered out as self-reference
+        assert!(class.referenced_types.is_empty());
+    }
+
+    #[test]
+    fn test_interface_referenced_types() {
+        let source = r#"
+interface APIClient {
+    fetch(request: HTTPRequest): HTTPResponse;
+    batch(items: BatchItem[]): Record<string, ResultData>;
+}
+"#;
+        let result = parse(source, "test.ts", false).unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let interface = &result.classes[0];
+        assert_eq!(interface.name, "APIClient");
+        assert_eq!(
+            interface.referenced_types,
+            vec!["BatchItem", "HTTPRequest", "HTTPResponse", "ResultData"]
+        );
     }
 }

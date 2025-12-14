@@ -41,7 +41,7 @@ Fun aliases for common operations:
 - `mu yolo` - Impact analysis
 - `mu sus` - Suspicious code warnings
 - `mu vibe` - Pattern validation
-- `mu zen` - Cache cleanup
+- `mu zen` - Cache cleanup (`--reset` for full reset including database)
 
 ### Services
 - `mu serve` - Start MU server (daemon with HTTP/WebSocket API)
@@ -109,4 +109,92 @@ mu patterns            # Check code follows patterns
 ```bash
 # Add to claude_desktop_config.json or use Claude Code MCP settings
 mu serve --mcp
+```
+
+## MUQL Terse Syntax
+
+MUQL supports a terse syntax optimized for minimal token usage (60-85% reduction). Both verbose SQL-like syntax and terse syntax parse to the same AST.
+
+### Node Type Aliases
+
+| Verbose | Terse | Alt |
+|---------|-------|-----|
+| `functions` | `fn` | `f` |
+| `classes` | `cls` | `c` |
+| `modules` | `mod` | `m` |
+| `methods` | `meth` | `mt` |
+| `nodes` | `n` | - |
+
+### Field Aliases
+
+| Verbose | Terse |
+|---------|-------|
+| `complexity` | `c` |
+| `name` | `n` |
+| `file_path` | `fp` |
+| `line_start` | `ls` |
+| `line_end` | `le` |
+| `qualified_name` | `qn` |
+| `type` | `t` |
+
+### Operator Aliases
+
+| Verbose | Terse |
+|---------|-------|
+| `LIKE` | `~` |
+| `AND` | `&` |
+| `OR` | `\|` |
+| `NOT` | `!` |
+
+### Command Aliases
+
+| Verbose | Terse | Example |
+|---------|-------|---------|
+| `SELECT * FROM functions WHERE` | `fn` | `fn c>50` |
+| `SELECT` | `s` | `s n,c fn c>50` |
+| `SHOW DEPENDENCIES OF` | `deps` | `deps AuthService` |
+| `SHOW DEPENDENTS OF` | `rdeps` | `rdeps AuthService` |
+| `SHOW CALLERS OF` | `callers` | `callers process_payment` |
+| `SHOW CALLEES OF` | `callees` | `callees main` |
+| `SHOW IMPACT OF` | `impact` | `impact UserModel` |
+| `DEPTH` | `d` | `deps X d3` |
+| `ORDER BY` | `sort` | `fn sort c desc` |
+| `LIMIT` | `lim` or trailing number | `fn c>50 10` |
+| `DESC` | `desc` or `-` | `sort c-` |
+| `ASC` | `asc` or `+` | `sort c+` |
+
+### Examples
+
+```bash
+# Verbose vs Terse comparison
+
+# Find complex functions
+mu q "SELECT * FROM functions WHERE complexity > 50"
+mu q "fn c>50"
+
+# Top 10 complex functions, sorted descending
+mu q "SELECT name, complexity FROM functions WHERE complexity > 30 ORDER BY complexity DESC LIMIT 10"
+mu q "s n,c fn c>30 sort c- 10"
+
+# Find by name pattern
+mu q "SELECT * FROM functions WHERE name LIKE '%auth%'"
+mu q "fn n~auth"
+
+# Show dependencies
+mu q "SHOW DEPENDENCIES OF AuthService DEPTH 2"
+mu q "deps AuthService d2"
+
+# Show callers
+mu q "SHOW CALLERS OF process_payment DEPTH 3"
+mu q "callers process_payment d3"
+
+# Impact analysis
+mu q "SHOW IMPACT OF UserModel"
+mu q "impact UserModel"
+
+# Functions in specific path
+mu q "fn fp~'src/auth'"
+
+# Combine filters
+mu q "fn n~parse c>20 fp~'src/'"
 ```

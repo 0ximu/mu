@@ -4,7 +4,8 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 use super::helpers::{
-    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
+    collect_type_strings_from_methods, count_lines, extract_referenced_types, find_child_by_type,
+    get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
 use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
@@ -203,6 +204,14 @@ fn extract_class(node: &Node, source: &str, decorators: Option<Vec<String>>) -> 
             _ => {}
         }
     }
+
+    // Collect type annotations from all methods and extract referenced types
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "python",
+    );
 
     class_def
 }
@@ -812,5 +821,64 @@ class MyClass:
         assert!(self_call.is_some(), "Should find self.helper() call");
         assert!(self_call.unwrap().is_method_call);
         assert_eq!(self_call.unwrap().receiver, Some("self".to_string()));
+    }
+
+    #[test]
+    fn test_referenced_types_extraction() {
+        let source = r#"
+class MUbase:
+    def get_node(self, node_id: str) -> Node | None:
+        pass
+
+    def get_edges(self, source: Node) -> list[Edge]:
+        pass
+
+    def process(self, handler: RequestHandler) -> ResponseData:
+        pass
+"#;
+        let result = parse(source, "test.py").unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let class = &result.classes[0];
+        assert_eq!(class.name, "MUbase");
+        // Should extract Node, Edge, RequestHandler, ResponseData
+        // But NOT: str, list, None (builtins), MUbase (self-reference)
+        assert_eq!(
+            class.referenced_types,
+            vec!["Edge", "Node", "RequestHandler", "ResponseData"]
+        );
+    }
+
+    #[test]
+    fn test_referenced_types_filters_self() {
+        let source = r#"
+class TreeNode:
+    def get_children(self) -> list[TreeNode]:
+        pass
+
+    def find(self, predicate: Callable) -> TreeNode | None:
+        pass
+"#;
+        let result = parse(source, "test.py").unwrap();
+        let class = &result.classes[0];
+        // TreeNode should be filtered out as self-reference
+        assert!(class.referenced_types.is_empty());
+    }
+
+    #[test]
+    fn test_referenced_types_complex_annotations() {
+        let source = r#"
+class APIClient:
+    def fetch(self, request: HTTPRequest) -> HTTPResponse:
+        pass
+
+    def batch(self, items: list[BatchItem]) -> dict[str, ResultData]:
+        pass
+"#;
+        let result = parse(source, "test.py").unwrap();
+        let class = &result.classes[0];
+        assert_eq!(
+            class.referenced_types,
+            vec!["BatchItem", "HTTPRequest", "HTTPResponse", "ResultData"]
+        );
     }
 }

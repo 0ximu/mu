@@ -1,0 +1,474 @@
+[
+  {
+    "question": "What design pattern is used in the implementation of the AListV2 class?",
+    "category": "architecture",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, I can see AListV2 and AListV3 classes which suggests a versioning pattern, but I cannot determine the specific design pattern used in AListV2's implementation without access to the actual class structure and methods.",
+    "relevant_nodes": [
+      "AListV2",
+      "AListV3"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AListV2",
+      "AListV3"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the versioning pattern used in the implementation of the AListV2 and AListV3 classes, but it cannot determine the specific design pattern without access to the actual class structure and methods. The referenced nodes AListV2 and AListV3 exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How is the codebase organized into different modules?",
+    "category": "architecture",
+    "repo_name": "AlistGo/alist",
+    "answer": "The codebase appears to be organized around different cloud storage provider modules and API versions. There are distinct modules for different services like AList versions (AListV2, AListV3), 115 cloud storage (_115, _115_open, _115_share), 123 cloud storage (_123, _123Link, _123Open), and LenovoNasShare, each with their own Addition configurations and specific functionality.",
+    "relevant_nodes": [
+      "AListV2",
+      "AListV3",
+      "_115",
+      "_115_open",
+      "_115_share",
+      "_123",
+      "_123Link",
+      "_123Open",
+      "LenovoNasShare",
+      "Addition"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AListV2",
+      "AListV3",
+      "_115",
+      "_115_open",
+      "_115_share",
+      "_123",
+      "_123Link",
+      "_123Open",
+      "LenovoNasShare",
+      "Addition"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the organization of the codebase into different cloud storage provider modules and API versions. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the overall architecture of the Alist application?",
+    "category": "architecture",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, Alist appears to have a multi-version architecture with AListV2 and AListV3 versions, supporting various cloud storage providers through Addition interfaces, and providing API functionality through APIResponse and related response structures for operations like account management and file operations.",
+    "relevant_nodes": [
+      "AListV2",
+      "AListV3",
+      "APIResponse",
+      "Addition",
+      "AccountInfoResponse",
+      "AccountResponse"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AListV2",
+      "AListV3",
+      "APIResponse",
+      "Addition",
+      "AccountInfoResponse",
+      "AccountResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the overall architecture of the Alist application, including the multi-version structure (AListV2 and AListV3), the use of Addition interfaces for cloud storage providers, and the API functionality with responses like AccountInfoResponse and AccountResponse. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What are the main components that make up the AListV3 class?",
+    "category": "architecture",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, AListV3 appears to be a main class component in the codebase, likely representing version 3 of the AList application. However, the specific internal components or structure of AListV3 cannot be determined from the entity list provided.",
+    "relevant_nodes": [
+      "AListV3"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AListV3"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that AListV3 appears to be a main class component in the codebase, representing version 3 of the AList application. However, the specific internal components or structure of AListV3 cannot be determined from the available list of nodes."
+  },
+  {
+    "question": "How does the codebase handle different types of file extensions?",
+    "category": "architecture",
+    "repo_name": "AlistGo/alist",
+    "answer": "The codebase handles different types of file extensions through dedicated extension management entities. AcceptedExtensions appears to manage which file extensions are allowed for regular uploads, while AcceptedMultipartExtensions specifically handles extensions for multipart file uploads, providing separate validation and processing logic for different upload methods.",
+    "relevant_nodes": [
+      "AcceptedExtensions",
+      "AcceptedMultipartExtensions"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AcceptedExtensions",
+      "AcceptedMultipartExtensions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the codebase handles different file extensions through the AcceptedExtensions and AcceptedMultipartExtensions entities, which are present in the available nodes list."
+  },
+  {
+    "question": "What dependencies does the AddOfflineDownloadReq class have?",
+    "category": "dependencies",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddOfflineDownloadReq class appears to be a request structure that likely depends on the AddOfflineDownload functionality for processing offline download requests.",
+    "relevant_nodes": [
+      "AddOfflineDownloadReq",
+      "AddOfflineDownload"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddOfflineDownloadReq",
+      "AddOfflineDownload"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes AddOfflineDownloadReq and AddOfflineDownload exist in the available nodes list, and the answer provided makes sense in the context of the question, indicating that the AddOfflineDownloadReq class depends on the AddOfflineDownload functionality for processing offline download requests."
+  },
+  {
+    "question": "Which modules use the AccountInfoResponse class?",
+    "category": "dependencies",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities list, only the AccountInfoResponse class itself is visible. Without access to the actual code implementation or import statements, I cannot determine which specific modules use this class.",
+    "relevant_nodes": [
+      "AccountInfoResponse"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AccountInfoResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AccountInfoResponse' exists in the available nodes list, so the answer is correct in that sense. However, without access to the actual code implementation or import statements, it is not possible to determine which specific modules use this class. The answer acknowledges this limitation and provides a reasonable response based on the available information."
+  },
+  {
+    "question": "What other components rely on the APIResponse class?",
+    "category": "dependencies",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, AccountInfoResponse and AccountResponse appear to be components that likely rely on or extend the APIResponse class, as they follow the naming pattern of response types that would typically inherit from a base APIResponse class.",
+    "relevant_nodes": [
+      "AccountInfoResponse",
+      "AccountResponse"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccountInfoResponse",
+      "AccountResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies AccountInfoResponse and AccountResponse as components that likely rely on or extend the APIResponse class, as they follow the naming pattern of response types that would typically inherit from a base APIResponse class. All referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "How do the various Addition classes interact with each other?",
+    "category": "dependencies",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, there are numerous Addition classes present in the codebase, but without access to their implementation details or method signatures, I cannot determine how these Addition classes specifically interact with each other or what their relationships are.",
+    "relevant_nodes": [
+      "Addition"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Addition"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'Addition' exists in the list of available nodes, but without access to the implementation details or method signatures, the answer correctly states that the specific interactions between the various Addition classes cannot be determined."
+  },
+  {
+    "question": "What are the external dependencies of the Alist codebase?",
+    "category": "dependencies",
+    "repo_name": "AlistGo/alist",
+    "answer": "Based on the available entities, I cannot determine the external dependencies of the Alist codebase. The entity list provided contains primarily struct types, method names, and API-related components, but does not include import statements, go.mod information, or other dependency-related entities that would be needed to identify external dependencies.",
+    "relevant_nodes": [],
+    "confidence": 0.2,
+    "validation_status": "rejected",
+    "valid_nodes": [],
+    "invalid_nodes": [],
+    "reasoning": "No answer or relevant nodes"
+  },
+  {
+    "question": "Where is the AddFromLink function implemented?",
+    "category": "navigation",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddFromLink function is implemented as one of the available entities in the codebase. There are two instances of AddFromLink listed in the available entities.",
+    "relevant_nodes": [
+      "AddFromLink"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddFromLink"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AddFromLink function is implemented as one of the available entities in the codebase, and the referenced node 'AddFromLink' is present in the list of available nodes."
+  },
+  {
+    "question": "Which file contains the implementation of the AcceptedExtensions function?",
+    "category": "navigation",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AcceptedExtensions function appears to be implemented across multiple files, as evidenced by the six separate AcceptedExtensions entities in the available list. This suggests the function is defined or used in at least six different locations within the codebase.",
+    "relevant_nodes": [
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions"
+    ],
+    "confidence": 0.8,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions",
+      "AcceptedExtensions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AcceptedExtensions function is implemented across multiple files, as evidenced by the six separate AcceptedExtensions entities in the available list. This suggests the function is defined or used in at least six different locations within the codebase."
+  },
+  {
+    "question": "What module handles the AddMyPublicKey functionality?",
+    "category": "navigation",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddMyPublicKey functionality is handled by the AddMyPublicKey entity in the codebase, which appears to be a method or function for managing public key operations.",
+    "relevant_nodes": [
+      "AddMyPublicKey"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddMyPublicKey"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AddMyPublicKey' exists in the available nodes list, and the answer provided is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where can I find the code that handles the AddTorrent operation?",
+    "category": "navigation",
+    "repo_name": "AlistGo/alist",
+    "answer": "The code that handles the AddTorrent operation can be found in the AddTorrent entities. There are multiple AddTorrent entities available in the codebase that implement this functionality.",
+    "relevant_nodes": [
+      "AddTorrent"
+    ],
+    "confidence": 0.95,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddTorrent"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the code handling the AddTorrent operation can be found in the AddTorrent entities in the codebase, and the AddTorrent node is present in the list of available nodes."
+  },
+  {
+    "question": "In which file is the Access function defined?",
+    "category": "navigation",
+    "repo_name": "AlistGo/alist",
+    "answer": "The Access function is listed in the available entities, indicating it is defined somewhere in the AlistGo/alist codebase, but the specific file location cannot be determined from the provided entity list alone.",
+    "relevant_nodes": [
+      "Access"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Access"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'Access' exists in the available nodes list, and the answer indicates that the Access function is defined somewhere in the codebase, but the specific file location cannot be determined from the provided entity list alone. The answer is mostly correct, but some additional information would be needed to fully validate the answer."
+  },
+  {
+    "question": "How does the AddOfflineDownload function work?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddOfflineDownload function appears to be implemented through the AddOfflineDownload entity and uses AddOfflineDownloadReq as the request structure to handle offline download operations in the AList system.",
+    "relevant_nodes": [
+      "AddOfflineDownload",
+      "AddOfflineDownloadReq"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddOfflineDownload",
+      "AddOfflineDownloadReq"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'AddOfflineDownload' and 'AddOfflineDownloadReq' exist in the available nodes list, and the answer provided a relevant explanation for how the AddOfflineDownload function works."
+  },
+  {
+    "question": "What is the purpose of the AccountResponse class?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AccountResponse class is used to structure and return account-related data in API responses, likely containing user account information retrieved from the system.",
+    "relevant_nodes": [
+      "AccountResponse"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccountResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AccountResponse class, which is used to structure and return account-related data in API responses. The referenced node, AccountResponse, is present in the available nodes list and is relevant to the question."
+  },
+  {
+    "question": "How does the Alist application handle rate limiting?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The Alist application handles rate limiting through the APIRateLimit entities, which appear to be implemented as part of the API layer to control request frequencies and prevent abuse.",
+    "relevant_nodes": [
+      "APIRateLimit"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "APIRateLimit"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the Alist application handles rate limiting through the APIRateLimit entities, which are part of the API layer. The referenced node is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What is the functionality provided by the _115 module?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The _115 module provides functionality for integrating with the 115 cloud storage service, including basic storage operations, open/public sharing capabilities, and regular sharing features through three distinct components.",
+    "relevant_nodes": [
+      "_115",
+      "_115_open",
+      "_115_share"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_115",
+      "_115_open",
+      "_115_share"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality provided by the _115 module, including basic storage operations, open/public sharing capabilities, and regular sharing features through the referenced nodes."
+  },
+  {
+    "question": "What is the role of the AddAlbumFile function in the Alist application?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddAlbumFile function appears to be responsible for adding files to an album or collection within the Alist application, likely as part of organizing or grouping files together in a structured way.",
+    "relevant_nodes": [
+      "AddAlbumFile"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddAlbumFile"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the AddAlbumFile function, which appears to be responsible for adding files to an album or collection within the Alist application. The referenced node AddAlbumFile is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "How does the _123Open module integrate with the Alist application?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The _123Open module appears to be a driver integration for the 123Pan cloud storage service within the Alist application. It works alongside related modules like _123 and _123Link to provide comprehensive support for 123Pan storage operations, likely handling file opening/access functionality specifically.",
+    "relevant_nodes": [
+      "_123Open",
+      "_123",
+      "_123Link"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_123Open",
+      "_123",
+      "_123Link"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the integration of the _123Open module with the Alist application, providing details on its role in handling file opening and access functionality for the 123Pan cloud storage service. The referenced nodes (_123Open, _123, _123Link) are all relevant to this integration and exist in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the AddMetalink function?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddMetalink function is used to add downloads from metalink files, which are XML files that contain metadata and multiple download sources for files. This function allows the system to process metalink format for managing downloads with multiple mirror URLs.",
+    "relevant_nodes": [
+      "AddMetalink"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddMetalink"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the AddMetalink function, which is to process metalink files for managing downloads with multiple mirror URLs. All the referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "How does the Alist application handle different types of file uploads?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The Alist application handles different types of file uploads through various mechanisms including URL-based uploads (AddURL, AddUrlArgs, AddURLArgs), torrent uploads (AddTorrent), and offline downloads (AddOfflineDownload, AddOfflineDownloadReq). It also supports specific file type restrictions through AcceptedExtensions and AcceptedMultipartExtensions entities.",
+    "relevant_nodes": [
+      "AddURL",
+      "AddUrlArgs",
+      "AddURLArgs",
+      "AddTorrent",
+      "AddOfflineDownload",
+      "AddOfflineDownloadReq",
+      "AcceptedExtensions",
+      "AcceptedMultipartExtensions"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddURL",
+      "AddUrlArgs",
+      "AddURLArgs",
+      "AddTorrent",
+      "AddOfflineDownload",
+      "AddOfflineDownloadReq",
+      "AcceptedExtensions",
+      "AcceptedMultipartExtensions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the different file upload mechanisms handled by the Alist application, including URL-based uploads, torrent uploads, and offline downloads. It also mentions the entities that handle file type restrictions. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the functionality provided by the AddClosers function?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The AddClosers function appears to be a utility function that manages or adds closers (likely io.Closer interfaces or similar cleanup resources) to some collection or container, allowing for proper resource management and cleanup operations.",
+    "relevant_nodes": [
+      "AddClosers"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddClosers"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the functionality of the AddClosers function, which appears to be a utility for managing resource cleanup operations. The referenced node 'AddClosers' is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "How does the Alist application manage user accounts and permissions?",
+    "category": "understanding",
+    "repo_name": "AlistGo/alist",
+    "answer": "The Alist application manages user accounts through AccountResponse and AccountInfoResponse entities for handling account data, and uses Access entity for permission management. The APIResponse entity likely handles the communication layer for account-related operations.",
+    "relevant_nodes": [
+      "AccountResponse",
+      "AccountInfoResponse",
+      "Access",
+      "APIResponse"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AccountResponse",
+      "AccountInfoResponse",
+      "Access",
+      "APIResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Alist application manages user accounts and permissions, referencing the relevant entities AccountResponse, AccountInfoResponse, Access, and APIResponse. The provided information is semantically correct and the referenced nodes exist in the available nodes list, so the answer is accepted."
+  }
+]

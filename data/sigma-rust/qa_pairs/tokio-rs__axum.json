@@ -1,0 +1,486 @@
+[
+  {
+    "question": "How is the AppState structured?",
+    "category": "architecture",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The AppState in axum is structured as a generic type that can hold application-level state shared across handlers. There are multiple AppState instances and related types like AppStateDyn and AppStateGeneric that provide different ways to manage and access shared application state throughout the request handling lifecycle.",
+    "relevant_nodes": [
+      "AppState",
+      "AppStateDyn",
+      "AppStateGeneric"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppState",
+      "AppStateDyn",
+      "AppStateGeneric"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the structure of the AppState in the Axum framework, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "What pattern does the AppError use?",
+    "category": "architecture",
+    "repo_name": "tokio-rs/axum",
+    "answer": "Based on the available entities, AppError appears to be a custom error type that likely implements the error handling pattern in Axum applications. It's probably used alongside customize_rejection to provide application-specific error responses.",
+    "relevant_nodes": [
+      "AppError",
+      "customize_rejection"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppError",
+      "customize_rejection"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AppError type likely implements the error handling pattern in Axum applications and is used alongside customize_rejection to provide application-specific error responses. The referenced nodes are relevant to this question."
+  },
+  {
+    "question": "What is the architecture of the Axum web framework?",
+    "category": "architecture",
+    "repo_name": "tokio-rs/axum",
+    "answer": "Axum's architecture is built around a layered service model with extractors and responses. The framework uses AddExtension for dependency injection, custom_extractor and derive_from_request for request data extraction, and various response types like AppJson and AppendHeaders for HTTP responses.",
+    "relevant_nodes": [
+      "AddExtension",
+      "custom_extractor",
+      "derive_from_request",
+      "AppJson",
+      "AppendHeaders",
+      "as_service"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddExtension",
+      "custom_extractor",
+      "derive_from_request",
+      "AppJson",
+      "AppendHeaders",
+      "as_service"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the key aspects of Axum's architecture, including the use of the layered service model, extractors, and various response types. All the referenced nodes are relevant and exist in the available nodes list."
+  },
+  {
+    "question": "How is the AddExtension component organized?",
+    "category": "architecture",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The AddExtension component appears to be a single entity in the codebase that likely provides functionality for adding extensions to the application state or request context, though the specific organizational structure cannot be determined from the available entity names alone.",
+    "relevant_nodes": [
+      "AddExtension"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddExtension"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the AddExtension component as a single entity in the codebase that likely provides functionality for adding extensions to the application state or request context. The available nodes list confirms the existence of the AddExtension component, so the answer is semantically correct and the referenced nodes are relevant."
+  },
+  {
+    "question": "What is the structure of the AllowHeader module?",
+    "category": "architecture",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The AllowHeader module appears to be a simple structure with basic functionality for handling HTTP Allow headers. Based on the available entities, it includes the core AllowHeader type and related functions like allow_header and append_allow_header for managing allowed HTTP methods.",
+    "relevant_nodes": [
+      "AllowHeader",
+      "allow_header",
+      "append_allow_header"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AllowHeader",
+      "allow_header",
+      "append_allow_header"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the structure of the AllowHeader module, which includes the core AllowHeader type and related functions like allow_header and append_allow_header for managing allowed HTTP methods. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What does the AppJson depend on?",
+    "category": "dependencies",
+    "repo_name": "tokio-rs/axum",
+    "answer": "Based on the available entities, AppJson appears to be a code entity in the axum codebase, but the dependency information is not visible from the provided entity list alone.",
+    "relevant_nodes": [
+      "AppJson"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AppJson"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer is mostly correct, as it identifies AppJson as the relevant code entity in the axum codebase. However, the dependency information is not visible from the provided entity list alone, so the answer cannot be fully confirmed."
+  },
+  {
+    "question": "Who uses the accept_form function?",
+    "category": "dependencies",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The accept_form function appears multiple times in the available entities list, suggesting it's used in various contexts within the axum codebase. Based on the entity names, it's likely used by custom extractors, form handling examples, and testing utilities.",
+    "relevant_nodes": [
+      "accept_form",
+      "custom_extractor",
+      "axum_test"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "accept_form",
+      "custom_extractor",
+      "axum_test"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the accept_form function is used in various contexts within the axum codebase, including by custom extractors and testing utilities. The referenced nodes are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What are the dependencies of the app function?",
+    "category": "dependencies",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The app function appears multiple times in the codebase and its dependencies cannot be determined from the available entity list, which primarily contains type names and function names rather than dependency information.",
+    "relevant_nodes": [
+      "app"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "app"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the dependencies of the 'app' function cannot be determined from the available entity list, which primarily contains type names and function names rather than dependency information. However, the referenced nodes are valid and the answer is semantically correct."
+  },
+  {
+    "question": "What does the add_tsr_redirect_route function depend on?",
+    "category": "dependencies",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The add_tsr_redirect_route function is present in the available entities list, but without access to the actual code implementation, I cannot determine its specific dependencies from the provided entity names alone.",
+    "relevant_nodes": [
+      "add_tsr_redirect_route"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "add_tsr_redirect_route"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The add_tsr_redirect_route function is present in the available entities list, but without access to the actual code implementation, the specific dependencies cannot be determined from the provided entity names alone."
+  },
+  {
+    "question": "Which modules use the admin_routes function?",
+    "category": "dependencies",
+    "repo_name": "tokio-rs/axum",
+    "answer": "Based on the available entities list, I can see the admin_routes function is present, but there are no specific module references or import statements visible that would indicate which modules use this function.",
+    "relevant_nodes": [
+      "admin_routes"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "admin_routes"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the admin_routes function is present in the codebase, but does not specify which modules use this function. Without more information about the codebase structure and imports, it is not possible to definitively determine which modules use this function."
+  },
+  {
+    "question": "Where is the __private_axum_test function implemented?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The __private_axum_test function is implemented in the axum_test module, which appears to be a private testing utility within the axum codebase.",
+    "relevant_nodes": [
+      "__private_axum_test",
+      "axum_test"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "__private_axum_test",
+      "axum_test"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the __private_axum_test function is implemented in the axum_test module, which is a private testing utility within the axum codebase. All referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "Which file contains the accept_unmasked_frames function?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The accept_unmasked_frames function is one of the available entities in the codebase, but without access to the actual file structure, I cannot determine which specific file contains it.",
+    "relevant_nodes": [
+      "accept_unmasked_frames"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "accept_unmasked_frames"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'accept_unmasked_frames' exists in the list of available nodes, so the answer is mostly correct. However, without access to the actual file structure, I cannot determine the specific file that contains this function."
+  },
+  {
+    "question": "Where is the add function defined?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The add function appears multiple times in the codebase. Based on the available entities, there are four instances of the add function defined.",
+    "relevant_nodes": [
+      "add",
+      "add",
+      "add",
+      "add"
+    ],
+    "confidence": 0.8,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "add",
+      "add",
+      "add",
+      "add"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the add function appears multiple times in the codebase, and the referenced nodes are all instances of the add function, which exist in the available nodes list. The answer is considered 'corrected' rather than 'accepted' because the question does not specify where the add function is defined, and the answer does not provide that information."
+  },
+  {
+    "question": "What handles the all_the_uris API endpoint?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The all_the_uris API endpoint is handled by the all_the_uris entity in the codebase.",
+    "relevant_nodes": [
+      "all_the_uris"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "all_the_uris"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the all_the_uris API endpoint is handled by the all_the_uris entity in the codebase, and the referenced node all_the_uris is present in the available nodes list."
+  },
+  {
+    "question": "In which file can I find the also_inherits_default_layered_fallback function?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The also_inherits_default_layered_fallback function can be found in the codebase as one of the available entities, likely related to routing and fallback behavior inheritance in nested routes.",
+    "relevant_nodes": [
+      "also_inherits_default_layered_fallback"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "also_inherits_default_layered_fallback"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the also_inherits_default_layered_fallback function can be found in the codebase, and this node is present in the list of available nodes."
+  },
+  {
+    "question": "Where is the any_service function located?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The any_service function is available as an entity in the codebase. It appears to be a routing function that can handle HTTP requests with any method and route them to a service.",
+    "relevant_nodes": [
+      "any_service"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "any_service"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the 'any_service' function as a routing function that can handle HTTP requests with any method. The referenced nodes are all relevant to the question and exist in the available nodes list."
+  },
+  {
+    "question": "Which file contains the implementation of the app function?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The app function implementation can be found through the multiple 'app' entities listed in the available entities. These represent the core application builder functionality in axum.",
+    "relevant_nodes": [
+      "app"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "app"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the implementation of the app function can be found in the 'app' entities listed in the available entities. This matches the information provided in the question."
+  },
+  {
+    "question": "Where can I find the definition of the allow_header function?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The allow_header function can be found in the codebase as indicated by the allow_header entity in the available list. This function is likely related to HTTP header handling functionality in the axum web framework.",
+    "relevant_nodes": [
+      "allow_header"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "allow_header"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the allow_header function as part of the codebase, and the referenced node is present in the available nodes list."
+  },
+  {
+    "question": "Which module handles the attachment functionality?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The attachment functionality is handled by the `attachment` entity, which appears to be a module or function that manages file attachment operations in the axum web framework.",
+    "relevant_nodes": [
+      "attachment"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "attachment"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the 'attachment' entity as the module that handles the attachment functionality, and this node is present in the list of available nodes in the codebase."
+  },
+  {
+    "question": "In what file is the attr module defined?",
+    "category": "navigation",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The attr module is referenced in the available entities list, indicating it exists as a module in the codebase. However, the specific file location cannot be determined from the entity names alone.",
+    "relevant_nodes": [
+      "attr"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "attr"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'attr' is present in the available nodes list, indicating that the attr module is part of the codebase. However, the specific file location where the attr module is defined cannot be determined from the information provided."
+  },
+  {
+    "question": "How does the accept function work?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The accept function in axum is used for HTTP content negotiation, allowing routes to specify what content types they can accept from clients. It works by checking the Accept header in incoming requests and matching it against supported media types.",
+    "relevant_nodes": [
+      "accept"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "accept"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the function of the `accept` function in the Axum framework, which is used for HTTP content negotiation and matches the `Accept` header in incoming requests against supported media types."
+  },
+  {
+    "question": "How does the AddExtension component add file extensions?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "Based on the available entities, AddExtension appears to be a component in the axum codebase, but the specific implementation details of how it adds file extensions are not visible from the entity list provided. The functionality would likely be contained within the AddExtension entity itself.",
+    "relevant_nodes": [
+      "AddExtension"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddExtension"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AddExtension component is responsible for adding file extensions, but the specific implementation details are not provided in the given list of available nodes. The answer is accurate based on the information available."
+  },
+  {
+    "question": "What is the purpose of the ApiError struct?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The ApiError struct appears to be a custom error type used for handling API-related errors in the axum application. It likely implements error handling traits to provide structured error responses in web API endpoints.",
+    "relevant_nodes": [
+      "ApiError"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ApiError"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the ApiError struct, which appears to be a custom error type used for handling API-related errors in the axum application. The referenced node ApiError is present in the available nodes list, and the answer is semantically correct and relevant to the given question."
+  },
+  {
+    "question": "How does the AppError handle errors in the Axum application?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "AppError is a custom error type used in Axum applications to handle and convert various error types into HTTP responses. It appears multiple times in the codebase as a common pattern for centralizing error handling and providing consistent error responses to clients.",
+    "relevant_nodes": [
+      "AppError"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppError"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the AppError type is used in the Axum application to handle and convert various error types into consistent HTTP responses. The referenced nodes are all relevant to this functionality."
+  },
+  {
+    "question": "What is the function of the AppJson type?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "AppJson is a type in the Axum web framework that likely serves as a JSON extractor or response type, allowing handlers to automatically parse incoming JSON requests or serialize responses as JSON format.",
+    "relevant_nodes": [
+      "AppJson"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppJson"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the function of the AppJson type as a JSON extractor or response type in the Axum web framework, and the referenced node AppJson is present in the list of available nodes."
+  },
+  {
+    "question": "How does the AppState manage the application state?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "AppState manages application state by providing a shared state container that can be accessed across request handlers. The AppState entity appears multiple times in the codebase, indicating it's a core component for state management, with AppStateDyn and AppStateGeneric providing dynamic and generic variants for different state management patterns.",
+    "relevant_nodes": [
+      "AppState",
+      "AppStateDyn",
+      "AppStateGeneric"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppState",
+      "AppStateDyn",
+      "AppStateGeneric"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the AppState manages the application state, referencing the key nodes involved in this functionality."
+  },
+  {
+    "question": "What does the add_tsr_redirect_route function do?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The add_tsr_redirect_route function appears to handle TSR (Trailing Slash Redirect) functionality in Axum routing, automatically adding redirect routes to handle URL paths with or without trailing slashes.",
+    "relevant_nodes": [
+      "add_tsr_redirect_route"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "add_tsr_redirect_route"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality of the `add_tsr_redirect_route` function, which handles Trailing Slash Redirect (TSR) in Axum routing by automatically adding redirect routes to handle URL paths with or without trailing slashes. The referenced node `add_tsr_redirect_route` is relevant to the question and exists in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the admin_routes function?",
+    "category": "understanding",
+    "repo_name": "tokio-rs/axum",
+    "answer": "The admin_routes function appears to be a function that defines or configures administrative routes in an Axum web application, likely used to set up endpoints for administrative functionality separate from regular application routes.",
+    "relevant_nodes": [
+      "admin_routes"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "admin_routes"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the admin_routes function, which appears to be a function that defines or configures administrative routes in an Axum web application. The referenced node admin_routes is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  }
+]

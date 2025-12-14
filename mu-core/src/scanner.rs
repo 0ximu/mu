@@ -9,6 +9,8 @@
 //! - Native `.gitignore` support at all levels
 //! - Custom `.muignore` file support
 //! - Extension-based filtering
+//! - File size filtering
+//! - Hidden file control
 //! - File hashing for cache invalidation
 //!
 //! # Performance
@@ -18,10 +20,21 @@
 //! | 1k files  | 50ms             | 5ms           |
 //! | 10k files | 500ms            | 20ms          |
 //! | 50k files | 2s               | 100ms         |
+//!
+//! # Example
+//!
+//! ```ignore
+//! use mu_core::scanner::{scan_directory, ScanOptions};
+//!
+//! let options = ScanOptions::default()
+//!     .with_ignore_patterns(vec!["dist/".to_string()])
+//!     .with_max_file_size(1024 * 1024); // 1MB
+//!
+//! let result = scan_directory("./src", options)?;
+//! println!("Found {} files", result.files.len());
+//! ```
 
 use ignore::WalkBuilder;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -31,6 +44,102 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 use xxhash_rust::xxh3::xxh3_64;
+
+/// Configuration options for directory scanning.
+///
+/// Use the builder pattern to construct scan options:
+///
+/// ```ignore
+/// let options = ScanOptions::default()
+///     .with_extensions(vec!["rs".to_string(), "py".to_string()])
+///     .with_max_file_size(512 * 1024)
+///     .include_hidden(true);
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct ScanOptions {
+    /// File extensions to include (e.g., `["py", "ts"]`).
+    /// If empty, all supported language extensions are included.
+    pub extensions: Option<Vec<String>>,
+
+    /// Additional patterns to ignore beyond `.gitignore`.
+    pub ignore_patterns: Option<Vec<String>>,
+
+    /// Whether to follow symbolic links.
+    pub follow_symlinks: bool,
+
+    /// Whether to compute file content hashes.
+    pub compute_hashes: bool,
+
+    /// Whether to count lines in files.
+    pub count_lines: bool,
+
+    /// Whether to include hidden files (starting with `.`).
+    /// Default: false (hidden files are excluded).
+    pub include_hidden: bool,
+
+    /// Maximum file size in bytes. Files larger than this are skipped.
+    /// Default: None (no limit).
+    pub max_file_size: Option<u64>,
+
+    /// Languages to include. If specified, only files with these languages are included.
+    /// Default: None (all supported languages).
+    pub languages: Option<Vec<String>>,
+}
+
+impl ScanOptions {
+    /// Create new scan options with all defaults.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set file extensions to filter by.
+    pub fn with_extensions(mut self, extensions: Vec<String>) -> Self {
+        self.extensions = Some(extensions);
+        self
+    }
+
+    /// Set additional ignore patterns.
+    pub fn with_ignore_patterns(mut self, patterns: Vec<String>) -> Self {
+        self.ignore_patterns = Some(patterns);
+        self
+    }
+
+    /// Set whether to follow symbolic links.
+    pub fn follow_symlinks(mut self, follow: bool) -> Self {
+        self.follow_symlinks = follow;
+        self
+    }
+
+    /// Set whether to compute file hashes.
+    pub fn compute_hashes(mut self, compute: bool) -> Self {
+        self.compute_hashes = compute;
+        self
+    }
+
+    /// Set whether to count lines.
+    pub fn count_lines(mut self, count: bool) -> Self {
+        self.count_lines = count;
+        self
+    }
+
+    /// Set whether to include hidden files.
+    pub fn include_hidden(mut self, include: bool) -> Self {
+        self.include_hidden = include;
+        self
+    }
+
+    /// Set maximum file size in bytes.
+    pub fn with_max_file_size(mut self, size: u64) -> Self {
+        self.max_file_size = Some(size);
+        self
+    }
+
+    /// Set languages to include.
+    pub fn with_languages(mut self, languages: Vec<String>) -> Self {
+        self.languages = Some(languages);
+        self
+    }
+}
 
 /// Language detection from file extension.
 /// Maps extensions to language identifiers.
@@ -83,35 +192,26 @@ fn is_supported_language(lang: &str) -> bool {
 }
 
 /// Information about a scanned file.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ScannedFile {
     /// Relative path from scan root.
-    #[pyo3(get)]
     pub path: String,
 
     /// Detected programming language.
-    #[pyo3(get)]
     pub language: String,
 
     /// File size in bytes.
-    #[pyo3(get)]
     pub size_bytes: u64,
 
     /// xxHash3 hash for cache invalidation (optional).
-    #[pyo3(get)]
     pub hash: Option<String>,
 
     /// Number of lines in the file.
-    #[pyo3(get)]
     pub lines: u32,
 }
 
-#[pymethods]
 impl ScannedFile {
-    #[new]
-    #[pyo3(signature = (path, language, size_bytes, hash=None, lines=0))]
-    fn new(
+    pub fn new(
         path: String,
         language: String,
         size_bytes: u64,
@@ -126,76 +226,33 @@ impl ScannedFile {
             lines,
         }
     }
-
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("path", &self.path)?;
-        dict.set_item("language", &self.language)?;
-        dict.set_item("size_bytes", self.size_bytes)?;
-        dict.set_item("hash", &self.hash)?;
-        dict.set_item("lines", self.lines)?;
-        Ok(dict.into())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ScannedFile(path='{}', language='{}', size_bytes={})",
-            self.path, self.language, self.size_bytes
-        )
-    }
 }
 
 /// Result of scanning a directory.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ScanResult {
     /// List of discovered files.
-    #[pyo3(get)]
     pub files: Vec<ScannedFile>,
 
     /// Number of files skipped due to ignore patterns.
-    #[pyo3(get)]
     pub skipped_count: usize,
 
     /// Number of errors encountered during scanning.
-    #[pyo3(get)]
     pub error_count: usize,
 
     /// Time taken for the scan in milliseconds.
-    #[pyo3(get)]
     pub duration_ms: f64,
 }
 
-#[pymethods]
 impl ScanResult {
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        let files: Vec<PyObject> = self
-            .files
-            .iter()
-            .map(|f| f.to_dict(py))
-            .collect::<PyResult<Vec<_>>>()?;
-        dict.set_item("files", files)?;
-        dict.set_item("skipped_count", self.skipped_count)?;
-        dict.set_item("error_count", self.error_count)?;
-        dict.set_item("duration_ms", self.duration_ms)?;
-        Ok(dict.into())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ScanResult(files={}, skipped={}, errors={}, duration={:.2}ms)",
-            self.files.len(),
-            self.skipped_count,
-            self.error_count,
-            self.duration_ms
-        )
-    }
-
-    fn __len__(&self) -> usize {
+    /// Get the number of files.
+    pub fn len(&self) -> usize {
         self.files.len()
+    }
+
+    /// Check if empty.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
     }
 }
 
@@ -213,57 +270,30 @@ fn count_lines(path: &Path) -> u32 {
         .unwrap_or(0)
 }
 
-/// Scan a directory for source files.
+/// Scan a directory for source files using [`ScanOptions`].
 ///
-/// Uses the `ignore` crate for fast, parallel traversal with gitignore support.
+/// This is the primary scanning API. Uses the `ignore` crate for fast,
+/// parallel traversal with gitignore support.
 ///
 /// # Arguments
 ///
 /// * `root_path` - Root directory to scan
-/// * `extensions` - Optional list of file extensions to include (e.g., ["py", "ts"])
-/// * `ignore_patterns` - Additional patterns to ignore (beyond .gitignore)
-/// * `follow_symlinks` - Whether to follow symbolic links
-/// * `compute_hashes` - Whether to compute file hashes (slower but useful for caching)
-/// * `count_lines_flag` - Whether to count lines in files
+/// * `options` - Scanning configuration options
 ///
 /// # Returns
 ///
-/// ScanResult containing discovered files and statistics.
-#[pyfunction]
-#[pyo3(signature = (root_path, extensions=None, ignore_patterns=None, follow_symlinks=false, compute_hashes=false, count_lines_flag=false))]
-pub fn scan_directory(
-    py: Python<'_>,
-    root_path: &str,
-    extensions: Option<Vec<String>>,
-    ignore_patterns: Option<Vec<String>>,
-    follow_symlinks: bool,
-    compute_hashes: bool,
-    count_lines_flag: bool,
-) -> PyResult<ScanResult> {
-    // Release GIL during scanning for parallelism
-    py.allow_threads(|| {
-        scan_directory_internal(
-            root_path,
-            extensions,
-            ignore_patterns,
-            follow_symlinks,
-            compute_hashes,
-            count_lines_flag,
-        )
-    })
-    .map_err(|e| pyo3::exceptions::PyFileNotFoundError::new_err(e))
-}
-
-/// Internal implementation without Python GIL.
-/// Returns Result<ScanResult, String> for use in both Python and pure Rust contexts.
-fn scan_directory_internal(
-    root_path: &str,
-    extensions: Option<Vec<String>>,
-    ignore_patterns: Option<Vec<String>>,
-    follow_symlinks: bool,
-    compute_hashes: bool,
-    count_lines_flag: bool,
-) -> Result<ScanResult, String> {
+/// [`ScanResult`] containing discovered files and statistics.
+///
+/// # Example
+///
+/// ```ignore
+/// let options = ScanOptions::default()
+///     .with_ignore_patterns(vec!["dist/".to_string()])
+///     .with_max_file_size(1024 * 1024);
+///
+/// let result = scan_with_options("./src", options)?;
+/// ```
+pub fn scan_with_options(root_path: &str, options: ScanOptions) -> Result<ScanResult, String> {
     let start = Instant::now();
     let root = Path::new(root_path);
 
@@ -272,32 +302,39 @@ fn scan_directory_internal(
     }
 
     // Build extension filter set
-    let ext_filter: Option<HashSet<String>> = extensions.map(|exts| {
+    let ext_filter: Option<HashSet<String>> = options.extensions.map(|exts| {
         exts.into_iter()
             .map(|e| e.trim_start_matches('.').to_lowercase())
             .collect()
     });
 
+    // Build language filter set (lowercase for case-insensitive matching)
+    let lang_filter: Option<HashSet<String>> = options.languages.map(|langs| {
+        langs.into_iter().map(|l| l.to_lowercase()).collect()
+    });
+
     // Build the walker with ignore crate
     let mut builder = WalkBuilder::new(root);
     builder
-        .hidden(false) // Include hidden files, let gitignore handle it
+        .hidden(!options.include_hidden) // hidden(true) = skip hidden files
         .git_ignore(true) // Respect .gitignore
         .git_global(true) // Respect global gitignore
         .git_exclude(true) // Respect .git/info/exclude
-        .follow_links(follow_symlinks)
+        .follow_links(options.follow_symlinks)
         .add_custom_ignore_filename(".muignore"); // Support .muignore
 
     // Add custom ignore patterns
-    if let Some(patterns) = &ignore_patterns {
+    if let Some(patterns) = &options.ignore_patterns {
+        let mut override_builder = ignore::overrides::OverrideBuilder::new(root);
         for pattern in patterns {
-            // Create a temporary override for each pattern
-            let mut override_builder = ignore::overrides::OverrideBuilder::new(root);
             // Negate the pattern to make it an ignore pattern
-            let _ = override_builder.add(&format!("!{}", pattern));
-            if let Ok(overrides) = override_builder.build() {
-                builder.overrides(overrides);
+            // The ! prefix tells the override builder to exclude matches
+            if let Err(e) = override_builder.add(&format!("!{}", pattern)) {
+                eprintln!("Warning: Invalid ignore pattern '{}': {}", pattern, e);
             }
+        }
+        if let Ok(overrides) = override_builder.build() {
+            builder.overrides(overrides);
         }
     }
 
@@ -314,6 +351,9 @@ fn scan_directory_internal(
     let skipped = AtomicUsize::new(0);
     let errors = AtomicUsize::new(0);
     let result_files = Mutex::new(Vec::new());
+    let max_size = options.max_file_size;
+    let compute_hashes = options.compute_hashes;
+    let count_lines_flag = options.count_lines;
 
     // Process files in parallel
     files.par_iter().for_each(|path| {
@@ -345,6 +385,14 @@ fn scan_directory_internal(
             return;
         }
 
+        // Check language filter (if specified)
+        if let Some(ref filter) = lang_filter {
+            if !filter.contains(&language.to_lowercase()) {
+                skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
+
         // Get file metadata
         let metadata = match fs::metadata(path) {
             Ok(m) => m,
@@ -353,6 +401,14 @@ fn scan_directory_internal(
                 return;
             }
         };
+
+        // Check max file size
+        if let Some(max) = max_size {
+            if metadata.len() > max {
+                skipped.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
 
         // Compute relative path
         let rel_path = path
@@ -398,8 +454,49 @@ fn scan_directory_internal(
     })
 }
 
-/// Internal scan function that returns a Result for error handling.
-/// This is separate from the PyO3 function to allow testing without Python.
+/// Scan a directory for source files.
+///
+/// Uses the `ignore` crate for fast, parallel traversal with gitignore support.
+///
+/// # Arguments
+///
+/// * `root_path` - Root directory to scan
+/// * `extensions` - Optional list of file extensions to include (e.g., ["py", "ts"])
+/// * `ignore_patterns` - Additional patterns to ignore (beyond .gitignore)
+/// * `follow_symlinks` - Whether to follow symbolic links
+/// * `compute_hashes` - Whether to compute file hashes (slower but useful for caching)
+/// * `count_lines_flag` - Whether to count lines in files
+///
+/// # Returns
+///
+/// ScanResult containing discovered files and statistics.
+///
+/// # Note
+///
+/// Consider using [`scan_with_options`] for more control over scanning behavior,
+/// including hidden file filtering and max file size limits.
+pub fn scan_directory(
+    root_path: &str,
+    extensions: Option<Vec<String>>,
+    ignore_patterns: Option<Vec<String>>,
+    follow_symlinks: bool,
+    compute_hashes: bool,
+    count_lines_flag: bool,
+) -> Result<ScanResult, String> {
+    let options = ScanOptions {
+        extensions,
+        ignore_patterns,
+        follow_symlinks,
+        compute_hashes,
+        count_lines: count_lines_flag,
+        include_hidden: false, // Default: exclude hidden files
+        max_file_size: None,
+        languages: None,
+    };
+    scan_with_options(root_path, options)
+}
+
+/// Alias for scan_directory for backwards compatibility.
 pub fn scan_directory_sync(
     root_path: &str,
     extensions: Option<Vec<String>>,
@@ -408,7 +505,7 @@ pub fn scan_directory_sync(
     compute_hashes: bool,
     count_lines_flag: bool,
 ) -> Result<ScanResult, String> {
-    scan_directory_internal(
+    scan_directory(
         root_path,
         extensions,
         ignore_patterns,

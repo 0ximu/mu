@@ -1,0 +1,242 @@
+[
+  {
+    "name": "2dust/v2rayN",
+    "url": "https://github.com/2dust/v2rayN.git",
+    "stars": 91927,
+    "language": "csharp",
+    "size_kb": 45156,
+    "description": "A GUI client for Windows, Linux and macOS, support Xray and sing-box and others"
+  },
+  {
+    "name": "shadowsocks/shadowsocks-windows",
+    "url": "https://github.com/shadowsocks/shadowsocks-windows.git",
+    "stars": 59163,
+    "language": "csharp",
+    "size_kb": 13489,
+    "description": "A C# port of shadowsocks"
+  },
+  {
+    "name": "jellyfin/jellyfin",
+    "url": "https://github.com/jellyfin/jellyfin.git",
+    "stars": 46414,
+    "language": "csharp",
+    "size_kb": 70367,
+    "description": "The Free Software Media System - Server Backend & API"
+  },
+  {
+    "name": "huiyadanli/RevokeMsgPatcher",
+    "url": "https://github.com/huiyadanli/RevokeMsgPatcher.git",
+    "stars": 35870,
+    "language": "csharp",
+    "size_kb": 3759,
+    "description": ":trollface: A hex editor for WeChat/QQ/TIM - PC\u7248\u5fae\u4fe1/QQ/TIM\u9632\u64a4\u56de\u8865\u4e01\uff08\u6211\u5df2\u7ecf\u770b\u5230\u4e86\uff0c\u64a4\u56de\u4e5f\u6ca1\u7528\u4e86\uff09"
+  },
+  {
+    "name": "ShareX/ShareX",
+    "url": "https://github.com/ShareX/ShareX.git",
+    "stars": 34734,
+    "language": "csharp",
+    "size_kb": 63613,
+    "description": "ShareX is a free and open-source application that enables users to capture or record any area of their screen with a single keystroke. It also supports uploading images, text, and various file types to a wide range of destinations."
+  },
+  {
+    "name": "dnSpy/dnSpy",
+    "url": "https://github.com/dnSpy/dnSpy.git",
+    "stars": 28650,
+    "language": "csharp",
+    "size_kb": 35047,
+    "description": ".NET debugger and assembly editor"
+  },
+  {
+    "name": "microsoft/semantic-kernel",
+    "url": "https://github.com/microsoft/semantic-kernel.git",
+    "stars": 26818,
+    "language": "csharp",
+    "size_kb": 93062,
+    "description": "Integrate cutting-edge LLM technology quickly and easily into your apps"
+  },
+  {
+    "name": "NickeManarin/ScreenToGif",
+    "url": "https://github.com/NickeManarin/ScreenToGif.git",
+    "stars": 26045,
+    "language": "csharp",
+    "size_kb": 25973,
+    "description": "\ud83c\udfac ScreenToGif allows you to record a selected area of your screen, edit and save it as a gif or video."
+  },
+  {
+    "name": "mxgmn/WaveFunctionCollapse",
+    "url": "https://github.com/mxgmn/WaveFunctionCollapse.git",
+    "stars": 24487,
+    "language": "csharp",
+    "size_kb": 31099,
+    "description": "Bitmap & tilemap generation from a single example with the help of ideas from quantum mechanics"
+  },
+  {
+    "name": "icsharpcode/ILSpy",
+    "url": "https://github.com/icsharpcode/ILSpy.git",
+    "stars": 24180,
+    "language": "csharp",
+    "size_kb": 44844,
+    "description": ".NET Decompiler with support for PDB generation, ReadyToRun, Metadata (&more) - cross-platform!"
+  },
+  {
+    "name": "CodeHubApp/CodeHub",
+    "url": "https://github.com/CodeHubApp/CodeHub.git",
+    "stars": 22687,
+    "language": "csharp",
+    "size_kb": 75636,
+    "description": "CodeHub is an iOS application written using Xamarin"
+  },
+  {
+    "name": "thangchung/awesome-dotnet-core",
+    "url": "https://github.com/thangchung/awesome-dotnet-core.git",
+    "stars": 20955,
+    "language": "csharp",
+    "size_kb": 1368,
+    "description": ":honeybee: A collection of awesome .NET core libraries, tools, frameworks and software"
+  },
+  {
+    "name": "peass-ng/PEASS-ng",
+    "url": "https://github.com/peass-ng/PEASS-ng.git",
+    "stars": 18898,
+    "language": "csharp",
+    "size_kb": 64400,
+    "description": "PEASS - Privilege Escalation Awesome Scripts SUITE (with colors)"
+  },
+  {
+    "name": "TGSAN/CMWTAT_Digital_Edition",
+    "url": "https://github.com/TGSAN/CMWTAT_Digital_Edition.git",
+    "stars": 18704,
+    "language": "csharp",
+    "size_kb": 59447,
+    "description": "CloudMoe Windows 10/11 Activation Toolkit get digital license, the best open source Win 10/11 activator in GitHub. GitHub \u4e0a\u6700\u68d2\u7684\u5f00\u6e90 Win10/Win11 \u6570\u5b57\u6743\u5229\uff08\u6570\u5b57\u8bb8\u53ef\u8bc1\uff09\u6fc0\u6d3b\u5de5\u5177\uff01"
+  },
+  {
+    "name": "DapperLib/Dapper",
+    "url": "https://github.com/DapperLib/Dapper.git",
+    "stars": 18149,
+    "language": "csharp",
+    "size_kb": 49973,
+    "description": "Dapper - a simple object mapper for .Net"
+  },
+  {
+    "name": "ardalis/CleanArchitecture",
+    "url": "https://github.com/ardalis/CleanArchitecture.git",
+    "stars": 17800,
+    "language": "csharp",
+    "size_kb": 3567,
+    "description": "Clean Architecture Solution Template: A proven Clean Architecture Template for ASP.NET Core 10"
+  },
+  {
+    "name": "hellzerg/optimizer",
+    "url": "https://github.com/hellzerg/optimizer.git",
+    "stars": 17704,
+    "language": "csharp",
+    "size_kb": 47555,
+    "description": "The finest Windows Optimizer"
+  },
+  {
+    "name": "bitwarden/server",
+    "url": "https://github.com/bitwarden/server.git",
+    "stars": 17613,
+    "language": "csharp",
+    "size_kb": 42458,
+    "description": "Bitwarden infrastructure/backend (API, database, Docker, etc)."
+  },
+  {
+    "name": "netchx/netch",
+    "url": "https://github.com/netchx/netch.git",
+    "stars": 17168,
+    "language": "csharp",
+    "size_kb": 11388,
+    "description": "A simple proxy client"
+  },
+  {
+    "name": "BluePointLilac/ContextMenuManager",
+    "url": "https://github.com/BluePointLilac/ContextMenuManager.git",
+    "stars": 17104,
+    "language": "csharp",
+    "size_kb": 1843,
+    "description": "\ud83d\uddb1\ufe0f \u7eaf\u7cb9\u7684Windows\u53f3\u952e\u83dc\u5355\u7ba1\u7406\u7a0b\u5e8f"
+  },
+  {
+    "name": "Klocman/Bulk-Crap-Uninstaller",
+    "url": "https://github.com/Klocman/Bulk-Crap-Uninstaller.git",
+    "stars": 16641,
+    "language": "csharp",
+    "size_kb": 10408,
+    "description": "Remove large amounts of unwanted applications quickly."
+  },
+  {
+    "name": "MaterialDesignInXAML/MaterialDesignInXamlToolkit",
+    "url": "https://github.com/MaterialDesignInXAML/MaterialDesignInXamlToolkit.git",
+    "stars": 15936,
+    "language": "csharp",
+    "size_kb": 73132,
+    "description": "Google's Material Design in XAML & WPF, for C# & VB.Net. "
+  },
+  {
+    "name": "nilaoda/N_m3u8DL-CLI",
+    "url": "https://github.com/nilaoda/N_m3u8DL-CLI.git",
+    "stars": 15641,
+    "language": "csharp",
+    "size_kb": 6399,
+    "description": "[.NET] m3u8 downloader \u5f00\u6e90\u7684\u547d\u4ee4\u884cm3u8/HLS/dash\u4e0b\u8f7d\u5668\uff0c\u652f\u6301\u666e\u901aAES-128-CBC\u89e3\u5bc6\uff0c\u591a\u7ebf\u7a0b\uff0c\u81ea\u5b9a\u4e49\u8bf7\u6c42\u5934\u7b49. \u652f\u6301\u7b80\u4f53\u4e2d\u6587,\u7e41\u4f53\u4e2d\u6587\u548c\u82f1\u6587. English Supported."
+  },
+  {
+    "name": "Perfare/AssetStudio",
+    "url": "https://github.com/Perfare/AssetStudio.git",
+    "stars": 14839,
+    "language": "csharp",
+    "size_kb": 40176,
+    "description": "AssetStudio is a tool for exploring, extracting and exporting assets and assetbundles."
+  },
+  {
+    "name": "Jackett/Jackett",
+    "url": "https://github.com/Jackett/Jackett.git",
+    "stars": 14477,
+    "language": "csharp",
+    "size_kb": 42723,
+    "description": "API Support for your favorite torrent trackers"
+  },
+  {
+    "name": "App-vNext/Polly",
+    "url": "https://github.com/App-vNext/Polly.git",
+    "stars": 14056,
+    "language": "csharp",
+    "size_kb": 52471,
+    "description": "Polly is a .NET resilience and transient-fault-handling library that allows developers to express policies such as Retry, Circuit Breaker, Timeout, Bulkhead Isolation, and Fallback in a fluent and thread-safe manner. From version 6.0.1, Polly targets .NET Standard 1.1 and 2.0+."
+  },
+  {
+    "name": "Tyrrrz/YoutubeDownloader",
+    "url": "https://github.com/Tyrrrz/YoutubeDownloader.git",
+    "stars": 13561,
+    "language": "csharp",
+    "size_kb": 1357,
+    "description": "Downloads videos and playlists from YouTube"
+  },
+  {
+    "name": "winsw/winsw",
+    "url": "https://github.com/winsw/winsw.git",
+    "stars": 13496,
+    "language": "csharp",
+    "size_kb": 3510,
+    "description": "A wrapper executable that can run any executable as a Windows service, in a permissive license."
+  },
+  {
+    "name": "kgrzybek/modular-monolith-with-ddd",
+    "url": "https://github.com/kgrzybek/modular-monolith-with-ddd.git",
+    "stars": 13140,
+    "language": "csharp",
+    "size_kb": 8423,
+    "description": "Full Modular Monolith application with Domain-Driven Design approach."
+  },
+  {
+    "name": "nilaoda/BBDown",
+    "url": "https://github.com/nilaoda/BBDown.git",
+    "stars": 12954,
+    "language": "csharp",
+    "size_kb": 18900,
+    "description": "Bilibili Downloader. \u4e00\u4e2a\u547d\u4ee4\u884c\u5f0f\u54d4\u54e9\u54d4\u54e9\u4e0b\u8f7d\u5668."
+  }
+]

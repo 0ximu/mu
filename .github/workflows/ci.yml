@@ -10,107 +10,71 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets -- -W clippy::all
+
   test:
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python-version: ["3.11", "3.12"]
-        include:
-          - os: macos-latest
-            python-version: "3.12"
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
-      - name: Install dependencies
-        run: uv sync
+      - name: Build
+        run: cargo build --all
 
       - name: Run tests
-        run: |
-          # Note: test_rust_core.py will be skipped if Rust core not compiled
-          # See .github/workflows/rust-core.yml for Rust-specific CI
-          uv run pytest tests/ -v --tb=short --ignore=tests/unit/test_rust_core.py
-
-      - name: Run tests with coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        run: |
-          uv run pytest tests/ --cov=src/mu --cov-report=xml --cov-report=term-missing --ignore=tests/unit/test_rust_core.py
-
-      - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-
-  quality:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Check formatting with ruff
-        run: uv run ruff format --check src/
-
-      - name: Linting with ruff
-        run: uv run ruff check src/
-
-      - name: Type checking with mypy
-        run: uv run mypy src/mu --ignore-missing-imports
-
-      - name: Security scan with bandit
-        run: uv run bandit -r src/mu -ll
+        run: cargo test --all
 
   build:
+    name: Build Release
     runs-on: ubuntu-latest
-    needs: [test, quality]
+    needs: [check, test]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
 
-      - name: Build package
-        run: uv build
+      - name: Build release
+        run: cargo build --release --package mu-cli
 
-      - name: Check package
-        run: uvx twine check dist/*
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ github.sha }}
-          path: dist/
-          retention-days: 14
+      - name: Test binary
+        run: |
+          ./target/release/mu --version
+          ./target/release/mu --help

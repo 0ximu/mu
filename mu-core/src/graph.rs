@@ -1,13 +1,13 @@
 //! Graph Reasoning Engine powered by petgraph.
 //!
 //! This module provides high-performance graph algorithms for code dependency analysis.
-//! It loads node/edge data from DuckDB into an in-memory petgraph DiGraph and exposes
-//! algorithms like cycle detection, impact analysis, and path finding to Python.
+//! It loads node/edge data into an in-memory petgraph DiGraph and exposes
+//! algorithms like cycle detection, impact analysis, and path finding.
 //!
 //! # Architecture
 //!
 //! ```text
-//! DuckDB (storage) -> GraphEngine (in-memory) -> Python (MUQL/MCP)
+//! DuckDB (storage) -> GraphEngine (in-memory) -> CLI/API
 //! ```
 //!
 //! # Key Features
@@ -21,7 +21,6 @@ use petgraph::algo::kosaraju_scc;
 use petgraph::graph::{DiGraph, NodeIndex};
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
-use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 /// High-performance graph engine for code dependency analysis.
@@ -29,14 +28,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Holds an in-memory directed graph where:
 /// - Nodes are string IDs (e.g., "mod:src/auth.py", "func:login")
 /// - Edges are string types (e.g., "imports", "calls", "inherits")
-#[pyclass]
 pub struct GraphEngine {
     graph: DiGraph<String, String>,
     node_map: HashMap<String, NodeIndex>,
     reverse_map: HashMap<NodeIndex, String>,
 }
 
-#[pymethods]
 impl GraphEngine {
     /// Create a new GraphEngine from node IDs and edge tuples.
     ///
@@ -44,17 +41,7 @@ impl GraphEngine {
     ///
     /// * `nodes` - List of node ID strings
     /// * `edges` - List of (source_id, target_id, edge_type) tuples
-    ///
-    /// # Example
-    ///
-    /// ```python
-    /// engine = GraphEngine(
-    ///     ["a.py", "b.py", "c.py"],
-    ///     [("a.py", "b.py", "imports"), ("b.py", "c.py", "imports")]
-    /// )
-    /// ```
-    #[new]
-    fn new(nodes: Vec<String>, edges: Vec<(String, String, String)>) -> Self {
+    pub fn new(nodes: Vec<String>, edges: Vec<(String, String, String)>) -> Self {
         let mut graph = DiGraph::new();
         let mut node_map = HashMap::with_capacity(nodes.len());
         let mut reverse_map = HashMap::with_capacity(nodes.len());
@@ -91,15 +78,7 @@ impl GraphEngine {
     /// # Returns
     ///
     /// List of cycles, where each cycle is a list of node IDs.
-    ///
-    /// # Example
-    ///
-    /// ```python
-    /// cycles = engine.find_cycles()  # All edge types
-    /// cycles = engine.find_cycles(["imports"])  # Only import cycles
-    /// ```
-    #[pyo3(signature = (edge_types=None))]
-    fn find_cycles(&self, edge_types: Option<Vec<String>>) -> Vec<Vec<String>> {
+    pub fn find_cycles(&self, edge_types: Option<Vec<String>>) -> Vec<Vec<String>> {
         let allowed: Option<HashSet<String>> = edge_types.map(|t| t.into_iter().collect());
 
         // If filtering, create a filtered graph
@@ -159,8 +138,7 @@ impl GraphEngine {
     /// # Returns
     ///
     /// List of node IDs that are downstream of the given node.
-    #[pyo3(signature = (node_id, edge_types=None))]
-    fn impact(&self, node_id: &str, edge_types: Option<Vec<String>>) -> Vec<String> {
+    pub fn impact(&self, node_id: &str, edge_types: Option<Vec<String>>) -> Vec<String> {
         self.traverse_bfs(node_id, Direction::Outgoing, edge_types)
     }
 
@@ -178,8 +156,7 @@ impl GraphEngine {
     /// # Returns
     ///
     /// List of node IDs that are upstream of the given node.
-    #[pyo3(signature = (node_id, edge_types=None))]
-    fn ancestors(&self, node_id: &str, edge_types: Option<Vec<String>>) -> Vec<String> {
+    pub fn ancestors(&self, node_id: &str, edge_types: Option<Vec<String>>) -> Vec<String> {
         self.traverse_bfs(node_id, Direction::Incoming, edge_types)
     }
 
@@ -196,8 +173,7 @@ impl GraphEngine {
     /// # Returns
     ///
     /// List of node IDs forming the path, or None if no path exists.
-    #[pyo3(signature = (from_id, to_id, edge_types=None))]
-    fn shortest_path(
+    pub fn shortest_path(
         &self,
         from_id: &str,
         to_id: &str,
@@ -266,8 +242,7 @@ impl GraphEngine {
     /// # Returns
     ///
     /// List of neighbor node IDs.
-    #[pyo3(signature = (node_id, direction="both", depth=1, edge_types=None))]
-    fn neighbors(
+    pub fn neighbors(
         &self,
         node_id: &str,
         direction: &str,
@@ -333,28 +308,26 @@ impl GraphEngine {
     }
 
     /// Get the number of nodes in the graph.
-    fn node_count(&self) -> usize {
+    pub fn node_count(&self) -> usize {
         self.graph.node_count()
     }
 
     /// Get the number of edges in the graph.
-    fn edge_count(&self) -> usize {
+    pub fn edge_count(&self) -> usize {
         self.graph.edge_count()
     }
 
     /// Check if a node exists in the graph.
-    fn has_node(&self, node_id: &str) -> bool {
+    pub fn has_node(&self, node_id: &str) -> bool {
         self.node_map.contains_key(node_id)
     }
 
     /// Get all unique edge types in the graph.
-    fn edge_types(&self) -> Vec<String> {
+    pub fn edge_types(&self) -> Vec<String> {
         let types: HashSet<&String> = self.graph.edge_weights().collect();
         types.into_iter().cloned().collect()
     }
-}
 
-impl GraphEngine {
     /// Internal BFS traversal with direction and edge type filtering.
     fn traverse_bfs(
         &self,

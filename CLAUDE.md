@@ -1,235 +1,135 @@
 # CLAUDE.md
 
-This file provides quick-reference guidance for Claude Code. For detailed documentation, see the nested CLAUDE.md files.
+This file provides quick-reference guidance for Claude Code. MU is now a pure Rust project.
 
-## Documentation Structure
+## Project Structure
 
 ```
-.claude/CLAUDE.md                     # Project-wide standards, pre-PR checklist
-src/mu/parser/CLAUDE.md               # Multi-language AST extraction
-src/mu/llm/CLAUDE.md                  # LLM provider integration
-src/mu/assembler/CLAUDE.md            # Import resolution, dependency graph
-src/mu/reducer/CLAUDE.md              # Transformation rules, compression
-src/mu/diff/CLAUDE.md                 # Semantic diff computation
-src/mu/security/CLAUDE.md             # Secret detection and redaction
-src/mu/kernel/CLAUDE.md               # Graph database for code analysis
-src/mu/kernel/temporal/CLAUDE.md      # Git-linked snapshots and time-travel
-src/mu/kernel/embeddings/CLAUDE.md    # Vector embeddings for semantic search
-src/mu/kernel/context/CLAUDE.md       # Smart context extraction for questions
-src/mu/kernel/export/CLAUDE.md        # Multi-format graph export
-src/mu/daemon/CLAUDE.md               # Real-time daemon mode and API
-src/mu/mcp/CLAUDE.md                  # MCP server for AI assistants
-tests/CLAUDE.md                       # Testing standards and patterns
+mu-cli/          # CLI application
+mu-core/         # Parser, scanner, graph algorithms
+mu-daemon/       # Storage layer (DuckDB), embedding trait
+mu-embeddings/   # MU-SIGMA-V2 embedding model
+mu-sigma/        # Training data pipeline (Python, for model training only)
+models/          # Trained model weights
 ```
 
 ## Project Overview
 
-MU (Machine Understanding) is a semantic compression tool that translates codebases into token-efficient representations optimized for LLM comprehension. Achieves 92-98% compression while preserving semantic signal.
+MU (Machine Understanding) is a semantic code intelligence tool. It parses codebases into a graph database and provides fast queries, semantic search, and diff analysis.
 
 ## Quick Commands
 
 ```bash
-# Development (uv handles virtualenv automatically)
-uv sync                                    # Install dependencies
-uv run pytest                              # Run tests
-uv run mypy src/mu                         # Type check
-uv run ruff check src/ && uv run ruff format src/  # Lint + format
+# Build
+cargo build --release
 
-# Alternative: pip (requires manual venv activation)
-# pip install -e ".[dev]"
+# Run (after build, binary is in target/release/mu)
+mu bootstrap              # Initialize + build graph + embeddings
+mu status                 # Show project status
 
-# CLI (use uv run for all mu commands)
-uv run mu init                 # Create .murc.toml config
-uv run mu scan <path>          # Analyze structure
-uv run mu compress <path>      # Generate MU output
-uv run mu compress <path> --llm # With LLM summarization
-uv run mu view <file.mu>       # Render with syntax highlighting
-uv run mu diff <base> <head>   # Semantic diff
-
-# MUQL Queries
-uv run mu query "SELECT..."    # Execute MUQL query
-uv run mu q "SELECT..."        # Short alias
-uv run mu query -i             # Interactive REPL
-
-# Bootstrap & Status (recommended workflow)
-uv run mu bootstrap            # Initialize + build in one step
-uv run mu status               # Show status and next steps
-
-# Context & Search
-uv run mu context "question"   # Smart context extraction
-uv run mu context "question" --format omega  # OMEGA compressed context
-uv run mu search "query"       # Semantic search
+# Query
+mu query "SELECT * FROM functions WHERE complexity > 10"
+mu q "fn c>50"            # Terse: functions with complexity > 50
+mu q "deps Auth d2"       # Terse: dependencies of Auth, depth 2
 
 # Graph Reasoning
-uv run mu deps NODE            # Show dependencies
-uv run mu deps NODE -r         # Show what depends on NODE
-uv run mu impact NODE          # What breaks if I change NODE?
-uv run mu ancestors NODE       # What does NODE depend on?
-uv run mu cycles               # Detect circular dependencies
+mu deps NODE              # Show dependencies
+mu deps NODE -r           # Show what depends on NODE
+mu impact NODE            # What breaks if I change NODE?
+mu ancestors NODE         # What does NODE depend on?
+mu cycles                 # Detect circular dependencies
 
-# Services
-uv run mu serve                # Start daemon in background
-uv run mu serve --status       # Check daemon status
-uv run mu serve --stop         # Stop running daemon
-uv run mu serve -f             # Run in foreground (debugging)
-uv run mu serve --mcp          # Start MCP server (for Claude Code)
+# Analysis
+mu diff main HEAD         # Semantic diff between git refs
+mu patterns               # Detect code patterns
+mu search "query"         # Semantic search (requires embeddings)
+mu grok "question"        # LLM-powered Q&A
 
-# Advanced: Kernel Commands (power users)
-uv run mu kernel snapshot      # Create snapshot at HEAD
-uv run mu kernel history <node> # Show node history
-uv run mu kernel blame <node>  # Show blame info
-uv run mu kernel export --format mu       # Export as MU text
-uv run mu kernel export --format json     # Export as JSON
-uv run mu kernel export --format mermaid  # Export as Mermaid diagram
-uv run mu kernel export --format d2       # Export as D2 diagram
-uv run mu kernel export --format cytoscape # Export for Cytoscape.js
-uv run mu kernel export --format lisp     # Export as S-expressions
-uv run mu kernel export --format omega    # Export with OMEGA compression
-uv run mu kernel embed .       # Generate embeddings
+# Export
+mu export -F mermaid      # Export as Mermaid diagram
+mu export -F json         # Export as JSON
+mu export -F d2           # Export as D2 diagram
+mu export -F json -l 100  # Export max 100 nodes
 
-# Cache Management
-uv run mu cache stats          # Show cache statistics
-uv run mu cache clear          # Clear all cached data
-uv run mu cache expire         # Remove expired entries
-
-# CLI Introspection (agent-proofing)
-uv run mu describe             # Output CLI interface description
-uv run mu describe --format json # JSON format for tooling
-uv run mu describe --format markdown # Markdown format for documentation
-
-# MCP Server (AI assistant integration)
-uv run mu mcp serve            # Start MCP server (stdio for Claude Code)
-uv run mu mcp serve --http     # Start with HTTP transport
-uv run mu mcp tools            # List available MCP tools
-uv run mu mcp test             # Test MCP tools
-
-# MCP Bootstrap Flow (for agents)
-# 1. mu_status() → get next_action
-# 2. mu_init(".") → create .murc.toml (if needed)
-# 3. mu_build(".") → build .mu/mubase graph
-# 4. mu_context("question") → query works!
-# 5. mu_semantic_diff("main", "HEAD") → PR review
-
-# Migration (legacy files to .mu/ directory)
-uv run mu migrate              # Migrate .mubase, .mu-cache/, etc. to .mu/
-uv run mu migrate --dry-run    # Show what would be migrated
-
-# Architecture Contracts
-uv run mu contracts init       # Create .mu/contracts.yml template
-uv run mu contracts verify     # Verify architectural rules
+# Vibes (fun aliases)
+mu yolo NODE              # Impact analysis
+mu sus                    # Find suspicious patterns
+mu wtf FILE               # Git archaeology
+mu omg                    # Summarize recent changes
 ```
 
-## Data Directory Structure
+## MUQL Query Language
 
-All MU data files are stored in the `.mu/` directory:
+```sql
+-- Full SQL syntax
+SELECT name, complexity FROM functions WHERE complexity > 10 ORDER BY complexity DESC LIMIT 20
 
-```
-.mu/
-├── mubase          # Graph database (DuckDB)
-├── mubase.wal      # DuckDB write-ahead log
-├── cache/          # File and LLM response cache
-├── contracts.yml   # Architecture contracts
-└── daemon.pid      # Daemon process ID file
-
-.murc.toml          # Configuration (stays at project root)
+-- Terse syntax (60-85% fewer tokens)
+fn c>50 sort c- 10        -- Functions with complexity > 50, sorted desc, limit 10
+cls n~'Service'           -- Classes matching 'Service'
+deps Auth d2              -- Dependencies of Auth, depth 2
+rdeps Parser              -- What depends on Parser
 ```
 
-Use `mu migrate` to move legacy files (`.mubase`, `.mu-cache/`, etc.) to the new structure.
+## Key Types
 
-## Pipeline
-
-```
-Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
-                  |           |          |          |
-              manifest    ModuleDef  Reduced   ModuleGraph -> MU/JSON/MD
-```
-
-## Key Models
-
-- **`ModuleDef`**: File-level AST (imports, classes, functions)
-- **`ReducedModule`**: Post-compression with `needs_llm` markers
-- **`ModuleGraph`**: Dependency graph with resolved imports
-- **`DiffResult`**: Semantic changes between versions
-- **`ContextResult`**: Smart context extraction result with MU output
-- **`Snapshot`**: Point-in-time graph state linked to git commit
-- **`ExportResult`**: Multi-format export output with error handling
-- **`DaemonConfig`**: Daemon server configuration
-- **`GraphEvent`**: Real-time graph change notifications
-- **`OmegaResult`**: OMEGA compressed context with seed (macros) + body (content)
-- **`OmegaConfig`**: OMEGA compression configuration (token budgets, macro settings)
-- **`OmegaManifest`**: Manifest describing macros used in OMEGA output
-
-## Agent-Proofing Modules
-
-- **`client.py`**: Daemon communication client for programmatic MU integration
-- **`describe.py`**: CLI introspection and self-description (mu/json/markdown formats)
-- **`mcp/`**: MCP server exposing MU tools for Claude Code and other AI assistants
-
-## CLI Structure
-
-Primary commands (visible in help):
-- Core: bootstrap, status, compress
-- Query: query/q, context, read, search
-- Graph: deps, impact, ancestors, cycles, related
-- Intelligence: patterns, warn, diff
-- Services: serve, mcp
-- Vibes: omg, grok, wtf, yolo, sus, vibe, zen
-- Advanced: kernel (export, history, snapshot, blame, embed, search, diff)
-
-Hidden commands (power users):
-- describe, view, migrate, man, llm, cache
-
-Deprecated (still work, removed in v2.0):
-- daemon start/stop/status/run -> use 'mu serve' with flags
-- kernel init, kernel build -> use bootstrap
-- kernel stats -> use status
-- kernel context -> use context
-- kernel muql -> use query
-- kernel deps -> use deps
+- **Node**: Code entity (function, class, module) with id, name, type, complexity
+- **Edge**: Relationship (calls, imports, inherits, contains)
+- **ModuleDef**: Parsed file with imports, classes, functions
 
 ## Supported Languages
 
 Python, TypeScript, JavaScript, Go, Java, Rust, C#
 
-## Rust Core Performance (mu-core)
+## Rust Crates
 
-- **Scanner**: 6.9x faster than Python, respects .gitignore/.muignore
-- **Semantic Diff**: Entity-level changes with breaking change detection
-- **Incremental Parser**: <5ms updates for daemon mode
-- **Graph Reasoning**: petgraph-backed O(V+E) algorithms (impact, ancestors, cycles)
+| Crate | Purpose |
+|-------|---------|
+| `mu-cli` | CLI commands, output formatting |
+| `mu-core` | Tree-sitter parsing, graph algorithms, diff |
+| `mu-daemon` | DuckDB storage layer, embedding trait |
+| `mu-embeddings` | MU-SIGMA-V2 model inference via Candle |
 
-## MU Sigils
+## Embedding Model
 
-- `!` Module/Service
-- `$` Entity/Class (`<` inheritance)
-- `#` Function/Method
-- `@` Dependencies
-- `::` Annotations
-- `->` Return, `=>` Mutation
+MU uses **MU-SIGMA-V2**, a BERT model trained on code for semantic search. The model weights are compiled into the binary via `include_bytes!`.
 
-## OMEGA Format
-
-OMEGA (S-expression semantic compression) provides an alternative to sigil format:
-
-```lisp
-;; MU-Lisp Macro Definitions
-(defmacro api [method path handler] "API endpoint")
-
-;; Codebase Context
-(mu-lisp :version "1.0" :codebase "mu" :commit "abc1234"
-  :core [module class defn data]
-  :standard [api service])
-
-(module "src/auth.py"
-  (class AuthService :bases [BaseService]
-    (defn authenticate [username:str password:str] -> User)))
+```rust
+// mu-embeddings/src/lib.rs
+pub const MODEL_BYTES: &[u8] = include_bytes!("../models/mu-sigma-v2/model.safetensors");
 ```
 
-**OMEGA vs Sigils:**
-- S-expressions: LLM-native, parseable, macro-compressible
-- Sigils: Human-readable, compact, visual hierarchy
-- Use `--format omega` for context extraction, `--format mu` for human review
+- Dimension: 384
+- Max sequence: 512 tokens
+- Pooling: Mean
 
-## Keeping Documentation Current
+## Development
 
-When making significant changes to a module (new features, architectural changes, new patterns), update the corresponding CLAUDE.md file. This ensures Claude Code has accurate context for future work.
+```bash
+# Check compilation
+cargo check
+
+# Run tests
+cargo test
+
+# Format
+cargo fmt
+
+# Lint
+cargo clippy
+```
+
+## Troubleshooting
+
+```bash
+# Fresh start (clears database and rebuilds)
+rm -rf .mu && mu bootstrap
+
+# Database errors about schema/columns
+# The database may be from an old version. Delete and rebuild:
+rm -rf .mu && mu bootstrap
+
+# Check what's in the database
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
+```

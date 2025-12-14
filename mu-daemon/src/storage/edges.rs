@@ -1,7 +1,7 @@
 //! Edge model and operations.
 
-use serde::{Deserialize, Serialize};
 use super::schema::EdgeType;
+use serde::{Deserialize, Serialize};
 
 /// An edge (relationship) in the code graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +51,11 @@ impl Edge {
         Self::new(caller, callee, EdgeType::Calls)
     }
 
+    /// Create a USES edge (class/method references a type).
+    pub fn uses(from: &str, type_ref: &str) -> Self {
+        Self::new(from, type_ref, EdgeType::Uses)
+    }
+
     /// Set properties on the edge.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);
@@ -81,5 +86,23 @@ mod tests {
     fn test_inherits_edge() {
         let edge = Edge::inherits("cls:models.py:User", "cls:models.py:BaseModel");
         assert_eq!(edge.edge_type, EdgeType::Inherits);
+    }
+
+    #[test]
+    fn test_uses_edge() {
+        // Test internal type reference
+        let edge = Edge::uses("cls:service.cs:AuthService", "cls:models.cs:User");
+        assert_eq!(edge.edge_type, EdgeType::Uses);
+        assert_eq!(edge.source_id, "cls:service.cs:AuthService");
+        assert_eq!(edge.target_id, "cls:models.cs:User");
+        assert!(edge.id.contains("uses"));
+    }
+
+    #[test]
+    fn test_uses_edge_external() {
+        // Test external type reference
+        let edge = Edge::uses("cls:service.cs:AuthService", "ext:HttpClient");
+        assert_eq!(edge.edge_type, EdgeType::Uses);
+        assert_eq!(edge.target_id, "ext:HttpClient");
     }
 }

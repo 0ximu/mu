@@ -1,0 +1,452 @@
+[
+  {
+    "question": "What is the architecture of the BatteryInfoProvider component?",
+    "category": "architecture",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryInfoProvider component follows a provider pattern architecture with BatteryInfoProvider as the trait/interface and BatteryInfoProviderImpl as the concrete implementation. It works with BatteryInfo to provide battery status information and BatteryStatus to represent the current state.",
+    "relevant_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the architecture of the BatteryInfoProvider component, which follows a provider pattern with a trait/interface and a concrete implementation. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What pattern is used in the implementation of the CConfigMarker class?",
+    "category": "architecture",
+    "repo_name": "starship/starship",
+    "answer": "The CConfigMarker class appears to implement a marker pattern, which is used to tag or identify C-related configuration components. This is evidenced by the presence of both CConfigMarker and CppConfigMarker classes, suggesting a type-safe way to distinguish between different programming language configurations.",
+    "relevant_nodes": [
+      "CConfigMarker",
+      "CppConfigMarker"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CConfigMarker",
+      "CppConfigMarker"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the CConfigMarker class as implementing a marker pattern, which is used to distinguish between different programming language configurations, as evidenced by the presence of the CConfigMarker and CppConfigMarker classes in the available nodes list."
+  },
+  {
+    "question": "How is the Cli module structured?",
+    "category": "architecture",
+    "repo_name": "starship/starship",
+    "answer": "The Cli module appears to be structured around a main Cli entity that coordinates various command functionalities, with support for different CompletionShell types and a Commands structure that organizes the available CLI operations.",
+    "relevant_nodes": [
+      "Cli",
+      "Commands",
+      "CompletionShell"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Cli",
+      "Commands",
+      "CompletionShell"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the structure of the Cli module, referencing the key components of the Cli entity, Commands, and CompletionShell. All the referenced nodes are present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What is the overall design of the CustomConfig module?",
+    "category": "architecture",
+    "repo_name": "starship/starship",
+    "answer": "The CustomConfig module appears to be part of Starship's modular configuration system, designed to handle custom module configurations alongside other specialized config types like AwsConfig, AzureConfig, BatteryConfig, etc. It likely provides a way for users to define custom prompt modules with their own specific settings and behaviors.",
+    "relevant_nodes": [
+      "CustomConfig"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CustomConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided is semantically correct and the referenced node 'CustomConfig' exists in the available nodes list. The answer accurately describes the overall design of the CustomConfig module as part of Starship's modular configuration system, handling custom module configurations."
+  },
+  {
+    "question": "How is the Credentials class organized?",
+    "category": "architecture",
+    "repo_name": "starship/starship",
+    "answer": "The Credentials class appears to be a standalone entity in the codebase, likely used for authentication purposes. Without additional structural information visible in the available entities, it seems to be organized as a simple class without clear hierarchical relationships to other components.",
+    "relevant_nodes": [
+      "Credentials"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Credentials"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the Credentials class as a standalone entity likely used for authentication, without additional structural information. The referenced node 'Credentials' is valid and relevant to the question."
+  },
+  {
+    "question": "What does the AzureConfig module depend on?",
+    "category": "dependencies",
+    "repo_name": "starship/starship",
+    "answer": "Based on the available entities, AzureConfig appears to be a configuration module for Azure integration in the Starship prompt. However, the entity list doesn't provide enough information to determine its specific dependencies, as it only shows top-level entity names without revealing their internal structure or relationships.",
+    "relevant_nodes": [
+      "AzureConfig"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AzureConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AzureConfig module is a configuration module for Azure integration in the Starship prompt. However, the answer also states that the entity list does not provide enough information to determine its specific dependencies, which is a reasonable assessment given the available information."
+  },
+  {
+    "question": "Which components use the BatteryInfo struct?",
+    "category": "dependencies",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryInfo struct is used by the BatteryInfoProvider interface and its implementation BatteryInfoProviderImpl, which provide battery information to the battery module configuration components.",
+    "relevant_nodes": [
+      "BatteryInfo",
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BatteryInfo",
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the components that use the BatteryInfo struct, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "What are the dependencies of the CcConfig module?",
+    "category": "dependencies",
+    "repo_name": "starship/starship",
+    "answer": "The CcConfig module appears to be related to C/C++ configuration in the Starship prompt. Based on the available entities, it has dependencies on the CConfigMarker and CppConfigMarker entities, which likely provide markers or traits for C and C++ language detection and configuration.",
+    "relevant_nodes": [
+      "CcConfig",
+      "CConfigMarker",
+      "CppConfigMarker"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "CcConfig",
+      "CConfigMarker",
+      "CppConfigMarker"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the CcConfig module and its dependencies on CConfigMarker and CppConfigMarker, which are present in the available nodes list. The answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "Which modules depend on the Cli class?",
+    "category": "dependencies",
+    "repo_name": "starship/starship",
+    "answer": "Based on the available entities, I cannot determine which specific modules depend on the Cli class. While Cli is present in the entity list, there are no clear dependency relationships visible among the listed entities that would indicate which modules use or depend on Cli.",
+    "relevant_nodes": [
+      "Cli"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Cli"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The Cli class is present in the available nodes list, but the answer correctly states that there are no clear dependency relationships visible that would indicate which modules use or depend on Cli. The answer is mostly correct, but the valid nodes list includes only the Cli class itself."
+  },
+  {
+    "question": "What other components rely on the CommandOutput type?",
+    "category": "dependencies",
+    "repo_name": "starship/starship",
+    "answer": "Based on the available entities, I can see CommandOutput is a type in the codebase, but the entity list doesn't provide sufficient information about its dependencies or which components rely on it. The list appears to focus on configuration types and high-level components rather than showing the dependency relationships between types.",
+    "relevant_nodes": [
+      "CommandOutput"
+    ],
+    "confidence": 0.3,
+    "validation_status": "rejected",
+    "valid_nodes": [
+      "CommandOutput"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The available nodes list does not contain the 'CommandOutput' type, so it is not possible to determine which other components rely on it. The answer provided indicates a lack of information in the provided entities to answer the question."
+  },
+  {
+    "question": "Where is the ansi_string function implemented?",
+    "category": "navigation",
+    "repo_name": "starship/starship",
+    "answer": "The ansi_string function is implemented as a standalone function entity in the codebase. There are multiple ansi_string entries in the available entities list, suggesting it may have multiple implementations or overloads.",
+    "relevant_nodes": [
+      "ansi_string"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ansi_string"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'ansi_string' exists in the available nodes list, and the answer describes the implementation of the 'ansi_string' function correctly."
+  },
+  {
+    "question": "In which file can I find the implementation of the BatteryInfoProviderImpl?",
+    "category": "navigation",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryInfoProviderImpl entity is available in the codebase and represents the implementation of the battery information provider interface. This implementation would be found in the battery-related module files.",
+    "relevant_nodes": [
+      "BatteryInfoProviderImpl",
+      "BatteryInfoProvider",
+      "BatteryInfo"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "BatteryInfoProviderImpl",
+      "BatteryInfoProvider",
+      "BatteryInfo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the BatteryInfoProviderImpl as the implementation of the battery information provider interface, and the referenced nodes exist in the available nodes list. The answer is considered valid, with no invalid nodes."
+  },
+  {
+    "question": "What module handles the battery status calculation?",
+    "category": "navigation",
+    "repo_name": "starship/starship",
+    "answer": "The battery module handles battery status calculation through the BatteryInfoProvider interface and its implementation BatteryInfoProviderImpl, which works with BatteryInfo and BatteryStatus entities to determine and report battery information.",
+    "relevant_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus",
+      "BatteryConfig"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus",
+      "BatteryConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the module and key components responsible for battery status calculation, and all the referenced nodes exist in the provided list."
+  },
+  {
+    "question": "Which file contains the implementation of the CharacterConfig struct?",
+    "category": "navigation",
+    "repo_name": "starship/starship",
+    "answer": "The CharacterConfig struct implementation can be found by looking at the CharacterConfig entity and its associated character function/module, which handles the character module configuration in Starship.",
+    "relevant_nodes": [
+      "CharacterConfig",
+      "character"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CharacterConfig",
+      "character"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the CharacterConfig struct implementation can be found in the character module or function, which are both present in the list of available nodes."
+  },
+  {
+    "question": "Where is the config_from_file function defined?",
+    "category": "navigation",
+    "repo_name": "starship/starship",
+    "answer": "The config_from_file function is listed among the available entities in the starship codebase, indicating it is defined as a standalone function for loading configuration from files.",
+    "relevant_nodes": [
+      "config_from_file"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "config_from_file"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the config_from_file function is defined in the starship codebase, and this function is listed among the available entities."
+  },
+  {
+    "question": "How does the BatteryInfoProvider determine the battery status?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryInfoProvider determines battery status through the BatteryInfoProviderImpl implementation, which provides BatteryInfo containing the BatteryStatus. The battery status is likely determined by querying system battery information and converting it into the appropriate BatteryStatus enum value.",
+    "relevant_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "BatteryInfoProvider",
+      "BatteryInfoProviderImpl",
+      "BatteryInfo",
+      "BatteryStatus"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the BatteryInfoProvider determines the battery status, by using the BatteryInfoProviderImpl implementation to get the BatteryInfo and BatteryStatus. All the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "How does the Cli module process user commands?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The Cli module processes user commands through the Commands entity which handles command routing and execution. The create_command function is used to build command structures, while cmd is likely used for command execution and processing.",
+    "relevant_nodes": [
+      "Cli",
+      "Commands",
+      "create_command",
+      "cmd"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Cli",
+      "Commands",
+      "create_command",
+      "cmd"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Cli module processes user commands through the Commands entity, using the create_command function to build command structures and the cmd function for command execution and processing. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the role of the CommandOutput type in the codebase?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "CommandOutput is a type that represents the result of executing system commands in the Starship prompt. It likely contains the output data from commands that are used to gather information for displaying various prompt modules and segments.",
+    "relevant_nodes": [
+      "CommandOutput"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CommandOutput"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the CommandOutput type, which represents the result of executing system commands in the Starship prompt. The referenced node CommandOutput is present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What does the config_from_file function do?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The config_from_file function loads and parses configuration settings from a file, likely returning a configuration object that can be used by the starship prompt system to customize its behavior and appearance.",
+    "relevant_nodes": [
+      "config_from_file"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "config_from_file"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the function of the 'config_from_file' node, which loads and parses configuration settings from a file. The referenced node 'config_from_file' exists in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "How does the ansi_string function format and colorize text?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The ansi_string function is responsible for formatting and colorizing text using ANSI escape codes. It works alongside ansi_strings and ansi_strip functions to handle text styling, with ansi_strip likely removing ANSI codes and ansi_strings processing multiple strings.",
+    "relevant_nodes": [
+      "ansi_string",
+      "ansi_strings",
+      "ansi_strip"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ansi_string",
+      "ansi_strings",
+      "ansi_strip"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality of the ansi_string function, which is responsible for formatting and colorizing text using ANSI escape codes. The referenced nodes (ansi_string, ansi_strings, ansi_strip) are all relevant and exist in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the BatteryStatus struct?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryStatus struct represents the current status or state of a battery in the Starship prompt. It works alongside other battery-related entities like BatteryInfo and BatteryConfig to display battery information in the shell prompt.",
+    "relevant_nodes": [
+      "BatteryStatus",
+      "BatteryInfo",
+      "BatteryConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BatteryStatus",
+      "BatteryInfo",
+      "BatteryConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the BatteryStatus struct and references the relevant entities BatteryInfo and BatteryConfig. All the referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "How does the BatteryInfoProviderImpl collect battery information?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The BatteryInfoProviderImpl implements the BatteryInfoProvider interface to collect battery information. It gathers data about battery status and details, which is then used by the BatteryConfig module to display battery information in the starship prompt.",
+    "relevant_nodes": [
+      "BatteryInfoProviderImpl",
+      "BatteryInfoProvider",
+      "BatteryInfo",
+      "BatteryStatus",
+      "BatteryConfig"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "BatteryInfoProviderImpl",
+      "BatteryInfoProvider",
+      "BatteryInfo",
+      "BatteryStatus",
+      "BatteryConfig"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the BatteryInfoProviderImpl collects battery information and references the relevant nodes in the codebase."
+  },
+  {
+    "question": "What is the role of the CharacterConfig struct in the codebase?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "CharacterConfig is a configuration struct that defines settings for the character module in Starship, which allows users to display custom characters or symbols in their prompt. It works alongside the character function to configure how these custom characters are rendered.",
+    "relevant_nodes": [
+      "CharacterConfig",
+      "character"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CharacterConfig",
+      "character"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the CharacterConfig struct in the codebase, which is to define settings for the character module in Starship. The referenced nodes CharacterConfig and character are both present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the Credentials class?",
+    "category": "understanding",
+    "repo_name": "starship/starship",
+    "answer": "The Credentials class appears to be used for storing and managing authentication credentials, likely for cloud services or external integrations within the Starship prompt configuration system.",
+    "relevant_nodes": [
+      "Credentials"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Credentials"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the Credentials class, which appears to be for storing and managing authentication credentials for cloud services or external integrations within the Starship prompt configuration system. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  }
+]

@@ -1,0 +1,402 @@
+[
+  {
+    "name": "avelino/awesome-go",
+    "url": "https://github.com/avelino/awesome-go.git",
+    "stars": 159592,
+    "language": "go",
+    "size_kb": 10695,
+    "description": "A curated list of awesome Go frameworks, libraries and software"
+  },
+  {
+    "name": "ollama/ollama",
+    "url": "https://github.com/ollama/ollama.git",
+    "stars": 157393,
+    "language": "go",
+    "size_kb": 68507,
+    "description": "Get up and running with OpenAI gpt-oss, DeepSeek-R1, Gemma 3 and other models."
+  },
+  {
+    "name": "fatedier/frp",
+    "url": "https://github.com/fatedier/frp.git",
+    "stars": 101519,
+    "language": "go",
+    "size_kb": 30543,
+    "description": "A fast reverse proxy to help you expose a local server behind a NAT or firewall to the internet."
+  },
+  {
+    "name": "gin-gonic/gin",
+    "url": "https://github.com/gin-gonic/gin.git",
+    "stars": 87317,
+    "language": "go",
+    "size_kb": 10407,
+    "description": "Gin is a high-performance HTTP web framework written in Go. It provides a Martini-like API but with significantly better performance\u2014up to 40 times faster\u2014thanks to httprouter. Gin is designed for building REST APIs, web applications, and microservices."
+  },
+  {
+    "name": "junegunn/fzf",
+    "url": "https://github.com/junegunn/fzf.git",
+    "stars": 75654,
+    "language": "go",
+    "size_kb": 7558,
+    "description": ":cherry_blossom: A command-line fuzzy finder"
+  },
+  {
+    "name": "base/node",
+    "url": "https://github.com/base/node.git",
+    "stars": 68684,
+    "language": "go",
+    "size_kb": 3102,
+    "description": "Everything required to run your own Base node"
+  },
+  {
+    "name": "caddyserver/caddy",
+    "url": "https://github.com/caddyserver/caddy.git",
+    "stars": 68426,
+    "language": "go",
+    "size_kb": 20097,
+    "description": "Fast and extensible multi-platform HTTP/1-2-3 web server with automatic HTTPS"
+  },
+  {
+    "name": "nektos/act",
+    "url": "https://github.com/nektos/act.git",
+    "stars": 67480,
+    "language": "go",
+    "size_kb": 10398,
+    "description": "Run your GitHub Actions locally \ud83d\ude80"
+  },
+  {
+    "name": "FiloSottile/mkcert",
+    "url": "https://github.com/FiloSottile/mkcert.git",
+    "stars": 57379,
+    "language": "go",
+    "size_kb": 1799,
+    "description": "A simple zero-config tool to make locally trusted development certificates with any names you'd like."
+  },
+  {
+    "name": "wagoodman/dive",
+    "url": "https://github.com/wagoodman/dive.git",
+    "stars": 52825,
+    "language": "go",
+    "size_kb": 6939,
+    "description": "A tool for exploring each layer in a docker image"
+  },
+  {
+    "name": "etcd-io/etcd",
+    "url": "https://github.com/etcd-io/etcd.git",
+    "stars": 50957,
+    "language": "go",
+    "size_kb": 93394,
+    "description": "Distributed reliable key-value store for the most critical data of a distributed system"
+  },
+  {
+    "name": "AlistGo/alist",
+    "url": "https://github.com/AlistGo/alist.git",
+    "stars": 48630,
+    "language": "go",
+    "size_kb": 5992,
+    "description": "\ud83d\uddc2\ufe0fA file list/WebDAV program that supports multiple storages, powered by Gin and Solidjs. / \u4e00\u4e2a\u652f\u6301\u591a\u5b58\u50a8\u7684\u6587\u4ef6\u5217\u8868/WebDAV\u7a0b\u5e8f\uff0c\u4f7f\u7528 Gin \u548c Solidjs\u3002"
+  },
+  {
+    "name": "jesseduffield/lazydocker",
+    "url": "https://github.com/jesseduffield/lazydocker.git",
+    "stars": 48312,
+    "language": "go",
+    "size_kb": 29708,
+    "description": "The lazier way to manage everything docker"
+  },
+  {
+    "name": "usememos/memos",
+    "url": "https://github.com/usememos/memos.git",
+    "stars": 47021,
+    "language": "go",
+    "size_kb": 39287,
+    "description": "An open-source, self-hosted note-taking service. Your thoughts, your data, your control \u2014 no tracking, no ads, no subscription fees."
+  },
+  {
+    "name": "v2ray/v2ray-core",
+    "url": "https://github.com/v2ray/v2ray-core.git",
+    "stars": 46742,
+    "language": "go",
+    "size_kb": 55142,
+    "description": "A platform for building proxies to bypass network restrictions."
+  },
+  {
+    "name": "astaxie/build-web-application-with-golang",
+    "url": "https://github.com/astaxie/build-web-application-with-golang.git",
+    "stars": 44103,
+    "language": "go",
+    "size_kb": 38293,
+    "description": "A golang ebook intro how to build a web with golang"
+  },
+  {
+    "name": "coreybutler/nvm-windows",
+    "url": "https://github.com/coreybutler/nvm-windows.git",
+    "stars": 43997,
+    "language": "go",
+    "size_kb": 33310,
+    "description": "A node.js version management utility for Windows. Ironically written in Go."
+  },
+  {
+    "name": "spf13/cobra",
+    "url": "https://github.com/spf13/cobra.git",
+    "stars": 42590,
+    "language": "go",
+    "size_kb": 1974,
+    "description": "A Commander for modern Go CLI interactions"
+  },
+  {
+    "name": "cli/cli",
+    "url": "https://github.com/cli/cli.git",
+    "stars": 41626,
+    "language": "go",
+    "size_kb": 50746,
+    "description": "GitHub\u2019s official command line tool"
+  },
+  {
+    "name": "mudler/LocalAI",
+    "url": "https://github.com/mudler/LocalAI.git",
+    "stars": 40006,
+    "language": "go",
+    "size_kb": 40478,
+    "description": ":robot: The free, Open Source alternative to OpenAI, Claude and others. Self-hosted and local-first. Drop-in replacement for OpenAI,  running on consumer-grade hardware. No GPU required. Runs gguf, transformers, diffusers and many more. Features: Generate Text, MCP, Audio, Video, Images, Voice Cloning, Distributed, P2P and decentralized inference"
+  },
+  {
+    "name": "evanw/esbuild",
+    "url": "https://github.com/evanw/esbuild.git",
+    "stars": 39533,
+    "language": "go",
+    "size_kb": 21303,
+    "description": "An extremely fast bundler for the web"
+  },
+  {
+    "name": "go-gorm/gorm",
+    "url": "https://github.com/go-gorm/gorm.git",
+    "stars": 39227,
+    "language": "go",
+    "size_kb": 4698,
+    "description": "The fantastic ORM library for Golang, aims to be developer friendly"
+  },
+  {
+    "name": "charmbracelet/bubbletea",
+    "url": "https://github.com/charmbracelet/bubbletea.git",
+    "stars": 37263,
+    "language": "go",
+    "size_kb": 6015,
+    "description": "A powerful little TUI framework \ud83c\udfd7"
+  },
+  {
+    "name": "docker/compose",
+    "url": "https://github.com/docker/compose.git",
+    "stars": 36615,
+    "language": "go",
+    "size_kb": 27579,
+    "description": "Define and run multi-container applications with Docker"
+  },
+  {
+    "name": "unknwon/the-way-to-go_ZH_CN",
+    "url": "https://github.com/unknwon/the-way-to-go_ZH_CN.git",
+    "stars": 35106,
+    "language": "go",
+    "size_kb": 12602,
+    "description": "\u300aThe Way to Go\u300b\u4e2d\u6587\u8bd1\u672c\uff0c\u4e2d\u6587\u6b63\u5f0f\u540d\u300aGo \u5165\u95e8\u6307\u5357\u300b"
+  },
+  {
+    "name": "halfrost/LeetCode-Go",
+    "url": "https://github.com/halfrost/LeetCode-Go.git",
+    "stars": 33773,
+    "language": "go",
+    "size_kb": 19315,
+    "description": "\u2705 Solutions to LeetCode by Go, 100% test coverage, runtime beats 100% / LeetCode \u9898\u89e3"
+  },
+  {
+    "name": "ehang-io/nps",
+    "url": "https://github.com/ehang-io/nps.git",
+    "stars": 33721,
+    "language": "go",
+    "size_kb": 9168,
+    "description": "\u4e00\u6b3e\u8f7b\u91cf\u7ea7\u3001\u9ad8\u6027\u80fd\u3001\u529f\u80fd\u5f3a\u5927\u7684\u5185\u7f51\u7a7f\u900f\u4ee3\u7406\u670d\u52a1\u5668\u3002\u652f\u6301tcp\u3001udp\u3001socks5\u3001http\u7b49\u51e0\u4e4e\u6240\u6709\u6d41\u91cf\u8f6c\u53d1\uff0c\u53ef\u7528\u6765\u8bbf\u95ee\u5185\u7f51\u7f51\u7ad9\u3001\u672c\u5730\u652f\u4ed8\u63a5\u53e3\u8c03\u8bd5\u3001ssh\u8bbf\u95ee\u3001\u8fdc\u7a0b\u684c\u9762\uff0c\u5185\u7f51dns\u89e3\u6790\u3001\u5185\u7f51socks5\u4ee3\u7406\u7b49\u7b49\u2026\u2026\uff0c\u5e76\u5e26\u6709\u529f\u80fd\u5f3a\u5927\u7684web\u7ba1\u7406\u7aef\u3002a lightweight, high-performance, powerful intranet penetration proxy server, with a powerful web management terminal."
+  },
+  {
+    "name": "harness/harness",
+    "url": "https://github.com/harness/harness.git",
+    "stars": 33693,
+    "language": "go",
+    "size_kb": 57549,
+    "description": "Harness Open Source is an end-to-end developer platform with Source Control Management, CI/CD Pipelines, Hosted Developer Environments, and Artifact Registries."
+  },
+  {
+    "name": "juanfont/headscale",
+    "url": "https://github.com/juanfont/headscale.git",
+    "stars": 33433,
+    "language": "go",
+    "size_kb": 21861,
+    "description": "An open source, self-hosted implementation of the Tailscale control server"
+  },
+  {
+    "name": "XTLS/Xray-core",
+    "url": "https://github.com/XTLS/Xray-core.git",
+    "stars": 33258,
+    "language": "go",
+    "size_kb": 7305,
+    "description": "Xray, Penetrates Everything. Also the best v2ray-core. Where the magic happens. An open platform for various uses."
+  },
+  {
+    "name": "v2fly/v2ray-core",
+    "url": "https://github.com/v2fly/v2ray-core.git",
+    "stars": 32705,
+    "language": "go",
+    "size_kb": 68959,
+    "description": "A platform for building proxies to bypass network restrictions."
+  },
+  {
+    "name": "1Panel-dev/1Panel",
+    "url": "https://github.com/1Panel-dev/1Panel.git",
+    "stars": 32388,
+    "language": "go",
+    "size_kb": 91209,
+    "description": "\ud83d\udd25 1Panel provides an intuitive web interface and MCP Server to manage websites, files, containers, databases, and LLMs on a Linux server."
+  },
+  {
+    "name": "filebrowser/filebrowser",
+    "url": "https://github.com/filebrowser/filebrowser.git",
+    "stars": 32385,
+    "language": "go",
+    "size_kb": 23272,
+    "description": "\ud83d\udcc2 Web File Browser"
+  },
+  {
+    "name": "beego/beego",
+    "url": "https://github.com/beego/beego.git",
+    "stars": 32371,
+    "language": "go",
+    "size_kb": 11970,
+    "description": "beego is an open-source, high-performance web framework for the Go programming language."
+  },
+  {
+    "name": "zeromicro/go-zero",
+    "url": "https://github.com/zeromicro/go-zero.git",
+    "stars": 32261,
+    "language": "go",
+    "size_kb": 32685,
+    "description": "A cloud-native Go microservices framework with cli tool for productivity."
+  },
+  {
+    "name": "schollz/croc",
+    "url": "https://github.com/schollz/croc.git",
+    "stars": 32215,
+    "language": "go",
+    "size_kb": 25190,
+    "description": "Easily and securely send things from one computer to another :crocodile: :package:"
+  },
+  {
+    "name": "derailed/k9s",
+    "url": "https://github.com/derailed/k9s.git",
+    "stars": 32116,
+    "language": "go",
+    "size_kb": 67054,
+    "description": "\ud83d\udc36 Kubernetes CLI To Manage Your Clusters In Style!"
+  },
+  {
+    "name": "labstack/echo",
+    "url": "https://github.com/labstack/echo.git",
+    "stars": 31898,
+    "language": "go",
+    "size_kb": 6340,
+    "description": "High performance, minimalist Go web framework"
+  },
+  {
+    "name": "AdguardTeam/AdGuardHome",
+    "url": "https://github.com/AdguardTeam/AdGuardHome.git",
+    "stars": 31356,
+    "language": "go",
+    "size_kb": 25144,
+    "description": "Network-wide ads & trackers blocking DNS server"
+  },
+  {
+    "name": "restic/restic",
+    "url": "https://github.com/restic/restic.git",
+    "stars": 31158,
+    "language": "go",
+    "size_kb": 69176,
+    "description": "Fast, secure, efficient backup program"
+  },
+  {
+    "name": "iawia002/lux",
+    "url": "https://github.com/iawia002/lux.git",
+    "stars": 30699,
+    "language": "go",
+    "size_kb": 2547,
+    "description": "\ud83d\udc7e Fast and simple video download library and CLI tool written in Go"
+  },
+  {
+    "name": "glanceapp/glance",
+    "url": "https://github.com/glanceapp/glance.git",
+    "stars": 30214,
+    "language": "go",
+    "size_kb": 20378,
+    "description": "A self-hosted dashboard that puts all your feeds in one place"
+  },
+  {
+    "name": "spf13/viper",
+    "url": "https://github.com/spf13/viper.git",
+    "stars": 29675,
+    "language": "go",
+    "size_kb": 1621,
+    "description": "Go configuration with fangs"
+  },
+  {
+    "name": "grafana/k6",
+    "url": "https://github.com/grafana/k6.git",
+    "stars": 29397,
+    "language": "go",
+    "size_kb": 70751,
+    "description": "A modern load testing tool, using Go and JavaScript"
+  },
+  {
+    "name": "helm/helm",
+    "url": "https://github.com/helm/helm.git",
+    "stars": 29162,
+    "language": "go",
+    "size_kb": 26226,
+    "description": "The Kubernetes Package Manager"
+  },
+  {
+    "name": "SagerNet/sing-box",
+    "url": "https://github.com/SagerNet/sing-box.git",
+    "stars": 28764,
+    "language": "go",
+    "size_kb": 15346,
+    "description": "The universal proxy platform"
+  },
+  {
+    "name": "binwiederhier/ntfy",
+    "url": "https://github.com/binwiederhier/ntfy.git",
+    "stars": 27683,
+    "language": "go",
+    "size_kb": 36984,
+    "description": "Send push notifications to your phone or desktop using PUT/POST"
+  },
+  {
+    "name": "go-kit/kit",
+    "url": "https://github.com/go-kit/kit.git",
+    "stars": 27550,
+    "language": "go",
+    "size_kb": 7390,
+    "description": "A standard library for microservices."
+  },
+  {
+    "name": "zyedidia/micro",
+    "url": "https://github.com/zyedidia/micro.git",
+    "stars": 27396,
+    "language": "go",
+    "size_kb": 13820,
+    "description": "A modern and intuitive terminal-based text editor"
+  },
+  {
+    "name": "tmrts/go-patterns",
+    "url": "https://github.com/tmrts/go-patterns.git",
+    "stars": 27133,
+    "language": "go",
+    "size_kb": 927,
+    "description": "Curated list of Go design patterns, recipes and idioms"
+  }
+]

@@ -1,0 +1,580 @@
+[
+  {
+    "question": "What design patterns are used in the AEADAuthenticator implementation?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AEADAuthenticator implementation uses the Strategy pattern through AEADCipher interface with concrete implementations like AES128GCMMethod and AES256GCMMethod, and likely employs the Chain of Responsibility pattern with AEADChunkSizeParser and AEADSizeParser for parsing operations.",
+    "relevant_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AES128GCMMethod",
+      "AES256GCMMethod",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AES128GCMMethod",
+      "AES256GCMMethod",
+      "AEADChunkSizeParser",
+      "AEADSizeParser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the use of the Strategy pattern through the AEADCipher interface and the potential use of the Chain of Responsibility pattern with AEADChunkSizeParser and AEADSizeParser. All the referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "How is the overall structure of the v2ray-core application organized?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The v2ray-core application is organized around a modular architecture with core components including an app layer for application logic, API system for external interfaces, and assembly components for configuration and initialization. The structure uses inbound/outbound handlers for traffic processing and features modular addons.",
+    "relevant_nodes": [
+      "APIConfig",
+      "app",
+      "api",
+      "assembly",
+      "Addons",
+      "AddInboundRequest",
+      "AddOutboundRequest"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "APIConfig",
+      "app",
+      "api",
+      "assembly",
+      "Addons",
+      "AddInboundRequest",
+      "AddOutboundRequest"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the modular architecture of the v2ray-core application, including the key components such as the app layer, API system, assembly, and inbound/outbound handlers. All the referenced nodes are relevant and exist in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the AccessMessage class?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AccessMessage class appears to be used for handling access control or authentication messages in the V2Ray proxy system. It works in conjunction with AccessStatus to manage access permissions and can be retrieved from context using AccessMessageFromContext.",
+    "relevant_nodes": [
+      "AccessMessage",
+      "AccessStatus",
+      "AccessMessageFromContext"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccessMessage",
+      "AccessStatus",
+      "AccessMessageFromContext"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AccessMessage class and references the relevant nodes in the codebase."
+  },
+  {
+    "question": "Which module handles the AES-GCM cipher implementation?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AES-GCM cipher implementation is handled by the aead module, which contains specific method implementations including AES128GCMMethod and AES256GCMMethod for different key sizes.",
+    "relevant_nodes": [
+      "aead",
+      "AES128GCMMethod",
+      "AES256GCMMethod"
+    ],
+    "confidence": 0.95,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "aead",
+      "AES128GCMMethod",
+      "AES256GCMMethod"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the 'aead' module as handling the AES-GCM cipher implementation, and the referenced nodes 'AES128GCMMethod' and 'AES256GCMMethod' are valid and relevant to the question."
+  },
+  {
+    "question": "What is the relationship between the Account and AckList classes?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "Based on the available entities, Account and AckList appear to be separate, unrelated classes in the v2ray-core codebase. Account likely represents user account information while AckList appears to be related to acknowledgment handling in network protocols, but there is no apparent direct relationship between them.",
+    "relevant_nodes": [
+      "Account",
+      "AckList"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Account",
+      "AckList"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the relationship between the Account and AckList classes as separate, unrelated classes in the v2ray-core codebase. The referenced nodes, Account and AckList, are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What components depend on the AbstractNonNativeLink interface?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "Based on the available entities, I can see AbstractNonNativeLink is listed as an interface, but the provided entity list does not contain enough information to determine which specific components depend on this interface. The list appears incomplete for analyzing dependencies.",
+    "relevant_nodes": [
+      "AbstractNonNativeLink"
+    ],
+    "confidence": 0.3,
+    "validation_status": "rejected",
+    "valid_nodes": [
+      "AbstractNonNativeLink"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The provided entity list does not contain enough information to determine which specific components depend on the AbstractNonNativeLink interface. The answer indicates that the list appears incomplete for analyzing dependencies, which is correct based on the available information."
+  },
+  {
+    "question": "How does the AckSegment type facilitate packet acknowledgement?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AckSegment type works with AckList to implement packet acknowledgement functionality, where AckSegment represents individual acknowledgement segments that track received packets, and AcknowledgeReceive handles the processing of acknowledgements in the packet flow.",
+    "relevant_nodes": [
+      "AckSegment",
+      "AckList",
+      "AcknowledgeReceive"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AckSegment",
+      "AckList",
+      "AcknowledgeReceive"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains how the AckSegment type works with AckList to implement packet acknowledgement functionality, and the referenced nodes AckSegment, AckList, and AcknowledgeReceive are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where is the AddInboundRequest handler implemented?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AddInboundRequest handler is implemented in the API module, as evidenced by the AddInboundRequest entity and the associated AddInbound method implementations.",
+    "relevant_nodes": [
+      "AddInboundRequest",
+      "AddInbound",
+      "api"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundRequest",
+      "AddInbound",
+      "api"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes AddInboundRequest, AddInbound, and api exist in the available nodes list, and the answer correctly states that the AddInboundRequest handler is implemented in the API module."
+  },
+  {
+    "question": "What is the purpose of the ActivityTimer and ActivityUpdater types?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "ActivityTimer and ActivityUpdater are likely used for tracking and managing connection or session activity within the V2Ray proxy system. ActivityTimer probably handles timing aspects of activity monitoring, while ActivityUpdater manages updates to activity states or counters.",
+    "relevant_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the ActivityTimer and ActivityUpdater types, which are likely used for tracking and managing connection or session activity within the V2Ray proxy system. The referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "Which modules depend on the api package?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "Based on the available entities, there are several API-related components including APIConfig and multiple api entities. However, the entity list appears to be truncated and doesn't provide enough context to definitively identify which specific modules depend on the api package.",
+    "relevant_nodes": [
+      "APIConfig",
+      "api"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "APIConfig",
+      "api"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the APIConfig and api entities as being related to the API package, but it also indicates that the entity list appears to be truncated and doesn't provide enough context to definitively identify which specific modules depend on the api package. Based on the available nodes, it seems the answer is mostly correct, but the scope of the dependencies is unclear."
+  },
+  {
+    "question": "How does the AddConnection function handle new network connections?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AddConnection function appears to be responsible for registering and managing new network connections within the v2ray-core system. Based on the available entities, it likely works with connection tracking and management components to handle incoming network connections.",
+    "relevant_nodes": [
+      "AddConnection"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddConnection"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the AddConnection function's role in handling new network connections within the v2ray-core system. The referenced nodes, such as transportConnectionState, NewUDPInboundHandler, and NewSendingWorker, are relevant to the connection management and tracking responsibilities of the AddConnection function."
+  },
+  {
+    "question": "Which file contains the implementation of the AEADCipher interface?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AEADCipher interface implementation can be found through the AEADCipher entity, along with specific implementations like AES128GCMMethod and AES256GCMMethod which provide concrete AEAD cipher implementations.",
+    "relevant_nodes": [
+      "AEADCipher",
+      "AES128GCMMethod",
+      "AES256GCMMethod"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADCipher",
+      "AES128GCMMethod",
+      "AES256GCMMethod"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the AEADCipher interface and its specific implementations (AES128GCMMethod and AES256GCMMethod) as the nodes containing the AEAD cipher implementation. All referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What design considerations are taken into account for the AEADChunkSizeParser?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AEADChunkSizeParser is designed to work within the AEAD (Authenticated Encryption with Associated Data) framework for parsing chunk sizes in encrypted data streams. It likely works alongside AEADSizeParser and AEADCipher components to handle the secure parsing of chunk boundaries in encrypted communications.",
+    "relevant_nodes": [
+      "AEADChunkSizeParser",
+      "AEADSizeParser",
+      "AEADCipher"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AEADChunkSizeParser",
+      "AEADSizeParser",
+      "AEADCipher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the design considerations for the AEADChunkSizeParser, which is part of the AEAD framework for parsing chunk sizes in encrypted data streams. The referenced nodes (AEADSizeParser and AEADCipher) are also relevant to this context."
+  },
+  {
+    "question": "What are the key dependencies of the AbstractPacketConn type?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "AbstractPacketConn depends on AbstractPacketConnReader and AbstractPacketConnWriter for its read and write operations, forming a complete packet connection abstraction with separate reader and writer components.",
+    "relevant_nodes": [
+      "AbstractPacketConn",
+      "AbstractPacketConnReader",
+      "AbstractPacketConnWriter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AbstractPacketConn",
+      "AbstractPacketConnReader",
+      "AbstractPacketConnWriter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the key dependencies of the AbstractPacketConn type, which are the AbstractPacketConnReader and AbstractPacketConnWriter types. All the referenced nodes are present in the available nodes list, and the answer makes semantic sense for the given question."
+  },
+  {
+    "question": "How does the AccessStatus type track access permissions?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AccessStatus type appears to work in conjunction with AccessMessage to track access permissions, likely storing the current permission state or authorization level for access control decisions.",
+    "relevant_nodes": [
+      "AccessStatus",
+      "AccessMessage"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccessStatus",
+      "AccessMessage"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AccessStatus type works in conjunction with AccessMessage to track access permissions. Both of these referenced nodes exist in the available nodes list, and they are relevant to the question."
+  },
+  {
+    "question": "Where is the implementation of the Accept function located?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The Accept function implementation is represented by the Accept entities in the codebase. There are two Accept entities listed in the available entities, indicating multiple implementations or overloads of the Accept function.",
+    "relevant_nodes": [
+      "Accept",
+      "Accept"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Accept",
+      "Accept"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the implementation of the Accept function is represented by the Accept entities in the codebase, and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "What is the role of the ACAutomatonMatcherGroup in the codebase?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "ACAutomatonMatcherGroup appears to be a matcher component that uses automaton-based pattern matching, likely for domain or string matching purposes. It works alongside other matcher types like AddDomainMatcher and AddFullMatcher to provide efficient pattern matching capabilities in the V2Ray routing system.",
+    "relevant_nodes": [
+      "ACAutomatonMatcherGroup",
+      "AddDomainMatcher",
+      "AddFullMatcher"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ACAutomatonMatcherGroup",
+      "AddDomainMatcher",
+      "AddFullMatcher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the ACAutomatonMatcherGroup as a matcher component that uses automaton-based pattern matching, and it mentions the other relevant matcher types like AddDomainMatcher and AddFullMatcher. All the referenced nodes exist in the provided list of available nodes."
+  },
+  {
+    "question": "Which modules consume the functionality provided by the AES128GCMMethod?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "Based on the available entities, AES128GCMMethod is likely consumed by AEAD-related components for authenticated encryption. The AEADAuthenticator and other AEAD modules would use this encryption method for secure data transmission.",
+    "relevant_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AES128GCMMethod is likely consumed by AEAD-related components for authenticated encryption, such as the AEADAuthenticator and other AEAD modules. The referenced nodes AEADAuthenticator and AEADCipher are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the AESUDPClientPacketProcessor handle UDP packet processing?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AESUDPClientPacketProcessor handles UDP packet processing by implementing client-side packet processing functionality, likely using AES encryption for secure UDP communication. It would work in conjunction with AEAD authentication mechanisms and address handling components to process UDP packets securely.",
+    "relevant_nodes": [
+      "AESUDPClientPacketProcessor",
+      "AEADAuthenticator",
+      "Address"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AESUDPClientPacketProcessor",
+      "AEADAuthenticator",
+      "Address"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AESUDPClientPacketProcessor handles UDP packet processing, using AES encryption and AEAD authentication mechanisms, as well as address handling components. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where can I find the implementation of the AddDomainMatcher function?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AddDomainMatcher function implementation can be found in multiple locations within the codebase, as there are four distinct AddDomainMatcher entities listed in the available code entities.",
+    "relevant_nodes": [
+      "AddDomainMatcher",
+      "AddDomainMatcher",
+      "AddDomainMatcher",
+      "AddDomainMatcher"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddDomainMatcher",
+      "AddDomainMatcher",
+      "AddDomainMatcher",
+      "AddDomainMatcher"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the implementation of the AddDomainMatcher function can be found in multiple locations within the codebase, as there are four distinct AddDomainMatcher entities listed in the available code entities."
+  },
+  {
+    "question": "What is the overall architecture of the v2ray-core's API module?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The v2ray-core's API module follows a command-based architecture with request-response patterns for managing inbound/outbound connections and user operations. The API module includes configuration management through APIConfig and supports operations like AddInboundRequest/Response, AddOutboundRequest/Response, and AddUserOperation for dynamic proxy management.",
+    "relevant_nodes": [
+      "APIConfig",
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse",
+      "AddUserOperation",
+      "api"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "APIConfig",
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse",
+      "AddUserOperation",
+      "api"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the overall architecture of the v2ray-core's API module, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "What other components depend on the AbstractPacketConnReader interface?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "Based on the available entities, AbstractPacketConnReader appears to be part of a packet connection abstraction layer alongside AbstractPacketConnWriter and AbstractPacketConn. However, the specific components that depend on this interface are not clearly identifiable from the limited entity list provided.",
+    "relevant_nodes": [
+      "AbstractPacketConnReader",
+      "AbstractPacketConnWriter",
+      "AbstractPacketConn"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AbstractPacketConnReader",
+      "AbstractPacketConnWriter",
+      "AbstractPacketConn"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that AbstractPacketConnReader is part of a packet connection abstraction layer alongside AbstractPacketConnWriter and AbstractPacketConn. However, the specific components that depend on this interface are not clearly identifiable from the limited entity list provided."
+  },
+  {
+    "question": "How does the AcknowledgeReceive function handle packet acknowledgement?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AcknowledgeReceive function handles packet acknowledgement by processing received acknowledgement segments, likely working in conjunction with AckSegment and AckList entities to manage the acknowledgement state of transmitted packets in the reliable transport protocol.",
+    "relevant_nodes": [
+      "AcknowledgeReceive",
+      "AckSegment",
+      "AckList"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AcknowledgeReceive",
+      "AckSegment",
+      "AckList"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the AcknowledgeReceive function handling packet acknowledgement, likely in conjunction with the AckSegment and AckList entities. All referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "Which file defines the AddInboundResponse type?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AddInboundResponse type is defined as one of the available entities in the codebase, likely in an API-related file for handling inbound proxy configuration responses.",
+    "relevant_nodes": [
+      "AddInboundResponse"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AddInboundResponse type is likely defined in an API-related file for handling inbound proxy configuration responses. The referenced node AddInboundResponse is present in the available nodes list."
+  },
+  {
+    "question": "What design patterns are used in the implementation of the Account type?",
+    "category": "architecture",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The Account type appears to use a polymorphic design pattern, as evidenced by multiple Account entities in the codebase representing different account implementations or variations. This suggests an interface or abstract base class pattern where different account types can be used interchangeably across the system.",
+    "relevant_nodes": [
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account",
+      "Account"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the use of a polymorphic design pattern for the Account type, as evidenced by the multiple Account entities referenced in the codebase. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What are the key dependencies of the AntireplayManager module?",
+    "category": "dependencies",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AntireplayManager module's key dependencies are represented by the antireplay entities in the codebase. These appear to be core components that handle anti-replay functionality, likely working with AEAD authentication mechanisms.",
+    "relevant_nodes": [
+      "antireplay",
+      "AEADAuthenticator"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "antireplay",
+      "AEADAuthenticator"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the key dependencies of the AntireplayManager module as the antireplay entities and the AEADAuthenticator, which are present in the available nodes list."
+  },
+  {
+    "question": "How does the ActiveConnections function track the active network connections?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The ActiveConnections function tracks active network connections through multiple instances of the ActiveConnections entity, which appears to be implemented across different components of the v2ray-core system. These entities work together to monitor and maintain state information about currently established network connections.",
+    "relevant_nodes": [
+      "ActiveConnections",
+      "AddConnection"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActiveConnections",
+      "AddConnection"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the ActiveConnections function tracks active network connections using multiple instances of the ActiveConnections entity, and the referenced nodes ActiveConnections and AddConnection are relevant to this functionality."
+  },
+  {
+    "question": "Where is the implementation of the AddCommand function located?",
+    "category": "navigation",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The AddCommand function is implemented as a specific entity in the codebase, likely related to command handling functionality within the v2ray-core system.",
+    "relevant_nodes": [
+      "AddCommand"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddCommand"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AddCommand' exists in the available nodes list, indicating that the implementation of the AddCommand function is likely located in the codebase. The answer also mentions that the AddCommand function is related to command handling functionality within the v2ray-core system, which seems semantically correct. Therefore, the answer is mostly correct, and the provided information is relevant to the question."
+  },
+  {
+    "question": "What is the overall purpose of the Assembly module in the v2ray-core codebase?",
+    "category": "understanding",
+    "repo_name": "v2fly/v2ray-core",
+    "answer": "The Assembly module in v2ray-core appears to be responsible for managing and organizing components or modules within the system. Based on the available entities, it likely handles the assembly and coordination of various parts of the v2ray system.",
+    "relevant_nodes": [
+      "assembly"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "assembly"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Assembly module in the v2ray-core codebase is responsible for managing and organizing components or modules within the system. The referenced node 'assembly' is present in the available nodes list and is relevant to the question."
+  }
+]

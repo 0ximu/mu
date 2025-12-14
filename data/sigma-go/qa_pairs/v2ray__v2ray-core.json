@@ -1,0 +1,464 @@
+[
+  {
+    "question": "What architectural patterns are used in the V2Ray core implementation?",
+    "category": "architecture",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "V2Ray core uses a modular architecture with multiple key patterns: plugin/handler architecture (AddInboundHandler, AddOutboundHandler), service-oriented design with feature management (AddFeature), and factory patterns for creating accounts and protocols (Account entities for different protocols). The core also implements API-based configuration management (ApiConfig, ApiCommand) and uses buffer management patterns for data handling.",
+    "relevant_nodes": [
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "AddFeature",
+      "Account",
+      "ApiConfig",
+      "ApiCommand"
+    ],
+    "confidence": 0.85,
+    "validation_status": "pending",
+    "valid_nodes": [
+      "AddInboundHandler",
+      "AddOutboundHandler",
+      "AddFeature",
+      "Account",
+      "ApiConfig",
+      "ApiCommand"
+    ],
+    "invalid_nodes": [],
+    "reasoning": null
+  },
+  {
+    "question": "How is the connection handling process structured in V2Ray?",
+    "category": "architecture",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "V2Ray's connection handling is structured around inbound and outbound handlers managed through the core application. The AlwaysOnInboundHandler processes incoming connections, while AddInboundHandler and AddOutboundHandler manage the addition of new connection handlers to the system.",
+    "relevant_nodes": [
+      "AlwaysOnInboundHandler",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AlwaysOnInboundHandler",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the connection handling process in V2Ray, with the referenced nodes existing in the available nodes list and being relevant to the question."
+  },
+  {
+    "question": "What is the design of the V2Ray plugin system?",
+    "category": "architecture",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray plugin system appears to be based on a feature-driven architecture with configurable addons and extensible components. The system uses Addons for extending functionality and AddFeature for registering new capabilities into the core system.",
+    "relevant_nodes": [
+      "Addons",
+      "AddFeature"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Addons",
+      "AddFeature"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the V2Ray plugin system as being based on a feature-driven architecture with configurable addons and extensible components. The referenced nodes 'Addons' and 'AddFeature' are relevant to this description and exist in the available nodes list."
+  },
+  {
+    "question": "How does the V2Ray inbound and outbound handling work?",
+    "category": "architecture",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "V2Ray's inbound and outbound handling is managed through dedicated handler components that process incoming and outgoing connections. The AlwaysOnInboundHandler manages persistent inbound connections, while AddInboundHandler and AddOutboundHandler provide the core functionality for adding and managing both inbound and outbound traffic handlers dynamically.",
+    "relevant_nodes": [
+      "AlwaysOnInboundHandler",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AlwaysOnInboundHandler",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the key components involved in V2Ray's inbound and outbound handling, such as the AlwaysOnInboundHandler, AddInboundHandler, and AddOutboundHandler. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What are the key components that make up the V2Ray core?",
+    "category": "architecture",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray core architecture consists of several key components including the app framework for core functionality, various authentication mechanisms like AEADAuthenticator and AEADCipher for security, inbound/outbound handlers like AlwaysOnInboundHandler for connection management, and protocol-specific accounts and configurations for different proxy protocols.",
+    "relevant_nodes": [
+      "app",
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AlwaysOnInboundHandler",
+      "Account",
+      "ApiConfig",
+      "AddInboundRequest",
+      "AddOutboundRequest"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "app",
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AlwaysOnInboundHandler",
+      "Account",
+      "ApiConfig",
+      "AddInboundRequest",
+      "AddOutboundRequest"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the key components of the V2Ray core architecture, including the app framework, authentication mechanisms, inbound/outbound handlers, and protocol-specific configurations. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What external libraries or frameworks does the V2Ray core depend on?",
+    "category": "dependencies",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "Based on the available entities, I cannot identify specific external libraries or frameworks that V2Ray core depends on. The entities provided appear to be internal V2Ray components and data structures rather than external dependencies.",
+    "relevant_nodes": [],
+    "confidence": 0.3,
+    "validation_status": "rejected",
+    "valid_nodes": [],
+    "invalid_nodes": [],
+    "reasoning": "No answer or relevant nodes"
+  },
+  {
+    "question": "Which V2Ray modules rely on the AEAD cipher implementation?",
+    "category": "dependencies",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray modules that rely on AEAD cipher implementation include the core AEAD components (AEADAuthenticator, AEADChunkSizeParser, AEADCipher) and the aead module package. These provide authenticated encryption with associated data functionality for secure communication protocols.",
+    "relevant_nodes": [
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADCipher",
+      "aead"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "AEADCipher",
+      "aead"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the V2Ray modules that rely on the AEAD cipher implementation, including the core AEAD components and the aead module package."
+  },
+  {
+    "question": "What other V2Ray components use the Address serializer?",
+    "category": "dependencies",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "Based on the available entities, the AddressSerializer is listed as a specific component for handling address serialization. However, from the limited entity list provided, I cannot definitively identify which other V2Ray components specifically use this serializer, though the Address entity itself would be closely related.",
+    "relevant_nodes": [
+      "AddressSerializer",
+      "Address"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddressSerializer",
+      "Address"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the AddressSerializer as a specific component for handling address serialization in V2Ray. However, the answer also notes that it cannot definitively identify which other V2Ray components use this serializer, which is reasonable given the limited information provided in the available nodes list."
+  },
+  {
+    "question": "Which V2Ray modules interact with the ActivityTimer?",
+    "category": "dependencies",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "Based on the available entities, ActivityTimer appears to be a standalone component with ActivityUpdater as its likely companion for updating timer state. Without more detailed entity information, I can only identify these timer-related components that would interact with ActivityTimer.",
+    "relevant_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActivityTimer",
+      "ActivityUpdater"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes ActivityTimer and ActivityUpdater appear to be relevant timer-related components that would interact with the ActivityTimer based on the provided information."
+  },
+  {
+    "question": "How are the V2Ray AddInboundRequest and AddOutboundRequest modules used?",
+    "category": "dependencies",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "AddInboundRequest and AddOutboundRequest are API request modules used to dynamically add inbound and outbound handlers to the V2Ray core. They work in conjunction with their corresponding response types (AddInboundResponse, AddOutboundResponse) to manage proxy configurations at runtime through the V2Ray API system.",
+    "relevant_nodes": [
+      "AddInboundRequest",
+      "AddOutboundRequest",
+      "AddInboundResponse",
+      "AddOutboundResponse"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundRequest",
+      "AddOutboundRequest",
+      "AddInboundResponse",
+      "AddOutboundResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AddInboundRequest and AddOutboundRequest modules in the V2Ray codebase, and all the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "Where is the implementation of the AEADChunkSizeParser located?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The AEADChunkSizeParser implementation is located in the AEAD-related code sections of the codebase, likely within the encryption/decryption modules that handle AEAD cipher operations.",
+    "relevant_nodes": [
+      "AEADChunkSizeParser",
+      "AEADCipher",
+      "AEADAuthenticator"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADChunkSizeParser",
+      "AEADCipher",
+      "AEADAuthenticator"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AEADChunkSizeParser implementation is located in the AEAD-related code sections, specifically within the encryption/decryption modules that handle AEAD cipher operations. All the referenced nodes (AEADChunkSizeParser, AEADCipher, AEADAuthenticator) are present in the available nodes list, and they are relevant to the question."
+  },
+  {
+    "question": "Which file contains the code for the AccessMessage struct?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The AccessMessage struct is defined in the codebase and there is also an AccessMessageFromContext function. These are likely part of the access control or logging functionality.",
+    "relevant_nodes": [
+      "AccessMessage",
+      "AccessMessageFromContext"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AccessMessage",
+      "AccessMessageFromContext"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'AccessMessage' and 'AccessMessageFromContext' are present in the available nodes list, and the answer provided is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where can I find the source code for the Account module?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The Account module source code can be found through the multiple Account entities in the codebase. There are several Account implementations available, likely for different protocols or authentication methods.",
+    "relevant_nodes": [
+      "Account"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Account"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the source code for the Account module can be found through the multiple Account entities in the codebase, and the 'Account' node is present in the list of available nodes."
+  },
+  {
+    "question": "In which package is the AddressSerializer implementation?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The AddressSerializer implementation can be found in the codebase, as indicated by the AddressSerializer entity in the available list. However, the specific package information is not determinable from the provided entity names alone.",
+    "relevant_nodes": [
+      "AddressSerializer"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddressSerializer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced node 'AddressSerializer' exists in the available nodes list, which indicates that the AddressSerializer implementation can be found in the codebase. However, the specific package information is not determinable from the provided entity names alone, so the answer is partially correct."
+  },
+  {
+    "question": "What V2Ray module handles the AddressType parsing?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray module uses AddressTypeParser to handle the parsing of AddressType values. This component works alongside the AddressType entity to process and interpret different address type formats.",
+    "relevant_nodes": [
+      "AddressTypeParser",
+      "AddressType"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddressTypeParser",
+      "AddressType"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AddressTypeParser module is responsible for handling the parsing of AddressType values, and the AddressType entity is also referenced as being relevant. All the referenced nodes are present in the available nodes list, and the answer makes semantic sense for the given question."
+  },
+  {
+    "question": "What is the purpose of the AEADAuthenticator in V2Ray?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The AEADAuthenticator in V2Ray provides authenticated encryption with associated data (AEAD) functionality for secure communication. It works in conjunction with AEADCipher and AEADChunkSizeParser to ensure both confidentiality and integrity of data packets, protecting against tampering and replay attacks through the AntiReplayWindow mechanism.",
+    "relevant_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AEADChunkSizeParser",
+      "AntiReplayWindow"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AEADAuthenticator",
+      "AEADCipher",
+      "AEADChunkSizeParser",
+      "AntiReplayWindow"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the AEADAuthenticator in V2Ray, and all the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the V2Ray Account module manage user accounts?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray Account module manages user accounts through multiple Account entities that represent different protocol-specific account types, with operations like AddUser for adding users and AddUserOperation for user management operations across different handlers.",
+    "relevant_nodes": [
+      "Account",
+      "AddUser",
+      "AddUserOperation"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Account",
+      "AddUser",
+      "AddUserOperation"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the V2Ray Account module manages user accounts through multiple Account entities, AddUser for adding users, and AddUserOperation for user management operations. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the role of the ActivityUpdater in the V2Ray core?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The ActivityUpdater in V2Ray core is responsible for tracking and updating activity status of connections or handlers, working alongside ActivityTimer to manage connection lifecycle and timeout behavior.",
+    "relevant_nodes": [
+      "ActivityUpdater",
+      "ActivityTimer"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ActivityUpdater",
+      "ActivityTimer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the ActivityUpdater in the V2Ray core, which is to track and update the activity status of connections or handlers, working alongside the ActivityTimer to manage connection lifecycle and timeout behavior. The referenced nodes, ActivityUpdater and ActivityTimer, are relevant to the question and exist in the available nodes list."
+  },
+  {
+    "question": "Can you explain the functionality of the AddressType in V2Ray?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "AddressType in V2Ray defines the type classification for network addresses (like IPv4, IPv6, or domain names). It works with Address entity to represent different address formats and uses AddressTypeParser to parse and identify the specific type of address being used in network connections.",
+    "relevant_nodes": [
+      "AddressType",
+      "Address",
+      "AddressTypeParser"
+    ],
+    "confidence": 0.88,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddressType",
+      "Address",
+      "AddressTypeParser"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the functionality of the AddressType in V2Ray, and the referenced nodes (AddressType, Address, AddressTypeParser) are all present in the available nodes list."
+  },
+  {
+    "question": "Where is the Blackhole module implemented in the V2Ray codebase?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The Blackhole module is implemented through several blackhole-related entities in the V2Ray codebase, including the main blackhole implementation and associated test files.",
+    "relevant_nodes": [
+      "blackhole",
+      "blackhole_test"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "blackhole",
+      "blackhole_test"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'blackhole' and 'blackhole_test' exist in the available nodes list, and the answer correctly states that the Blackhole module is implemented through these blackhole-related entities in the V2Ray codebase. The answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "Where can I find the implementation of the AEADCipher in V2Ray?",
+    "category": "navigation",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The AEADCipher implementation can be found in the AEADCipher entity, which is part of V2Ray's AEAD (Authenticated Encryption with Associated Data) encryption system. This is likely located within the aead module alongside other AEAD-related components like AEADAuthenticator and AEADChunkSizeParser.",
+    "relevant_nodes": [
+      "AEADCipher",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "aead"
+    ],
+    "confidence": 0.92,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AEADCipher",
+      "AEADAuthenticator",
+      "AEADChunkSizeParser",
+      "aead"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the location of the AEADCipher implementation within the V2Ray codebase, referencing the relevant modules and components. All the mentioned nodes are valid and exist in the provided list of available nodes."
+  },
+  {
+    "question": "How does the V2Ray Address module handle different address types?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "The V2Ray Address module handles different address types through the AddressType enum which defines the various address formats, AddressTypeParser for parsing address type information, and AddressSerializer for converting addresses to/from different representations. The Address entity serves as the core structure that can represent different network address formats.",
+    "relevant_nodes": [
+      "Address",
+      "AddressType",
+      "AddressTypeParser",
+      "AddressSerializer"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Address",
+      "AddressType",
+      "AddressTypeParser",
+      "AddressSerializer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the V2Ray Address module handles different address types, referencing the relevant entities and components (Address, AddressType, AddressTypeParser, AddressSerializer)."
+  },
+  {
+    "question": "What is the relationship between the V2Ray AddInbound and AddOutbound modules?",
+    "category": "understanding",
+    "repo_name": "v2ray/v2ray-core",
+    "answer": "AddInbound and AddOutbound are complementary modules in V2Ray that manage incoming and outgoing connections respectively. They work together through request/response pairs (AddInboundRequest/AddInboundResponse and AddOutboundRequest/AddOutboundResponse) and handler management systems (AddInboundHandler and AddOutboundHandler) to route traffic through the proxy.",
+    "relevant_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddInboundRequest",
+      "AddInboundResponse",
+      "AddOutboundRequest",
+      "AddOutboundResponse",
+      "AddInboundHandler",
+      "AddOutboundHandler"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the relationship between the AddInbound and AddOutbound modules in V2Ray, which work together to manage incoming and outgoing connections respectively. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  }
+]

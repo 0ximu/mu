@@ -1,0 +1,530 @@
+[
+  {
+    "question": "What design pattern is used in the AnkiApp class?",
+    "category": "architecture",
+    "repo_name": "ankitects/anki",
+    "answer": "Based on the available entities, I can see AnkiApp class exists in the codebase, but without access to the actual implementation details or method signatures, I cannot definitively determine what specific design pattern it implements.",
+    "relevant_nodes": [
+      "AnkiApp"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AnkiApp"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided is reasonable, as the AnkiApp class is referenced in the available nodes list. However, without access to the implementation details, it is not possible to definitively determine the design pattern used. The answer appropriately acknowledges the limitation of the available information."
+  },
+  {
+    "question": "How is the addon management system structured?",
+    "category": "architecture",
+    "repo_name": "ankitects/anki",
+    "answer": "The addon management system is structured around the AddonManager class which handles addon operations, with AddonsDialog providing the user interface for managing addons. The system includes functionality for importing addons through AbortAddonImport for handling import failures, and uses AddonMeta for storing addon metadata.",
+    "relevant_nodes": [
+      "AddonManager",
+      "AddonsDialog",
+      "AbortAddonImport",
+      "AddonMeta"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddonManager",
+      "AddonsDialog",
+      "AbortAddonImport",
+      "AddonMeta"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the structure of the addon management system, referencing the key components like AddonManager, AddonsDialog, AbortAddonImport, and AddonMeta. All the referenced nodes are present in the available nodes list, so the answer is semantically correct and the referenced nodes are relevant."
+  },
+  {
+    "question": "What is the overall architecture of the Anki collection package exporter?",
+    "category": "architecture",
+    "repo_name": "ankitects/anki",
+    "answer": "The Anki collection package exporter architecture consists of multiple specialized exporter classes that handle different package formats. The main exporters include AnkiCollectionPackageExporter for general collection exports, AnkiCollectionPackage21bExporter for backwards compatibility, and ApkgExporter for the standard .apkg format, all inheriting from a base AnkiExporter class.",
+    "relevant_nodes": [
+      "AnkiCollectionPackageExporter",
+      "AnkiCollectionPackage21bExporter",
+      "ApkgExporter",
+      "AnkiExporter",
+      "AnkiPackageExporter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiCollectionPackageExporter",
+      "AnkiCollectionPackage21bExporter",
+      "ApkgExporter",
+      "AnkiExporter",
+      "AnkiPackageExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the overall architecture of the Anki collection package exporter, with the referenced nodes corresponding to the key components mentioned."
+  },
+  {
+    "question": "How are the various page components in the UI organized?",
+    "category": "architecture",
+    "repo_name": "ankitects/anki",
+    "answer": "The UI page components in Anki are organized through a web-based architecture using AnkiWebView and AnkiWebPage components, with multiple +page entities indicating different page layouts or components that are managed through the _page module.",
+    "relevant_nodes": [
+      "AnkiWebView",
+      "AnkiWebPage",
+      "AnkiWebViewKind",
+      "_page",
+      "+page"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AnkiWebView",
+      "AnkiWebPage",
+      "AnkiWebViewKind",
+      "_page",
+      "+page"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer is mostly correct, as it mentions the key components like AnkiWebView, AnkiWebPage, and the _page module that organize the UI page components. However, 'AnkiWebViewKind' is not a valid node in the available nodes list."
+  },
+  {
+    "question": "What is the high-level structure of the Anki error handling system?",
+    "category": "architecture",
+    "repo_name": "ankitects/anki",
+    "answer": "The Anki error handling system appears to have a hierarchical structure with multiple AnkiError entities at different levels, along with AnkiException for exception handling. There are also specialized error types like AbortAddonImport and AbortSchemaModification for specific operations.",
+    "relevant_nodes": [
+      "AnkiError",
+      "AnkiException",
+      "AbortAddonImport",
+      "AbortSchemaModification"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AnkiError",
+      "AnkiException",
+      "AbortAddonImport",
+      "AbortSchemaModification"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the high-level structure of the Anki error handling system, with the referenced nodes being relevant to the question."
+  },
+  {
+    "question": "What modules depend on the AddCards functionality?",
+    "category": "dependencies",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddCards functionality is a core component that would be used by the main AnkiQt application interface and likely integrated with the AnkiApp. The AnkiWebView components may also interact with AddCards for web-based card creation interfaces.",
+    "relevant_nodes": [
+      "AddCards",
+      "AnkiQt",
+      "AnkiApp",
+      "AnkiWebView"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddCards",
+      "AnkiQt",
+      "AnkiApp",
+      "AnkiWebView"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the key modules that depend on the AddCards functionality, including the main AnkiQt application, the AnkiApp, and the AnkiWebView components. All referenced nodes are valid and relevant to the question."
+  },
+  {
+    "question": "Which classes use the AVPlayer class?",
+    "category": "dependencies",
+    "repo_name": "ankitects/anki",
+    "answer": "Based on the available entities list, AVPlayer is present but there are no other specific classes that clearly indicate they use AVPlayer. The available entities are mostly high-level components like AnkiQt, AnkiWebView, and various dialog/manager classes, but without more detailed code information, I cannot definitively identify which classes depend on AVPlayer.",
+    "relevant_nodes": [
+      "AVPlayer"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AVPlayer"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that AVPlayer is present in the available entities, but does not definitively identify any other classes that use AVPlayer. Without more detailed code information, it is not possible to confidently determine which other classes depend on AVPlayer."
+  },
+  {
+    "question": "What are the dependencies of the AbortSchemaModification class?",
+    "category": "dependencies",
+    "repo_name": "ankitects/anki",
+    "answer": "The AbortSchemaModification class appears to be a standalone entity in the available list without visible dependencies to other listed entities. Based on the available entities, no specific dependencies can be identified for this class.",
+    "relevant_nodes": [
+      "AbortSchemaModification"
+    ],
+    "confidence": 0.3,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AbortSchemaModification"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the AbortSchemaModification class appears to be a standalone entity without visible dependencies to other listed entities, based on the available nodes in the codebase."
+  },
+  {
+    "question": "Which modules depend on the AnkiExporter functionality?",
+    "category": "dependencies",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiExporter functionality is extended by specific exporter classes including AnkiCollectionPackage21bExporter, AnkiCollectionPackageExporter, and AnkiPackageExporter which implement different export formats for Anki collections and packages.",
+    "relevant_nodes": [
+      "AnkiExporter",
+      "AnkiCollectionPackage21bExporter",
+      "AnkiCollectionPackageExporter",
+      "AnkiPackageExporter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiExporter",
+      "AnkiCollectionPackage21bExporter",
+      "AnkiCollectionPackageExporter",
+      "AnkiPackageExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the modules that depend on the AnkiExporter functionality, which are the listed exporter classes that implement different export formats for Anki collections and packages."
+  },
+  {
+    "question": "What does the AddonManager class interact with?",
+    "category": "dependencies",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddonManager class interacts with AddonMeta for addon metadata management and AddonsDialog for the user interface components related to addon management.",
+    "relevant_nodes": [
+      "AddonManager",
+      "AddonMeta",
+      "AddonsDialog"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddonManager",
+      "AddonMeta",
+      "AddonsDialog"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes AddonManager, AddonMeta, and AddonsDialog exist in the available nodes list, and the answer correctly describes the interactions of the AddonManager class with these components."
+  },
+  {
+    "question": "Where is the implementation of the AddNoteRequest class?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddNoteRequest class implementation can be found in the codebase, as evidenced by the presence of AddNoteRequest entities in the available code entities list. There are two AddNoteRequest entries, suggesting it may be defined in multiple locations or have multiple variants.",
+    "relevant_nodes": [
+      "AddNoteRequest",
+      "AddNoteRequest"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AddNoteRequest",
+      "AddNoteRequest"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the presence of the AddNoteRequest class in the codebase, as evidenced by the two AddNoteRequest entries in the available nodes list. The answer is valid, but could be improved by providing more specific information about where the class is implemented (e.g., the file or module name)."
+  },
+  {
+    "question": "In which file can I find the code for the AnkiCollectionPackageExporter?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiCollectionPackageExporter code can be found by referencing the AnkiCollectionPackageExporter entity, which is available in the codebase entities list.",
+    "relevant_nodes": [
+      "AnkiCollectionPackageExporter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiCollectionPackageExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly references the 'AnkiCollectionPackageExporter' entity, which is present in the list of available nodes in the codebase. The answer is semantically correct and the referenced node is relevant to the question."
+  },
+  {
+    "question": "What handles the logic for the AddAssign operation?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddAssign operation logic is handled by the AddAssign entity itself, which appears to be a core operation type in the Anki codebase for assignment-related functionality.",
+    "relevant_nodes": [
+      "AddAssign"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddAssign"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the AddAssign entity as handling the logic for the AddAssign operation, and this entity is present in the list of available nodes."
+  },
+  {
+    "question": "Which class manages the lifecycle of AddedFile objects?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "Based on the available entities, AddedFile appears to be a class in the codebase, but there is insufficient information to determine which specific class manages its lifecycle from the given entity list.",
+    "relevant_nodes": [
+      "AddedFile"
+    ],
+    "confidence": 0.3,
+    "validation_status": "rejected",
+    "valid_nodes": [
+      "AddedFile"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The provided list of available nodes does not contain the `AddedFile` class, which is referenced in the question. Therefore, there is insufficient information to determine which class manages the lifecycle of the `AddedFile` objects."
+  },
+  {
+    "question": "Where is the code for the AnkiError exception defined?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiError exception is defined in multiple locations within the codebase. Based on the available entities, there are four separate AnkiError definitions present.",
+    "relevant_nodes": [
+      "AnkiError",
+      "AnkiError",
+      "AnkiError",
+      "AnkiError"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiError",
+      "AnkiError",
+      "AnkiError",
+      "AnkiError"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'AnkiError' exist in the available nodes list, and the answer correctly states that the AnkiError exception is defined in multiple locations within the codebase."
+  },
+  {
+    "question": "How does the AddCards functionality work?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddCards functionality is implemented through the AddCards class which handles the card addition interface, working with AddNoteRequest to process new note data and integrate with the AnkiQt main application for the user interface.",
+    "relevant_nodes": [
+      "AddCards",
+      "AddNoteRequest",
+      "AnkiQt"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddCards",
+      "AddNoteRequest",
+      "AnkiQt"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the AddCards functionality and references the relevant nodes in the codebase."
+  },
+  {
+    "question": "What is the purpose of the AlreadyGeneratedCardInfo class?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The AlreadyGeneratedCardInfo class appears to be used to track information about cards that have already been generated, likely to prevent duplicate card creation or to handle cases where card generation has already occurred during import or synchronization processes.",
+    "relevant_nodes": [
+      "AlreadyGeneratedCardInfo"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AlreadyGeneratedCardInfo"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer provided for the purpose of the AlreadyGeneratedCardInfo class is correct and the referenced node exists in the available nodes list."
+  },
+  {
+    "question": "How does the AnkiApp manage the Anki application lifecycle?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiApp class manages the Anki application lifecycle through its __init__ method for initialization and __del__ method for cleanup. It works in conjunction with AnkiQt (the main Qt application interface) to handle the application's startup, runtime management, and shutdown processes.",
+    "relevant_nodes": [
+      "AnkiApp",
+      "__init__",
+      "__del__",
+      "AnkiQt"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiApp",
+      "__init__",
+      "__del__",
+      "AnkiQt"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the AnkiApp class manages the Anki application lifecycle, using the __init__ method for initialization and the __del__ method for cleanup, in conjunction with the AnkiQt class which handles the main Qt application interface. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What does the AnkiCollectionPackage21bExporter do?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "AnkiCollectionPackage21bExporter is a specialized exporter class that creates Anki collection packages in the 21b format. It likely extends or is related to AnkiCollectionPackageExporter and other exporter classes like AnkiExporter to handle the specific requirements of the 21b package format.",
+    "relevant_nodes": [
+      "AnkiCollectionPackage21bExporter",
+      "AnkiCollectionPackageExporter",
+      "AnkiExporter"
+    ],
+    "confidence": 0.8,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AnkiCollectionPackage21bExporter",
+      "AnkiCollectionPackageExporter",
+      "AnkiExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AnkiCollectionPackage21bExporter and its relation to other Anki exporter classes. All the referenced nodes are present in the available nodes list, so the answer is semantically correct and the nodes are relevant."
+  },
+  {
+    "question": "How does the AbortAddonImport class handle addon import failures?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "Based on the available entities, AbortAddonImport appears to be a class that handles addon import failures, but without access to its implementation details or methods, I cannot specify exactly how it handles these failures. The class is likely part of the addon management system alongside AddonManager.",
+    "relevant_nodes": [
+      "AbortAddonImport",
+      "AddonManager"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "AbortAddonImport",
+      "AddonManager"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AbortAddonImport class handles addon import failures, but it lacks specifics on how it does so. Without access to the implementation details, the answer can only be partially validated based on the class name and its relationship to the AddonManager class."
+  },
+  {
+    "question": "Where is the action for creating a new Anki model implemented?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The action for creating a new Anki model is implemented in the AddModel entity, which handles the addition of new note types/models to the collection.",
+    "relevant_nodes": [
+      "AddModel"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddModel"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the action for creating a new Anki model is implemented in the AddModel entity, which is present in the list of available nodes."
+  },
+  {
+    "question": "Which class is responsible for managing the AddonsDialog?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AddonManager class is responsible for managing the AddonsDialog. The AddonManager handles addon-related operations and would coordinate with the AddonsDialog for the user interface components.",
+    "relevant_nodes": [
+      "AddonManager",
+      "AddonsDialog"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AddonManager",
+      "AddonsDialog"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AddonManager class is responsible for managing the AddonsDialog, and both referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "Where is the code for the AnkiExporter class located?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiExporter class is available as an entity in the codebase. Based on the available entities list, AnkiExporter is present and likely serves as a base class or interface for exporting functionality in Anki.",
+    "relevant_nodes": [
+      "AnkiExporter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the AnkiExporter class is available as an entity in the codebase, based on the information provided in the 'Available Nodes in Codebase' section."
+  },
+  {
+    "question": "What is the role of the _macos_helper module in the Anki codebase?",
+    "category": "navigation",
+    "repo_name": "ankitects/anki",
+    "answer": "The _macos_helper module appears to be a platform-specific helper module that provides macOS-specific functionality for the Anki application. It likely contains utilities, native integrations, or workarounds needed specifically for the macOS version of Anki.",
+    "relevant_nodes": [
+      "_macos_helper"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "_macos_helper"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the _macos_helper module as a platform-specific helper module for the macOS version of the Anki application. This node is present in the list of available nodes."
+  },
+  {
+    "question": "How does the ActionReturn class handle the results of actions?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "Based on the available entities, ActionReturn is present in the codebase and appears to be related to handling action results, but without access to its implementation details or methods, I cannot specify exactly how it processes or manages action outcomes.",
+    "relevant_nodes": [
+      "ActionReturn",
+      "Action"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "ActionReturn",
+      "Action"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly mentions that the ActionReturn class is present in the codebase and appears to be related to handling action results. However, without access to the implementation details, the answer cannot specify exactly how ActionReturn processes or manages action outcomes. The referenced 'Action' node is not present in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the AnkiException class?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiException class serves as a custom exception type for handling Anki-specific errors and exceptional conditions within the Anki application. It provides a way to distinguish Anki-related errors from general Python exceptions and allows for more targeted error handling throughout the codebase.",
+    "relevant_nodes": [
+      "AnkiException"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiException"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains the purpose of the AnkiException class, and the referenced node 'AnkiException' is present in the available nodes list."
+  },
+  {
+    "question": "How does the Anki2Importer handle importing data from older Anki versions?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The Anki2Importer handles importing data from older Anki versions by processing .anki2 database files and converting their schema and data structures to be compatible with the current Anki format. It likely works alongside the _legacy module to handle backwards compatibility concerns.",
+    "relevant_nodes": [
+      "Anki2Importer",
+      "_legacy"
+    ],
+    "confidence": 0.8,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Anki2Importer",
+      "_legacy"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Anki2Importer handles importing data from older Anki versions by processing .anki2 database files and converting their schema and data structures to be compatible with the current Anki format, likely working alongside the _legacy module to handle backwards compatibility concerns. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What functionality is provided by the AnkiCollectionPackageExporter?",
+    "category": "understanding",
+    "repo_name": "ankitects/anki",
+    "answer": "The AnkiCollectionPackageExporter provides functionality to export Anki collections into package format. It appears to be part of Anki's export system alongside other exporters like AnkiPackageExporter and ApkgExporter for creating exportable collection files.",
+    "relevant_nodes": [
+      "AnkiCollectionPackageExporter",
+      "AnkiPackageExporter",
+      "ApkgExporter",
+      "AnkiExporter"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AnkiCollectionPackageExporter",
+      "AnkiPackageExporter",
+      "ApkgExporter",
+      "AnkiExporter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the functionality provided by the AnkiCollectionPackageExporter, which is to export Anki collections into package format. The referenced nodes are all relevant to this functionality."
+  }
+]

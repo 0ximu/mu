@@ -1,0 +1,527 @@
+[
+  {
+    "question": "What design pattern does the Analyzer class use?",
+    "category": "architecture",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Analyzer class appears to implement a Strategy pattern, working with different Analysis implementations to analyze container images. The Analyzer likely delegates the actual analysis work to different Analysis strategies based on the type of analysis needed.",
+    "relevant_nodes": [
+      "Analyzer",
+      "Analysis"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Analyzer",
+      "Analysis"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the Analyzer class appears to implement the Strategy pattern, delegating the actual analysis work to different Analysis strategies. The referenced nodes Analyzer and Analysis are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How is the CI module structured?",
+    "category": "architecture",
+    "repo_name": "wagoodman/dive",
+    "answer": "The CI module is structured with a CI core entity that contains CIRules for defining validation rules, and an Evaluator component for assessing images against those rules. The module appears to be designed for automated image analysis in continuous integration pipelines.",
+    "relevant_nodes": [
+      "CI",
+      "CIRules",
+      "Evaluator"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CI",
+      "CIRules",
+      "Evaluator"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the structure of the CI module, with the referenced nodes existing in the available nodes list and being relevant to the question."
+  },
+  {
+    "question": "What is the overall architecture of the dive application?",
+    "category": "architecture",
+    "repo_name": "wagoodman/dive",
+    "answer": "The dive application follows a layered architecture with the main Application component orchestrating the system, supported by CLI command handling, and specialized modules for docker image analysis (Analyzer), file system exploration (Explore), CI integration (CI), and data export (Export) functionality.",
+    "relevant_nodes": [
+      "Application",
+      "Analyzer",
+      "CLI",
+      "Explore",
+      "CI",
+      "Export",
+      "docker"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Application",
+      "Analyzer",
+      "Explore",
+      "CI",
+      "Export",
+      "docker"
+    ],
+    "invalid_nodes": [
+      "CLI"
+    ],
+    "reasoning": "The answer accurately describes the overall architecture of the dive application, referencing the main Application component that orchestrates the system along with the specialized modules for docker image analysis, file system exploration, CI integration, and data export functionality. All the referenced nodes are present in the available nodes list, and the description is semantically correct and relevant to the question."
+  },
+  {
+    "question": "How are the different Evaluator implementations organized?",
+    "category": "architecture",
+    "repo_name": "wagoodman/dive",
+    "answer": "The codebase has multiple Evaluator implementations organized around CI (Continuous Integration) functionality, with CIRules defining evaluation criteria and specific rule implementations like HighestUserWastedPercentRule and HighestWastedBytesRule that likely implement the Evaluator interface for different efficiency metrics.",
+    "relevant_nodes": [
+      "Evaluator",
+      "CI",
+      "CIRules",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Evaluator",
+      "CI",
+      "CIRules",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the organization of the Evaluator implementations around CI functionality, with CIRules defining the evaluation criteria and specific rule implementations like HighestUserWastedPercentRule and HighestWastedBytesRule. All the referenced nodes exist in the available nodes list, so the answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the Binding and BindingInfo classes?",
+    "category": "architecture",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Binding and BindingInfo classes appear to be part of the UI framework for managing key bindings and input handling in the dive application. BindingInfo likely contains metadata about specific key bindings, while Binding represents the actual binding configuration used by various UI components like FiletreeBindings and GlobalBindings.",
+    "relevant_nodes": [
+      "Binding",
+      "BindingInfo",
+      "Bindings",
+      "FiletreeBindings",
+      "GlobalBindings"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Binding",
+      "BindingInfo",
+      "Bindings",
+      "FiletreeBindings",
+      "GlobalBindings"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the Binding and BindingInfo classes as part of the UI framework for managing key bindings and input handling in the application. The referenced nodes are all relevant to the question."
+  },
+  {
+    "question": "What modules depend on the Exporter class?",
+    "category": "dependencies",
+    "repo_name": "wagoodman/dive",
+    "answer": "Based on the available entities, the Export class appears to be related to the Exporter class as a likely consumer or dependent module. The CI and Analysis modules may also depend on Exporter functionality for generating reports or analysis outputs.",
+    "relevant_nodes": [
+      "Export",
+      "CI",
+      "Analysis"
+    ],
+    "confidence": 0.7,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Export",
+      "CI",
+      "Analysis"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the Export, CI, and Analysis modules as likely dependencies of the Exporter class. The referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Which components use the ContentReader interface?",
+    "category": "dependencies",
+    "repo_name": "wagoodman/dive",
+    "answer": "The ContentReader interface appears to be used by components that need to read file or layer content. Based on the available entities, the Analyzer and Image components likely use ContentReader for analyzing Docker image layers and reading their contents.",
+    "relevant_nodes": [
+      "ContentReader",
+      "Analyzer",
+      "Image"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ContentReader",
+      "Analyzer",
+      "Image"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the ContentReader interface is used by components that need to read file or layer content, and specifically mentions the Analyzer and Image components as likely users of this interface. All the referenced nodes exist in the available nodes list, and they are relevant to the question."
+  },
+  {
+    "question": "What are the dependencies of the Config class?",
+    "category": "dependencies",
+    "repo_name": "wagoodman/dive",
+    "answer": "Based on the available entities, the Config class appears to have dependencies on CI, Debug, and Export components, which are commonly used configuration elements in application settings.",
+    "relevant_nodes": [
+      "Config",
+      "CI",
+      "Debug",
+      "Export"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Config",
+      "CI",
+      "Debug",
+      "Export"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the dependencies of the Config class as CI, Debug, and Export components, which are all present in the available nodes list."
+  },
+  {
+    "question": "Which modules depend on the Constraint class?",
+    "category": "dependencies",
+    "repo_name": "wagoodman/dive",
+    "answer": "Based on the available entities, the Constraint class appears to be used by configuration-related modules. The Configuration entity is likely the primary dependent module that utilizes Constraint for defining rules or validation constraints.",
+    "relevant_nodes": [
+      "Configuration",
+      "Constraint"
+    ],
+    "confidence": 0.7,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Configuration",
+      "Constraint"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the Constraint class is likely used by configuration-related modules, with the Configuration entity being the primary dependent module."
+  },
+  {
+    "question": "What other components does the Application class interact with?",
+    "category": "dependencies",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Application class interacts with several key components including Config for configuration management, Image for handling container images, Analyzer for performing image analysis, and various UI components like FileTreeViewModel for displaying file tree information.",
+    "relevant_nodes": [
+      "Application",
+      "Config",
+      "Image",
+      "Analyzer",
+      "FileTreeViewModel"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Application",
+      "Config",
+      "Image",
+      "Analyzer",
+      "FileTreeViewModel"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly lists the key components that the Application class interacts with, including Config, Image, Analyzer, and FileTreeViewModel. All the referenced nodes are present in the available nodes list, so the answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "Where is the implementation of the Analyze function located?",
+    "category": "navigation",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Analyze function implementation is located in the Analyzer entity, which handles the core analysis functionality. There are multiple Analyze function references in the codebase, indicating it may be implemented across different modules or packages.",
+    "relevant_nodes": [
+      "Analyzer",
+      "Analyze"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Analyzer",
+      "Analyze"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies that the Analyze function implementation is located in the Analyzer entity, which handles the core analysis functionality. The referenced nodes Analyzer and Analyze are present in the available nodes list, indicating the answer is semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "Which file contains the definition of the DiffType struct?",
+    "category": "navigation",
+    "repo_name": "wagoodman/dive",
+    "answer": "The DiffType struct is defined in the codebase and is referenced in the available entities list. Based on the entities, there are also related functions like AssertDiffType and AssignDiffType that work with this type.",
+    "relevant_nodes": [
+      "DiffType",
+      "AssertDiffType",
+      "AssignDiffType"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "DiffType",
+      "AssertDiffType",
+      "AssignDiffType"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the DiffType struct and the related functions AssertDiffType and AssignDiffType as being part of the codebase. All the referenced nodes are present in the available nodes list."
+  },
+  {
+    "question": "What module handles the CLI commands?",
+    "category": "navigation",
+    "repo_name": "wagoodman/dive",
+    "answer": "The CLI commands are handled by the 'cli' module, which contains multiple CLI-related entities. The 'Command' entity likely represents individual CLI commands, while the various 'cli' entities handle different aspects of command-line interface functionality.",
+    "relevant_nodes": [
+      "cli",
+      "Command"
+    ],
+    "confidence": 0.9,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "cli",
+      "Command"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the 'cli' module as handling the CLI commands, and the 'Command' entity as likely representing individual CLI commands. All referenced nodes are present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where is the Evaluator interface defined?",
+    "category": "navigation",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Evaluator interface is defined in the codebase, as evidenced by the presence of multiple Evaluator entities in the available entities list. These appear to be part of the evaluation system used for analyzing Docker images.",
+    "relevant_nodes": [
+      "Evaluator",
+      "Evaluator"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Evaluator",
+      "Evaluator"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Evaluator interface is defined in the codebase, as evidenced by the presence of multiple Evaluator entities in the available entities list. The referenced nodes are relevant to the question."
+  },
+  {
+    "question": "Which file implements the EfficiencyData struct?",
+    "category": "navigation",
+    "repo_name": "wagoodman/dive",
+    "answer": "The EfficiencyData struct is implemented as one of the available entities in the codebase, likely in a file related to analysis or evaluation functionality.",
+    "relevant_nodes": [
+      "EfficiencyData"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "EfficiencyData"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the EfficiencyData struct is implemented as one of the available entities in the codebase, and this node is present in the list of available nodes."
+  },
+  {
+    "question": "How does the Analyze function in the Analyzer class work?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Analyze function in the Analyzer class processes and examines data, likely working in conjunction with the Analysis entity to perform the core analysis operations. It appears to be part of the main analysis workflow that produces structured results.",
+    "relevant_nodes": [
+      "Analyzer",
+      "Analyze",
+      "Analysis"
+    ],
+    "confidence": 0.75,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Analyzer",
+      "Analyze",
+      "Analysis"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the Analyze function in the Analyzer class, and the referenced nodes Analyzer, Analyze, and Analysis exist in the available nodes list. The answer appears to be semantically correct and the referenced nodes are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the Exporter class?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Exporter class is responsible for exporting analysis results or data from the dive application, likely working in conjunction with the Export functionality to output processed image analysis information in various formats.",
+    "relevant_nodes": [
+      "Exporter",
+      "Export"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Exporter",
+      "Export"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The Exporter class is correctly described as being responsible for exporting analysis results or data from the dive application, likely working in conjunction with the Export functionality to output processed image analysis information in various formats. The referenced nodes Exporter and Export are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the CI module handle different types of rules?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The CI module handles different types of rules through the CIRules entity which manages rule configurations, and uses BaseRule as the foundation for implementing specific rule types like HighestUserWastedPercentRule and HighestWastedBytesRule. These rules are evaluated by the Evaluator to determine if CI checks pass or fail.",
+    "relevant_nodes": [
+      "CI",
+      "CIRules",
+      "BaseRule",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule",
+      "Evaluator"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CI",
+      "CIRules",
+      "BaseRule",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule",
+      "Evaluator"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the CI module handles different types of rules through the CIRules entity, BaseRule as the foundation, and specific rule types like HighestUserWastedPercentRule and HighestWastedBytesRule. The referenced nodes are all relevant to the question."
+  },
+  {
+    "question": "What is the role of the Evaluator interface in the codebase?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Evaluator interface defines the contract for evaluating Docker image analysis results against specific rules or criteria. It works with Analysis data to perform evaluations, likely used in the CI component to assess image quality and efficiency metrics.",
+    "relevant_nodes": [
+      "Evaluator",
+      "Analysis",
+      "CI"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Evaluator",
+      "Analysis",
+      "CI"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the Evaluator interface, which is to define the contract for evaluating Docker image analysis results against specific rules or criteria, and that it likely works with Analysis data to perform evaluations, used in the CI component to assess image quality and efficiency metrics. All the referenced nodes (Evaluator, Analysis, CI) exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the Config class manage different configuration settings?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Config class manages different configuration settings by working with the Configuration entity to handle various application settings. It appears to be used in conjunction with CI and Application entities to provide configuration management across different contexts like CI environments and general application usage.",
+    "relevant_nodes": [
+      "Config",
+      "Configuration",
+      "CI",
+      "Application"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Config",
+      "Configuration",
+      "CI",
+      "Application"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Config class manages different configuration settings by working with the Configuration entity and referencing the CI and Application entities. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the Binding class connect code entities?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Binding class connects code entities by establishing relationships between different components through BindingInfo structures and managing collections of these connections via the Bindings container. It serves as a coordination mechanism that links various parts of the application together, allowing entities to communicate and interact in a structured way.",
+    "relevant_nodes": [
+      "Binding",
+      "BindingInfo",
+      "Bindings"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Binding",
+      "BindingInfo",
+      "Bindings"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly explains how the Binding class connects code entities by establishing relationships between different components through BindingInfo structures and managing collections of these connections via the Bindings container. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the EfficiencyData and EfficiencySlice structs?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "EfficiencyData and EfficiencySlice are structs used to store and analyze Docker image efficiency metrics, likely tracking wasted space and optimization data across image layers to help users understand how efficiently their container images are built.",
+    "relevant_nodes": [
+      "EfficiencyData",
+      "EfficiencySlice"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "EfficiencyData",
+      "EfficiencySlice"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the EfficiencyData and EfficiencySlice structs, which are used to store and analyze Docker image efficiency metrics. The referenced nodes are relevant to the question."
+  },
+  {
+    "question": "How does the Application class coordinate the different components?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Application class coordinates different components by integrating the Analyzer for image analysis, the Evaluator for rule-based assessment, and various UI components like FileTreeViewModel and different binding classes (GlobalBindings, FiletreeBindings) to manage user interactions and display.",
+    "relevant_nodes": [
+      "Application",
+      "Analyzer",
+      "Evaluator",
+      "FileTreeViewModel",
+      "GlobalBindings",
+      "FiletreeBindings"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Application",
+      "Analyzer",
+      "Evaluator",
+      "FileTreeViewModel",
+      "GlobalBindings",
+      "FiletreeBindings"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Application class coordinates the different components, including the Analyzer for image analysis, the Evaluator for rule-based assessment, and various UI components like FileTreeViewModel and the binding classes. All the referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the role of the ContentReader interface in the codebase?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The ContentReader interface provides an abstraction for reading content from different sources in the dive codebase. It likely works with FileTree and Image entities to enable reading file content from container images during analysis operations.",
+    "relevant_nodes": [
+      "ContentReader",
+      "FileTree",
+      "Image"
+    ],
+    "confidence": 0.8,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ContentReader",
+      "FileTree",
+      "Image"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the ContentReader interface in the codebase, which is to provide an abstraction for reading content from different sources. The referenced nodes (ContentReader, FileTree, Image) are relevant to this functionality."
+  },
+  {
+    "question": "How does the Constraint class enforce code constraints?",
+    "category": "understanding",
+    "repo_name": "wagoodman/dive",
+    "answer": "The Constraint class works with the Evaluator to enforce code constraints by defining rules that are evaluated against analyzed images. It uses BaseRule implementations like HighestUserWastedPercentRule and HighestWastedBytesRule to check specific conditions and produce an Evaluation result.",
+    "relevant_nodes": [
+      "Constraint",
+      "Evaluator",
+      "BaseRule",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule",
+      "Evaluation"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Constraint",
+      "Evaluator",
+      "BaseRule",
+      "HighestUserWastedPercentRule",
+      "HighestWastedBytesRule",
+      "Evaluation"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes how the Constraint class works with the Evaluator to enforce code constraints by defining rules that are evaluated against analyzed images. The referenced nodes are all relevant to the functionality described in the answer."
+  }
+]

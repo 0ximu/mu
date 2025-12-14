@@ -1,0 +1,518 @@
+[
+  {
+    "question": "What is the architecture of the Atuin client application?",
+    "category": "architecture",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Atuin client application follows a command-based architecture with a Client entity handling API communication, multiple Cmd entities representing different subcommands, and various specialized modules like Database for storage, Daemon for background processes, and AppState for application state management.",
+    "relevant_nodes": [
+      "Client",
+      "Cmd",
+      "Database",
+      "Daemon",
+      "AppState",
+      "AtuinCmd",
+      "Commands"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Client",
+      "Cmd",
+      "Database",
+      "Daemon",
+      "AppState",
+      "AtuinCmd",
+      "Commands"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the architecture of the Atuin client application, with the referenced nodes matching the components mentioned (Client, Cmd, Database, Daemon, AppState)."
+  },
+  {
+    "question": "What design pattern is used in the AliasStore module?",
+    "category": "architecture",
+    "repo_name": "atuinsh/atuin",
+    "answer": "Based on the available entities, the AliasStore module appears to use a repository or data access pattern, with AliasStore serving as the main interface and AliasRecord representing the data model for alias operations.",
+    "relevant_nodes": [
+      "AliasStore",
+      "AliasRecord"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AliasStore",
+      "AliasRecord"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the design pattern used in the AliasStore module as a repository or data access pattern, with AliasStore as the main interface and AliasRecord representing the data model for alias operations. The referenced nodes AliasStore and AliasRecord are present in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "How is the database layer structured in this codebase?",
+    "category": "architecture",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The database layer is structured around multiple Database entities that handle different aspects of data storage, with specialized stores like AliasStore for managing aliases. The architecture includes database operations like add_user, add_history, add_session, and add_records, suggesting a modular approach where different data types have their own management interfaces.",
+    "relevant_nodes": [
+      "Database",
+      "AliasStore",
+      "add_user",
+      "add_history",
+      "add_session",
+      "add_records"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Database",
+      "AliasStore",
+      "add_user",
+      "add_history",
+      "add_session",
+      "add_records"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the structure of the database layer, with multiple database entities and specialized stores like AliasStore. The referenced nodes are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "What is the overall organization of the codebase?",
+    "category": "architecture",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The codebase is organized around core command structures and data management, with main components including command handling (AtuinCmd, Cmd variants), client-server architecture (Client, AppState), database operations (Database variants, add_history, add_user functions), and various feature modules like aliases (Alias, AliasStore), shell integrations (Bash), and API endpoints.",
+    "relevant_nodes": [
+      "AtuinCmd",
+      "Client",
+      "AppState",
+      "Database",
+      "Alias",
+      "AliasStore",
+      "Bash",
+      "Cmd",
+      "add_history",
+      "add_user"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AtuinCmd",
+      "Client",
+      "AppState",
+      "Database",
+      "Alias",
+      "AliasStore",
+      "Bash",
+      "Cmd",
+      "add_history",
+      "add_user"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the overall organization of the codebase, including the key components like command handling, client-server architecture, database operations, and various feature modules. All the referenced nodes exist in the provided list of available nodes and are relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the AppState struct?",
+    "category": "architecture",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The AppState struct serves as the central application state container that holds shared data and dependencies needed across the Atuin application, likely including database connections, configuration, and other runtime state that needs to be accessible throughout the application lifecycle.",
+    "relevant_nodes": [
+      "AppState"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AppState"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the AppState struct as a central application state container that holds shared data and dependencies needed across the application. The referenced node 'AppState' exists in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What does the Alias module depend on?",
+    "category": "dependencies",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Alias module depends on core components including the Alias entity for alias representation, AliasRecord for data storage structure, AliasStore for persistence operations, and Database for underlying data storage functionality.",
+    "relevant_nodes": [
+      "Alias",
+      "AliasRecord",
+      "AliasStore",
+      "Database"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Alias",
+      "AliasRecord",
+      "AliasStore",
+      "Database"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the core components that the Alias module depends on, including the Alias entity, AliasRecord for data storage, AliasStore for persistence operations, and Database for underlying data storage. All the referenced nodes exist in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Which modules use the sqlx library?",
+    "category": "dependencies",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The sqlx library is used by modules that implement the FromRow trait, which is a sqlx derive macro for mapping database rows to Rust structs. The available entities show ::sqlx::FromRow appearing twice, indicating multiple structs derive from this trait for database operations.",
+    "relevant_nodes": [
+      "::sqlx::FromRow"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "::sqlx::FromRow"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the use of the sqlx library in modules that implement the FromRow trait, which is a sqlx derive macro for mapping database rows to Rust structs. The available nodes list contains the ::sqlx::FromRow node, confirming the relevance of the referenced node in the answer."
+  },
+  {
+    "question": "What are the dependencies of the Bash module?",
+    "category": "dependencies",
+    "repo_name": "atuinsh/atuin",
+    "answer": "Based on the available entities, the Bash module appears to have dependencies on the bash entity and potentially the build functionality. However, the entity list doesn't provide detailed dependency information for the Bash module specifically.",
+    "relevant_nodes": [
+      "Bash",
+      "bash",
+      "build"
+    ],
+    "confidence": 0.6,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Bash",
+      "bash",
+      "build"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the bash and build entities as potential dependencies for the Bash module, based on the available nodes. However, the answer notes that the entity list does not provide detailed dependency information, which is a reasonable limitation given the provided information."
+  },
+  {
+    "question": "Which modules depend on the calendar functionality?",
+    "category": "dependencies",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The calendar functionality is referenced by the CalendarQuery entity and the calendar command modules. These appear to be the primary components that depend on calendar-related functionality in the codebase.",
+    "relevant_nodes": [
+      "CalendarQuery",
+      "calendar",
+      "calendar"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CalendarQuery",
+      "calendar",
+      "calendar"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'CalendarQuery' and 'calendar' exist in the available nodes list, and the answer correctly identifies the primary components that depend on the calendar functionality in the codebase."
+  },
+  {
+    "question": "What are the dependencies of the ChangePasswordRequest struct?",
+    "category": "dependencies",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The ChangePasswordRequest struct appears to be related to password change functionality and is likely used alongside ChangePasswordResponse for handling password modification requests in the API.",
+    "relevant_nodes": [
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly identifies the ChangePasswordRequest struct as being related to password change functionality and being used alongside the ChangePasswordResponse struct for handling password modification requests in the API. All referenced nodes exist in the available nodes list, and the answer is semantically correct and relevant to the question."
+  },
+  {
+    "question": "Where is the implementation of the add_history function?",
+    "category": "navigation",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The add_history function is implemented multiple times in the codebase, likely as methods on different Database implementations and possibly in the Client interface for handling history addition operations.",
+    "relevant_nodes": [
+      "add_history",
+      "Database",
+      "Client"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "add_history",
+      "Database",
+      "Client"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the add_history function is likely implemented as methods on different Database implementations and possibly in the Client interface. However, the add_history function itself is not listed as one of the available nodes in the codebase. The referenced nodes Database and Client are valid, but add_history is not present in the provided list of nodes."
+  },
+  {
+    "question": "Which file contains the definition of the AtuinPayload struct?",
+    "category": "navigation",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The AtuinPayload struct is defined in the codebase and is available as an entity in the system. However, based on the provided entity list alone, I cannot determine which specific file contains its definition.",
+    "relevant_nodes": [
+      "AtuinPayload"
+    ],
+    "confidence": 0.7,
+    "validation_status": "rejected",
+    "valid_nodes": [
+      "AtuinPayload"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The provided answer does not contain any information about the file that defines the AtuinPayload struct. The available nodes list does not contain any direct reference to the AtuinPayload struct or the file that defines it."
+  },
+  {
+    "question": "What module handles the client-side functionality?",
+    "category": "navigation",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Client entity handles the client-side functionality in the atuin codebase. This is supported by related client operations like api_client and client methods that manage client-server interactions.",
+    "relevant_nodes": [
+      "Client",
+      "api_client",
+      "client"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Client",
+      "api_client",
+      "client"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly states that the Client entity handles the client-side functionality, and the referenced nodes (Client, api_client, client) are all present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "Where is the implementation of the add_session function?",
+    "category": "navigation",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The add_session function implementation can be found in the Database entity. There are three instances of add_session listed in the available entities, indicating it may be implemented across multiple database-related modules or traits.",
+    "relevant_nodes": [
+      "add_session",
+      "Database"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "add_session",
+      "Database"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes 'add_session' and 'Database' exist in the available nodes list, and the answer is semantically correct and relevant, indicating that the 'add_session' function is implemented in the 'Database' entity."
+  },
+  {
+    "question": "Which file contains the Cmd enum?",
+    "category": "navigation",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Cmd enum appears to be defined in multiple locations within the codebase, as evidenced by the numerous Cmd entities listed. These likely represent different command variants or subcommands within the Atuin CLI application.",
+    "relevant_nodes": [
+      "Cmd"
+    ],
+    "confidence": 0.85,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Cmd"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The Cmd enum appears to be defined in the Commands and AtuinCmd nodes, which are both present in the available nodes list. The answer correctly states that the Cmd enum is defined in multiple locations within the codebase, representing different command variants or subcommands for the Atuin CLI application."
+  },
+  {
+    "question": "How does the Atuin application handle user authentication?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Atuin application handles user authentication through the Client entity for API communication, add_user functions for user registration, and ChangePasswordRequest/ChangePasswordResponse entities for password management operations.",
+    "relevant_nodes": [
+      "Client",
+      "add_user",
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Client",
+      "add_user",
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes how the Atuin application handles user authentication, using the referenced nodes."
+  },
+  {
+    "question": "What is the purpose of the AliasRecord struct?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The AliasRecord struct is used to represent alias data records in the Atuin codebase, likely containing information about shell aliases that can be stored and retrieved. It works in conjunction with the AliasStore for managing alias persistence and the Database for storage operations.",
+    "relevant_nodes": [
+      "AliasRecord",
+      "AliasStore",
+      "Database"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AliasRecord",
+      "AliasStore",
+      "Database"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the AliasRecord struct and the referenced nodes (AliasStore and Database) are relevant to the functionality of the AliasRecord struct."
+  },
+  {
+    "question": "How does the CalendarQuery struct work?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "CalendarQuery is a struct that handles calendar-related queries in the Atuin codebase, likely used to filter or retrieve history data based on time periods. It works in conjunction with the calendar functionality to provide date-based filtering capabilities for command history.",
+    "relevant_nodes": [
+      "CalendarQuery",
+      "calendar"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "CalendarQuery",
+      "calendar"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose and functionality of the CalendarQuery struct, and the referenced nodes 'CalendarQuery' and 'calendar' are present in the available nodes list, indicating they are part of the codebase."
+  },
+  {
+    "question": "What is the purpose of the ChangePasswordResponse struct?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The ChangePasswordResponse struct is used to represent the response data returned after a password change operation, likely containing information about the success or failure of the password change request handled by the change_password function.",
+    "relevant_nodes": [
+      "ChangePasswordResponse",
+      "ChangePasswordRequest",
+      "change_password"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "ChangePasswordResponse",
+      "ChangePasswordRequest",
+      "change_password"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the purpose of the ChangePasswordResponse struct, and all the referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "How does the Client module interact with the Atuin server?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The Client module interacts with the Atuin server through API endpoints, using methods like add_history to send history records and change_password for account management. The Client works with api_client functionality to communicate with the server and handle requests like AddHistoryRequest and responses like ChangePasswordResponse.",
+    "relevant_nodes": [
+      "Client",
+      "api_client",
+      "add_history",
+      "AddHistoryRequest",
+      "change_password",
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "Client",
+      "api_client",
+      "add_history",
+      "AddHistoryRequest",
+      "change_password",
+      "ChangePasswordRequest",
+      "ChangePasswordResponse"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The referenced nodes in the answer are all present in the available nodes list, and the description of how the Client module interacts with the Atuin server through API endpoints, using methods like add_history and change_password, is semantically correct and relevant to the question."
+  },
+  {
+    "question": "What is the purpose of the Assertions module?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "Based on the available entities, I can see there is an Assertions entity in the codebase, but without additional context or related entities visible in the list, I cannot definitively determine its specific purpose. It's likely used for testing or validation assertions, but I cannot provide details about its implementation or exact functionality.",
+    "relevant_nodes": [
+      "Assertions"
+    ],
+    "confidence": 0.3,
+    "validation_status": "corrected",
+    "valid_nodes": [
+      "Assertions"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer is mostly correct, as the Assertions entity is present in the list of available nodes. However, the answer could be improved by providing more details on the likely purpose of the Assertions module, such as its use for testing or validation assertions, based on the context available."
+  },
+  {
+    "question": "What is the role of the AtuinFooter struct?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The AtuinFooter struct appears to be a UI component used for displaying footer information in the Atuin terminal interface, likely containing status information, help text, or navigation elements at the bottom of the application's display.",
+    "relevant_nodes": [
+      "AtuinFooter"
+    ],
+    "confidence": 0.75,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AtuinFooter"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer correctly describes the role of the AtuinFooter struct, which appears to be a UI component for displaying footer information in the Atuin terminal interface. All referenced nodes are present in the available nodes list and are relevant to the question."
+  },
+  {
+    "question": "How does the AtuinCmd enum work?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "AtuinCmd is an enum that represents the different command-line subcommands available in the Atuin CLI application. It contains variants like account, alias, api, bash, calendar, change_password, client, contributors, cursor, daemon, database, delete, doctor, and dotfiles, each corresponding to a specific functionality or operation that users can perform.",
+    "relevant_nodes": [
+      "AtuinCmd",
+      "account",
+      "alias",
+      "api",
+      "bash",
+      "calendar",
+      "change_password",
+      "client",
+      "contributors",
+      "cursor",
+      "daemon",
+      "database",
+      "delete",
+      "doctor",
+      "dotfiles"
+    ],
+    "confidence": 0.92,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AtuinCmd",
+      "account",
+      "alias",
+      "api",
+      "bash",
+      "calendar",
+      "change_password",
+      "client",
+      "contributors",
+      "cursor",
+      "daemon",
+      "database",
+      "delete",
+      "doctor",
+      "dotfiles"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the AtuinCmd enum and its associated variants, and all the referenced nodes exist in the available nodes list."
+  },
+  {
+    "question": "What is the purpose of the AliasStore module?",
+    "category": "understanding",
+    "repo_name": "atuinsh/atuin",
+    "answer": "The AliasStore module appears to be responsible for managing and storing shell command aliases in the Atuin system. It works alongside related entities like Alias, AliasRecord, and alias_config to provide alias functionality, allowing users to create shortcuts for frequently used commands.",
+    "relevant_nodes": [
+      "AliasStore",
+      "Alias",
+      "AliasRecord",
+      "alias_config",
+      "aliases"
+    ],
+    "confidence": 0.85,
+    "validation_status": "accepted",
+    "valid_nodes": [
+      "AliasStore",
+      "Alias",
+      "AliasRecord",
+      "alias_config",
+      "aliases"
+    ],
+    "invalid_nodes": [],
+    "reasoning": "The answer accurately describes the purpose of the AliasStore module, which is responsible for managing and storing shell command aliases in the Atuin system. The referenced nodes are all relevant to this functionality."
+  }
+]

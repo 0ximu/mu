@@ -4,10 +4,11 @@ use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 use super::helpers::{
-    count_lines, find_child_by_type, get_end_line, get_node_text, get_start_line,
+    collect_type_strings_from_methods, count_lines, extract_referenced_types, find_child_by_type,
+    get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
+use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse C# source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
@@ -52,6 +53,12 @@ fn process_node(node: &Node, source: &str, module: &mut ModuleDef) {
                 }
             }
             "namespace_declaration" | "file_scoped_namespace_declaration" => {
+                // Extract namespace name if not already set
+                if module.namespace.is_none() {
+                    if let Some(ns) = extract_namespace_name(&child, source) {
+                        module.namespace = Some(ns);
+                    }
+                }
                 // Recursively process namespace contents
                 process_node(&child, source, module);
             }
@@ -76,6 +83,21 @@ fn process_node(node: &Node, source: &str, module: &mut ModuleDef) {
             _ => {}
         }
     }
+}
+
+/// Extract namespace name from a namespace declaration node.
+fn extract_namespace_name(node: &Node, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            // Regular namespace declaration: namespace Foo.Bar { }
+            "qualified_name" | "identifier" | "name" => {
+                return Some(get_node_text(&child, source).to_string());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Extract using directive.
@@ -159,6 +181,13 @@ fn extract_class(node: &Node, source: &str) -> ClassDef {
             _ => {}
         }
     }
+
+    // Collect type annotations from all methods and extract referenced types
+    // Strip generic parameters from name for filtering (e.g., "MyClass<T>" -> "MyClass")
+    let base_name = class_def.name.split('<').next().unwrap_or(&class_def.name);
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types =
+        extract_referenced_types(type_strings.iter().map(|s| s.as_str()), base_name, "csharp");
 
     class_def
 }
@@ -262,6 +291,7 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
             "block" | "arrow_expression_clause" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "csharp");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -302,6 +332,7 @@ fn extract_constructor(node: &Node, source: &str) -> FunctionDef {
             "block" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "csharp");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -444,6 +475,14 @@ fn extract_interface(node: &Node, source: &str) -> ClassDef {
         }
     }
 
+    // Collect type annotations from all methods and extract referenced types
+    let type_strings = collect_type_strings_from_methods(&class_def.methods);
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "csharp",
+    );
+
     class_def
 }
 
@@ -499,6 +538,155 @@ fn extract_record(node: &Node, source: &str) -> ClassDef {
     class_def
 }
 
+/// Extract all call sites from a function body node.
+fn extract_call_sites(body: &Node, source: &str) -> Vec<CallSiteDef> {
+    let mut call_sites = Vec::new();
+    find_call_sites_recursive(body, source, &mut call_sites);
+    call_sites
+}
+
+/// Recursively search for call expressions in AST.
+fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSiteDef>) {
+    match node.kind() {
+        "invocation_expression" => {
+            // Method calls: foo.Bar(), this.Method(), SomeMethod()
+            if let Some(call_site) = extract_invocation_call_site(node, source) {
+                results.push(call_site);
+            }
+        }
+        "object_creation_expression" => {
+            // Constructor calls: new Foo()
+            if let Some(call_site) = extract_object_creation_call_site(node, source) {
+                results.push(call_site);
+            }
+        }
+        _ => {}
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_call_sites_recursive(&child, source, results);
+    }
+}
+
+/// Extract a call site from an invocation_expression node.
+/// Handles patterns like: foo.Bar(), this.Method(), SomeMethod(), obj?.Method()
+fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
+    // The function being called is the first child (before argument_list)
+    let func_node = node.child(0)?;
+    let line = get_start_line(node);
+
+    match func_node.kind() {
+        "identifier" => {
+            // Simple function call: SomeMethod()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "member_access_expression" | "member_binding_expression" => {
+            // Method call: obj.Method(), this.Method(), obj?.Method()
+            // Structure: child(0)=object, child(1)=".", child(2)=name
+            let full_text = get_node_text(&func_node, source);
+
+            // Get the object (receiver) - first child
+            let object_node = func_node.child(0);
+            let receiver = object_node.map(|n| get_node_text(&n, source).to_string());
+
+            // Get the method name - last child (the member name after the dot)
+            // We need to find the last identifier, not the first
+            let mut method_name = full_text.to_string();
+            let mut cursor = func_node.walk();
+            for child in func_node.children(&mut cursor) {
+                if child.kind() == "identifier"
+                    || child.kind() == "simple_name"
+                    || child.kind() == "name"
+                {
+                    method_name = get_node_text(&child, source).to_string();
+                    // Keep iterating to get the LAST identifier
+                }
+            }
+
+            // Always use just the method name as callee for better resolution
+            // The receiver field captures the object (this, _service, etc.)
+            Some(CallSiteDef {
+                callee: method_name,
+                line,
+                is_method_call: true,
+                receiver,
+            })
+        }
+        "conditional_access_expression" => {
+            // Null-conditional: obj?.Method()
+            let full_text = get_node_text(&func_node, source);
+            let object_node = func_node.child(0);
+            let receiver = object_node.map(|n| get_node_text(&n, source).to_string());
+
+            // Extract just the method name - find the last identifier
+            let mut method_name = full_text.to_string();
+            let mut cursor = func_node.walk();
+            for child in func_node.children(&mut cursor) {
+                if child.kind() == "identifier"
+                    || child.kind() == "simple_name"
+                    || child.kind() == "name"
+                {
+                    method_name = get_node_text(&child, source).to_string();
+                }
+            }
+
+            Some(CallSiteDef {
+                callee: method_name,
+                line,
+                is_method_call: true,
+                receiver,
+            })
+        }
+        "generic_name" => {
+            // Generic method call: SomeMethod<T>()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        _ => {
+            // Other callable patterns
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+    }
+}
+
+/// Extract a call site from an object_creation_expression node.
+/// Handles patterns like: new Foo(), new Foo<T>(), new Foo { ... }
+fn extract_object_creation_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
+    let line = get_start_line(node);
+
+    // Find the type being constructed
+    let type_node = find_child_by_type(node, "identifier")
+        .or_else(|| find_child_by_type(node, "generic_name"))
+        .or_else(|| find_child_by_type(node, "qualified_name"));
+
+    let type_name = type_node.map(|n| get_node_text(&n, source).to_string())?;
+
+    Some(CallSiteDef {
+        callee: format!("new {}", type_name),
+        line,
+        is_method_call: false,
+        receiver: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,5 +733,190 @@ public class Service {
 "#;
         let result = parse(source, "Service.cs").unwrap();
         assert!(result.classes[0].methods[0].is_async);
+    }
+
+    #[test]
+    fn test_extract_call_sites() {
+        let source = r#"
+public class DataProcessor {
+    public void ProcessData(string data) {
+        var validated = Validate(data);
+        var result = this.Transform(validated);
+        helper.Process(result);
+        Save(result);
+    }
+}
+"#;
+        let result = parse(source, "DataProcessor.cs").unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let method = &result.classes[0].methods[0];
+        assert!(
+            method.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            method.call_sites.len()
+        );
+
+        // Check we captured Validate() call
+        assert!(method.call_sites.iter().any(|c| c.callee == "Validate"));
+        // Check we captured Save() call
+        assert!(method.call_sites.iter().any(|c| c.callee == "Save"));
+    }
+
+    #[test]
+    fn test_method_call_detection() {
+        let source = r#"
+public class MyClass {
+    public void DoWork() {
+        this.Helper();
+        other.Process();
+    }
+}
+"#;
+        let result = parse(source, "MyClass.cs").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // this.Helper() should be detected as method call with callee = "Helper"
+        let this_call = method.call_sites.iter().find(|c| c.callee == "Helper");
+        assert!(this_call.is_some(), "Should find this.Helper() call");
+        assert!(this_call.unwrap().is_method_call);
+        assert_eq!(this_call.unwrap().receiver, Some("this".to_string()));
+
+        // other.Process() should have callee = "Process", receiver = "other"
+        let other_call = method.call_sites.iter().find(|c| c.callee == "Process");
+        assert!(other_call.is_some(), "Should find other.Process() call");
+        assert!(other_call.unwrap().is_method_call);
+        assert_eq!(other_call.unwrap().receiver, Some("other".to_string()));
+    }
+
+    #[test]
+    fn test_constructor_call_sites() {
+        let source = r#"
+public class Factory {
+    public Factory() {
+        var service = new DataService();
+        Initialize();
+    }
+}
+"#;
+        let result = parse(source, "Factory.cs").unwrap();
+        let constructor = &result.classes[0].methods[0];
+
+        // Should find new DataService() call
+        let new_call = constructor
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "new DataService");
+        assert!(
+            new_call.is_some(),
+            "Should find new DataService() constructor call"
+        );
+
+        // Should find Initialize() call
+        assert!(constructor
+            .call_sites
+            .iter()
+            .any(|c| c.callee == "Initialize"));
+    }
+
+    #[test]
+    fn test_object_creation_expression() {
+        let source = r#"
+public class Builder {
+    public void Build() {
+        var list = new List<string>();
+        var config = new AppConfig { Name = "test" };
+        var handler = new EventHandler<Args>();
+    }
+}
+"#;
+        let result = parse(source, "Builder.cs").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // Should find generic constructor calls
+        assert!(
+            method
+                .call_sites
+                .iter()
+                .any(|c| c.callee.starts_with("new List")),
+            "Should find new List<string>() call"
+        );
+        assert!(
+            method
+                .call_sites
+                .iter()
+                .any(|c| c.callee.starts_with("new AppConfig")),
+            "Should find new AppConfig call"
+        );
+    }
+
+    #[test]
+    fn test_base_method_call() {
+        let source = r#"
+public class Derived : Base {
+    public override void DoWork() {
+        base.DoWork();
+        this.Helper();
+    }
+}
+"#;
+        let result = parse(source, "Derived.cs").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // base.DoWork() should have callee = "DoWork" and receiver = "base"
+        let base_call = method
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "DoWork" && c.receiver == Some("base".to_string()));
+        assert!(base_call.is_some(), "Should find base.DoWork() call");
+    }
+
+    #[test]
+    fn test_extract_namespace() {
+        let source = r#"
+using System;
+
+namespace DominaiteGateway.Api.Services
+{
+    public class MyService {
+        public void DoWork() { }
+    }
+}
+"#;
+        let result = parse(source, "MyService.cs").unwrap();
+        assert_eq!(
+            result.namespace,
+            Some("DominaiteGateway.Api.Services".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_file_scoped_namespace() {
+        let source = r#"
+using System;
+
+namespace DominaiteGateway.Api.Controllers;
+
+public class HomeController {
+    public void Index() { }
+}
+"#;
+        let result = parse(source, "HomeController.cs").unwrap();
+        assert_eq!(
+            result.namespace,
+            Some("DominaiteGateway.Api.Controllers".to_string())
+        );
+    }
+
+    #[test]
+    fn test_no_namespace() {
+        let source = r#"
+using System;
+
+public class GlobalClass {
+    public void Method() { }
+}
+"#;
+        let result = parse(source, "GlobalClass.cs").unwrap();
+        assert_eq!(result.namespace, None);
     }
 }
