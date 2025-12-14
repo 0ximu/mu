@@ -237,6 +237,19 @@ fn resolve_node(conn: &Connection, node_id: &str) -> Result<NodeInfo> {
                 });
             }
 
+            // Sort matches by type priority (class > module > function) then by name
+            matches.sort_by(|a, b| {
+                let type_priority = |t: &str| match t {
+                    "class" => 0,
+                    "module" => 1,
+                    "function" => 2,
+                    _ => 3,
+                };
+                type_priority(&a.node_type)
+                    .cmp(&type_priority(&b.node_type))
+                    .then_with(|| a.name.cmp(&b.name))
+            });
+
             eprintln!(
                 "{}: Multiple matches found. Using first match. Candidates:",
                 "Warning".yellow()

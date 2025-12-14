@@ -37,7 +37,9 @@ use std::path::Path;
 #[derive(Debug, Deserialize, Default)]
 pub struct MuConfig {
     /// General MU settings (version tracking).
+    /// Parsed from config but reserved for future use.
     #[serde(default)]
+    #[allow(dead_code)]
     pub mu: MuSection,
 
     /// File scanning configuration (what to include/exclude).
@@ -63,8 +65,9 @@ pub struct MuConfig {
 #[derive(Debug, Deserialize, Default)]
 pub struct MuSection {
     /// Configuration schema version for future compatibility.
-    /// Currently informational only.
+    /// Currently informational only; reserved for future use.
     #[serde(default)]
+    #[allow(dead_code)]
     pub version: Option<String>,
 }
 

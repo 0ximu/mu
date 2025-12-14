@@ -399,7 +399,24 @@ fn resolve_node_id(conn: &Connection, partial: &str) -> Result<String> {
                     return Ok(m.clone());
                 }
             }
-            // Return first match
+
+            // Sort by node type prefix (mod: first) then alphabetically
+            matches.sort_by(|a, b| {
+                let type_priority = |id: &str| {
+                    if id.starts_with("cls:") {
+                        0
+                    } else if id.starts_with("mod:") {
+                        1
+                    } else if id.starts_with("fn:") {
+                        2
+                    } else {
+                        3
+                    }
+                };
+                type_priority(a).cmp(&type_priority(b)).then(a.cmp(b))
+            });
+
+            // Return first sorted match
             Ok(matches.into_iter().next().unwrap())
         }
     }

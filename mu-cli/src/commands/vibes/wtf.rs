@@ -378,31 +378,31 @@ fn extract_references(commits: &[CommitInfo]) -> (Vec<String>, Vec<String>) {
     let mut issues = HashSet::new();
     let mut prs = HashSet::new();
 
+    // Compile regexes once outside the loop
+    let fix_close_re =
+        regex::Regex::new(r"(?i)(?:fix(?:es)?|close(?:s)?|resolve(?:s)?)\s+#(\d+)").unwrap();
+    let issue_re = regex::Regex::new(r"#(\d+)").unwrap();
+    let pr_re = regex::Regex::new(r"(?i)(?:pr|pull)\s*#?(\d+)").unwrap();
+
     for commit in commits {
         let msg = &commit.message;
 
         // Match #123, fixes #456, closes #789, etc.
-        for cap in regex::Regex::new(r"(?i)(?:fix(?:es)?|close(?:s)?|resolve(?:s)?)\s+#(\d+)")
-            .unwrap()
-            .captures_iter(msg)
-        {
+        for cap in fix_close_re.captures_iter(msg) {
             if let Some(num) = cap.get(1) {
                 issues.insert(format!("#{}", num.as_str()));
             }
         }
 
         // Match standalone #123
-        for cap in regex::Regex::new(r"#(\d+)").unwrap().captures_iter(msg) {
+        for cap in issue_re.captures_iter(msg) {
             if let Some(num) = cap.get(1) {
                 issues.insert(format!("#{}", num.as_str()));
             }
         }
 
         // Match PR references (pull/123, PR #123)
-        for cap in regex::Regex::new(r"(?i)(?:pr|pull)\s*#?(\d+)")
-            .unwrap()
-            .captures_iter(msg)
-        {
+        for cap in pr_re.captures_iter(msg) {
             if let Some(num) = cap.get(1) {
                 prs.insert(num.as_str().to_string());
             }

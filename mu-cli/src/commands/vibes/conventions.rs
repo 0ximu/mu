@@ -16,6 +16,7 @@ use std::fmt;
 
 /// Naming convention type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[allow(clippy::enum_variant_names)]
 pub enum NamingConvention {
     /// lowercase_with_underscores (Python functions, Rust functions)
     SnakeCase,

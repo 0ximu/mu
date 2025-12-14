@@ -28,6 +28,16 @@ use output::OutputFormat;
 #[command(long_about = "MU parses your codebase into a semantic graph with fast queries,\nsemantic search, and intelligent context extraction.\n\n92-98% compression while preserving semantic signal.")]
 #[command(propagate_version = true)]
 #[command(next_help_heading = "Options")]
+#[command(after_help = "Quick Start:
+  mu bootstrap      Initialize code graph (run this first)
+  mu status         Check project status
+  mu search \"auth\"  Find auth-related code
+  mu deps MyClass   Show dependencies of MyClass
+
+Examples:
+  mu q \"fn c>50\"    Query functions with complexity > 50
+  mu impact Parser  What breaks if I change Parser?
+  mu grok \"auth\"    Semantic search with context")]
 pub struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

@@ -18,6 +18,7 @@ use crate::output::{Output, OutputFormat, TableDisplay};
 
 /// Supported shells for completion generation
 #[derive(Debug, Clone, Copy, clap::ValueEnum)]
+#[allow(clippy::enum_variant_names)]
 pub enum Shell {
     Bash,
     Zsh,

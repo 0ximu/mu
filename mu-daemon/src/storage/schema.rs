@@ -29,7 +29,7 @@ impl NodeType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "module" => Some(NodeType::Module),
             "class" => Some(NodeType::Class),
@@ -73,7 +73,7 @@ impl EdgeType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "contains" => Some(EdgeType::Contains),
             "imports" => Some(EdgeType::Imports),
@@ -165,7 +165,7 @@ mod tests {
             NodeType::External,
         ] {
             let s = nt.as_str();
-            let parsed = NodeType::from_str(s);
+            let parsed = NodeType::parse(s);
             assert_eq!(parsed, Some(nt));
         }
     }
@@ -180,7 +180,7 @@ mod tests {
             EdgeType::Uses,
         ] {
             let s = et.as_str();
-            let parsed = EdgeType::from_str(s);
+            let parsed = EdgeType::parse(s);
             assert_eq!(parsed, Some(et));
         }
     }

@@ -20,21 +20,19 @@ impl TableOutput {
     /// Format data as a table string (simple fallback for single items)
     pub fn format<T: Serialize>(data: &T, config: &OutputConfig) -> String {
         // For single items, format as key-value pairs
-        if let Ok(json) = serde_json::to_value(data) {
-            if let serde_json::Value::Object(map) = json {
-                // Collect into owned strings for the pairs
-                let owned_pairs: Vec<(String, String)> = map
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Self::value_to_string(v)))
-                    .collect();
+        if let Ok(serde_json::Value::Object(map)) = serde_json::to_value(data) {
+            // Collect into owned strings for the pairs
+            let owned_pairs: Vec<(String, String)> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), Self::value_to_string(v)))
+                .collect();
 
-                let pairs_ref: Vec<(&str, String)> = owned_pairs
-                    .iter()
-                    .map(|(k, v)| (k.as_str(), v.clone()))
-                    .collect();
+            let pairs_ref: Vec<(&str, String)> = owned_pairs
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.clone()))
+                .collect();
 
-                return Self::format_key_value(&pairs_ref, config);
-            }
+            return Self::format_key_value(&pairs_ref, config);
         }
         // Fallback to JSON
         serde_json::to_string_pretty(data).unwrap_or_default()

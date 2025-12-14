@@ -178,8 +178,8 @@ fn try_convert_terse_to_sql(input: &str) -> TerseParseResult {
             let rest = &token[2..];
 
             // Handle >= and <=
-            let (op, value) = if rest.starts_with('=') {
-                (format!("{}=", op_char), &rest[1..])
+            let (op, value) = if let Some(stripped) = rest.strip_prefix('=') {
+                (format!("{}=", op_char), stripped)
             } else {
                 (op_char.to_string(), rest)
             };

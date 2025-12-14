@@ -109,7 +109,7 @@ impl OutputConfig {
     ///
     /// * `format` - The output format to use
     /// * `color_override` - If `Some(true)`, force colors on. If `Some(false)`, force colors off.
-    ///                      If `None`, use auto-detection based on TTY.
+    ///   If `None`, use auto-detection based on TTY.
     pub fn auto_detect_with_color_override(format: OutputFormat, color_override: Option<bool>) -> Self {
         let is_tty = std::io::stdout().is_terminal();
         let use_color = color_override.unwrap_or(is_tty);
@@ -289,7 +289,7 @@ impl<T: Outputter> Output<T> {
     }
 
     /// Get the rendered string without printing
-    pub fn to_string(&self) -> String {
+    pub fn render_to_string(&self) -> String {
         self.data.render(&self.config)
     }
 }

@@ -379,7 +379,21 @@ fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
         0 => Err(anyhow::anyhow!("Node not found: {}", query)),
         1 => Ok(matches.into_iter().next().unwrap().0),
         _ => {
-            // Multiple matches - show suggestions
+            // Sort matches by type priority (class > module > function) then by name
+            let mut matches = matches;
+            matches.sort_by(|a, b| {
+                let type_priority = |t: &str| match t {
+                    "class" => 0,
+                    "module" => 1,
+                    "function" => 2,
+                    _ => 3,
+                };
+                type_priority(&a.2)
+                    .cmp(&type_priority(&b.2))
+                    .then_with(|| a.1.cmp(&b.1))
+            });
+
+            // Multiple matches - show sorted suggestions
             let suggestions: Vec<String> = matches
                 .iter()
                 .map(|(id, name, typ)| format!("  {} [{}] {}", name, typ, id))

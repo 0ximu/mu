@@ -6,6 +6,9 @@ use duckdb::Connection;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+/// Type alias for relationship maps: node_id -> [(related_node_id, edge_type)]
+type RelationshipMap = HashMap<String, Vec<(String, String)>>;
+
 /// Find the MUbase database in the given directory or its parents
 pub fn find_mubase(start_path: &str) -> Option<PathBuf> {
     let start = std::path::Path::new(start_path).canonicalize().ok()?;
@@ -102,14 +105,9 @@ fn count_incoming_calls(edges: &[RawEdge]) -> HashMap<String, u32> {
 }
 
 /// Build outgoing/incoming maps for relationship clusters
-fn build_relationship_maps(
-    edges: &[RawEdge],
-) -> (
-    HashMap<String, Vec<(String, String)>>,
-    HashMap<String, Vec<(String, String)>>,
-) {
-    let mut outgoing: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    let mut incoming: HashMap<String, Vec<(String, String)>> = HashMap::new();
+fn build_relationship_maps(edges: &[RawEdge]) -> (RelationshipMap, RelationshipMap) {
+    let mut outgoing: RelationshipMap = HashMap::new();
+    let mut incoming: RelationshipMap = HashMap::new();
 
     for edge in edges {
         outgoing

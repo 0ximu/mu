@@ -663,8 +663,8 @@ fn infer_test_path(file_path: &str) -> String {
             }
         }
 
-        // Python: tests/test_filename.py (default behavior)
-        "python" | _ => {
+        // Python (and default): tests/test_filename.py
+        _ => {
             if file_path.contains("src/") {
                 file_path.replace("src/", "tests/test_")
             } else {

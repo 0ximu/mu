@@ -25,6 +25,8 @@ use super::schema::{NodeType, SCHEMA_SQL, SCHEMA_VERSION};
 /// MUbase - DuckDB-based storage for code graphs.
 pub struct MUbase {
     conn: Arc<Mutex<Connection>>,
+    /// Path to the database file (stored for potential future use in queries/debugging).
+    #[allow(dead_code)]
     path: std::path::PathBuf,
 }
 
@@ -332,7 +334,7 @@ impl MUbase {
 
             Ok(Some(Node {
                 id: row.get(0)?,
-                node_type: NodeType::from_str(&node_type_str).unwrap_or(NodeType::Module),
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
                 name: row.get(2)?,
                 qualified_name: row.get(3)?,
                 file_path: row.get(4)?,
@@ -363,7 +365,7 @@ impl MUbase {
 
             nodes.push(Node {
                 id: row.get(0)?,
-                node_type: NodeType::from_str(&node_type_str).unwrap_or(NodeType::Module),
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
                 name: row.get(2)?,
                 qualified_name: row.get(3)?,
                 file_path: row.get(4)?,
@@ -394,7 +396,7 @@ impl MUbase {
 
             nodes.push(Node {
                 id: row.get(0)?,
-                node_type: NodeType::from_str(&node_type_str).unwrap_or(NodeType::Module),
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
                 name: row.get(2)?,
                 qualified_name: row.get(3)?,
                 file_path: row.get(4)?,

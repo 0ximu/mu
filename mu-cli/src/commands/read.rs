@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use duckdb::{params, Connection};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{Style, ThemeSet};
 use syntect::parsing::SyntaxSet;
@@ -47,7 +47,7 @@ fn find_mubase(start_path: &str) -> Result<PathBuf> {
 }
 
 /// Get the root directory of the MUbase (where .mu/ exists)
-fn get_mubase_root(db_path: &PathBuf) -> Result<PathBuf> {
+fn get_mubase_root(db_path: &Path) -> Result<PathBuf> {
     // The db_path is either .mu/mubase or .mubase
     let parent = db_path
         .parent()
@@ -129,7 +129,21 @@ fn resolve_node(conn: &Connection, partial: &str) -> Result<NodeInfo> {
                     return Ok(m.clone());
                 }
             }
-            // Multiple matches - warn and use first
+
+            // Sort matches by type priority (class > module > function) then by name
+            matches.sort_by(|a, b| {
+                let type_priority = |t: &str| match t {
+                    "class" => 0,
+                    "module" => 1,
+                    "function" => 2,
+                    _ => 3,
+                };
+                type_priority(&a.node_type)
+                    .cmp(&type_priority(&b.node_type))
+                    .then_with(|| a.name.cmp(&b.name))
+            });
+
+            // Multiple matches - warn and use first sorted match
             eprintln!(
                 "{}: Multiple matches found. Using first match. Candidates:",
                 "Warning".yellow()
