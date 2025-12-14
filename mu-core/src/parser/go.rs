@@ -8,7 +8,7 @@ use super::helpers::{
     get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
+use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Go source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
@@ -179,6 +179,7 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
             "block" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "go");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -235,6 +236,7 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
             "block" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "go");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -502,6 +504,113 @@ fn extract_interface_methods(node: &Node, source: &str, class_def: &mut ClassDef
     }
 }
 
+/// Extract all call sites from a function body node.
+fn extract_call_sites(body: &Node, source: &str) -> Vec<CallSiteDef> {
+    let mut call_sites = Vec::new();
+    find_call_sites_recursive(body, source, &mut call_sites);
+    call_sites
+}
+
+/// Recursively search for call expressions in AST.
+fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSiteDef>) {
+    // Go uses "call_expression" for function calls
+    if node.kind() == "call_expression" {
+        if let Some(call_site) = extract_call_site(node, source) {
+            results.push(call_site);
+        }
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_call_sites_recursive(&child, source, results);
+    }
+}
+
+/// Extract a single call site from a call_expression node.
+fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
+    // In Go, the function being called is the first child (before "argument_list")
+    let func_node = node.child(0)?;
+    let line = get_start_line(node);
+
+    match func_node.kind() {
+        "identifier" => {
+            // Simple function call: Foo() or foo()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "selector_expression" => {
+            // Method call: obj.Method() or pkg.Func()
+            let full_text = get_node_text(&func_node, source);
+
+            // Get the operand (object/package)
+            let operand_node = func_node.child_by_field_name("operand");
+            let receiver = operand_node.map(|n| get_node_text(&n, source).to_string());
+
+            Some(CallSiteDef {
+                callee: full_text.to_string(),
+                line,
+                is_method_call: true,
+                receiver,
+            })
+        }
+        "parenthesized_expression" => {
+            // Function call on parenthesized expression: (getFunc())()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "call_expression" => {
+            // Chained call: foo()() - call on result of another call
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "index_expression" => {
+            // Call on indexed value: handlers[name]()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        "type_assertion_expression" => {
+            // Type assertion call: x.(Handler).Handle()
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+        _ => {
+            // Other callable patterns - capture as generic call
+            let callee = get_node_text(&func_node, source).to_string();
+            Some(CallSiteDef {
+                callee,
+                line,
+                is_method_call: false,
+                receiver: None,
+            })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,5 +657,122 @@ import (
 "#;
         let result = parse(source, "main.go").unwrap();
         assert_eq!(result.imports.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_call_sites() {
+        let source = r#"
+package main
+
+func ProcessData(data string) string {
+    validated := Validate(data)
+    result := helper.Transform(validated)
+    fmt.Println(result)
+    return Save(result)
+}
+"#;
+        let result = parse(source, "main.go").unwrap();
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert!(
+            func.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            func.call_sites.len()
+        );
+
+        // Check we captured Validate() call
+        assert!(
+            func.call_sites.iter().any(|c| c.callee == "Validate"),
+            "Should find Validate() call"
+        );
+
+        // Check we captured helper.Transform() as method call
+        let transform_call = func
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "helper.Transform");
+        assert!(
+            transform_call.is_some(),
+            "Should find helper.Transform() call"
+        );
+        assert!(transform_call.unwrap().is_method_call);
+        assert_eq!(transform_call.unwrap().receiver, Some("helper".to_string()));
+    }
+
+    #[test]
+    fn test_method_call_detection() {
+        let source = r#"
+package main
+
+type Service struct {
+    db *Database
+}
+
+func (s *Service) DoWork() error {
+    s.db.Connect()
+    data := s.fetchData()
+    processor.Process(data)
+    return nil
+}
+"#;
+        let result = parse(source, "main.go").unwrap();
+        // Method declarations are captured as functions
+        let method = result.functions.iter().find(|f| f.name == "DoWork");
+        assert!(method.is_some(), "Should find DoWork method");
+
+        let method = method.unwrap();
+        assert!(
+            method.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            method.call_sites.len()
+        );
+
+        // s.db.Connect() should be captured
+        let connect_call = method
+            .call_sites
+            .iter()
+            .find(|c| c.callee.contains("Connect"));
+        assert!(connect_call.is_some(), "Should find Connect call");
+        assert!(connect_call.unwrap().is_method_call);
+
+        // processor.Process() should be captured
+        let process_call = method
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "processor.Process");
+        assert!(
+            process_call.is_some(),
+            "Should find processor.Process() call"
+        );
+        assert!(process_call.unwrap().is_method_call);
+        assert_eq!(
+            process_call.unwrap().receiver,
+            Some("processor".to_string())
+        );
+    }
+
+    #[test]
+    fn test_simple_function_calls() {
+        let source = r#"
+package main
+
+func main() {
+    println("hello")
+    make([]int, 10)
+    len("test")
+}
+"#;
+        let result = parse(source, "main.go").unwrap();
+        let func = &result.functions[0];
+
+        // Should capture println, make, len as simple calls
+        assert!(
+            func.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            func.call_sites.len()
+        );
+        assert!(func.call_sites.iter().any(|c| c.callee == "println"));
+        assert!(func.call_sites.iter().any(|c| c.callee == "make"));
+        assert!(func.call_sites.iter().any(|c| c.callee == "len"));
     }
 }

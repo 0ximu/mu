@@ -384,12 +384,15 @@ pub struct ModuleDef {
     pub module_docstring: Option<String>,
     #[pyo3(get, set)]
     pub total_lines: u32,
+    /// Namespace declaration (for C#, Java, Go packages)
+    #[pyo3(get, set)]
+    pub namespace: Option<String>,
 }
 
 #[pymethods]
 impl ModuleDef {
     #[new]
-    #[pyo3(signature = (name, path, language, imports=vec![], classes=vec![], functions=vec![], module_docstring=None, total_lines=0))]
+    #[pyo3(signature = (name, path, language, imports=vec![], classes=vec![], functions=vec![], module_docstring=None, total_lines=0, namespace=None))]
     fn new(
         name: String,
         path: String,
@@ -399,6 +402,7 @@ impl ModuleDef {
         functions: Vec<FunctionDef>,
         module_docstring: Option<String>,
         total_lines: u32,
+        namespace: Option<String>,
     ) -> Self {
         Self {
             name,
@@ -409,6 +413,7 @@ impl ModuleDef {
             functions,
             module_docstring,
             total_lines,
+            namespace,
         }
     }
 
@@ -442,6 +447,11 @@ impl ModuleDef {
 
         dict.set_item("module_docstring", &self.module_docstring)?;
         dict.set_item("total_lines", self.total_lines)?;
+
+        // Only include namespace if present
+        if self.namespace.is_some() {
+            dict.set_item("namespace", &self.namespace)?;
+        }
 
         Ok(dict.into())
     }

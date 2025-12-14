@@ -724,6 +724,7 @@ mod tests {
             functions,
             module_docstring: None,
             total_lines: 0,
+            namespace: None,
         }
     }
 

@@ -53,6 +53,12 @@ fn process_node(node: &Node, source: &str, module: &mut ModuleDef) {
                 }
             }
             "namespace_declaration" | "file_scoped_namespace_declaration" => {
+                // Extract namespace name if not already set
+                if module.namespace.is_none() {
+                    if let Some(ns) = extract_namespace_name(&child, source) {
+                        module.namespace = Some(ns);
+                    }
+                }
                 // Recursively process namespace contents
                 process_node(&child, source, module);
             }
@@ -77,6 +83,21 @@ fn process_node(node: &Node, source: &str, module: &mut ModuleDef) {
             _ => {}
         }
     }
+}
+
+/// Extract namespace name from a namespace declaration node.
+fn extract_namespace_name(node: &Node, source: &str) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            // Regular namespace declaration: namespace Foo.Bar { }
+            "qualified_name" | "identifier" | "name" => {
+                return Some(get_node_text(&child, source).to_string());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Extract using directive.
@@ -580,7 +601,10 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
             let mut method_name = full_text.to_string();
             let mut cursor = func_node.walk();
             for child in func_node.children(&mut cursor) {
-                if child.kind() == "identifier" || child.kind() == "simple_name" || child.kind() == "name" {
+                if child.kind() == "identifier"
+                    || child.kind() == "simple_name"
+                    || child.kind() == "name"
+                {
                     method_name = get_node_text(&child, source).to_string();
                     // Keep iterating to get the LAST identifier
                 }
@@ -605,7 +629,10 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
             let mut method_name = full_text.to_string();
             let mut cursor = func_node.walk();
             for child in func_node.children(&mut cursor) {
-                if child.kind() == "identifier" || child.kind() == "simple_name" || child.kind() == "name" {
+                if child.kind() == "identifier"
+                    || child.kind() == "simple_name"
+                    || child.kind() == "name"
+                {
                     method_name = get_node_text(&child, source).to_string();
                 }
             }
@@ -755,10 +782,7 @@ public class MyClass {
         assert_eq!(this_call.unwrap().receiver, Some("this".to_string()));
 
         // other.Process() should have callee = "Process", receiver = "other"
-        let other_call = method
-            .call_sites
-            .iter()
-            .find(|c| c.callee == "Process");
+        let other_call = method.call_sites.iter().find(|c| c.callee == "Process");
         assert!(other_call.is_some(), "Should find other.Process() call");
         assert!(other_call.unwrap().is_method_call);
         assert_eq!(other_call.unwrap().receiver, Some("other".to_string()));
@@ -844,5 +868,55 @@ public class Derived : Base {
             .iter()
             .find(|c| c.callee == "DoWork" && c.receiver == Some("base".to_string()));
         assert!(base_call.is_some(), "Should find base.DoWork() call");
+    }
+
+    #[test]
+    fn test_extract_namespace() {
+        let source = r#"
+using System;
+
+namespace DominaiteGateway.Api.Services
+{
+    public class MyService {
+        public void DoWork() { }
+    }
+}
+"#;
+        let result = parse(source, "MyService.cs").unwrap();
+        assert_eq!(
+            result.namespace,
+            Some("DominaiteGateway.Api.Services".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_file_scoped_namespace() {
+        let source = r#"
+using System;
+
+namespace DominaiteGateway.Api.Controllers;
+
+public class HomeController {
+    public void Index() { }
+}
+"#;
+        let result = parse(source, "HomeController.cs").unwrap();
+        assert_eq!(
+            result.namespace,
+            Some("DominaiteGateway.Api.Controllers".to_string())
+        );
+    }
+
+    #[test]
+    fn test_no_namespace() {
+        let source = r#"
+using System;
+
+public class GlobalClass {
+    public void Method() { }
+}
+"#;
+        let result = parse(source, "GlobalClass.cs").unwrap();
+        assert_eq!(result.namespace, None);
     }
 }

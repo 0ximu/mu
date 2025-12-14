@@ -207,8 +207,11 @@ fn extract_class(node: &Node, source: &str, decorators: Option<Vec<String>>) -> 
 
     // Collect type annotations from all methods and extract referenced types
     let type_strings = collect_type_strings_from_methods(&class_def.methods);
-    class_def.referenced_types =
-        extract_referenced_types(type_strings.iter().map(|s| s.as_str()), &class_def.name, "python");
+    class_def.referenced_types = extract_referenced_types(
+        type_strings.iter().map(|s| s.as_str()),
+        &class_def.name,
+        "python",
+    );
 
     class_def
 }

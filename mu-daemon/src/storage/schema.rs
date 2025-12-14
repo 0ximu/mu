@@ -129,6 +129,24 @@ CREATE INDEX IF NOT EXISTS idx_nodes_complexity ON nodes(complexity);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
+
+-- Embeddings table for vector storage
+-- Note: embedding stored as JSON array string since DuckDB Rust API has limited FLOAT[] support
+CREATE TABLE IF NOT EXISTS embeddings (
+    node_id VARCHAR PRIMARY KEY,
+    embedding VARCHAR NOT NULL,
+    model VARCHAR NOT NULL DEFAULT 'mu-sigma-v2',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- File hashes for incremental embedding updates
+CREATE TABLE IF NOT EXISTS file_hashes (
+    file_path VARCHAR PRIMARY KEY,
+    content_hash VARCHAR NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 "#;
 
 /// Schema version for migrations
@@ -140,7 +158,12 @@ mod tests {
 
     #[test]
     fn test_node_type_roundtrip() {
-        for nt in [NodeType::Module, NodeType::Class, NodeType::Function, NodeType::External] {
+        for nt in [
+            NodeType::Module,
+            NodeType::Class,
+            NodeType::Function,
+            NodeType::External,
+        ] {
             let s = nt.as_str();
             let parsed = NodeType::from_str(s);
             assert_eq!(parsed, Some(nt));
@@ -149,7 +172,13 @@ mod tests {
 
     #[test]
     fn test_edge_type_roundtrip() {
-        for et in [EdgeType::Contains, EdgeType::Imports, EdgeType::Inherits, EdgeType::Calls, EdgeType::Uses] {
+        for et in [
+            EdgeType::Contains,
+            EdgeType::Imports,
+            EdgeType::Inherits,
+            EdgeType::Calls,
+            EdgeType::Uses,
+        ] {
             let s = et.as_str();
             let parsed = EdgeType::from_str(s);
             assert_eq!(parsed, Some(et));

@@ -1,7 +1,7 @@
 //! Node model and operations.
 
-use serde::{Deserialize, Serialize};
 use super::schema::NodeType;
+use serde::{Deserialize, Serialize};
 
 /// A node in the code graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +32,11 @@ impl Node {
         let name = std::path::Path::new(file_path)
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or(file_path)
+            .unwrap_or_else(|| {
+                // Fall back to file_path if we can't extract a stem
+                // This handles edge cases like paths with invalid UTF-8
+                file_path
+            })
             .to_string();
 
         Self {

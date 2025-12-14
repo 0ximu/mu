@@ -290,14 +290,16 @@ fn scan_directory_internal(
 
     // Add custom ignore patterns
     if let Some(patterns) = &ignore_patterns {
+        let mut override_builder = ignore::overrides::OverrideBuilder::new(root);
         for pattern in patterns {
-            // Create a temporary override for each pattern
-            let mut override_builder = ignore::overrides::OverrideBuilder::new(root);
             // Negate the pattern to make it an ignore pattern
-            let _ = override_builder.add(&format!("!{}", pattern));
-            if let Ok(overrides) = override_builder.build() {
-                builder.overrides(overrides);
+            // The ! prefix tells the override builder to exclude matches
+            if let Err(e) = override_builder.add(&format!("!{}", pattern)) {
+                eprintln!("Warning: Invalid ignore pattern '{}': {}", pattern, e);
             }
+        }
+        if let Ok(overrides) = override_builder.build() {
+            builder.overrides(overrides);
         }
     }
 

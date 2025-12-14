@@ -12,60 +12,219 @@ static TYPE_PATTERN: Lazy<Regex> =
 /// Python built-in types to filter out from referenced_types.
 static PYTHON_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "str", "int", "float", "bool", "bytes", "None", "Any", "Self", "List", "Dict", "Set",
-        "Tuple", "Optional", "Union", "Callable", "Iterable", "Iterator", "Generator", "Sequence",
-        "Mapping", "Type", "ClassVar", "Final", "Literal", "TypeVar", "Generic", "Protocol",
-        "Awaitable", "Coroutine", "AsyncIterator", "AsyncIterable", "AsyncGenerator",
+        "str",
+        "int",
+        "float",
+        "bool",
+        "bytes",
+        "None",
+        "Any",
+        "Self",
+        "List",
+        "Dict",
+        "Set",
+        "Tuple",
+        "Optional",
+        "Union",
+        "Callable",
+        "Iterable",
+        "Iterator",
+        "Generator",
+        "Sequence",
+        "Mapping",
+        "Type",
+        "ClassVar",
+        "Final",
+        "Literal",
+        "TypeVar",
+        "Generic",
+        "Protocol",
+        "Awaitable",
+        "Coroutine",
+        "AsyncIterator",
+        "AsyncIterable",
+        "AsyncGenerator",
     ])
 });
 
 /// TypeScript/JavaScript built-in types to filter out from referenced_types.
 static TYPESCRIPT_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "string", "number", "boolean", "void", "null", "undefined", "any", "never", "unknown",
-        "object", "symbol", "bigint", "Array", "Object", "String", "Number", "Boolean", "Symbol",
-        "Promise", "Map", "Set", "WeakMap", "WeakSet", "Record", "Partial", "Required", "Readonly",
-        "Pick", "Omit", "Exclude", "Extract", "NonNullable", "ReturnType", "Parameters",
-        "ConstructorParameters", "InstanceType", "ThisType", "Awaited",
+        "string",
+        "number",
+        "boolean",
+        "void",
+        "null",
+        "undefined",
+        "any",
+        "never",
+        "unknown",
+        "object",
+        "symbol",
+        "bigint",
+        "Array",
+        "Object",
+        "String",
+        "Number",
+        "Boolean",
+        "Symbol",
+        "Promise",
+        "Map",
+        "Set",
+        "WeakMap",
+        "WeakSet",
+        "Record",
+        "Partial",
+        "Required",
+        "Readonly",
+        "Pick",
+        "Omit",
+        "Exclude",
+        "Extract",
+        "NonNullable",
+        "ReturnType",
+        "Parameters",
+        "ConstructorParameters",
+        "InstanceType",
+        "ThisType",
+        "Awaited",
     ])
 });
 
 /// Go built-in types to filter out from referenced_types.
 static GO_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "string", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32",
-        "uint64", "uintptr", "byte", "rune", "float32", "float64", "complex64", "complex128",
-        "bool", "error", "Error",
+        "string",
+        "int",
+        "int8",
+        "int16",
+        "int32",
+        "int64",
+        "uint",
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "uintptr",
+        "byte",
+        "rune",
+        "float32",
+        "float64",
+        "complex64",
+        "complex128",
+        "bool",
+        "error",
+        "Error",
     ])
 });
 
 /// Java built-in types to filter out from referenced_types.
 static JAVA_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "String", "Integer", "Long", "Double", "Float", "Boolean", "Character", "Byte", "Short",
-        "Object", "Class", "Void", "Number", "Enum", "Throwable", "Exception", "RuntimeException",
-        "List", "ArrayList", "LinkedList", "Map", "HashMap", "TreeMap", "Set", "HashSet",
-        "TreeSet", "Collection", "Iterable", "Iterator", "Optional", "Stream", "Future",
-        "CompletableFuture", "Callable", "Runnable", "Comparable", "Comparator",
+        "String",
+        "Integer",
+        "Long",
+        "Double",
+        "Float",
+        "Boolean",
+        "Character",
+        "Byte",
+        "Short",
+        "Object",
+        "Class",
+        "Void",
+        "Number",
+        "Enum",
+        "Throwable",
+        "Exception",
+        "RuntimeException",
+        "List",
+        "ArrayList",
+        "LinkedList",
+        "Map",
+        "HashMap",
+        "TreeMap",
+        "Set",
+        "HashSet",
+        "TreeSet",
+        "Collection",
+        "Iterable",
+        "Iterator",
+        "Optional",
+        "Stream",
+        "Future",
+        "CompletableFuture",
+        "Callable",
+        "Runnable",
+        "Comparable",
+        "Comparator",
     ])
 });
 
 /// Rust built-in types to filter out from referenced_types.
 static RUST_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "String", "Vec", "Box", "Rc", "Arc", "Cell", "RefCell", "Option", "Result", "Ok", "Err",
-        "Some", "None", "HashMap", "HashSet", "BTreeMap", "BTreeSet", "VecDeque", "LinkedList",
-        "BinaryHeap", "Cow", "Pin", "PhantomData", "Self",
+        "String",
+        "Vec",
+        "Box",
+        "Rc",
+        "Arc",
+        "Cell",
+        "RefCell",
+        "Option",
+        "Result",
+        "Ok",
+        "Err",
+        "Some",
+        "None",
+        "HashMap",
+        "HashSet",
+        "BTreeMap",
+        "BTreeSet",
+        "VecDeque",
+        "LinkedList",
+        "BinaryHeap",
+        "Cow",
+        "Pin",
+        "PhantomData",
+        "Self",
     ])
 });
 
 /// C# built-in types to filter out from referenced_types.
 static CSHARP_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     HashSet::from([
-        "String", "Int32", "Int64", "Double", "Single", "Boolean", "Byte", "Char", "Decimal",
-        "Object", "Type", "Void", "Array", "List", "Dictionary", "HashSet", "Queue", "Stack",
-        "IEnumerable", "IEnumerator", "IList", "IDictionary", "ICollection", "Task", "ValueTask",
-        "Action", "Func", "Predicate", "Nullable", "Exception", "EventHandler",
+        "String",
+        "Int32",
+        "Int64",
+        "Double",
+        "Single",
+        "Boolean",
+        "Byte",
+        "Char",
+        "Decimal",
+        "Object",
+        "Type",
+        "Void",
+        "Array",
+        "List",
+        "Dictionary",
+        "HashSet",
+        "Queue",
+        "Stack",
+        "IEnumerable",
+        "IEnumerator",
+        "IList",
+        "IDictionary",
+        "ICollection",
+        "Task",
+        "ValueTask",
+        "Action",
+        "Func",
+        "Predicate",
+        "Nullable",
+        "Exception",
+        "EventHandler",
     ])
 });
 
@@ -96,7 +255,11 @@ fn get_builtins_for_language(language: &str) -> &'static HashSet<&'static str> {
 ///
 /// # Returns
 /// Sorted, deduplicated `Vec<String>` of referenced type names
-pub fn extract_referenced_types<'a, I>(type_strings: I, class_name: &str, language: &str) -> Vec<String>
+pub fn extract_referenced_types<'a, I>(
+    type_strings: I,
+    class_name: &str,
+    language: &str,
+) -> Vec<String>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -130,9 +293,7 @@ where
 ///
 /// Used in conjunction with `extract_referenced_types` to populate
 /// the `referenced_types` field on ClassDef.
-pub fn collect_type_strings_from_methods(
-    methods: &[crate::types::FunctionDef],
-) -> Vec<String> {
+pub fn collect_type_strings_from_methods(methods: &[crate::types::FunctionDef]) -> Vec<String> {
     methods
         .iter()
         .flat_map(|method| {
@@ -318,15 +479,23 @@ mod tests {
     fn test_extract_referenced_types_filters_builtins() {
         // Should filter out Python builtins
         let type_strings = vec!["Optional[Node]", "List[str]", "Dict[str, Edge]", "Any"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let result =
+            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_typescript() {
         // Test TypeScript type extraction
-        let type_strings = vec!["Node | null", "Array<Edge>", "string", "MyClass", "Promise<void>"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "Service", "typescript");
+        let type_strings = vec![
+            "Node | null",
+            "Array<Edge>",
+            "string",
+            "MyClass",
+            "Promise<void>",
+        ];
+        let result =
+            extract_referenced_types(type_strings.iter().map(|s| *s), "Service", "typescript");
         assert_eq!(result, vec!["Edge", "MyClass", "Node"]);
     }
 
@@ -334,7 +503,8 @@ mod tests {
     fn test_extract_referenced_types_deduplicates() {
         // Should deduplicate types
         let type_strings = vec!["Node", "Edge", "Node", "Edge", "Node"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let result =
+            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
@@ -345,7 +515,8 @@ mod tests {
             "Callable[[Request, Response], Handler]",
             "dict[str, list[ConfigItem]]",
         ];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let result =
+            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
         assert_eq!(result, vec!["ConfigItem", "Handler", "Request", "Response"]);
     }
 
@@ -353,7 +524,8 @@ mod tests {
     fn test_extract_referenced_types_http_style() {
         // Should handle HTTP-style type names
         let type_strings = vec!["HTTPClient", "URLParser", "JSONResponse"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let result =
+            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
         assert_eq!(result, vec!["HTTPClient", "JSONResponse", "URLParser"]);
     }
 }

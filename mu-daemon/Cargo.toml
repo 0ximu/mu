@@ -3,67 +3,31 @@ name = "mu-daemon"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "High-performance MU code intelligence daemon"
+description = "MU storage library"
 authors = ["Yavor Kangalov <yavor@dominaite.com>"]
 repository = "https://github.com/dominaite/mu"
-keywords = ["llm", "code-analysis", "daemon", "code-intelligence"]
+keywords = ["llm", "code-analysis", "storage", "code-intelligence"]
 
-[[bin]]
-name = "mu-daemon"
-path = "src/main.rs"
+[lib]
+name = "mu_daemon"
+path = "src/lib.rs"
 
 [dependencies]
 # Our core library (parser, scanner, graph, etc.)
-# Disable Python bindings to avoid PyO3 linker issues
 mu-core = { path = "../mu-core", default-features = false }
-
-# Async runtime
-tokio = { version = "1.35", features = ["full"] }
-
-# HTTP server
-axum = { version = "0.7", features = ["ws"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # Database
 duckdb = { version = "1.1", features = ["bundled"] }
-
-# File watching
-notify = "7"
-notify-debouncer-mini = "0.5"
-
-# Query parsing
-pest = "2.7"
-pest_derive = "2.7"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Utilities
-clap = { version = "4", features = ["derive"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 thiserror = "2"
 anyhow = "1"
-num_cpus = "1"
 chrono = { version = "0.4", features = ["serde"] }
 
-# Async channels
-futures = "0.3"
-
-# HTTP client (for health checks, etc.)
-reqwest = { version = "0.12", features = ["json"] }
-
-# UUID generation
-uuid = { version = "1", features = ["v4"] }
-
 [dev-dependencies]
-tokio-test = "0.4"
 tempfile = "3"
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-strip = true

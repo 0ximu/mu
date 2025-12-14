@@ -8,7 +8,7 @@ use super::helpers::{
     get_end_line, get_node_text, get_start_line,
 };
 use crate::reducer::complexity;
-use crate::types::{ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
+use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
 /// Parse Java source code.
 pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
@@ -290,6 +290,7 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
             "block" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "java");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -327,6 +328,7 @@ fn extract_constructor(node: &Node, source: &str) -> FunctionDef {
             "constructor_body" => {
                 func_def.body_complexity = complexity::calculate_for_node(&child, source, "java");
                 func_def.body_source = Some(get_node_text(&child, source).to_string());
+                func_def.call_sites = extract_call_sites(&child, source);
             }
             _ => {}
         }
@@ -392,6 +394,149 @@ fn extract_fields(node: &Node, source: &str, attributes: &mut Vec<String>) {
             }
         }
     }
+}
+
+/// Extract all call sites from a method body node.
+fn extract_call_sites(body: &Node, source: &str) -> Vec<CallSiteDef> {
+    let mut call_sites = Vec::new();
+    find_call_sites_recursive(body, source, &mut call_sites);
+    call_sites
+}
+
+/// Recursively search for call expressions in AST.
+fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSiteDef>) {
+    match node.kind() {
+        "method_invocation" => {
+            if let Some(call_site) = extract_method_invocation(node, source) {
+                results.push(call_site);
+            }
+        }
+        "object_creation_expression" => {
+            if let Some(call_site) = extract_object_creation(node, source) {
+                results.push(call_site);
+            }
+        }
+        _ => {}
+    }
+
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        find_call_sites_recursive(&child, source, results);
+    }
+}
+
+/// Extract a call site from a method_invocation node.
+/// Handles patterns like: foo(), bar.foo(), this.foo(), super.foo()
+fn extract_method_invocation(node: &Node, source: &str) -> Option<CallSiteDef> {
+    let line = get_start_line(node);
+
+    // Method invocation structure in Java tree-sitter:
+    // - Simple call: identifier (method name) + argument_list
+    // - Object call: object + "." + identifier (method name) + argument_list
+    // - Chained: method_invocation + "." + identifier (method name) + argument_list
+
+    let mut method_name: Option<String> = None;
+    let mut receiver: Option<String> = None;
+
+    let mut cursor = node.walk();
+    let children: Vec<_> = node.children(&mut cursor).collect();
+
+    // Find the method name - it's typically the last identifier before argument_list
+    // and the receiver is what comes before the dot
+    for (i, child) in children.iter().enumerate() {
+        match child.kind() {
+            "identifier" => {
+                // Check if this is the method name (followed by argument_list or end)
+                let is_method = children
+                    .get(i + 1)
+                    .map(|next| next.kind() == "argument_list" || next.kind() == "(")
+                    .unwrap_or(true);
+
+                if is_method {
+                    method_name = Some(get_node_text(child, source).to_string());
+                } else {
+                    // This is a simple receiver (e.g., "list" in "list.add()")
+                    receiver = Some(get_node_text(child, source).to_string());
+                }
+            }
+            "field_access" | "method_invocation" => {
+                // Complex receiver like "this.field" or chained call "foo.bar()"
+                receiver = Some(get_node_text(child, source).to_string());
+            }
+            "this" | "super" => {
+                receiver = Some(get_node_text(child, source).to_string());
+            }
+            _ => {}
+        }
+    }
+
+    let method_name = method_name?;
+
+    // Check if it's a this/super call
+    let is_this_call = receiver
+        .as_ref()
+        .map(|r| r == "this" || r == "super")
+        .unwrap_or(false);
+
+    Some(CallSiteDef {
+        callee: if is_this_call {
+            method_name
+        } else if let Some(ref recv) = receiver {
+            format!("{}.{}", recv, method_name)
+        } else {
+            method_name
+        },
+        line,
+        is_method_call: receiver.is_some(),
+        receiver,
+    })
+}
+
+/// Extract a call site from an object_creation_expression node.
+/// Handles patterns like: new Foo(), new Bar<T>(), new pkg.Baz()
+fn extract_object_creation(node: &Node, source: &str) -> Option<CallSiteDef> {
+    let line = get_start_line(node);
+
+    // Find the type being constructed
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "type_identifier" => {
+                let class_name = get_node_text(&child, source).to_string();
+                return Some(CallSiteDef {
+                    callee: format!("new {}", class_name),
+                    line,
+                    is_method_call: false,
+                    receiver: None,
+                });
+            }
+            "generic_type" => {
+                // Generic type like List<String> - extract the base type
+                if let Some(type_id) = find_child_by_type(&child, "type_identifier") {
+                    let class_name = get_node_text(&type_id, source).to_string();
+                    return Some(CallSiteDef {
+                        callee: format!("new {}", class_name),
+                        line,
+                        is_method_call: false,
+                        receiver: None,
+                    });
+                }
+            }
+            "scoped_type_identifier" => {
+                // Qualified type like com.example.Foo
+                let full_name = get_node_text(&child, source).to_string();
+                return Some(CallSiteDef {
+                    callee: format!("new {}", full_name),
+                    line,
+                    is_method_call: false,
+                    receiver: None,
+                });
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 /// Extract interface declaration.
@@ -526,5 +671,165 @@ import static java.lang.Math.*;
 "#;
         let result = parse(source, "Test.java").unwrap();
         assert_eq!(result.imports.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_call_sites() {
+        let source = r#"
+public class Service {
+    public void process(Data data) {
+        Data validated = validate(data);
+        Result result = this.transform(validated);
+        helper.save(result);
+        return finish(result);
+    }
+}
+"#;
+        let result = parse(source, "Service.java").unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let method = &result.classes[0].methods[0];
+        assert!(
+            method.call_sites.len() >= 3,
+            "Expected at least 3 call sites, got {}",
+            method.call_sites.len()
+        );
+
+        // Check we captured validate() call
+        assert!(
+            method.call_sites.iter().any(|c| c.callee == "validate"),
+            "Should find validate() call"
+        );
+
+        // Check we captured helper.save() call
+        assert!(
+            method.call_sites.iter().any(|c| c.callee == "helper.save"),
+            "Should find helper.save() call"
+        );
+    }
+
+    #[test]
+    fn test_method_call_detection() {
+        let source = r#"
+public class MyClass {
+    public void doWork() {
+        this.helper();
+        super.init();
+        other.process();
+    }
+}
+"#;
+        let result = parse(source, "MyClass.java").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // this.helper() should be detected as method call with receiver "this"
+        let this_call = method.call_sites.iter().find(|c| c.callee == "helper");
+        assert!(this_call.is_some(), "Should find this.helper() call");
+        assert!(this_call.unwrap().is_method_call);
+        assert_eq!(this_call.unwrap().receiver, Some("this".to_string()));
+
+        // super.init() should be detected as method call with receiver "super"
+        let super_call = method.call_sites.iter().find(|c| c.callee == "init");
+        assert!(super_call.is_some(), "Should find super.init() call");
+        assert_eq!(super_call.unwrap().receiver, Some("super".to_string()));
+    }
+
+    #[test]
+    fn test_constructor_call_sites() {
+        let source = r#"
+public class Builder {
+    private List<String> items;
+
+    public Builder() {
+        this.items = new ArrayList<>();
+        initialize();
+    }
+}
+"#;
+        let result = parse(source, "Builder.java").unwrap();
+        let constructor = result.classes[0]
+            .methods
+            .iter()
+            .find(|m| m.decorators.contains(&"constructor".to_string()));
+        assert!(constructor.is_some(), "Should find constructor");
+
+        let call_sites = &constructor.unwrap().call_sites;
+        assert!(
+            call_sites.len() >= 2,
+            "Expected at least 2 call sites in constructor, got {}",
+            call_sites.len()
+        );
+
+        // Check for new ArrayList<>() call
+        assert!(
+            call_sites.iter().any(|c| c.callee == "new ArrayList"),
+            "Should find new ArrayList<>() call"
+        );
+
+        // Check for initialize() call
+        assert!(
+            call_sites.iter().any(|c| c.callee == "initialize"),
+            "Should find initialize() call"
+        );
+    }
+
+    #[test]
+    fn test_object_creation_expression() {
+        let source = r#"
+public class Factory {
+    public Object create(String type) {
+        if (type.equals("A")) {
+            return new TypeA();
+        }
+        return new com.example.TypeB();
+    }
+}
+"#;
+        let result = parse(source, "Factory.java").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // Check for new TypeA() call
+        assert!(
+            method.call_sites.iter().any(|c| c.callee == "new TypeA"),
+            "Should find new TypeA() call"
+        );
+
+        // Check for new com.example.TypeB() call (qualified type)
+        assert!(
+            method
+                .call_sites
+                .iter()
+                .any(|c| c.callee == "new com.example.TypeB"),
+            "Should find new com.example.TypeB() call"
+        );
+    }
+
+    #[test]
+    fn test_chained_method_calls() {
+        let source = r#"
+public class Stream {
+    public List<String> transform(List<String> input) {
+        return input.stream()
+            .filter(x -> x.length() > 0)
+            .map(String::toUpperCase)
+            .collect(Collectors.toList());
+    }
+}
+"#;
+        let result = parse(source, "Stream.java").unwrap();
+        let method = &result.classes[0].methods[0];
+
+        // Should capture multiple calls in the chain
+        assert!(
+            method.call_sites.len() >= 1,
+            "Expected at least 1 call site for stream chain"
+        );
+
+        // Should find at least the initial stream() call
+        let has_stream_related = method.call_sites.iter().any(|c| {
+            c.callee.contains("stream")
+                || c.callee.contains("filter")
+                || c.callee.contains("collect")
+        });
+        assert!(has_stream_related, "Should find stream-related call");
     }
 }

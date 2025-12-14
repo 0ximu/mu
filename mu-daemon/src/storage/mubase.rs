@@ -1,76 +1,26 @@
 //! MUbase - DuckDB-based storage for the code graph.
 
 use anyhow::{Context, Result};
-use duckdb::{params, Connection};
+use duckdb::{params, Config, Connection};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// Database access mode for concurrent access control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AccessMode {
+    /// Read-write mode (exclusive lock, for modifications)
+    #[default]
+    ReadWrite,
+    /// Read-only mode (shared access, for queries)
+    ReadOnly,
+}
+
 use super::edges::Edge;
+use super::embeddings::{cosine_similarity, EmbeddingStats, VectorSearchResult};
+use super::graph_engine::GraphEngine;
 use super::nodes::Node;
 use super::schema::{NodeType, SCHEMA_SQL, SCHEMA_VERSION};
-
-/// Graph engine wrapper around petgraph for in-memory graph operations.
-pub struct GraphEngine {
-    nodes: Vec<String>,
-    edges: Vec<(String, String, String)>,
-    node_map: HashMap<String, usize>,
-}
-
-impl GraphEngine {
-    /// Create a new empty graph engine.
-    pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            node_map: HashMap::new(),
-        }
-    }
-
-    /// Create from nodes and edges.
-    pub fn from_data(nodes: Vec<String>, edges: Vec<(String, String, String)>) -> Self {
-        let mut node_map = HashMap::new();
-        for (i, node) in nodes.iter().enumerate() {
-            node_map.insert(node.clone(), i);
-        }
-        Self {
-            nodes,
-            edges,
-            node_map,
-        }
-    }
-
-    /// Get the number of nodes.
-    pub fn node_count(&self) -> usize {
-        self.nodes.len()
-    }
-
-    /// Get the number of edges.
-    pub fn edge_count(&self) -> usize {
-        self.edges.len()
-    }
-
-    /// Check if a node exists.
-    pub fn has_node(&self, node_id: &str) -> bool {
-        self.node_map.contains_key(node_id)
-    }
-
-    /// Get all nodes.
-    pub fn get_nodes(&self) -> &[String] {
-        &self.nodes
-    }
-
-    /// Get all edges as (source, target, type) tuples.
-    pub fn get_edges(&self) -> &[(String, String, String)] {
-        &self.edges
-    }
-}
-
-impl Default for GraphEngine {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// MUbase - DuckDB-based storage for code graphs.
 pub struct MUbase {
@@ -79,18 +29,50 @@ pub struct MUbase {
 }
 
 impl MUbase {
-    /// Open or create a MUbase database.
+    /// Open or create a MUbase database in read-write mode.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_mode(path, AccessMode::ReadWrite)
+    }
+
+    /// Open a MUbase database in read-only mode (for concurrent queries).
+    ///
+    /// Use this for operations that don't modify the database, such as:
+    /// - Running MUQL queries
+    /// - Vector search
+    /// - Graph traversal
+    ///
+    /// Multiple read-only connections can coexist without blocking.
+    pub fn open_read_only(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_mode(path, AccessMode::ReadOnly)
+    }
+
+    /// Open a MUbase database with the specified access mode.
+    pub fn open_with_mode(path: impl AsRef<Path>, mode: AccessMode) -> Result<Self> {
         let path = path.as_ref();
-        let conn = Connection::open(path)
-            .with_context(|| format!("Failed to open database: {:?}", path))?;
+
+        let conn = match mode {
+            AccessMode::ReadWrite => Connection::open(path)
+                .with_context(|| format!("Failed to open database: {:?}", path))?,
+            AccessMode::ReadOnly => {
+                let config = Config::default()
+                    .access_mode(duckdb::AccessMode::ReadOnly)
+                    .map_err(|e| anyhow::anyhow!("Failed to set read-only mode: {}", e))?;
+                Connection::open_with_flags(path, config).with_context(|| {
+                    format!("Failed to open database in read-only mode: {:?}", path)
+                })?
+            }
+        };
 
         let mubase = Self {
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_path_buf(),
         };
 
-        mubase.init_schema()?;
+        // Only initialize schema in read-write mode
+        if mode == AccessMode::ReadWrite {
+            mubase.init_schema()?;
+        }
+
         Ok(mubase)
     }
 
@@ -98,14 +80,41 @@ impl MUbase {
     /// If the mutex is poisoned (previous holder panicked), we still acquire
     /// the lock and continue - the database connection itself is likely fine.
     fn acquire_conn(&self) -> Result<std::sync::MutexGuard<'_, Connection>> {
-        self.conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Database lock poisoned: {}", e))
+        match self.conn.lock() {
+            Ok(guard) => Ok(guard),
+            Err(poisoned) => {
+                tracing::warn!("Recovering from poisoned database mutex");
+                Ok(poisoned.into_inner())
+            }
+        }
     }
 
     /// Initialize the database schema.
     fn init_schema(&self) -> Result<()> {
         let conn = self.acquire_conn()?;
+
+        // Note: DuckDB has different concurrency model than SQLite:
+        // - Single writer, multiple readers by default
+        // - Use open_read_only() for read-only connections
+        // - No WAL mode pragma needed (DuckDB manages this internally)
+
+        // Check for v1 schema incompatibility (has model_name column instead of model)
+        // DuckDB doesn't have information_schema.columns, so we try a query that would fail
+        let has_old_schema = conn
+            .query_row(
+                "SELECT 1 FROM embeddings WHERE model_name IS NOT NULL LIMIT 1",
+                [],
+                |_| Ok(true),
+            )
+            .is_ok();
+
+        if has_old_schema {
+            anyhow::bail!(
+                "Database was created with MU v1 and is incompatible with v2.\n\
+                 Please delete and rebuild:\n\n\
+                   rm -rf .mu && mu bootstrap\n"
+            );
+        }
 
         // Execute schema creation
         conn.execute_batch(SCHEMA_SQL)
@@ -115,7 +124,8 @@ impl MUbase {
         conn.execute(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
             params![SCHEMA_VERSION],
-        )?;
+        )
+        .context("Failed to set schema version")?;
 
         Ok(())
     }
@@ -132,7 +142,9 @@ impl MUbase {
         let properties_json = node
             .properties
             .as_ref()
-            .map(|p| serde_json::to_string(p).unwrap_or_default());
+            .map(|p| serde_json::to_string(p))
+            .transpose()
+            .context("Failed to serialize node properties")?;
 
         conn.execute(
             r#"INSERT OR REPLACE INTO nodes
@@ -149,7 +161,8 @@ impl MUbase {
                 properties_json,
                 node.complexity,
             ],
-        )?;
+        )
+        .with_context(|| format!("Failed to insert node: {}", node.id))?;
         Ok(())
     }
 
@@ -158,13 +171,18 @@ impl MUbase {
         use duckdb::Appender;
 
         // Deduplicate by ID (keep last occurrence)
-        let mut unique_nodes: std::collections::HashMap<&str, &Node> = std::collections::HashMap::new();
+        let mut unique_nodes: std::collections::HashMap<&str, &Node> =
+            std::collections::HashMap::new();
         for node in nodes {
             unique_nodes.insert(&node.id, node);
         }
 
         let dedup_nodes: Vec<&Node> = unique_nodes.into_values().collect();
-        tracing::info!("insert_nodes: {} unique nodes (from {} total)", dedup_nodes.len(), nodes.len());
+        tracing::info!(
+            "insert_nodes: {} unique nodes (from {} total)",
+            dedup_nodes.len(),
+            nodes.len()
+        );
 
         let conn = self.acquire_conn()?;
 
@@ -173,12 +191,16 @@ impl MUbase {
 
         // Use appender for bulk insert
         {
-            let mut appender = conn.appender("nodes")?;
+            let mut appender = conn
+                .appender("nodes")
+                .context("Failed to create node appender")?;
             for node in &dedup_nodes {
                 let properties_json = node
                     .properties
                     .as_ref()
-                    .map(|p| serde_json::to_string(p).unwrap_or_default());
+                    .map(|p| serde_json::to_string(p))
+                    .transpose()
+                    .context("Failed to serialize node properties")?;
 
                 appender.append_row(params![
                     node.id,
@@ -207,7 +229,9 @@ impl MUbase {
         let properties_json = edge
             .properties
             .as_ref()
-            .map(|p| serde_json::to_string(p).unwrap_or_default());
+            .map(|p| serde_json::to_string(p))
+            .transpose()
+            .context("Failed to serialize edge properties")?;
 
         conn.execute(
             r#"INSERT OR REPLACE INTO edges
@@ -220,7 +244,8 @@ impl MUbase {
                 edge.edge_type.as_str(),
                 properties_json,
             ],
-        )?;
+        )
+        .with_context(|| format!("Failed to insert edge: {}", edge.id))?;
         Ok(())
     }
 
@@ -229,14 +254,16 @@ impl MUbase {
         use duckdb::Appender;
 
         // Count by type before dedup
-        let mut type_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut type_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
         for edge in edges {
             *type_counts.entry(edge.edge_type.as_str()).or_insert(0) += 1;
         }
         tracing::info!("insert_edges: before dedup - {:?}", type_counts);
 
         // Deduplicate by ID (keep last occurrence)
-        let mut unique_edges: std::collections::HashMap<&str, &Edge> = std::collections::HashMap::new();
+        let mut unique_edges: std::collections::HashMap<&str, &Edge> =
+            std::collections::HashMap::new();
         for edge in edges {
             unique_edges.insert(&edge.id, edge);
         }
@@ -244,12 +271,19 @@ impl MUbase {
         let dedup_edges: Vec<&Edge> = unique_edges.into_values().collect();
 
         // Count by type after dedup
-        let mut type_counts_after: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut type_counts_after: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
         for edge in &dedup_edges {
-            *type_counts_after.entry(edge.edge_type.as_str()).or_insert(0) += 1;
+            *type_counts_after
+                .entry(edge.edge_type.as_str())
+                .or_insert(0) += 1;
         }
         tracing::info!("insert_edges: after dedup - {:?}", type_counts_after);
-        tracing::info!("insert_edges: {} unique edges (from {} total)", dedup_edges.len(), edges.len());
+        tracing::info!(
+            "insert_edges: {} unique edges (from {} total)",
+            dedup_edges.len(),
+            edges.len()
+        );
 
         let conn = self.acquire_conn()?;
 
@@ -258,12 +292,16 @@ impl MUbase {
 
         // Use appender for bulk insert
         {
-            let mut appender = conn.appender("edges")?;
+            let mut appender = conn
+                .appender("edges")
+                .context("Failed to create edge appender")?;
             for edge in &dedup_edges {
                 let properties_json = edge
                     .properties
                     .as_ref()
-                    .map(|p| serde_json::to_string(p).unwrap_or_default());
+                    .map(|p| serde_json::to_string(p))
+                    .transpose()
+                    .context("Failed to serialize edge properties")?;
 
                 appender.append_row(params![
                     edge.id,
@@ -352,21 +390,38 @@ impl MUbase {
             "DELETE FROM edges WHERE source_id IN (SELECT id FROM nodes WHERE file_path = ?)
              OR target_id IN (SELECT id FROM nodes WHERE file_path = ?)",
             params![file_path, file_path],
-        )?;
+        )
+        .with_context(|| format!("Failed to delete edges for file: {}", file_path))?;
 
         // Then delete the nodes
-        let deleted = conn.execute("DELETE FROM nodes WHERE file_path = ?", params![file_path])?;
+        let deleted = conn
+            .execute("DELETE FROM nodes WHERE file_path = ?", params![file_path])
+            .with_context(|| format!("Failed to delete nodes for file: {}", file_path))?;
 
         Ok(deleted)
     }
 
     /// Execute a raw SQL query and return results.
     pub fn query(&self, sql: &str) -> Result<QueryResult> {
-        let conn = self.acquire_conn()?;
-        let mut stmt = conn.prepare(sql)?;
+        self.query_with_params(sql, &[])
+    }
 
-        // Execute the query
-        let mut rows = stmt.query([])?;
+    /// Execute a SQL query with parameters and return results.
+    ///
+    /// Parameters use `?` placeholders in the SQL string.
+    /// This prevents SQL injection by properly escaping values.
+    pub fn query_with_params(
+        &self,
+        sql: &str,
+        params: &[&dyn duckdb::ToSql],
+    ) -> Result<QueryResult> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn
+            .prepare(sql)
+            .with_context(|| format!("Failed to prepare query: {}", sql))?;
+
+        // Execute the query with parameters
+        let mut rows = stmt.query(params).context("Failed to execute query")?;
 
         // Collect rows and extract column information
         let mut rows_data: Vec<Vec<serde_json::Value>> = Vec::new();
@@ -714,29 +769,6 @@ impl MUbase {
     }
 }
 
-/// Compute cosine similarity between two vectors.
-/// Assumes query_magnitude is pre-computed for efficiency.
-fn cosine_similarity(query: &[f32], stored: &[f32], query_magnitude: f32) -> f32 {
-    if query.len() != stored.len() || query_magnitude == 0.0 {
-        return 0.0;
-    }
-
-    let mut dot_product = 0.0f32;
-    let mut stored_magnitude_sq = 0.0f32;
-
-    for (q, s) in query.iter().zip(stored.iter()) {
-        dot_product += q * s;
-        stored_magnitude_sq += s * s;
-    }
-
-    let stored_magnitude = stored_magnitude_sq.sqrt();
-    if stored_magnitude == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (query_magnitude * stored_magnitude)
-}
-
 /// Result of a SQL query.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QueryResult {
@@ -771,36 +803,6 @@ pub struct GraphStats {
     pub node_count: usize,
     pub edge_count: usize,
     pub type_counts: HashMap<String, usize>,
-}
-
-/// Result of a vector similarity search.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct VectorSearchResult {
-    /// Node ID that matched
-    pub node_id: String,
-    /// Cosine similarity score (0.0 to 1.0)
-    pub similarity: f32,
-    /// Node name
-    pub name: String,
-    /// Node type (module, class, function, external)
-    pub node_type: String,
-    /// File path (if available)
-    pub file_path: Option<String>,
-    /// Qualified name (if available)
-    pub qualified_name: Option<String>,
-}
-
-/// Statistics about embeddings in the database.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct EmbeddingStats {
-    /// Total number of nodes in the database
-    pub total_nodes: usize,
-    /// Number of nodes that have embeddings
-    pub nodes_with_embeddings: usize,
-    /// Model used for embeddings (if any)
-    pub model: Option<String>,
-    /// Coverage percentage (nodes_with_embeddings / total_nodes * 100)
-    pub coverage_percent: f32,
 }
 
 #[cfg(test)]
@@ -1002,7 +1004,11 @@ mod tests {
         // Insert embeddings - one similar to query, one different
         let batch = vec![
             ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
-            ("mod:src/different.py".to_string(), vec![0.0, 1.0, 0.0], None),
+            (
+                "mod:src/different.py".to_string(),
+                vec![0.0, 1.0, 0.0],
+                None,
+            ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
@@ -1029,7 +1035,11 @@ mod tests {
         // Insert embeddings
         let batch = vec![
             ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
-            ("mod:src/different.py".to_string(), vec![0.0, 1.0, 0.0], None),
+            (
+                "mod:src/different.py".to_string(),
+                vec![0.0, 1.0, 0.0],
+                None,
+            ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
@@ -1093,7 +1103,11 @@ mod tests {
         db.insert_embeddings_batch(&batch, None).unwrap();
 
         // Also insert an orphan embedding (no corresponding node)
-        let orphan_batch = vec![("mod:src/nonexistent.py".to_string(), vec![0.4, 0.5, 0.6], None)];
+        let orphan_batch = vec![(
+            "mod:src/nonexistent.py".to_string(),
+            vec![0.4, 0.5, 0.6],
+            None,
+        )];
         db.insert_embeddings_batch(&orphan_batch, None).unwrap();
 
         // Verify we have 2 embeddings
