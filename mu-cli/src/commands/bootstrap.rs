@@ -164,7 +164,7 @@ max_file_size_kb = 1000
 # languages = ["python", "typescript", "rust"]  # Uncomment to limit parsing
 
 [output]
-format = "mu"
+format = "table"
 include_line_numbers = false
 
 [cache]

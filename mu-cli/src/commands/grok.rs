@@ -376,6 +376,11 @@ fn get_related_nodes(
 
 /// Run the grok command
 pub async fn run(question: &str, depth: u8, format: OutputFormat) -> anyhow::Result<()> {
+    // Validate question is not empty
+    if question.trim().is_empty() {
+        anyhow::bail!("Question cannot be empty. Please provide a question or topic.");
+    }
+
     let start = Instant::now();
 
     // Validate depth

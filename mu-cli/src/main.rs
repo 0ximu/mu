@@ -6,6 +6,20 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+/// Parse and validate threshold value (must be between 0.0 and 1.0)
+fn parse_threshold(s: &str) -> Result<f32, String> {
+    let value: f32 = s
+        .parse()
+        .map_err(|_| format!("'{}' is not a valid number", s))?;
+    if !(0.0..=1.0).contains(&value) {
+        return Err(format!(
+            "threshold must be between 0.0 and 1.0, got {}",
+            value
+        ));
+    }
+    Ok(value)
+}
+
 mod cache;
 mod commands;
 mod config;
@@ -133,7 +147,7 @@ enum Commands {
         limit: usize,
 
         /// Minimum similarity threshold (0.0-1.0)
-        #[arg(short, long, default_value = "0.1")]
+        #[arg(short, long, default_value = "0.1", value_parser = parse_threshold)]
         threshold: f32,
     },
 
@@ -422,9 +436,9 @@ fn setup_logging(verbose: bool, quiet: bool) {
     let filter = if quiet {
         "error"
     } else if verbose {
-        "debug"
+        "debug,mu_embeddings=info"
     } else {
-        "info"
+        "warn"
     };
 
     tracing_subscriber::registry()

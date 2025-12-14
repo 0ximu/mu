@@ -362,9 +362,28 @@ fn execute_query_direct(query_str: &str) -> Result<QueryResult> {
 
     // Execute the query directly and collect all results
     // Note: DuckDB requires query execution before accessing column metadata
-    let mut stmt = conn
-        .prepare(&final_query)
-        .with_context(|| format!("Failed to prepare query: {}", final_query))?;
+    let mut stmt = conn.prepare(&final_query).map_err(|e| {
+        let msg = e.to_string();
+        // Provide friendlier error messages for common issues
+        if msg.contains("syntax error") {
+            anyhow::anyhow!(
+                "Invalid query syntax.\n\n\
+                 Hint: Run 'mu query --examples' for valid query examples.\n\n\
+                 Details: {}",
+                msg
+            )
+        } else if msg.contains("does not exist") {
+            anyhow::anyhow!(
+                "Table or column not found.\n\n\
+                 Hint: Run 'mu query \"SHOW TABLES\"' to see available tables,\n\
+                       or 'mu query --schema' for column reference.\n\n\
+                 Details: {}",
+                msg
+            )
+        } else {
+            anyhow::anyhow!("Query failed: {}", msg)
+        }
+    })?;
 
     let mut rows = stmt.query([])?;
 
@@ -450,32 +469,26 @@ Aggregation:
   SELECT type, COUNT(*) FROM nodes GROUP BY type
   SELECT AVG(complexity) FROM functions
 
-SHOW relationships:
-  SHOW dependencies OF MyClass               # What does MyClass depend on?
-  SHOW dependents OF MyClass                 # What depends on MyClass?
-  SHOW dependencies OF MyClass DEPTH 3       # Transitive dependencies
-  SHOW children OF MyModule                  # Contents of a module/class
+Terse syntax (shortcuts):
+  fn                                         # All functions
+  fn c>50                                    # Functions with complexity > 50
+  fn n%auth                                  # Functions matching 'auth'
+  fn f%src/api                               # Functions in src/api path
+  cls                                        # All classes
+  mod                                        # All modules
+  fn c>10 l5 o:-complexity                   # Combined: filter, limit, order
 
-FIND pattern search:
-  FIND functions MATCHING 'test_%'           # Functions starting with test_
-  FIND classes CALLING parse_file            # Classes that call parse_file
-  FIND functions WITH DECORATOR '@cache'     # Functions with decorator
-
-PATH queries:
-  PATH FROM cli TO parser                    # Any path between nodes
-  PATH FROM cli TO parser MAX DEPTH 5        # Limited depth
-  PATH FROM api TO database VIA imports      # Only import edges
-
-ANALYZE:
-  ANALYZE complexity                         # Complexity analysis
-  ANALYZE hotspots                           # High-change areas
-  ANALYZE circular                           # Circular dependencies
-  FIND CYCLES                                # Detect cycles in graph
-
-DESCRIBE (schema):
+Schema info:
   SHOW TABLES                                # List available tables
-  SHOW COLUMNS FROM functions                # Schema for functions table
-  DESCRIBE functions                         # Schema for functions table
+  DESCRIBE nodes                             # Schema for nodes table
+
+Graph operations (use dedicated commands):
+  mu deps MyClass                            # Dependencies of MyClass
+  mu deps MyClass -r                         # What depends on MyClass
+  mu impact Parser                           # What breaks if Parser changes
+  mu ancestors Parser                        # What Parser depends on
+  mu cycles                                  # Find circular dependencies
+  mu path cli parser                         # Path between nodes
 
 For more details: https://github.com/dominaite/mu#muql
 "#;
@@ -485,13 +498,18 @@ pub const MUQL_SCHEMA: &str = r#"
 MUQL Schema Reference
 =====================
 
-Tables (node types):
-  nodes      - All nodes (modules, classes, functions)
-  modules    - File/module level entities
-  classes    - Class/struct/interface definitions
-  functions  - Function/method definitions
+Tables:
+  nodes       - All nodes (modules, classes, functions)
+  edges       - Relationships between nodes
+  embeddings  - Vector embeddings for semantic search
+  metadata    - Database metadata
 
-Columns (all tables share these):
+Virtual tables (auto-rewritten to nodes with type filter):
+  functions   -> nodes WHERE type = 'function'
+  classes     -> nodes WHERE type = 'class'
+  modules     -> nodes WHERE type = 'module'
+
+Node columns:
   id            VARCHAR   Node identifier (e.g., "cls:src/auth.py:AuthService")
   type          VARCHAR   Node type: module, class, function
   name          VARCHAR   Simple name (e.g., "AuthService")
@@ -500,13 +518,18 @@ Columns (all tables share these):
   line_start    INTEGER   Start line number
   line_end      INTEGER   End line number
   complexity    INTEGER   Cyclomatic complexity score
+  properties    JSON      Additional metadata
 
-Edge types (for SHOW/PATH queries):
+Edge columns:
+  source_id     VARCHAR   Source node ID
+  target_id     VARCHAR   Target node ID
+  type          VARCHAR   Edge type (see below)
+
+Edge types:
   contains   - Module->Class, Class->Function (structural)
   imports    - Module->Module (import dependencies)
   inherits   - Class->Class (inheritance)
   calls      - Function->Function (call graph)
-  uses       - Class->Class (type references)
 
 Common filters:
   WHERE complexity > 20        # High complexity
@@ -514,7 +537,7 @@ Common filters:
   WHERE file_path LIKE 'src/%' # Path pattern
   WHERE type = 'function'      # Node type
 
-Tip: Use SHOW TABLES or DESCRIBE <table> for live schema info.
+Tip: Use SHOW TABLES or DESCRIBE nodes for live schema info.
 "#;
 
 /// Query result for display

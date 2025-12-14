@@ -1,4 +1,32 @@
-# Python
+# Cargo build artifacts
+/target/
+**/target/
+
+# MU runtime
+.mu/
+.mu-cache/
+*.mu
+*.omg
+.mubase
+.mubase.wal
+.mu.pid
+.murc.toml
+
+# Internal - not for public release
+archive/
+data/
+mu-sigma/
+checkpoints/
+models/
+!mu-embeddings/models/
+.beads/
+.benchmarks/
+.bmad
+docs/prd/
+docs/epics/
+docs/internal/
+
+# Python (legacy, for mu-sigma training only)
 __pycache__/
 *.py[cod]
 *$py.class
@@ -19,13 +47,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual environments
 .venv/
 venv/
 ENV/
 
-# Environment variables
+# Environment
 .env
 .env.local
 
@@ -48,16 +74,6 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
-# MU specific
-.mu-cache/
-*.mu
-.mubase
-.mubase.wal
-.mu.pid
-
-# Rust
-mu-daemon/target/
-
 # OS
 .DS_Store
 Thumbs.db
@@ -65,15 +81,3 @@ Thumbs.db
 # VS Code extension
 tools/vscode-mu/node_modules/
 *.vsix
-
-data/sigma/
-
-# ML Models and training artifacts
-models/
-checkpoints/
-
-# MU (Machine Understanding)
-.mu/
-
-# Cargo build artifacts
-/target/

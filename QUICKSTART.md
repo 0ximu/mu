@@ -1,65 +1,83 @@
 # MU Quick Start Guide
 
-Get your codebase into an LLM's context in under 5 minutes.
+> **tl;dr**: `cargo build --release && mu bootstrap && mu omg`
+>
+> Get your codebase into an LLM's context in under 5 minutes.
 
 ## 1. Install MU
 
 ```bash
-git clone https://github.com/dominaite/mu.git
+# Build from source (Rust 1.70+)
+git clone https://github.com/0ximu/mu.git
 cd mu
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e .
+cargo build --release
+
+# Add to PATH (optional)
+sudo cp target/release/mu /usr/local/bin/
 ```
 
 Verify installation:
 ```bash
 mu --version
-# mu, version 0.1.0
+# mu 0.1.0-alpha.1
 ```
 
-## 2. Compress Your Codebase
+## 2. Bootstrap Your Codebase
 
 ```bash
 # Navigate to your project
 cd /path/to/your/project
 
-# Compress the source directory
-mu compress ./src --output system.mu
+# Initialize MU (builds graph database)
+mu bootstrap
 ```
 
 You'll see output like:
 ```
-Scanning src...
+Scanning...
 Found 283 files
-Parsing files... ━━━━━━━━━━━━━━━━━━━━ 283/283 100%
-Parsed 257 files successfully
-Applying transformation rules...
-Reduced to 517 classes, 577 functions, 1300 methods
-Output written to system.mu
+Parsing files... 283/283
+Built graph: 517 classes, 577 functions
+Database: .mu/mubase
 ```
 
-## 3. Feed to an LLM
+## 3. Query Your Code
 
-### Option A: Copy to Clipboard (macOS)
+### Quick Queries (Terse Syntax)
+
 ```bash
-cat system.mu | pbcopy
-```
-Then paste into Claude, ChatGPT, Gemini, or any LLM interface.
+# Find complex functions
+mu q "fn c>50"
 
-### Option B: Direct Terminal Output
+# Classes matching a pattern
+mu q "cls n~'Service'"
+
+# Dependencies of a module
+mu q "deps Auth d2"
+```
+
+### Full SQL Syntax
+
 ```bash
-mu compress ./src  # Prints to stdout
+mu query "SELECT name, complexity FROM functions WHERE complexity > 10 ORDER BY complexity DESC LIMIT 20"
 ```
 
-### Option C: Pipe to Claude CLI
+## 4. Generate LLM-Ready Output
+
 ```bash
-cat system.mu | claude "What are the main services in this codebase?"
+# Export semantic summary
+mu export > system.mu
+
+# Copy to clipboard (macOS)
+mu export | pbcopy
+
+# Pipe to Claude CLI
+mu export | claude "What are the main services in this codebase?"
 ```
 
-## 4. Ask Architectural Questions
+## 5. Ask Architectural Questions
 
-Once the LLM has your MU file, try these prompts:
+Once the LLM has your MU output, try these prompts:
 
 **Understanding Structure:**
 ```
@@ -82,171 +100,139 @@ Once the LLM has your MU file, try these prompts:
 "Identify the most critical dependencies"
 ```
 
-**Code Quality:**
-```
-"Are there any potential race conditions?"
-"Which functions are flagged as complex?"
-"Identify tightly coupled components"
-```
-
-## 5. Customize (Optional)
-
-Create a config file for project-specific settings:
+## 6. Enable Semantic Search (Optional)
 
 ```bash
-mu init  # Creates .murc.toml
+# Generate embeddings (~1 min per 1000 files)
+mu embed
+
+# Now search by meaning, not just keywords
+mu search "error handling logic"
+mu search "authentication flow"
 ```
 
-Edit `.murc.toml`:
-```toml
-[scanner]
-ignore = [
-    "node_modules/",
-    ".git/",
-    "**/*.test.ts",
-    "**/__mocks__/**",
-]
+## 7. Graph Analysis
 
-[reducer]
-complexity_threshold = 30  # Higher = fewer LLM flags
+```bash
+# What does this depend on?
+mu deps UserService
+
+# What depends on this? (reverse)
+mu deps UserService -r
+
+# What breaks if I change this?
+mu impact PaymentProcessor
+
+# Find circular dependencies
+mu cycles
 ```
 
 ## Common Use Cases
 
 ### Onboarding to a New Codebase
 ```bash
-mu compress ./src -o overview.mu
-# "Explain the architecture of this system to a new developer"
+mu bootstrap && mu omg
+# Then ask: "Explain the architecture of this system to a new developer"
 ```
 
 ### Code Review Prep
 ```bash
-mu compress ./src -o current.mu
-# "What would be the impact of changing the UserService?"
+mu diff main HEAD
+# "What are the semantic changes in this diff?"
 ```
 
 ### Documentation Generation
 ```bash
-mu compress ./src -o docs.mu
-# "Generate API documentation for the public endpoints"
+mu export -F json > graph.json
+# "Generate API documentation from this code graph"
 ```
 
 ### Debugging Complex Issues
 ```bash
-mu compress ./src -o debug.mu
-# "How does data flow through the matching service?"
+mu grok "How does data flow through the matching service?"
 ```
 
 ## Output Formats
 
-### MU Format (Default)
-Human-readable sigil-based format, optimized for LLMs.
 ```bash
-mu compress ./src --format mu
+mu export                # MU format (LLM-optimized, default)
+mu export -F json        # JSON (structured data)
+mu export -F mermaid     # Mermaid diagram
+mu export -F d2          # D2 diagram
 ```
 
-### JSON Format
-Structured data for programmatic use.
-```bash
-mu compress ./src --format json -o system.json
+## Configuration
+
+Create `.murc.toml` in your project root:
+
+```toml
+[scanner]
+ignore = ["vendor/", "node_modules/", "dist/"]
+max_file_size_kb = 1024
+
+[parser]
+languages = ["python", "typescript", "rust"]
+
+[output]
+format = "table"
+color = true
 ```
+
+## Vibes
+
+Commands that do real work with real personality.
+
+```bash
+mu yolo Auth          # "What breaks if I mass deploy this on Friday?"
+mu sus                # "Find the code that makes you go 'hmm'"
+mu wtf src/utils.ts   # "Git archaeology: who did this and WHY?"
+mu omg                # "Monday standup: the tea, the drama"
+mu zen                # "Clear cache, achieve inner peace"
+```
+
+> Most CLI tools are either boring or try-hard. MU aims for the sweet spot.
 
 ## Tips for Best Results
 
-1. **Be specific with paths** - Compress only relevant directories
-   ```bash
-   mu compress ./src/domain/auth  # Just auth domain
-   ```
-
-2. **Check compression stats** - Higher compression = more efficient context use
-   ```
-   Input:  66,493 lines
-   Output:  5,156 lines (92% compression)
-   ```
-
-3. **Provide context to LLM** - Include a brief project description with your MU file
-   ```
-   "This is a ride-sharing backend in Python/FastAPI. Here's the MU:
-   [paste system.mu]
-   How does ride matching work?"
-   ```
-
-4. **Iterate on questions** - Start broad, then drill down
-   ```
-   1. "What are the main services?"
-   2. "Tell me more about AuthService"
-   3. "How does OAuth token refresh work?"
-   ```
+1. **Start with bootstrap** - Always run `mu bootstrap` first
+2. **Use terse syntax** - 60-85% fewer tokens: `fn c>50` vs full SQL
+3. **Check complexity** - High complexity functions often need attention
+4. **Enable embeddings** - `mu embed` unlocks semantic search
+5. **Iterate on questions** - Start broad, then drill down
 
 ## Troubleshooting
 
 ### "No supported files found"
-Your directory might only contain unsupported file types. MU supports:
+Check that your directory contains supported files:
 - Python (.py)
 - TypeScript (.ts, .tsx)
 - JavaScript (.js, .jsx)
-- C# (.cs)
 - Go (.go)
 - Rust (.rs)
 - Java (.java)
+- C# (.cs)
 
-### "Failed to parse X files"
-Some files may have syntax errors or use unsupported language features. MU continues with parseable files.
+### Database errors
+```bash
+# Fresh start (clears database and rebuilds)
+rm -rf .mu && mu bootstrap
+```
 
 ### Output is too large
-Use more aggressive filtering:
 ```bash
-mu compress ./src/core  # Compress a subdirectory
+# Limit export size
+mu export -l 100
+
+# Or filter by type
+mu export -F json | jq '.nodes | map(select(.type == "function"))'
 ```
-
-Or add ignores to `.murc.toml`:
-```toml
-[scanner]
-ignore = ["**/*.test.ts", "**/migrations/**"]
-```
-
-## Advanced Features
-
-### Semantic Diff
-Compare changes between git refs semantically:
-```bash
-mu diff main feature-branch
-mu diff HEAD~5 HEAD
-```
-
-### MUQL Queries
-Query your codebase using SQL-like syntax for quick insights:
-```bash
-# Find complex functions
-mu query "SELECT * FROM functions WHERE complexity > 20"
-
-# Show dependencies of a class
-mu q "SHOW dependencies OF MyClass"
-
-# List all methods in a service
-mu query "SELECT name, parameters FROM methods WHERE class = 'UserService'"
-
-# Find circular dependencies
-mu q "SHOW cycles"
-```
-
-Use the shorter `mu q` alias for quick queries. Run `mu describe --format json` to see all available commands (useful for AI agents and automation).
-
-### VS Code Extension
-Install the VS Code extension from `tools/vscode-mu/` for:
-- Syntax highlighting for `.mu` files
-- Commands to compress directories
-- Hover information for sigils
-
-### GitHub Actions
-Use the GitHub Action from `tools/action-mu/` to automatically post semantic diffs on PRs.
 
 ## Next Steps
 
-- Read the full [README.md](./README.md) for detailed documentation
-- Check [docs/MU-TECH-SPEC.md](./docs/MU-TECH-SPEC.md) for the technical specification
-- See [examples/](./examples/) for sample outputs
+- [README.md](./README.md) - Full documentation
+- [CLI Reference](./docs/api/cli.md) - Complete command reference
+- [Architecture](./docs/architecture.md) - System design
 
 ---
 
-**Questions?** Open an issue at https://github.com/dominaite/mu/issues
+**MU: Because life's too short to grep through 500k lines of code.**

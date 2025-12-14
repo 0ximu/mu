@@ -2,10 +2,15 @@
   <img src="docs/assets/intro.gif" alt="MU Demo" width="600"/>
 </p>
 
-<h1 align="center">Machine Understanding</h1>
+<h1 align="center">MU</h1>
 
 <p align="center">
-  <strong>Semantic code intelligence for AI-native development.</strong>
+  <strong>Your codebase, understood.</strong>
+</p>
+
+<p align="center">
+  <em>"Where's the auth code?" "What breaks if I change this?" "Why does this file exist?"</em><br/>
+  <strong>MU answers in seconds.</strong>
 </p>
 
 MU builds a semantic graph of your codebase and provides fast queries, semantic search, and diff analysis. Feed your entire codebase to an AI in seconds, not hours.
@@ -16,18 +21,23 @@ MU builds a semantic graph of your codebase and provides fast queries, semantic 
 
 ## The Problem
 
-- LLMs choke on large codebases (500k+ lines exceed context windows)
-- 90% of code is boilerplate, patterns, and syntactic noise
-- Context windows are precious — wasted on syntax instead of semantics
-- Current documentation is always out of date
+You know the drill:
+
+- "Paste the codebase into Claude" → **token limit exceeded**
+- "Where's the authentication code?" → **grep, grep, grep...**
+- "What depends on this?" → **¯\\\_(ツ)\_/¯**
+- "Read the documentation" → **what documentation?**
+
+LLMs choke on large codebases. Context windows are precious. 90% of code is boilerplate. You're feeding syntax when you need semantics.
 
 ## The Solution
 
-MU parses your codebase into a semantic graph database with blazingly fast queries, semantic search, and intelligent context extraction.
+MU parses your codebase into a semantic graph database. Fast queries. Semantic search. Intelligent context extraction.
 
 ```
 Input:  66,493 lines of Python
-Output: 2,173 tokens (omg semantic compression)
+Output: 2,173 tokens
+Vibe:   omg, semantic compression
 Result: LLM correctly answers architectural questions
 ```
 
@@ -58,23 +68,22 @@ sudo cp target/release/mu /usr/local/bin/
 ## Quick Start
 
 ```bash
-# 1. Initialize and build the code graph
+# 1. Bootstrap (builds the code graph)
 mu bootstrap
 
-# 2. Check status
-mu status
-
-# 3. Run queries
+# 2. Query (terse syntax = fewer tokens)
 mu q "fn c>50"                    # Functions with complexity > 50
 mu q "deps Auth d2"               # Dependencies of Auth, depth 2
 
-# 4. Optional: Enable semantic search
-mu embed                          # Generate embeddings (takes ~1 min per 1000 files)
-mu search "error handling"        # Now uses semantic search
+# 3. Enable semantic search (optional but recommended)
+mu embed                          # ~1 min per 1000 files
+mu search "error handling"        # Now powered by embeddings
 
-# 5. Generate semantic summary for LLM
-mu omg                            # Dramatic summary of codebase
+# 4. Get the vibes
+mu omg                            # Dramatic summary. The tea. The drama.
 ```
+
+That's it. Your codebase is now understood.
 
 ## CLI Commands
 
@@ -164,16 +173,34 @@ mu serve --mcp                    # Start MCP server (stdio for Claude Code)
 mu serve --list-tools             # List available MCP tools
 ```
 
-### Vibes (Fun Aliases)
+### Vibes
+
+MU doesn't take itself too seriously. These commands do real work with real personality.
 
 ```bash
-mu yolo <node>                    # Impact analysis ("what breaks?")
-mu sus                            # Find suspicious code patterns
-mu wtf <file>                     # Git archaeology ("what happened here?")
-mu omg                            # Dramatic summary of recent changes
-mu vibe                           # Get the vibe check on the codebase
-mu zen                            # Achieve enlightenment (cache cleanup)
+mu yolo <node>     # "Mass deploy on Friday"
+                   # → Impact analysis. What breaks if you touch this?
+
+mu sus             # "Emergency code review"
+                   # → Find suspicious patterns: complexity bombs,
+                   #   security smells, code that makes you go "hmm"
+
+mu wtf <file>      # "Archaeology expedition"
+                   # → Git blame on steroids. Who did this? When? WHY?
+
+mu omg             # "Monday morning standup"
+                   # → Dramatic summary of what changed. The tea. The drama.
+
+mu vibe            # "Project health check"
+                   # → Overall codebase vibe. Is it cozy? Chaotic?
+                   #   A beautiful mess? MU knows.
+
+mu zen             # "Digital declutter"
+                   # → Clear caches, reset state, achieve inner peace.
+                   #   Sometimes you just need a fresh start.
 ```
+
+> **Philosophy**: Most CLI tools are either boring or try-hard. MU aims for the sweet spot — useful AND fun. The vibes are real.
 
 ## MCP Server for Claude Code
 
@@ -323,7 +350,13 @@ duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 
 ## Contributing
 
-Contributions welcome! Please run `cargo test` and `cargo clippy` before submitting PRs.
+Contributions welcome! We're building something genuinely useful here.
+
+```bash
+cargo fmt && cargo clippy && cargo test  # The holy trinity
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
 ## License
 
@@ -331,4 +364,6 @@ Apache License 2.0 - see [LICENSE](./LICENSE) for details.
 
 ---
 
-**Give AI the ability to understand any codebase in seconds, not hours.**
+<p align="center">
+  <strong>MU: Because life's too short to grep through 500k lines of code.</strong>
+</p>

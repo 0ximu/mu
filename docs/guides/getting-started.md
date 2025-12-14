@@ -7,11 +7,15 @@ This guide will help you get up and running with MU in minutes.
 ### From Source (Recommended)
 
 ```bash
+# Clone the repository
 git clone https://github.com/0ximu/mu.git
 cd mu
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+
+# Build (requires Rust 1.70+)
+cargo build --release
+
+# Add to PATH (optional)
+sudo cp target/release/mu /usr/local/bin/
 ```
 
 ### Verify Installation
@@ -23,213 +27,195 @@ mu --help
 
 ## Quick Start
 
-### 1. Compress Your First Codebase
+### 1. Bootstrap Your Codebase
 
 ```bash
-mu compress ./your-project -o project.mu
+cd /path/to/your/project
+mu bootstrap
 ```
 
 This will:
 - Scan all supported files (Python, TypeScript, JavaScript, Go, Rust, Java, C#)
-- Parse and extract semantic information
-- Apply compression rules
-- Output a token-efficient `.mu` file
+- Parse and extract semantic information (functions, classes, imports)
+- Build a graph database in `.mu/mubase`
 
-### 2. View the Output
+### 2. Check Status
 
 ```bash
-mu view project.mu
+mu status
 ```
 
-Or copy to clipboard for LLM:
+### 3. Query Your Code
+
 ```bash
-cat project.mu | pbcopy  # macOS
-cat project.mu | xclip   # Linux
+# Terse syntax (60-85% fewer tokens)
+mu q "fn c>50"           # Functions with complexity > 50
+mu q "cls n~'Service'"   # Classes matching 'Service'
+mu q "deps Auth d2"      # Dependencies of Auth, depth 2
+
+# Full SQL syntax
+mu query "SELECT name, complexity FROM functions ORDER BY complexity DESC LIMIT 20"
 ```
 
-### 3. Ask Your LLM
+### 4. Export for LLM
 
-Paste the MU output into ChatGPT, Claude, or your preferred LLM and ask:
+```bash
+# Export semantic summary
+mu export > system.mu
+
+# Copy to clipboard (macOS)
+mu export | pbcopy
+```
+
+Paste into ChatGPT, Claude, or your preferred LLM and ask:
 - "What is the authentication flow in this codebase?"
-- "How does the payment processing work?"
 - "Which services would be affected if Redis goes down?"
+- "How does the payment processing work?"
 
 ## Common Workflows
 
-### Analyze a Codebase
+### Graph Analysis
 
 ```bash
-# See structure without generating output
-mu scan ./src
+# What does this depend on?
+mu deps UserService
 
-# Get JSON statistics
-mu scan ./src -f json
+# What depends on this? (reverse dependencies)
+mu deps UserService -r
+
+# What breaks if I change this?
+mu impact PaymentProcessor
+
+# Find circular dependencies
+mu cycles
 ```
 
-### Compare Versions
+### Semantic Diff
 
 ```bash
-# Semantic diff between commits
-mu diff abc123 def456
-
-# Diff against main branch
+# Diff between git refs
 mu diff main HEAD
 
-# See what changed in working directory
-mu diff HEAD
+# Last 5 commits
+mu diff HEAD~5 HEAD
 ```
 
-### Use LLM Summarization
-
-For complex functions, MU can generate AI summaries:
+### Enable Semantic Search
 
 ```bash
-# With Anthropic (default)
-export ANTHROPIC_API_KEY=your-key
-mu compress ./src --llm
+# Generate embeddings (uses built-in MU-SIGMA-V2 model)
+mu embed
 
-# With OpenAI
-export OPENAI_API_KEY=your-key
-mu compress ./src --llm --llm-provider openai
-
-# Fully local (requires Ollama)
-mu compress ./src --llm --local
+# Now search by meaning
+mu search "authentication logic"
+mu search "error handling" -t function
 ```
 
-## Configuration
-
-Create `.murc.toml` in your project:
-
-```toml
-[scanner]
-ignore = [
-    "node_modules/",
-    ".git/",
-    "__pycache__/",
-    "*.test.ts",
-    "*.spec.py"
-]
-max_file_size_kb = 1000
-
-[reducer]
-complexity_threshold = 20  # Flag complex functions for LLM
-
-[output]
-format = "mu"
-```
-
-Or generate a default config:
+### Ask Questions with LLM
 
 ```bash
-mu init
+mu grok "How does user authentication work?"
+mu grok "What would break if I changed the database schema?"
 ```
 
 ## Understanding MU Output
 
-MU uses sigils to represent code structure:
+MU uses sigils to represent code structure compactly:
 
 ```mu
-!module auth_service
-@deps [jwt, bcrypt, sqlalchemy]
+!auth_service
+  Authentication and authorization module
+  @deps [jwt, bcrypt, sqlalchemy]
 
 $User < BaseModel
-  @attrs [id, email, hashed_password]
+  @attrs [id, email, hashed_password, created_at]
   #authenticate(email: str, password: str) -> Optional[User]
   #async create(data: UserCreate) -> User
 
 #async login(credentials: LoginRequest) -> TokenResponse
+  Authenticate user and return JWT tokens
 ```
 
 | Sigil | Meaning |
 |-------|---------|
-| `!` | Module/Service |
-| `$` | Class/Entity |
+| `!` | Module/File |
+| `$` | Class |
 | `#` | Function/Method |
-| `@` | Metadata |
+| `@` | Metadata (deps, attrs, decorators) |
 | `<` | Inherits from |
 | `->` | Returns |
 
-## Advanced Features
+## Configuration
 
-### Build a Graph Database
+Create `.murc.toml` in your project root:
 
-For complex queries and semantic search, build a MUbase:
+```toml
+[scanner]
+ignore = ["vendor/", "node_modules/", "dist/"]
+max_file_size_kb = 1024
 
-```bash
-# Initialize and build graph database
-mu kernel init .
-mu kernel build .
+[parser]
+languages = ["python", "typescript", "rust"]
 
-# Query with MUQL
-mu q "SELECT name, complexity FROM functions ORDER BY complexity DESC"
-
-# Interactive REPL
-mu kernel muql -i
+[output]
+format = "table"
+color = true
 ```
 
-### Semantic Search
-
-Find code by meaning, not just text:
+## Export Formats
 
 ```bash
-# Generate embeddings (requires OpenAI API key or use --local)
-mu kernel embed .
-
-# Search with natural language
-mu kernel search "authentication logic"
-mu kernel search "error handling" --type function
+mu export                # MU format (LLM-optimized, default)
+mu export -F json        # JSON (structured)
+mu export -F mermaid     # Mermaid diagram
+mu export -F d2          # D2 diagram
 ```
 
-### Smart Context for Questions
-
-Extract relevant code context for any question:
-
-```bash
-mu kernel context "How does user authentication work?"
-mu kernel context "What happens when a payment fails?" --max-tokens 4000
-```
-
-### Real-Time Daemon
-
-Keep your graph database updated as you code:
-
-```bash
-# Start daemon (watches for file changes)
-mu daemon start .
-
-# Check status
-mu daemon status
-
-# Query via HTTP API
-curl http://localhost:8765/status
-```
-
-### Export Diagrams
-
-Generate architecture diagrams:
-
-```bash
-# Mermaid diagram
-mu kernel export --format mermaid --output arch.md
-
-# D2 diagram
-mu kernel export --format d2 --output arch.d2
-```
-
-### MCP Server for Claude Code
+## MCP Server for Claude Code
 
 Integrate MU directly with Claude Code:
 
 ```bash
-# Start MCP server
-mu mcp serve
+mu serve --mcp
+```
 
-# Or configure in ~/.claude/mcp_servers.json:
-# { "mu": { "command": "mu", "args": ["mcp", "serve"] } }
+Configure in `~/.claude/mcp_servers.json`:
+```json
+{
+  "mu": {
+    "command": "mu",
+    "args": ["serve", "--mcp"]
+  }
+}
+```
+
+## Vibes
+
+Commands that do real work with real personality.
+
+```bash
+mu yolo Auth          # "What breaks if I mass deploy this on Friday?"
+mu sus                # "Find the code that makes you go 'hmm'"
+mu wtf src/utils.ts   # "Git archaeology: who did this and WHY?"
+mu omg                # "Monday standup: the tea, the drama"
+mu zen                # "Clear cache, achieve inner peace"
+```
+
+## Troubleshooting
+
+### Database errors
+```bash
+# Fresh start
+rm -rf .mu && mu bootstrap
+```
+
+### Check database contents
+```bash
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
 ```
 
 ## Next Steps
 
 - [CLI Reference](../api/cli.md) - Complete command documentation
-- [Security](../security/README.md) - Secret detection and privacy
 - [Architecture](../architecture.md) - System design overview
+- [Security](../security/README.md) - Secret detection and privacy

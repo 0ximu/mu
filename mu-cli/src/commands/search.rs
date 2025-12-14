@@ -152,6 +152,11 @@ pub async fn run(
     threshold: f32,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
+    // Validate query is not empty
+    if query.trim().is_empty() {
+        anyhow::bail!("Search query cannot be empty. Please provide a search term.");
+    }
+
     let start = Instant::now();
     run_direct(query, limit, threshold, format, start).await
 }

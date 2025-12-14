@@ -119,10 +119,20 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
 
     let impacted = find_impacted_nodes(&conn, &node_id, 10)?;
 
-    let impacted_count = impacted.len();
+    // Dedupe by file path - users care about files, not individual nodes
+    let mut seen_files: HashSet<String> = HashSet::new();
+    let impacted_deduped: Vec<_> = impacted
+        .into_iter()
+        .filter(|node| {
+            let key = node.file_path.clone().unwrap_or_else(|| node.name.clone());
+            seen_files.insert(key)
+        })
+        .collect();
+
+    let impacted_count = impacted_deduped.len();
     let risk_level = RiskLevel::from_count(impacted_count);
 
-    let impacted_nodes: Vec<String> = impacted
+    let impacted_nodes: Vec<String> = impacted_deduped
         .iter()
         .map(|node| {
             if let Some(fp) = &node.file_path {
