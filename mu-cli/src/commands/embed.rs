@@ -342,7 +342,7 @@ pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> a
         let texts: Vec<String> = batch
             .iter()
             .map(|row| {
-                let id = match row.get(0) {
+                let id = match row.first() {
                     Some(serde_json::Value::String(s)) => s.clone(),
                     _ => String::new(),
                 };

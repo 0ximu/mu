@@ -268,18 +268,6 @@ impl MuConfig {
         self.parser.languages.as_deref()
     }
 
-    /// Check if a specific language should be parsed.
-    ///
-    /// Returns `true` if:
-    /// - No language filter is configured (parse all), or
-    /// - The language is in the configured list
-    pub fn should_parse_language(&self, lang: &str) -> bool {
-        match &self.parser.languages {
-            None => true,
-            Some(langs) => langs.iter().any(|l| l.eq_ignore_ascii_case(lang)),
-        }
-    }
-
     /// Get the default output format, if configured.
     ///
     /// Returns `None` if the default (table) should be used.
@@ -356,9 +344,6 @@ directory = "/tmp/mu-cache"
             config.parser.languages,
             Some(vec!["python".to_string(), "typescript".to_string()])
         );
-        assert!(config.should_parse_language("python"));
-        assert!(config.should_parse_language("Python")); // Case insensitive
-        assert!(!config.should_parse_language("rust"));
 
         // Output section
         assert_eq!(config.output.format, Some("json".to_string()));
@@ -398,17 +383,6 @@ ignore = ["custom/", ".git/"]
         assert_eq!(patterns[0], "custom/");
         // .git/ was already specified, shouldn't be duplicated
         assert_eq!(patterns.iter().filter(|p| *p == ".git/").count(), 1);
-    }
-
-    #[test]
-    fn test_should_parse_language_no_filter() {
-        let config = MuConfig::default();
-
-        // Without filter, all languages should be parsed
-        assert!(config.should_parse_language("python"));
-        assert!(config.should_parse_language("rust"));
-        assert!(config.should_parse_language("typescript"));
-        assert!(config.should_parse_language("anything"));
     }
 
     #[test]

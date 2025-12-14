@@ -172,13 +172,23 @@ impl GraphData {
     }
 
     /// Find impact (downstream reachable nodes)
-    pub fn impact(&self, node_id: &str, edge_types: Option<&[String]>) -> Vec<String> {
-        self.traverse_bfs(node_id, Direction::Outgoing, edge_types)
+    pub fn impact(
+        &self,
+        node_id: &str,
+        edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
+    ) -> Vec<String> {
+        self.traverse_bfs(node_id, Direction::Outgoing, edge_types, max_depth)
     }
 
     /// Find ancestors (upstream reachable nodes)
-    pub fn ancestors(&self, node_id: &str, edge_types: Option<&[String]>) -> Vec<String> {
-        self.traverse_bfs(node_id, Direction::Incoming, edge_types)
+    pub fn ancestors(
+        &self,
+        node_id: &str,
+        edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
+    ) -> Vec<String> {
+        self.traverse_bfs(node_id, Direction::Incoming, edge_types, max_depth)
     }
 
     /// Find shortest path between two nodes
@@ -237,12 +247,13 @@ impl GraphData {
         None
     }
 
-    /// BFS traversal in a given direction
+    /// BFS traversal in a given direction with optional depth limit
     fn traverse_bfs(
         &self,
         node_id: &str,
         direction: Direction,
         edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
     ) -> Vec<String> {
         let start = match self.node_map.get(node_id) {
             Some(&idx) => idx,
@@ -253,12 +264,19 @@ impl GraphData {
 
         let mut visited: HashSet<NodeIndex> = HashSet::new();
         let mut result = Vec::new();
-        let mut queue = VecDeque::new();
+        let mut queue: VecDeque<(NodeIndex, u8)> = VecDeque::new();
 
         visited.insert(start);
-        queue.push_back(start);
+        queue.push_back((start, 0));
 
-        while let Some(current) = queue.pop_front() {
+        while let Some((current, depth)) = queue.pop_front() {
+            // Skip if we've exceeded max depth
+            if let Some(max) = max_depth {
+                if depth >= max {
+                    continue;
+                }
+            }
+
             for edge in self.graph.edges_directed(current, direction) {
                 if let Some(ref allowed_types) = allowed {
                     if !allowed_types.contains(edge.weight()) {
@@ -275,7 +293,7 @@ impl GraphData {
                 if !visited.contains(&neighbor) {
                     visited.insert(neighbor);
                     result.push(self.reverse_map[&neighbor].clone());
-                    queue.push_back(neighbor);
+                    queue.push_back((neighbor, depth + 1));
                 }
             }
         }
@@ -568,15 +586,17 @@ impl TableDisplay for PathResult {
 pub async fn run_impact(
     node: &str,
     edge_types: Option<Vec<String>>,
+    depth: Option<u8>,
     format: OutputFormat,
 ) -> Result<()> {
-    run_impact_direct(node, edge_types, format).await
+    run_impact_direct(node, edge_types, depth, format).await
 }
 
 /// Run impact command with direct database access
 async fn run_impact_direct(
     node: &str,
     edge_types: Option<Vec<String>>,
+    depth: Option<u8>,
     format: OutputFormat,
 ) -> Result<()> {
     let conn = open_db()?;
@@ -589,7 +609,7 @@ async fn run_impact_direct(
         return Err(anyhow::anyhow!("Node not found: {}", node));
     }
 
-    let affected_ids = graph.impact(&node_id, edge_types.as_deref());
+    let affected_ids = graph.impact(&node_id, edge_types.as_deref(), depth);
 
     let affected_nodes: Vec<AffectedNode> = affected_ids
         .iter()
@@ -619,15 +639,17 @@ async fn run_impact_direct(
 pub async fn run_ancestors(
     node: &str,
     edge_types: Option<Vec<String>>,
+    depth: Option<u8>,
     format: OutputFormat,
 ) -> Result<()> {
-    run_ancestors_direct(node, edge_types, format).await
+    run_ancestors_direct(node, edge_types, depth, format).await
 }
 
 /// Run ancestors command with direct database access
 async fn run_ancestors_direct(
     node: &str,
     edge_types: Option<Vec<String>>,
+    depth: Option<u8>,
     format: OutputFormat,
 ) -> Result<()> {
     let conn = open_db()?;
@@ -640,7 +662,7 @@ async fn run_ancestors_direct(
         return Err(anyhow::anyhow!("Node not found: {}", node));
     }
 
-    let ancestor_ids = graph.ancestors(&node_id, edge_types.as_deref());
+    let ancestor_ids = graph.ancestors(&node_id, edge_types.as_deref(), depth);
 
     let affected_nodes: Vec<AffectedNode> = ancestor_ids
         .iter()
@@ -751,45 +773,44 @@ pub async fn run_path(
     Output::new(result, format).render()
 }
 
-/// Try to resolve a partial node ID to a full node ID
-fn resolve_node_id(conn: &Connection, partial: &str) -> Result<String> {
-    // First try exact match
-    let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id = ?")?;
-    let mut rows = stmt.query(params![partial])?;
+/// Try to resolve a partial node ID to a full node ID using fuzzy matching
+fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
+    // 1. Try exact match on id or name first
+    let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id = ?1 OR name = ?1")?;
+    let mut rows = stmt.query(params![query])?;
     if let Some(row) = rows.next()? {
         return Ok(row.get(0)?);
     }
 
-    // Try prefix match (e.g., "mod:" or partial path)
-    let pattern = format!("%{}%", partial);
-    let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id LIKE ? LIMIT 10")?;
+    // 2. Try fuzzy match on both name and id (case-insensitive)
+    let pattern = format!("%{}%", query.to_lowercase());
+    let mut stmt = conn.prepare(
+        "SELECT id, name, type FROM nodes WHERE LOWER(name) LIKE ?1 OR LOWER(id) LIKE ?1 LIMIT 10",
+    )?;
     let mut rows = stmt.query(params![pattern])?;
 
-    let mut matches = Vec::new();
+    let mut matches: Vec<(String, String, String)> = Vec::new();
     while let Some(row) = rows.next()? {
         let id: String = row.get(0)?;
-        matches.push(id);
+        let name: String = row.get(1)?;
+        let node_type: String = row.get(2)?;
+        matches.push((id, name, node_type));
     }
 
     match matches.len() {
-        0 => Err(anyhow::anyhow!("Node not found: {}", partial)),
-        1 => Ok(matches.into_iter().next().unwrap()),
+        0 => Err(anyhow::anyhow!("Node not found: {}", query)),
+        1 => Ok(matches.into_iter().next().unwrap().0),
         _ => {
-            // Multiple matches - try to find best match
-            for m in &matches {
-                if m.ends_with(partial) || m.contains(&format!(":{}", partial)) {
-                    return Ok(m.clone());
-                }
-            }
-            // Return first match with a hint
-            eprintln!(
-                "{}: Multiple matches found. Using first match. Candidates:",
-                "Warning".yellow()
-            );
-            for m in matches.iter().take(5) {
-                eprintln!("  - {}", m);
-            }
-            Ok(matches.into_iter().next().unwrap())
+            // Multiple matches - return error with suggestions (consistent with deps.rs)
+            let suggestions: Vec<String> = matches
+                .iter()
+                .map(|(id, name, typ)| format!("  {} [{}] {}", name, typ, id))
+                .collect();
+            Err(anyhow::anyhow!(
+                "Multiple nodes match '{}'. Be more specific:\n{}",
+                query,
+                suggestions.join("\n")
+            ))
         }
     }
 }
@@ -899,7 +920,7 @@ mod tests {
         let conn = create_test_db();
         let graph = GraphData::from_db(&conn).unwrap();
 
-        let impact = graph.impact("mod:a", None);
+        let impact = graph.impact("mod:a", None, None);
 
         // a -> b, b -> c, c -> a (cycle), b -> d
         // So from a, we can reach b, c, d
@@ -913,7 +934,7 @@ mod tests {
         let conn = create_test_db();
         let graph = GraphData::from_db(&conn).unwrap();
 
-        let ancestors = graph.ancestors("mod:d", None);
+        let ancestors = graph.ancestors("mod:d", None, None);
 
         // d is only reached from b, and b from a and c
         assert!(ancestors.contains(&"mod:b".to_string()));
@@ -941,7 +962,7 @@ mod tests {
 
         // With only "imports", we shouldn't reach d (connected via "calls")
         let imports_only = vec!["imports".to_string()];
-        let impact = graph.impact("mod:a", Some(&imports_only));
+        let impact = graph.impact("mod:a", Some(&imports_only), None);
 
         assert!(impact.contains(&"mod:b".to_string()));
         assert!(impact.contains(&"mod:c".to_string()));

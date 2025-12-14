@@ -7,7 +7,7 @@ use crate::output::{Output, OutputFormat, TableDisplay};
 use anyhow::{Context, Result};
 use colored::Colorize;
 use duckdb::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 

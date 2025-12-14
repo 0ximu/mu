@@ -172,11 +172,10 @@ impl PathAliasResolver {
     /// - `@components/*` matches `@components/Button` -> returns Some("Button")
     /// - `utils` matches `utils` exactly -> returns Some("")
     fn match_pattern(&self, pattern: &str, import_path: &str) -> Option<String> {
-        if pattern.ends_with('*') {
+        if let Some(prefix) = pattern.strip_suffix('*') {
             // Wildcard pattern
-            let prefix = &pattern[..pattern.len() - 1];
-            if import_path.starts_with(prefix) {
-                return Some(import_path[prefix.len()..].to_string());
+            if let Some(matched) = import_path.strip_prefix(prefix) {
+                return Some(matched.to_string());
             }
         } else {
             // Exact match
@@ -194,8 +193,8 @@ impl PathAliasResolver {
     /// - `./src/*` with match "lib/logger" -> "src/lib/logger"
     fn resolve_target(&self, target: &str, matched: &str) -> Option<String> {
         // Replace wildcard in target
-        let resolved_target = if target.ends_with('*') {
-            format!("{}{}", &target[..target.len() - 1], matched)
+        let resolved_target = if let Some(prefix) = target.strip_suffix('*') {
+            format!("{}{}", prefix, matched)
         } else {
             target.to_string()
         };
@@ -295,7 +294,7 @@ fn strip_json_comments(content: &str) -> String {
             if chars.peek() == Some(&'/') {
                 // Line comment - skip until newline
                 chars.next(); // consume second /
-                while let Some(nc) = chars.next() {
+                for nc in chars.by_ref() {
                     if nc == '\n' {
                         result.push('\n'); // Preserve newlines for line counting
                         break;

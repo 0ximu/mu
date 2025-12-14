@@ -79,16 +79,6 @@ impl ExportFormat {
             Self::Cytoscape => "cytoscape",
         }
     }
-
-    pub fn file_extension(&self) -> &'static str {
-        match self {
-            Self::Mu => "mu",
-            Self::Json => "json",
-            Self::Mermaid => "mmd",
-            Self::D2 => "d2",
-            Self::Cytoscape => "json",
-        }
-    }
 }
 
 /// Node data from MUbase
@@ -595,15 +585,6 @@ mod tests {
             Some(ExportFormat::Mermaid)
         );
         assert_eq!(ExportFormat::from_str("unknown"), None);
-    }
-
-    #[test]
-    fn test_export_format_extension() {
-        assert_eq!(ExportFormat::Mu.file_extension(), "mu");
-        assert_eq!(ExportFormat::Json.file_extension(), "json");
-        assert_eq!(ExportFormat::Mermaid.file_extension(), "mmd");
-        assert_eq!(ExportFormat::D2.file_extension(), "d2");
-        assert_eq!(ExportFormat::Cytoscape.file_extension(), "json");
     }
 
     #[test]

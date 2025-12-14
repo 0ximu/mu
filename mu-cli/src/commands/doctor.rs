@@ -27,14 +27,6 @@ pub enum CheckStatus {
 }
 
 impl CheckStatus {
-    fn icon(&self) -> &'static str {
-        match self {
-            CheckStatus::Ok => "[OK]",
-            CheckStatus::Warning => "[!!]",
-            CheckStatus::Error => "[!!]",
-        }
-    }
-
     fn colored_icon(&self) -> String {
         match self {
             CheckStatus::Ok => "[OK]".green().to_string(),
@@ -453,13 +445,6 @@ mod tests {
 
         let err = CheckItem::error("Test", "value");
         assert_eq!(err.status, CheckStatus::Error);
-    }
-
-    #[test]
-    fn test_check_status_icon() {
-        assert_eq!(CheckStatus::Ok.icon(), "[OK]");
-        assert_eq!(CheckStatus::Warning.icon(), "[!!]");
-        assert_eq!(CheckStatus::Error.icon(), "[!!]");
     }
 
     #[test]

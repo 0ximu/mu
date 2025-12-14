@@ -6,7 +6,7 @@
 //! 3. Builds the .mu/mubase code graph
 //! 4. Shows progress and final stats
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::Path;
@@ -17,6 +17,7 @@ use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 
+use crate::cache::{CacheStats, ParseCache};
 use crate::config::MuConfig;
 use crate::output::{Output, OutputFormat, TableDisplay};
 use crate::tsconfig::PathAliasResolver;
@@ -29,6 +30,7 @@ pub struct BootstrapResult {
     pub mubase_path: String,
     pub files_scanned: usize,
     pub files_parsed: usize,
+    pub files_cached: usize,
     pub node_count: usize,
     pub edge_count: usize,
     pub nodes_by_type: HashMap<String, usize>,
@@ -80,6 +82,12 @@ impl TableDisplay for BootstrapResult {
         output.push_str(&format!("\n{}\n", "Files".cyan().bold()));
         output.push_str(&format!("  Scanned: {}\n", self.files_scanned));
         output.push_str(&format!("  Parsed:  {}\n", self.files_parsed));
+        if self.files_cached > 0 {
+            output.push_str(&format!(
+                "  Cached:  {} (skipped)\n",
+                self.files_cached.to_string().green()
+            ));
+        }
 
         if self.config_created || self.gitignore_updated {
             output.push_str(&format!("\n{}\n", "Setup".cyan().bold()));
@@ -153,7 +161,7 @@ include_hidden = false
 max_file_size_kb = 1000
 
 [parser]
-languages = "auto"
+# languages = ["python", "typescript", "rust"]  # Uncomment to limit parsing
 
 [output]
 format = "mu"
@@ -361,6 +369,7 @@ async fn run_embeddings_only(
         mubase_path: mubase_path.to_string_lossy().to_string(),
         files_scanned: 0,
         files_parsed: 0,
+        files_cached: 0,
         node_count: stats.node_count,
         edge_count: stats.edge_count,
         nodes_by_type: stats.type_counts,
@@ -466,10 +475,14 @@ pub async fn run(
     spinner.set_message("Scanning codebase...");
     let root_str = root.to_str().unwrap_or(".");
 
+    // Check if caching is enabled
+    let cache_enabled = config.cache_enabled();
+
     // Build scan options from config
     let mut scan_options = mu_core::scanner::ScanOptions::new()
         .with_ignore_patterns(ignore_patterns)
-        .include_hidden(config.scanner.include_hidden);
+        .include_hidden(config.scanner.include_hidden)
+        .compute_hashes(cache_enabled); // Enable hash computation for caching
 
     // Apply max file size if configured
     if let Some(max_size) = config.max_file_size_bytes() {
@@ -497,25 +510,124 @@ pub async fn run(
         return Ok(());
     }
 
-    // Step 2: Parse files
-    spinner.set_message("Parsing files...");
-    let file_infos: Vec<mu_core::types::FileInfo> = scan_result
+    // Step 2: Load cache and parse files
+    spinner.set_message("Loading cache...");
+
+    // Load existing cache if caching is enabled
+    let mut cache = if cache_enabled {
+        ParseCache::load(config.cache_directory(), &root)
+    } else {
+        ParseCache::new()
+    };
+
+    let mut cache_stats = CacheStats::default();
+
+    // Build set of current file paths for cache pruning
+    let current_files: HashSet<String> = scan_result
         .files
         .iter()
-        .filter_map(|f| {
-            let full_path = root.join(&f.path);
-            let content = fs::read_to_string(&full_path).ok()?;
-            Some(mu_core::types::FileInfo {
-                path: f.path.clone(),
-                source: content,
-                language: f.language.clone(),
-            })
+        .map(|f| f.path.clone())
+        .collect();
+
+    // Prune cache of files that no longer exist
+    if cache_enabled && !cache.is_empty() {
+        let before = cache.len();
+        cache.prune(&current_files);
+        cache_stats.pruned = before - cache.len();
+    }
+
+    // Separate files into cached (with matching hash) and needs-parsing
+    spinner.set_message("Checking cache...");
+    let mut cached_modules: Vec<mu_core::types::ParseResult> = Vec::new();
+    let mut files_to_parse: Vec<(mu_core::scanner::ScannedFile, String)> = Vec::new(); // (file, content)
+
+    for scanned_file in &scan_result.files {
+        let full_path = root.join(&scanned_file.path);
+        let content = match fs::read_to_string(&full_path) {
+            Ok(c) => c,
+            Err(_) => continue, // Skip unreadable files
+        };
+
+        // Check cache if enabled and hash is available
+        if cache_enabled {
+            if let Some(hash) = &scanned_file.hash {
+                if let Some(cached_module) = cache.get(&scanned_file.path, hash) {
+                    // Cache hit - use cached result
+                    cached_modules.push(mu_core::types::ParseResult::ok(cached_module.clone()));
+                    cache_stats.hits += 1;
+                    continue;
+                }
+            }
+        }
+
+        // Cache miss - needs parsing
+        cache_stats.misses += 1;
+        files_to_parse.push((scanned_file.clone(), content));
+    }
+
+    // Parse files that weren't in cache
+    spinner.set_message(format!(
+        "Parsing {} files ({} cached)...",
+        files_to_parse.len(),
+        cache_stats.hits
+    ));
+
+    let file_infos: Vec<mu_core::types::FileInfo> = files_to_parse
+        .iter()
+        .map(|(f, content)| mu_core::types::FileInfo {
+            path: f.path.clone(),
+            source: content.clone(),
+            language: f.language.clone(),
         })
         .collect();
 
-    let parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
-    let files_parsed = parse_results.iter().filter(|r| r.success).count();
-    spinner.set_message(format!("Parsed {} files", files_parsed));
+    let fresh_parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
+
+    // Update cache with freshly parsed results
+    if cache_enabled {
+        for ((scanned_file, _content), result) in files_to_parse.iter().zip(fresh_parse_results.iter())
+        {
+            if result.success {
+                if let (Some(hash), Some(module)) = (&scanned_file.hash, &result.module) {
+                    cache.insert(scanned_file.path.clone(), hash.clone(), module.clone());
+                }
+            }
+        }
+    }
+
+    // Merge cached and fresh results
+    let parse_results: Vec<mu_core::types::ParseResult> = cached_modules
+        .into_iter()
+        .chain(fresh_parse_results)
+        .collect();
+
+    let files_parsed = cache_stats.misses;
+    let files_cached = cache_stats.hits;
+
+    // Save updated cache
+    if cache_enabled {
+        spinner.set_message("Saving cache...");
+        if let Err(e) = cache.save(config.cache_directory(), &root) {
+            tracing::warn!("Failed to save parse cache: {}", e);
+        } else if cache_stats.hits > 0 || cache_stats.misses > 0 {
+            tracing::debug!(
+                "Cache stats: {} hits, {} misses ({:.1}% hit rate)",
+                cache_stats.hits,
+                cache_stats.misses,
+                cache_stats.hit_rate()
+            );
+        }
+    }
+
+    spinner.set_message(format!(
+        "Parsed {} files{}",
+        files_parsed,
+        if files_cached > 0 {
+            format!(" ({} from cache)", files_cached)
+        } else {
+            String::new()
+        }
+    ));
 
     // Step 3: Build graph
     spinner.set_message("Building graph...");
@@ -840,6 +952,7 @@ pub async fn run(
         mubase_path: mubase_path.to_string_lossy().to_string(),
         files_scanned,
         files_parsed,
+        files_cached,
         node_count: stats.node_count,
         edge_count: stats.edge_count,
         nodes_by_type: stats.type_counts,
@@ -897,7 +1010,7 @@ fn resolve_csharp_import(using_stmt: &str, namespace_map: &HashMap<String, Vec<S
     for (ns, files) in namespace_map {
         if using_stmt.starts_with(ns.as_str()) {
             // Check if this is a longer match than our current best
-            if best_match.map_or(true, |(best_ns, _)| ns.len() > best_ns.len()) {
+            if best_match.is_none_or(|(best_ns, _)| ns.len() > best_ns.len()) {
                 best_match = Some((ns, files));
             }
         }

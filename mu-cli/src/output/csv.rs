@@ -57,7 +57,7 @@ impl CsvOutput {
                     .iter()
                     .map(|col| {
                         json.get(&col.key)
-                            .map(|v| Self::value_to_csv(v))
+                            .map(Self::value_to_csv)
                             .unwrap_or_default()
                     })
                     .collect();
@@ -81,7 +81,7 @@ impl CsvOutput {
         } else {
             return arr
                 .iter()
-                .map(|v| Self::value_to_csv(v))
+                .map(Self::value_to_csv)
                 .collect::<Vec<_>>()
                 .join("\n");
         };
@@ -96,7 +96,7 @@ impl CsvOutput {
                     .iter()
                     .map(|h| {
                         obj.get(h)
-                            .map(|v| Self::value_to_csv(v))
+                            .map(Self::value_to_csv)
                             .unwrap_or_default()
                     })
                     .collect();
@@ -111,7 +111,7 @@ impl CsvOutput {
     /// Format a single JSON object as CSV
     fn format_object_value(obj: &serde_json::Map<String, serde_json::Value>) -> String {
         let headers: Vec<&str> = obj.keys().map(|s| s.as_str()).collect();
-        let values: Vec<String> = obj.values().map(|v| Self::value_to_csv(v)).collect();
+        let values: Vec<String> = obj.values().map(Self::value_to_csv).collect();
 
         format!("{}\n{}", headers.join(","), values.join(","))
     }

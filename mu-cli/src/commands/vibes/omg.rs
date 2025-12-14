@@ -11,8 +11,6 @@ use mu_daemon::storage::{MUbase, Node, NodeType};
 
 use crate::output::OutputFormat;
 
-/// Default token budget for output
-const DEFAULT_MAX_TOKENS: usize = 8000;
 /// Estimated tokens per node in output (avg ~15 chars/line, ~4 chars/token)
 const TOKENS_PER_NODE: usize = 15;
 /// Estimated tokens per edge in output
@@ -435,7 +433,7 @@ fn extract_node_name(node_id: &str) -> String {
             // Get the filename
             let filename = last_part.rsplit('/').next().unwrap_or(last_part);
             // Remove extension
-            let name = filename.rsplit('.').last().unwrap_or(filename);
+            let name = filename.rsplit('.').next_back().unwrap_or(filename);
             // If it's just the extension (e.g., "py"), use the stem instead
             if name.len() <= 3 && filename.contains('.') {
                 return filename.split('.').next().unwrap_or(filename).to_string();

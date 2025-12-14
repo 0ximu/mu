@@ -923,8 +923,7 @@ fn infer_domain_name(entities: &[DomainEntity], root_path: &str) -> Option<Strin
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .map(|s| {
-            s.replace('-', " ")
-                .replace('_', " ")
+            s.replace(['-', '_'], " ")
                 .split_whitespace()
                 .map(|word| {
                     let mut chars = word.chars();

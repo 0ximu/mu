@@ -32,7 +32,7 @@ impl Node {
         let name = std::path::Path::new(file_path)
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or_else(|| {
+            .unwrap_or({
                 // Fall back to file_path if we can't extract a stem
                 // This handles edge cases like paths with invalid UTF-8
                 file_path

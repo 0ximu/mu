@@ -311,23 +311,6 @@ pub fn check_convention(name: &str, conv: NamingConvention) -> Option<String> {
     }
 }
 
-/// Validate a name against a language's convention for the given entity type.
-///
-/// This is a convenience function that combines `convention_for` and `check_convention`.
-///
-/// # Arguments
-/// * `name` - The name to validate
-/// * `language` - The programming language
-/// * `entity` - The entity type (function, class, etc.)
-///
-/// # Returns
-/// * `true` if the name follows the convention
-/// * `false` if it doesn't
-pub fn is_valid_name(name: &str, language: &str, entity: &str) -> bool {
-    let conv = convention_for(language, entity);
-    check_convention(name, conv).is_none()
-}
-
 // ============================================================================
 // Case Detection Functions
 // ============================================================================
@@ -551,7 +534,7 @@ pub fn is_csharp_test_method(name: &str, file_path: Option<&str>) -> bool {
     }
 
     // Check if we're in a test file
-    let is_test_file = file_path.map_or(false, |path| {
+    let is_test_file = file_path.is_some_and(|path| {
         let path_lower = path.to_lowercase();
         path_lower.contains("test")
             || path_lower.contains("spec")
@@ -866,79 +849,6 @@ mod tests {
         assert_eq!(to_screaming_snake_case("HelloWorld"), "HELLO_WORLD");
         assert_eq!(to_screaming_snake_case("hello_world"), "HELLO_WORLD");
         assert_eq!(to_screaming_snake_case("simple"), "SIMPLE");
-    }
-
-    // ========================================================================
-    // Language Convention Tests
-    // ========================================================================
-
-    #[test]
-    fn test_csharp_class_pascal_case() {
-        assert!(is_valid_name("TransactionService", "csharp", "class"));
-        assert!(!is_valid_name("transaction_service", "csharp", "class"));
-        assert!(!is_valid_name("transactionService", "csharp", "class"));
-    }
-
-    #[test]
-    fn test_csharp_method_pascal_case() {
-        assert!(is_valid_name("GetTransaction", "csharp", "function"));
-        assert!(is_valid_name("ProcessPayment", "csharp", "method"));
-        assert!(!is_valid_name("get_transaction", "csharp", "function"));
-        assert!(!is_valid_name("getTransaction", "csharp", "method"));
-    }
-
-    #[test]
-    fn test_python_function_snake_case() {
-        assert!(is_valid_name("get_transaction", "python", "function"));
-        assert!(is_valid_name("process_payment", "python", "method"));
-        assert!(!is_valid_name("getTransaction", "python", "function"));
-        assert!(!is_valid_name("GetTransaction", "python", "method"));
-    }
-
-    #[test]
-    fn test_python_class_pascal_case() {
-        assert!(is_valid_name("TransactionService", "python", "class"));
-        assert!(!is_valid_name("transaction_service", "python", "class"));
-    }
-
-    #[test]
-    fn test_javascript_function_camel_case() {
-        assert!(is_valid_name("getTransaction", "javascript", "function"));
-        assert!(is_valid_name("processPayment", "typescript", "method"));
-        assert!(!is_valid_name("get_transaction", "javascript", "function"));
-        assert!(!is_valid_name("GetTransaction", "typescript", "method"));
-    }
-
-    #[test]
-    fn test_rust_function_snake_case() {
-        assert!(is_valid_name("get_transaction", "rust", "function"));
-        assert!(!is_valid_name("getTransaction", "rust", "function"));
-    }
-
-    #[test]
-    fn test_rust_struct_pascal_case() {
-        assert!(is_valid_name("TransactionService", "rust", "struct"));
-        assert!(!is_valid_name("transaction_service", "rust", "struct"));
-    }
-
-    #[test]
-    fn test_go_function_pascal_case() {
-        // Go exported functions are PascalCase
-        assert!(is_valid_name("GetTransaction", "go", "function"));
-        // Note: Go unexported functions would be camelCase but we can't detect export status
-    }
-
-    #[test]
-    fn test_java_method_camel_case() {
-        assert!(is_valid_name("getTransaction", "java", "method"));
-        assert!(!is_valid_name("get_transaction", "java", "method"));
-        assert!(!is_valid_name("GetTransaction", "java", "method"));
-    }
-
-    #[test]
-    fn test_java_class_pascal_case() {
-        assert!(is_valid_name("TransactionService", "java", "class"));
-        assert!(!is_valid_name("transactionService", "java", "class"));
     }
 
     // ========================================================================

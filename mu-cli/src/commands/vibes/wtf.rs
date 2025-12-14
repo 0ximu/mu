@@ -75,7 +75,7 @@ pub async fn run(target: Option<&str>, format: OutputFormat) -> anyhow::Result<(
 
     // Perform git analysis
     let result = if let Some(path) = file_path.as_ref() {
-        analyze_file(&path, line_range)?
+        analyze_file(path, line_range)?
     } else {
         analyze_repository()?
     };

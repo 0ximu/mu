@@ -6,12 +6,14 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+mod cache;
 mod commands;
 mod config;
 mod output;
 mod tsconfig;
 
 use commands::*;
+use config::MuConfig;
 use output::OutputFormat;
 
 /// Semantic code intelligence for AI-native development.
@@ -38,9 +40,9 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     quiet: bool,
 
-    /// Output format
-    #[arg(long, global = true, default_value = "table")]
-    format: OutputFormat,
+    /// Output format (overrides config default)
+    #[arg(long, global = true, value_enum)]
+    format: Option<OutputFormat>,
 
     /// Show detailed version information
     #[arg(long = "version-verbose")]
@@ -216,10 +218,14 @@ enum Commands {
     },
 
     /// Find downstream impact (what might break if this node changes)
-    
+
     Impact {
         /// Node to analyze
         node: String,
+
+        /// Maximum depth to traverse (default: unlimited)
+        #[arg(short, long)]
+        depth: Option<u8>,
 
         /// Filter by edge types (e.g., imports,calls)
         #[arg(short, long, value_delimiter = ',')]
@@ -227,10 +233,14 @@ enum Commands {
     },
 
     /// Find upstream ancestors (what this node depends on)
-    
+
     Ancestors {
         /// Node to analyze
         node: String,
+
+        /// Maximum depth to traverse (default: unlimited)
+        #[arg(short, long)]
+        depth: Option<u8>,
 
         /// Filter by edge types (e.g., imports,calls)
         #[arg(short, long, value_delimiter = ',')]
@@ -440,7 +450,21 @@ async fn main() -> anyhow::Result<()> {
 
     setup_logging(cli.verbose, cli.quiet);
 
-    let format = cli.format;
+    // Load configuration from .murc.toml
+    let config = MuConfig::load(std::path::Path::new("."));
+
+    // Resolve output format: CLI flag > config default > Table
+    let format = cli.format.unwrap_or_else(|| {
+        config
+            .default_format()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or(OutputFormat::Table)
+    });
+
+    // Apply color override from config if set
+    if let Some(use_color) = config.use_color() {
+        colored::control::set_override(use_color);
+    }
 
     // Handle case where no command is provided
     let command = match cli.command {
@@ -516,10 +540,16 @@ async fn main() -> anyhow::Result<()> {
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
 
         // Graph analysis commands
-        Commands::Impact { node, edge_types } => graph::run_impact(&node, edge_types, format).await,
-        Commands::Ancestors { node, edge_types } => {
-            graph::run_ancestors(&node, edge_types, format).await
-        }
+        Commands::Impact {
+            node,
+            depth,
+            edge_types,
+        } => graph::run_impact(&node, edge_types, depth, format).await,
+        Commands::Ancestors {
+            node,
+            depth,
+            edge_types,
+        } => graph::run_ancestors(&node, edge_types, depth, format).await,
         Commands::Cycles { edge_types } => graph::run_cycles(edge_types, format).await,
         Commands::Path {
             from,

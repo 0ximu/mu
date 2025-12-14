@@ -142,7 +142,7 @@ impl MUbase {
         let properties_json = node
             .properties
             .as_ref()
-            .map(|p| serde_json::to_string(p))
+            .map(serde_json::to_string)
             .transpose()
             .context("Failed to serialize node properties")?;
 
@@ -168,8 +168,6 @@ impl MUbase {
 
     /// Insert multiple nodes in a batch using an appender for better performance.
     pub fn insert_nodes(&self, nodes: &[Node]) -> Result<()> {
-        use duckdb::Appender;
-
         // Deduplicate by ID (keep last occurrence)
         let mut unique_nodes: std::collections::HashMap<&str, &Node> =
             std::collections::HashMap::new();
@@ -198,7 +196,7 @@ impl MUbase {
                 let properties_json = node
                     .properties
                     .as_ref()
-                    .map(|p| serde_json::to_string(p))
+                    .map(serde_json::to_string)
                     .transpose()
                     .context("Failed to serialize node properties")?;
 
@@ -229,7 +227,7 @@ impl MUbase {
         let properties_json = edge
             .properties
             .as_ref()
-            .map(|p| serde_json::to_string(p))
+            .map(serde_json::to_string)
             .transpose()
             .context("Failed to serialize edge properties")?;
 
@@ -251,8 +249,6 @@ impl MUbase {
 
     /// Insert multiple edges in a batch using an appender for better performance.
     pub fn insert_edges(&self, edges: &[Edge]) -> Result<()> {
-        use duckdb::Appender;
-
         // Count by type before dedup
         let mut type_counts: std::collections::HashMap<&str, usize> =
             std::collections::HashMap::new();
@@ -299,7 +295,7 @@ impl MUbase {
                 let properties_json = edge
                     .properties
                     .as_ref()
-                    .map(|p| serde_json::to_string(p))
+                    .map(serde_json::to_string)
                     .transpose()
                     .context("Failed to serialize edge properties")?;
 

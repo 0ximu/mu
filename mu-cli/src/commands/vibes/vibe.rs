@@ -291,7 +291,7 @@ fn check_test_coverage(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> 
         if !has_test {
             file_issues
                 .entry(file_path.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(func_name);
         }
     }
@@ -339,7 +339,7 @@ fn check_imports(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
 
         file_imports
             .entry(file_path.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(target_id.clone());
     }
 
@@ -612,7 +612,7 @@ fn infer_test_path(file_path: &str) -> String {
     use super::conventions::detect_language;
 
     let language = detect_language(file_path);
-    let file_name = file_path.split('/').last().unwrap_or(file_path);
+    let file_name = file_path.split('/').next_back().unwrap_or(file_path);
 
     match language {
         // C#: tests/{Project}.Tests/{ClassName}Tests.cs

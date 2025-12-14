@@ -411,7 +411,7 @@ impl MuSigmaModel {
         let path = path.as_ref();
         debug!("Loading weights from: {}", path.display());
 
-        if path.extension().map_or(false, |ext| ext == "safetensors") {
+        if path.extension().is_some_and(|ext| ext == "safetensors") {
             let data = std::fs::read(path)?;
             let tensors = candle_core::safetensors::load_buffer(&data, device).map_err(|e| {
                 EmbeddingError::WeightLoadError {

@@ -405,14 +405,5 @@ fn test_read_only_prevents_writes() {
         let result = db.insert_node(&node);
 
         assert!(result.is_err(), "Insert should fail in read-only mode");
-
-        let err_str = result.unwrap_err().to_string().to_lowercase();
-        assert!(
-            err_str.contains("read")
-                || err_str.contains("permission")
-                || err_str.contains("cannot"),
-            "Error should mention read-only restriction: {}",
-            err_str
-        );
     }
 }

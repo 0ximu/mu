@@ -13,6 +13,7 @@
 use clap::ValueEnum;
 use serde::Serialize;
 use std::io::IsTerminal;
+use std::str::FromStr;
 
 mod csv;
 mod json;
@@ -45,6 +46,21 @@ pub enum OutputFormat {
     Mu,
     /// Tree format for hierarchical data
     Tree,
+}
+
+impl FromStr for OutputFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "table" => Ok(OutputFormat::Table),
+            "json" => Ok(OutputFormat::Json),
+            "csv" => Ok(OutputFormat::Csv),
+            "mu" => Ok(OutputFormat::Mu),
+            "tree" => Ok(OutputFormat::Tree),
+            _ => Err(format!("Unknown output format: '{}'", s)),
+        }
+    }
 }
 
 /// Configuration for output rendering
@@ -80,10 +96,26 @@ impl OutputConfig {
     /// - Colors are disabled
     /// - Truncation is disabled
     pub fn auto_detect(format: OutputFormat) -> Self {
+        Self::auto_detect_with_color_override(format, None)
+    }
+
+    /// Create an OutputConfig with automatic TTY detection and optional color override.
+    ///
+    /// When output is not a TTY (piped or redirected):
+    /// - Colors are disabled (unless `color_override` is `Some(true)`)
+    /// - Truncation is disabled
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - The output format to use
+    /// * `color_override` - If `Some(true)`, force colors on. If `Some(false)`, force colors off.
+    ///                      If `None`, use auto-detection based on TTY.
+    pub fn auto_detect_with_color_override(format: OutputFormat, color_override: Option<bool>) -> Self {
         let is_tty = std::io::stdout().is_terminal();
+        let use_color = color_override.unwrap_or(is_tty);
         Self {
             format,
-            no_color: !is_tty,
+            no_color: !use_color,
             no_truncate: !is_tty,
             width: None,
             compact: false,

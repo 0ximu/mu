@@ -18,7 +18,7 @@ use crate::output::{OutputFormat, TableDisplay};
 use anyhow::{Context, Result};
 use colored::Colorize;
 use duckdb::Connection;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Instant;
 use tabled::{builder::Builder, settings::Style};
