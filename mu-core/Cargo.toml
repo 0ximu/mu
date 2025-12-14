@@ -10,16 +10,9 @@ keywords = ["llm", "code-analysis", "parsing", "tree-sitter"]
 
 [lib]
 name = "mu_core"
-crate-type = ["cdylib", "rlib"]
-
-[features]
-default = ["python"]
-python = ["pyo3/extension-module"]
+crate-type = ["rlib"]
 
 [dependencies]
-# PyO3 is always available for derive macros, but extension-module feature is optional
-# This allows compiling as rlib without Python linkage
-pyo3 = { version = "0.22", features = ["abi3-py311"] }
 rayon = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

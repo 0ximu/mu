@@ -20,8 +20,6 @@
 //! | 50k files | 2s               | 100ms         |
 
 use ignore::WalkBuilder;
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -83,35 +81,26 @@ fn is_supported_language(lang: &str) -> bool {
 }
 
 /// Information about a scanned file.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ScannedFile {
     /// Relative path from scan root.
-    #[pyo3(get)]
     pub path: String,
 
     /// Detected programming language.
-    #[pyo3(get)]
     pub language: String,
 
     /// File size in bytes.
-    #[pyo3(get)]
     pub size_bytes: u64,
 
     /// xxHash3 hash for cache invalidation (optional).
-    #[pyo3(get)]
     pub hash: Option<String>,
 
     /// Number of lines in the file.
-    #[pyo3(get)]
     pub lines: u32,
 }
 
-#[pymethods]
 impl ScannedFile {
-    #[new]
-    #[pyo3(signature = (path, language, size_bytes, hash=None, lines=0))]
-    fn new(
+    pub fn new(
         path: String,
         language: String,
         size_bytes: u64,
@@ -126,76 +115,33 @@ impl ScannedFile {
             lines,
         }
     }
-
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("path", &self.path)?;
-        dict.set_item("language", &self.language)?;
-        dict.set_item("size_bytes", self.size_bytes)?;
-        dict.set_item("hash", &self.hash)?;
-        dict.set_item("lines", self.lines)?;
-        Ok(dict.into())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ScannedFile(path='{}', language='{}', size_bytes={})",
-            self.path, self.language, self.size_bytes
-        )
-    }
 }
 
 /// Result of scanning a directory.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ScanResult {
     /// List of discovered files.
-    #[pyo3(get)]
     pub files: Vec<ScannedFile>,
 
     /// Number of files skipped due to ignore patterns.
-    #[pyo3(get)]
     pub skipped_count: usize,
 
     /// Number of errors encountered during scanning.
-    #[pyo3(get)]
     pub error_count: usize,
 
     /// Time taken for the scan in milliseconds.
-    #[pyo3(get)]
     pub duration_ms: f64,
 }
 
-#[pymethods]
 impl ScanResult {
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        let files: Vec<PyObject> = self
-            .files
-            .iter()
-            .map(|f| f.to_dict(py))
-            .collect::<PyResult<Vec<_>>>()?;
-        dict.set_item("files", files)?;
-        dict.set_item("skipped_count", self.skipped_count)?;
-        dict.set_item("error_count", self.error_count)?;
-        dict.set_item("duration_ms", self.duration_ms)?;
-        Ok(dict.into())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ScanResult(files={}, skipped={}, errors={}, duration={:.2}ms)",
-            self.files.len(),
-            self.skipped_count,
-            self.error_count,
-            self.duration_ms
-        )
-    }
-
-    fn __len__(&self) -> usize {
+    /// Get the number of files.
+    pub fn len(&self) -> usize {
         self.files.len()
+    }
+
+    /// Check if empty.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
     }
 }
 
@@ -229,34 +175,7 @@ fn count_lines(path: &Path) -> u32 {
 /// # Returns
 ///
 /// ScanResult containing discovered files and statistics.
-#[pyfunction]
-#[pyo3(signature = (root_path, extensions=None, ignore_patterns=None, follow_symlinks=false, compute_hashes=false, count_lines_flag=false))]
 pub fn scan_directory(
-    py: Python<'_>,
-    root_path: &str,
-    extensions: Option<Vec<String>>,
-    ignore_patterns: Option<Vec<String>>,
-    follow_symlinks: bool,
-    compute_hashes: bool,
-    count_lines_flag: bool,
-) -> PyResult<ScanResult> {
-    // Release GIL during scanning for parallelism
-    py.allow_threads(|| {
-        scan_directory_internal(
-            root_path,
-            extensions,
-            ignore_patterns,
-            follow_symlinks,
-            compute_hashes,
-            count_lines_flag,
-        )
-    })
-    .map_err(|e| pyo3::exceptions::PyFileNotFoundError::new_err(e))
-}
-
-/// Internal implementation without Python GIL.
-/// Returns Result<ScanResult, String> for use in both Python and pure Rust contexts.
-fn scan_directory_internal(
     root_path: &str,
     extensions: Option<Vec<String>>,
     ignore_patterns: Option<Vec<String>>,
@@ -400,8 +319,7 @@ fn scan_directory_internal(
     })
 }
 
-/// Internal scan function that returns a Result for error handling.
-/// This is separate from the PyO3 function to allow testing without Python.
+/// Alias for scan_directory for backwards compatibility.
 pub fn scan_directory_sync(
     root_path: &str,
     extensions: Option<Vec<String>>,
@@ -410,7 +328,7 @@ pub fn scan_directory_sync(
     compute_hashes: bool,
     count_lines_flag: bool,
 ) -> Result<ScanResult, String> {
-    scan_directory_internal(
+    scan_directory(
         root_path,
         extensions,
         ignore_patterns,

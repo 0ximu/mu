@@ -1,7 +1,5 @@
 //! Change types and result structures for semantic diff.
 
-use pyo3::prelude::*;
-use pyo3::types::PyDict;
 use serde::{Deserialize, Serialize};
 
 /// Type of change detected.
@@ -53,50 +51,38 @@ impl EntityType {
 }
 
 /// A single semantic change to a code entity.
-#[pyclass]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EntityChange {
     /// Type of change (added, removed, modified, renamed)
-    #[pyo3(get)]
     pub change_type: String,
 
     /// Type of entity (function, class, method, parameter, etc.)
-    #[pyo3(get)]
     pub entity_type: String,
 
     /// Name of the entity
-    #[pyo3(get)]
     pub entity_name: String,
 
     /// File path where the entity is located
-    #[pyo3(get)]
     pub file_path: String,
 
     /// Parent entity name (e.g., class name for methods)
-    #[pyo3(get)]
     pub parent_name: Option<String>,
 
     /// Human-readable details about the change
-    #[pyo3(get)]
     pub details: Option<String>,
 
     /// Old signature (for functions/methods)
-    #[pyo3(get)]
     pub old_signature: Option<String>,
 
     /// New signature (for functions/methods)
-    #[pyo3(get)]
     pub new_signature: Option<String>,
 
     /// Whether this is a breaking API change
-    #[pyo3(get)]
     pub is_breaking: bool,
 }
 
-#[pymethods]
 impl EntityChange {
-    #[new]
-    #[pyo3(signature = (change_type, entity_type, entity_name, file_path, parent_name=None, details=None, old_signature=None, new_signature=None, is_breaking=false))]
+    /// Create a new change with string types.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         change_type: String,
@@ -122,38 +108,6 @@ impl EntityChange {
         }
     }
 
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("change_type", &self.change_type)?;
-        dict.set_item("entity_type", &self.entity_type)?;
-        dict.set_item("entity_name", &self.entity_name)?;
-        dict.set_item("file_path", &self.file_path)?;
-        dict.set_item("parent_name", &self.parent_name)?;
-        dict.set_item("details", &self.details)?;
-        dict.set_item("old_signature", &self.old_signature)?;
-        dict.set_item("new_signature", &self.new_signature)?;
-        dict.set_item("is_breaking", self.is_breaking)?;
-        Ok(dict.into())
-    }
-
-    /// Get fully qualified entity name.
-    fn full_name(&self) -> String {
-        match &self.parent_name {
-            Some(parent) => format!("{}.{}", parent, self.entity_name),
-            None => self.entity_name.clone(),
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "EntityChange({}: {} {} in {})",
-            self.change_type, self.entity_type, self.entity_name, self.file_path
-        )
-    }
-}
-
-impl EntityChange {
     /// Create a new change with ChangeType and EntityType enums.
     pub fn create(
         change_type: ChangeType,
@@ -199,89 +153,98 @@ impl EntityChange {
         self.is_breaking = true;
         self
     }
+
+    /// Get fully qualified entity name.
+    pub fn full_name(&self) -> String {
+        match &self.parent_name {
+            Some(parent) => format!("{}.{}", parent, self.entity_name),
+            None => self.entity_name.clone(),
+        }
+    }
 }
 
 /// Summary statistics for a diff.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DiffSummary {
-    #[pyo3(get)]
     pub modules_added: u32,
-    #[pyo3(get)]
     pub modules_removed: u32,
-    #[pyo3(get)]
     pub modules_modified: u32,
 
-    #[pyo3(get)]
     pub functions_added: u32,
-    #[pyo3(get)]
     pub functions_removed: u32,
-    #[pyo3(get)]
     pub functions_modified: u32,
 
-    #[pyo3(get)]
     pub classes_added: u32,
-    #[pyo3(get)]
     pub classes_removed: u32,
-    #[pyo3(get)]
     pub classes_modified: u32,
 
-    #[pyo3(get)]
     pub methods_added: u32,
-    #[pyo3(get)]
     pub methods_removed: u32,
-    #[pyo3(get)]
     pub methods_modified: u32,
 
-    #[pyo3(get)]
     pub parameters_added: u32,
-    #[pyo3(get)]
     pub parameters_removed: u32,
-    #[pyo3(get)]
     pub parameters_modified: u32,
 
-    #[pyo3(get)]
     pub imports_added: u32,
-    #[pyo3(get)]
     pub imports_removed: u32,
 
-    #[pyo3(get)]
     pub breaking_changes: u32,
 }
 
-#[pymethods]
 impl DiffSummary {
-    #[new]
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-        dict.set_item("modules_added", self.modules_added)?;
-        dict.set_item("modules_removed", self.modules_removed)?;
-        dict.set_item("modules_modified", self.modules_modified)?;
-        dict.set_item("functions_added", self.functions_added)?;
-        dict.set_item("functions_removed", self.functions_removed)?;
-        dict.set_item("functions_modified", self.functions_modified)?;
-        dict.set_item("classes_added", self.classes_added)?;
-        dict.set_item("classes_removed", self.classes_removed)?;
-        dict.set_item("classes_modified", self.classes_modified)?;
-        dict.set_item("methods_added", self.methods_added)?;
-        dict.set_item("methods_removed", self.methods_removed)?;
-        dict.set_item("methods_modified", self.methods_modified)?;
-        dict.set_item("parameters_added", self.parameters_added)?;
-        dict.set_item("parameters_removed", self.parameters_removed)?;
-        dict.set_item("parameters_modified", self.parameters_modified)?;
-        dict.set_item("imports_added", self.imports_added)?;
-        dict.set_item("imports_removed", self.imports_removed)?;
-        dict.set_item("breaking_changes", self.breaking_changes)?;
-        Ok(dict.into())
+    /// Increment counter based on entity and change type.
+    pub fn record(&mut self, entity_type: &str, change_type: &str, is_breaking: bool) {
+        match entity_type {
+            "module" => match change_type {
+                "added" => self.modules_added += 1,
+                "removed" => self.modules_removed += 1,
+                "modified" => self.modules_modified += 1,
+                _ => {}
+            },
+            "function" => match change_type {
+                "added" => self.functions_added += 1,
+                "removed" => self.functions_removed += 1,
+                "modified" => self.functions_modified += 1,
+                _ => {}
+            },
+            "class" => match change_type {
+                "added" => self.classes_added += 1,
+                "removed" => self.classes_removed += 1,
+                "modified" => self.classes_modified += 1,
+                _ => {}
+            },
+            "method" => match change_type {
+                "added" => self.methods_added += 1,
+                "removed" => self.methods_removed += 1,
+                "modified" => self.methods_modified += 1,
+                _ => {}
+            },
+            "parameter" => match change_type {
+                "added" => self.parameters_added += 1,
+                "removed" => self.parameters_removed += 1,
+                "modified" => self.parameters_modified += 1,
+                _ => {}
+            },
+            "import" => match change_type {
+                "added" => self.imports_added += 1,
+                "removed" => self.imports_removed += 1,
+                _ => {}
+            },
+            _ => {}
+        }
+
+        if is_breaking {
+            self.breaking_changes += 1;
+        }
     }
 
     /// Generate human-readable summary string.
-    fn text(&self) -> String {
+    pub fn text(&self) -> String {
         let mut parts = Vec::new();
 
         // Modules
@@ -350,166 +313,32 @@ impl DiffSummary {
             parts.join("; ")
         }
     }
-
-    fn __repr__(&self) -> String {
-        format!("DiffSummary({})", self.text())
-    }
-}
-
-impl DiffSummary {
-    /// Increment counter based on entity and change type.
-    pub fn record(&mut self, entity_type: &str, change_type: &str, is_breaking: bool) {
-        match entity_type {
-            "module" => match change_type {
-                "added" => self.modules_added += 1,
-                "removed" => self.modules_removed += 1,
-                "modified" => self.modules_modified += 1,
-                _ => {}
-            },
-            "function" => match change_type {
-                "added" => self.functions_added += 1,
-                "removed" => self.functions_removed += 1,
-                "modified" => self.functions_modified += 1,
-                _ => {}
-            },
-            "class" => match change_type {
-                "added" => self.classes_added += 1,
-                "removed" => self.classes_removed += 1,
-                "modified" => self.classes_modified += 1,
-                _ => {}
-            },
-            "method" => match change_type {
-                "added" => self.methods_added += 1,
-                "removed" => self.methods_removed += 1,
-                "modified" => self.methods_modified += 1,
-                _ => {}
-            },
-            "parameter" => match change_type {
-                "added" => self.parameters_added += 1,
-                "removed" => self.parameters_removed += 1,
-                "modified" => self.parameters_modified += 1,
-                _ => {}
-            },
-            "import" => match change_type {
-                "added" => self.imports_added += 1,
-                "removed" => self.imports_removed += 1,
-                _ => {}
-            },
-            _ => {}
-        }
-
-        if is_breaking {
-            self.breaking_changes += 1;
-        }
-    }
 }
 
 /// Complete result of a semantic diff operation.
-#[pyclass]
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SemanticDiffResult {
     /// All changes detected
-    #[pyo3(get)]
     pub changes: Vec<EntityChange>,
 
     /// Breaking changes only
-    #[pyo3(get)]
     pub breaking_changes: Vec<EntityChange>,
 
     /// Summary statistics
-    #[pyo3(get)]
     pub summary: DiffSummary,
 
     /// Human-readable summary text
-    #[pyo3(get)]
     pub summary_text: String,
 
     /// Duration of diff operation in milliseconds
-    #[pyo3(get)]
     pub duration_ms: f64,
 }
 
-#[pymethods]
 impl SemanticDiffResult {
-    #[new]
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    /// Check if there are any changes.
-    fn has_changes(&self) -> bool {
-        !self.changes.is_empty()
-    }
-
-    /// Check if there are breaking changes.
-    fn has_breaking_changes(&self) -> bool {
-        !self.breaking_changes.is_empty()
-    }
-
-    /// Get change count.
-    fn change_count(&self) -> usize {
-        self.changes.len()
-    }
-
-    /// Filter changes by entity type.
-    fn filter_by_type(&self, entity_type: &str) -> Vec<EntityChange> {
-        self.changes
-            .iter()
-            .filter(|c| c.entity_type == entity_type)
-            .cloned()
-            .collect()
-    }
-
-    /// Filter changes by file path.
-    fn filter_by_path(&self, file_path: &str) -> Vec<EntityChange> {
-        self.changes
-            .iter()
-            .filter(|c| c.file_path == file_path)
-            .cloned()
-            .collect()
-    }
-
-    /// Convert to Python dict.
-    fn to_dict(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
-
-        let changes: Vec<PyObject> = self
-            .changes
-            .iter()
-            .map(|c| c.to_dict(py))
-            .collect::<PyResult<Vec<_>>>()?;
-        dict.set_item("changes", changes)?;
-
-        let breaking: Vec<PyObject> = self
-            .breaking_changes
-            .iter()
-            .map(|c| c.to_dict(py))
-            .collect::<PyResult<Vec<_>>>()?;
-        dict.set_item("breaking_changes", breaking)?;
-
-        dict.set_item("summary", self.summary.to_dict(py)?)?;
-        dict.set_item("summary_text", &self.summary_text)?;
-        dict.set_item("duration_ms", self.duration_ms)?;
-        dict.set_item("has_changes", self.has_changes())?;
-        dict.set_item("has_breaking_changes", self.has_breaking_changes())?;
-
-        Ok(dict.into())
-    }
-
-    fn __len__(&self) -> usize {
-        self.changes.len()
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "SemanticDiffResult({} changes, {} breaking)",
-            self.changes.len(),
-            self.breaking_changes.len()
-        )
-    }
-}
-
-impl SemanticDiffResult {
     /// Add a change and update summary.
     pub fn add_change(&mut self, change: EntityChange) {
         self.summary
@@ -528,21 +357,45 @@ impl SemanticDiffResult {
         self.summary_text = self.summary.text();
     }
 
-    /// Check if there are any changes (Rust API).
+    /// Check if there are any changes.
     pub fn is_changed(&self) -> bool {
         !self.changes.is_empty()
     }
 
-    /// Check if there are breaking changes (Rust API).
+    /// Check if there are breaking changes.
     pub fn is_breaking(&self) -> bool {
         !self.breaking_changes.is_empty()
     }
 
-    /// Filter changes by entity type (Rust API).
+    /// Check if there are any changes.
+    pub fn has_changes(&self) -> bool {
+        !self.changes.is_empty()
+    }
+
+    /// Check if there are breaking changes.
+    pub fn has_breaking_changes(&self) -> bool {
+        !self.breaking_changes.is_empty()
+    }
+
+    /// Get change count.
+    pub fn change_count(&self) -> usize {
+        self.changes.len()
+    }
+
+    /// Filter changes by entity type.
     pub fn filter_entity_type(&self, entity_type: &str) -> Vec<EntityChange> {
         self.changes
             .iter()
             .filter(|c| c.entity_type == entity_type)
+            .cloned()
+            .collect()
+    }
+
+    /// Filter changes by file path.
+    pub fn filter_by_path(&self, file_path: &str) -> Vec<EntityChange> {
+        self.changes
+            .iter()
+            .filter(|c| c.file_path == file_path)
             .cloned()
             .collect()
     }

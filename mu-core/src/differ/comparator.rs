@@ -1,6 +1,5 @@
 //! Comparator logic for diffing ModuleDef structures.
 
-use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -588,41 +587,32 @@ pub fn semantic_diff_modules(
     result
 }
 
-/// PyO3 function to compute semantic diff.
-#[pyfunction]
-#[pyo3(signature = (base_modules, head_modules))]
+/// Compute semantic diff between two sets of modules (wrapper for API).
 pub fn semantic_diff(
-    py: Python<'_>,
     base_modules: Vec<ModuleDef>,
     head_modules: Vec<ModuleDef>,
-) -> PyResult<SemanticDiffResult> {
-    // Release GIL during computation
-    Ok(py.allow_threads(|| semantic_diff_modules(&base_modules, &head_modules)))
+) -> SemanticDiffResult {
+    semantic_diff_modules(&base_modules, &head_modules)
 }
 
-/// PyO3 function to diff two files directly.
+/// Diff two files directly.
 ///
 /// Reads, parses, and diffs two source files in one call.
 /// When `normalize_paths` is true, uses the head file path for both modules
 /// so they are compared as the same module (useful for comparing file versions).
-#[pyfunction]
-#[pyo3(signature = (base_path, head_path, language, normalize_paths=true))]
 pub fn semantic_diff_files(
-    py: Python<'_>,
     base_path: &str,
     head_path: &str,
     language: &str,
     normalize_paths: bool,
-) -> PyResult<SemanticDiffResult> {
+) -> Result<SemanticDiffResult, String> {
     use std::fs;
 
     // Read files
-    let base_source = fs::read_to_string(base_path).map_err(|e| {
-        pyo3::exceptions::PyIOError::new_err(format!("Failed to read base file: {}", e))
-    })?;
-    let head_source = fs::read_to_string(head_path).map_err(|e| {
-        pyo3::exceptions::PyIOError::new_err(format!("Failed to read head file: {}", e))
-    })?;
+    let base_source = fs::read_to_string(base_path)
+        .map_err(|e| format!("Failed to read base file: {}", e))?;
+    let head_source = fs::read_to_string(head_path)
+        .map_err(|e| format!("Failed to read head file: {}", e))?;
 
     // Use normalized path if requested (default: true for CLI usage)
     let effective_base_path = if normalize_paths {
@@ -637,29 +627,30 @@ pub fn semantic_diff_files(
 
     // Handle parse errors
     let base_module = base_result.module.ok_or_else(|| {
-        pyo3::exceptions::PyValueError::new_err(format!(
+        format!(
             "Failed to parse base file: {}",
             base_result
                 .error
                 .unwrap_or_else(|| "Unknown error".to_string())
-        ))
+        )
     })?;
     let head_module = head_result.module.ok_or_else(|| {
-        pyo3::exceptions::PyValueError::new_err(format!(
+        format!(
             "Failed to parse head file: {}",
             head_result
                 .error
                 .unwrap_or_else(|| "Unknown error".to_string())
-        ))
+        )
     })?;
 
     // Diff
-    Ok(py.allow_threads(|| semantic_diff_modules(&[base_module], &[head_module])))
+    Ok(semantic_diff_modules(&[base_module], &[head_module]))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::ImportDef;
 
     fn make_param(name: &str, type_ann: Option<&str>, default: Option<&str>) -> ParameterDef {
         ParameterDef {
