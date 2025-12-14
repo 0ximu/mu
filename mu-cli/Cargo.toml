@@ -1,0 +1,73 @@
+[package]
+name = "mu-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Command-line interface for MU (Machine Understanding)"
+keywords = ["llm", "code-analysis", "cli", "semantic-compression"]
+
+[[bin]]
+name = "mu"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+mu-core = { workspace = true }
+mu-daemon = { workspace = true }
+mu-embeddings = { workspace = true }
+
+# Progress bars
+indicatif = "0.17"
+
+# File operations
+toml = "0.8"
+
+# Async runtime
+tokio = { workspace = true }
+
+# CLI
+clap = { workspace = true }
+clap_complete = "4"
+colored = { workspace = true }
+tabled = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true }
+
+# Utilities
+chrono = { workspace = true }
+dirs = "5"
+regex = "1.10"
+urlencoding = "2.1"
+
+# Database (for direct MUbase access)
+duckdb = { version = "1.1", features = ["bundled"] }
+
+# Terminal
+terminal_size = "0.4"
+
+# Graph algorithms
+petgraph = "0.6"
+
+# Content hashing
+blake3 = "1.5"
+
+# Syntax highlighting
+syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
+
+[dev-dependencies]
+tempfile = "3"

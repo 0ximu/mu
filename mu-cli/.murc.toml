@@ -1,0 +1,34 @@
+# MU Configuration
+# https://github.com/dominaite/mu
+
+[mu]
+version = "1.0"
+
+[scanner]
+ignore = [
+    "node_modules/",
+    ".git/",
+    "__pycache__/",
+    "*.pyc",
+    ".venv/",
+    "venv/",
+    "dist/",
+    "build/",
+    "*.min.js",
+    "*.bundle.js",
+    "*.lock",
+    ".mu/",
+]
+include_hidden = false
+max_file_size_kb = 1000
+
+[parser]
+languages = "auto"
+
+[output]
+format = "mu"
+include_line_numbers = false
+
+[cache]
+enabled = true
+directory = ".mu/cache"
