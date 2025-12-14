@@ -1,0 +1,461 @@
+// MUQL Grammar - MU Query Language
+// A SQL-like query language for exploring codebases stored in MUbase
+
+// Entry point - a query is one of the five main query types
+?start: query
+
+?query: select_query
+      | show_query
+      | show_tables_query
+      | show_columns_query
+      | find_query
+      | find_cycles_query
+      | path_query
+      | analyze_query
+      | history_query
+      | blame_query
+      | describe_query
+      // Terse SHOW commands (LLM-optimized)
+      | terse_deps_query
+      | terse_rdeps_query
+      | terse_callers_query
+      | terse_callees_query
+      | terse_impact_query
+      // Terse SELECT (LLM-optimized)
+      | terse_select_query
+
+// =============================================================================
+// SHOW TABLES/COLUMNS Query - SQL-compatible aliases for DESCRIBE
+// =============================================================================
+
+show_tables_query: SHOW_KW TABLES_KW
+
+show_columns_query: SHOW_KW COLUMNS_KW FROM_KW node_type
+
+// =============================================================================
+// SELECT Query - SQL-like queries on nodes table
+// =============================================================================
+
+select_query: SELECT_KW select_list FROM_KW node_type [where_clause] [temporal_clause] [group_by_clause] [having_clause] [order_by_clause] [limit_clause]
+
+select_list: STAR
+           | field_list
+
+field_list: field ("," field)*
+
+field: COUNT_KW "(" STAR ")" [AS_KW IDENTIFIER] -> count_star
+     | COUNT_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> count_field
+     | AVG_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> avg_field
+     | MAX_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> max_agg_field
+     | MIN_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> min_agg_field
+     | SUM_KW "(" IDENTIFIER ")" [AS_KW IDENTIFIER] -> sum_field
+     | IDENTIFIER [AS_KW IDENTIFIER] -> named_field
+
+node_type: FUNCTIONS_KW -> functions_type
+         | CLASSES_KW -> classes_type
+         | MODULES_KW -> modules_type
+         | NODES_KW -> nodes_type
+         // Terse aliases for node types (LLM-optimized)
+         | FN_KW -> functions_type
+         | CLS_KW -> classes_type
+         | MOD_KW -> modules_type
+
+// WHERE clause with boolean conditions
+where_clause: WHERE_KW condition
+
+?condition: or_condition
+
+or_condition: and_condition (OR_KW and_condition)*
+
+and_condition: comparison (AND_KW comparison)*
+
+comparison: IDENTIFIER comparison_op value -> simple_comparison
+          | IDENTIFIER IN_KW "(" value_list ")" -> in_comparison
+          | IDENTIFIER CONTAINS_KW value -> contains_comparison
+          | IDENTIFIER NOT_KW IN_KW "(" value_list ")" -> not_in_comparison
+          | "(" condition ")" -> grouped_condition
+          | aggregate_expr comparison_op value -> aggregate_comparison
+
+// Aggregate expressions for HAVING clause
+aggregate_expr: COUNT_KW "(" STAR ")" -> agg_count_star
+              | COUNT_KW "(" IDENTIFIER ")" -> agg_count_field
+              | AVG_KW "(" IDENTIFIER ")" -> agg_avg_field
+              | MAX_KW "(" IDENTIFIER ")" -> agg_max_field
+              | MIN_KW "(" IDENTIFIER ")" -> agg_min_field
+              | SUM_KW "(" IDENTIFIER ")" -> agg_sum_field
+
+comparison_op: EQ | NEQ | GT | LT | GTE | LTE | LIKE_KW | TILDE
+
+value: STRING -> string_value
+     | NUMBER -> number_value
+     | TRUE_KW -> true_value
+     | FALSE_KW -> false_value
+     | NULL_KW -> null_value
+
+value_list: value ("," value)*
+
+// GROUP BY clause
+group_by_clause: GROUP_KW BY_KW group_field ("," group_field)*
+
+group_field: IDENTIFIER
+
+// HAVING clause (filter on aggregates)
+having_clause: HAVING_KW condition
+
+// ORDER BY clause
+order_by_clause: ORDER_KW BY_KW order_field ("," order_field)*
+
+order_field: IDENTIFIER [order_direction]
+
+order_direction: ASC_KW | DESC_KW
+
+// LIMIT clause
+limit_clause: LIMIT_KW NUMBER
+
+// =============================================================================
+// SHOW Query - Graph traversal queries
+// =============================================================================
+
+show_query: SHOW_KW show_type OF_KW node_ref [depth_clause]
+
+show_type: DEPENDENCIES_KW -> show_dependencies
+         | DEPENDENTS_KW -> show_dependents
+         | CALLERS_KW -> show_callers
+         | CALLEES_KW -> show_callees
+         | INHERITANCE_KW -> show_inheritance
+         | IMPLEMENTATIONS_KW -> show_implementations
+         | CHILDREN_KW -> show_children
+         | PARENTS_KW -> show_parents
+         | IMPACT_KW -> show_impact
+         | ANCESTORS_KW -> show_ancestors
+
+node_ref: STRING -> quoted_node_ref
+        | IDENTIFIER -> identifier_node_ref
+        | qualified_name -> qualified_node_ref
+
+qualified_name: IDENTIFIER ("." IDENTIFIER)+
+
+depth_clause: DEPTH_KW NUMBER
+
+// =============================================================================
+// Terse SHOW Commands (LLM-optimized)
+// =============================================================================
+
+// deps AuthService -> SHOW DEPENDENCIES OF AuthService
+// deps AuthService d2 -> SHOW DEPENDENCIES OF AuthService DEPTH 2
+terse_deps_query: DEPS_KW node_ref [terse_depth_clause]
+
+// rdeps AuthService -> SHOW DEPENDENTS OF AuthService
+terse_rdeps_query: RDEPS_KW node_ref [terse_depth_clause]
+
+// callers main -> SHOW CALLERS OF main
+terse_callers_query: CALLERS_KW node_ref [terse_depth_clause]
+
+// callees main -> SHOW CALLEES OF main
+terse_callees_query: CALLEES_KW node_ref [terse_depth_clause]
+
+// impact UserModel -> SHOW IMPACT OF UserModel
+terse_impact_query: IMPACT_KW node_ref
+
+// Terse depth clause: d2 instead of DEPTH 2
+terse_depth_clause: TERSE_DEPTH_KW NUMBER
+
+// =============================================================================
+// Terse SELECT Query (LLM-optimized)
+// =============================================================================
+
+// fn c>50 -> SELECT * FROM functions WHERE complexity > 50
+// fn c>50 sort c- 10 -> SELECT * FROM functions WHERE complexity > 50 ORDER BY complexity DESC LIMIT 10
+// fn n~auth -> SELECT * FROM functions WHERE name LIKE '%auth%'
+terse_select_query: terse_node_type [terse_where_clause] [terse_order_clause] [terse_limit_clause]
+
+// Terse node types (must match verbose node_type aliases)
+terse_node_type: FN_KW -> functions_type
+               | CLS_KW -> classes_type
+               | MOD_KW -> modules_type
+
+// Terse WHERE clause (implicit): c>50 instead of WHERE complexity > 50
+terse_where_clause: terse_condition
+
+terse_condition: terse_and_condition (OR_KW terse_and_condition)*
+
+terse_and_condition: terse_comparison (AND_KW terse_comparison)*
+
+terse_comparison: terse_field comparison_op value -> terse_simple_comparison
+
+// Terse field aliases
+terse_field: COMPLEXITY_TERSE_KW -> complexity_field
+           | NAME_TERSE_KW -> name_field
+           | FILEPATH_TERSE_KW -> filepath_field
+           | QUALNAME_TERSE_KW -> qualname_field
+           | IDENTIFIER -> named_field_terse
+
+// Terse ORDER BY: sort c- or sort c desc
+terse_order_clause: SORT_KW terse_order_field ("," terse_order_field)*
+
+terse_order_field: terse_field [terse_order_direction]
+
+terse_order_direction: MINUS -> desc_order
+                     | PLUS -> asc_order
+                     | DESC_KW -> desc_order
+                     | ASC_KW -> asc_order
+
+// Terse LIMIT: bare number at end, or lim N
+terse_limit_clause: LIMIT_KW NUMBER -> terse_limit_num
+                  | LIM_KW NUMBER -> terse_limit_num
+                  | NUMBER -> terse_limit_num
+
+// =============================================================================
+// FIND CYCLES Query - Graph cycle detection using petgraph
+// =============================================================================
+
+find_cycles_query: FIND_KW CYCLES_KW [edge_type_filter]
+
+edge_type_filter: WHERE_KW EDGE_TYPE_KW comparison_op edge_type_value
+                | WHERE_KW EDGE_TYPE_KW IN_KW "(" edge_type_list ")"
+
+edge_type_value: STRING -> edge_type_string
+
+edge_type_list: edge_type_value ("," edge_type_value)*
+
+// =============================================================================
+// FIND Query - Pattern-based search
+// =============================================================================
+
+find_query: FIND_KW find_node_type find_condition [limit_clause]
+
+find_node_type: FUNCTIONS_KW -> find_functions
+              | CLASSES_KW -> find_classes
+              | MODULES_KW -> find_modules
+              | METHODS_KW -> find_methods
+
+find_condition: CALLING_KW node_ref -> find_calling
+              | CALLED_KW BY_KW node_ref -> find_called_by
+              | IMPORTING_KW node_ref -> find_importing
+              | IMPORTED_KW BY_KW node_ref -> find_imported_by
+              | INHERITING_KW node_ref -> find_inheriting
+              | IMPLEMENTING_KW node_ref -> find_implementing
+              | MUTATING_KW node_ref -> find_mutating
+              | WITH_KW DECORATOR_KW STRING -> find_with_decorator
+              | WITH_KW ANNOTATION_KW STRING -> find_with_annotation
+              | MATCHING_KW STRING -> find_matching
+              | SIMILAR_KW TO_KW node_ref -> find_similar_to
+
+// =============================================================================
+// PATH Query - Shortest path between nodes
+// =============================================================================
+
+path_query: PATH_KW FROM_KW node_ref TO_KW node_ref [max_depth_clause] [via_clause]
+
+max_depth_clause: MAX_KW DEPTH_KW NUMBER
+
+via_clause: VIA_KW edge_type
+
+edge_type: CALLS_KW -> edge_calls
+         | IMPORTS_KW -> edge_imports
+         | INHERITS_KW -> edge_inherits
+         | USES_KW -> edge_uses
+         | CONTAINS_EDGE_KW -> edge_contains
+
+// =============================================================================
+// ANALYZE Query - Built-in analysis queries
+// =============================================================================
+
+analyze_query: ANALYZE_KW analysis_type [for_clause]
+
+analysis_type: COUPLING_KW -> analyze_coupling
+             | COHESION_KW -> analyze_cohesion
+             | COMPLEXITY_KW -> analyze_complexity
+             | HOTSPOTS_KW -> analyze_hotspots
+             | CIRCULAR_KW -> analyze_circular
+             | UNUSED_KW -> analyze_unused
+             | IMPACT_KW -> analyze_impact
+
+for_clause: FOR_KW node_ref
+
+// =============================================================================
+// TEMPORAL Queries - Time-travel and history queries
+// =============================================================================
+
+// Temporal clauses for SELECT queries
+temporal_clause: at_clause
+               | between_clause
+
+at_clause: AT_KW commit_ref
+
+between_clause: BETWEEN_KW commit_ref AND_KW commit_ref
+
+commit_ref: STRING -> quoted_commit_ref
+          | IDENTIFIER -> identifier_commit_ref
+
+// HISTORY query - show changes over time
+history_query: HISTORY_KW OF_KW node_ref [limit_clause]
+
+// BLAME query - show who changed what
+blame_query: BLAME_KW node_ref
+
+// =============================================================================
+// DESCRIBE Query - Schema introspection
+// =============================================================================
+
+describe_query: DESCRIBE_KW describe_target
+
+describe_target: TABLES_KW -> describe_tables
+               | COLUMNS_KW FROM_KW node_type -> describe_columns
+               | node_type -> describe_node_type
+
+// =============================================================================
+// Terminals (Keywords - case insensitive)
+// =============================================================================
+
+// Main keywords
+SELECT_KW: /select/i
+FROM_KW: /from/i
+WHERE_KW: /where/i
+GROUP_KW: /group/i
+HAVING_KW: /having/i
+ORDER_KW: /order/i
+BY_KW: /by/i
+LIMIT_KW: /limit/i
+AND_KW: /and/i
+OR_KW: /or/i
+NOT_KW: /not/i
+IN_KW: /in/i
+LIKE_KW: /like/i
+CONTAINS_KW: /contains/i
+AS_KW: /as/i
+
+// Aggregate functions
+COUNT_KW: /count/i
+AVG_KW: /avg/i
+MAX_KW: /max/i
+MIN_KW: /min/i
+SUM_KW: /sum/i
+
+// Sort order
+ASC_KW: /asc/i
+DESC_KW: /desc/i
+
+// Node types
+FUNCTIONS_KW: /functions/i
+CLASSES_KW: /classes/i
+MODULES_KW: /modules/i
+NODES_KW: /nodes/i
+METHODS_KW: /methods/i
+
+// Terse node type aliases (LLM-optimized)
+FN_KW: /fn/i
+CLS_KW: /cls/i
+MOD_KW: /mod/i
+
+// SHOW keywords
+SHOW_KW: /show/i
+OF_KW: /of/i
+DEPTH_KW: /depth/i
+DEPENDENCIES_KW: /dependencies/i
+DEPENDENTS_KW: /dependents/i
+CALLERS_KW: /callers/i
+CALLEES_KW: /callees/i
+INHERITANCE_KW: /inheritance/i
+IMPLEMENTATIONS_KW: /implementations/i
+CHILDREN_KW: /children/i
+PARENTS_KW: /parents/i
+
+// Terse SHOW command keywords (LLM-optimized)
+// NOTE: IMPACT_KW is defined below with ANALYZE keywords, reused here
+DEPS_KW: /deps/i
+RDEPS_KW: /rdeps/i
+TERSE_DEPTH_KW: /d/i
+
+// Terse SELECT keywords (LLM-optimized)
+SORT_KW: /sort/i
+LIM_KW: /lim/i
+COMPLEXITY_TERSE_KW: "c"i
+NAME_TERSE_KW: "n"i
+FILEPATH_TERSE_KW: /fp/i
+QUALNAME_TERSE_KW: /qn/i
+MINUS: "-"
+PLUS: "+"
+
+// FIND keywords
+FIND_KW: /find/i
+CALLING_KW: /calling/i
+CALLED_KW: /called/i
+IMPORTING_KW: /importing/i
+IMPORTED_KW: /imported/i
+INHERITING_KW: /inheriting/i
+IMPLEMENTING_KW: /implementing/i
+MUTATING_KW: /mutating/i
+WITH_KW: /with/i
+DECORATOR_KW: /decorator/i
+ANNOTATION_KW: /annotation/i
+MATCHING_KW: /matching/i
+SIMILAR_KW: /similar/i
+TO_KW: /to/i
+CYCLES_KW: /cycles/i
+EDGE_TYPE_KW: /edge_type/i
+
+// Graph traversal keywords (SHOW ANCESTORS)
+// NOTE: IMPACT_KW is already defined below for ANALYZE
+ANCESTORS_KW: /ancestors/i
+
+// PATH keywords
+PATH_KW: /path/i
+VIA_KW: /via/i
+CALLS_KW: /calls/i
+IMPORTS_KW: /imports/i
+INHERITS_KW: /inherits/i
+USES_KW: /uses/i
+CONTAINS_EDGE_KW: "contains"i
+
+// ANALYZE keywords
+ANALYZE_KW: /analyze/i
+FOR_KW: /for/i
+COUPLING_KW: /coupling/i
+COHESION_KW: /cohesion/i
+COMPLEXITY_KW: /complexity/i
+HOTSPOTS_KW: /hotspots/i
+CIRCULAR_KW: /circular/i
+UNUSED_KW: /unused/i
+IMPACT_KW: /impact/i
+
+// Temporal keywords
+AT_KW: /at/i
+BETWEEN_KW: /between/i
+HISTORY_KW: /history/i
+BLAME_KW: /blame/i
+FIRST_KW: /first/i
+
+// Boolean/null literals
+TRUE_KW: /true/i
+FALSE_KW: /false/i
+NULL_KW: /null/i
+
+// DESCRIBE keywords
+DESCRIBE_KW: /describe/i
+TABLES_KW: /tables/i
+COLUMNS_KW: /columns/i
+
+// Comparison operators
+EQ: "="
+NEQ: "!=" | "<>"
+GT: ">"
+LT: "<"
+GTE: ">="
+LTE: "<="
+TILDE: "~"  // Terse alias for LIKE
+STAR: "*"
+
+// Identifiers and literals
+// IDENTIFIER must come after keywords for proper priority
+STRING: /"[^"]*"/ | /'[^']*'/
+NUMBER: /\d+/
+IDENTIFIER: /[a-zA-Z_][a-zA-Z0-9_]*/
+
+// Whitespace and comments
+%import common.WS
+%ignore WS
+
+// Single-line comments
+COMMENT: /--[^\n]*/
+%ignore COMMENT

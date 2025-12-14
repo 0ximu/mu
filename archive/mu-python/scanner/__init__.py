@@ -1,0 +1,479 @@
+"""MU Scanner - Codebase filesystem analysis."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from fnmatch import fnmatch
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+from mu.config import MUConfig
+from mu.logging import get_logger
+
+# Try to import Rust scanner
+_rust_core: ModuleType | None
+try:
+    from mu import _core as _rust_core
+
+    _HAS_RUST_SCANNER = hasattr(_rust_core, "scan_directory")
+except ImportError:
+    _rust_core = None
+    _HAS_RUST_SCANNER = False
+
+# Environment variable to force Python scanner
+_USE_RUST_SCANNER = os.environ.get("MU_USE_RUST_SCANNER", "1") != "0" and _HAS_RUST_SCANNER
+
+# Language detection by file extension
+LANGUAGE_EXTENSIONS: dict[str, str] = {
+    ".py": "python",
+    ".pyw": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "jsx",
+    ".mjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".cs": "csharp",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".kts": "kotlin",
+    ".rb": "ruby",
+    ".php": "php",
+    ".swift": "swift",
+    ".c": "c",
+    ".h": "c",
+    ".cpp": "cpp",
+    ".hpp": "cpp",
+    ".cc": "cpp",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".json": "json",
+    ".toml": "toml",
+    ".md": "markdown",
+    ".sql": "sql",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+}
+
+# Supported languages for MU transformation
+SUPPORTED_LANGUAGES = {
+    "python",
+    "typescript",
+    "tsx",
+    "javascript",
+    "jsx",
+    "csharp",
+    "go",
+    "rust",
+    "java",
+}
+
+
+@dataclass
+class FileInfo:
+    """Information about a scanned file."""
+
+    path: str
+    language: str
+    size_bytes: int
+    hash: str
+    lines: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "language": self.language,
+            "size_bytes": self.size_bytes,
+            "hash": self.hash,
+            "lines": self.lines,
+        }
+
+
+@dataclass
+class SkippedItem:
+    """Information about a skipped file or directory."""
+
+    path: str
+    reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"path": self.path, "reason": self.reason}
+
+
+@dataclass
+class ScanStats:
+    """Statistics from a codebase scan."""
+
+    total_files: int = 0
+    total_lines: int = 0
+    languages: dict[str, int] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "total_files": self.total_files,
+            "total_lines": self.total_lines,
+            "languages": self.languages,
+        }
+
+
+@dataclass
+class ScanResult:
+    """Result of scanning a codebase."""
+
+    version: str = "1.0"
+    root: str = ""
+    scanned_at: str = ""
+    files: list[FileInfo] = field(default_factory=list)
+    stats: ScanStats = field(default_factory=ScanStats)
+    skipped: list[SkippedItem] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": self.version,
+            "root": self.root,
+            "scanned_at": self.scanned_at,
+            "files": [f.to_dict() for f in self.files],
+            "stats": self.stats.to_dict(),
+            "skipped": [s.to_dict() for s in self.skipped],
+        }
+
+
+def detect_language(file_path: Path) -> str | None:
+    """Detect programming language from file extension."""
+    ext = file_path.suffix.lower()
+    return LANGUAGE_EXTENSIONS.get(ext)
+
+
+def compute_file_hash(file_path: Path) -> str:
+    """Compute SHA-256 hash of file content."""
+    hasher = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            hasher.update(chunk)
+    return f"sha256:{hasher.hexdigest()[:16]}"
+
+
+def count_lines(file_path: Path) -> int:
+    """Count lines in a file."""
+    try:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
+            return sum(1 for _ in f)
+    except Exception:
+        return 0
+
+
+def should_ignore(path: Path, ignore_patterns: list[str], root: Path) -> str | None:
+    """Check if path should be ignored. Returns reason if ignored, None otherwise."""
+    rel_path = str(path.relative_to(root))
+
+    # Check against ignore patterns
+    for pattern in ignore_patterns:
+        # Handle directory patterns (ending with /)
+        if pattern.endswith("/"):
+            dir_pattern = pattern.rstrip("/")
+            if any(part == dir_pattern for part in path.parts):
+                return "ignore_pattern"
+        # Handle glob patterns
+        elif fnmatch(rel_path, pattern) or fnmatch(path.name, pattern):
+            return "ignore_pattern"
+
+    return None
+
+
+def _scan_single_file(
+    file_path: Path, config: MUConfig, result: ScanResult, max_size: int
+) -> ScanResult:
+    """Scan a single file and return structured manifest.
+
+    Args:
+        file_path: Path to the file to scan
+        config: MU configuration
+        result: Partially initialized ScanResult to populate
+        max_size: Maximum file size in bytes
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    logger = get_logger()
+
+    # Check file size
+    try:
+        size = file_path.stat().st_size
+        if size > max_size:
+            result.skipped.append(SkippedItem(path=file_path.name, reason="file_too_large"))
+            logger.info("Found 0 files (file too large)")
+            return result
+    except OSError:
+        logger.info("Found 0 files (cannot read file)")
+        return result
+
+    # Detect language
+    language = detect_language(file_path)
+    if language is None:
+        result.skipped.append(SkippedItem(path=file_path.name, reason="unknown_extension"))
+        logger.info("Found 0 files (unknown extension)")
+        return result
+
+    # Check if language is supported
+    if language not in SUPPORTED_LANGUAGES and language not in {
+        "yaml",
+        "json",
+        "toml",
+        "markdown",
+    }:
+        result.skipped.append(SkippedItem(path=file_path.name, reason="unsupported_language"))
+        logger.info("Found 0 files (unsupported language)")
+        return result
+
+    # Gather file info
+    lines = count_lines(file_path)
+    file_hash = compute_file_hash(file_path)
+
+    file_info = FileInfo(
+        path=file_path.name,
+        language=language,
+        size_bytes=size,
+        hash=file_hash,
+        lines=lines,
+    )
+    result.files.append(file_info)
+
+    # Update stats
+    result.stats.total_files = 1
+    result.stats.total_lines = lines
+    result.stats.languages[language] = 1
+
+    logger.info(f"Found 1 file, {lines} lines")
+    return result
+
+
+def scan_codebase(root: Path, config: MUConfig) -> ScanResult:
+    """Scan a codebase and return structured manifest.
+
+    Args:
+        root: Root directory or single file to scan
+        config: MU configuration
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    logger = get_logger()
+    root = root.resolve()
+
+    result = ScanResult(
+        root=str(root.parent if root.is_file() else root),
+        scanned_at=datetime.now(UTC).isoformat(),
+    )
+
+    ignore_patterns = config.scanner.ignore
+    max_size = config.scanner.max_file_size_kb * 1024
+    include_hidden = config.scanner.include_hidden
+
+    logger.info(f"Scanning {root}")
+    logger.debug(f"Ignore patterns: {ignore_patterns}")
+
+    # Handle single file case
+    if root.is_file():
+        return _scan_single_file(root, config, result, max_size)
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        current_dir = Path(dirpath)
+
+        # Filter hidden directories if not included
+        if not include_hidden:
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+
+        # Filter ignored directories
+        filtered_dirs = []
+        for dirname in dirnames:
+            dir_path = current_dir / dirname
+            reason = should_ignore(dir_path, ignore_patterns, root)
+            if reason:
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(dir_path.relative_to(root)),
+                        reason=reason,
+                    )
+                )
+            else:
+                filtered_dirs.append(dirname)
+        dirnames[:] = filtered_dirs
+
+        # Process files
+        for filename in filenames:
+            file_path = current_dir / filename
+
+            # Skip hidden files if not included
+            if not include_hidden and filename.startswith("."):
+                continue
+
+            # Check ignore patterns
+            reason = should_ignore(file_path, ignore_patterns, root)
+            if reason:
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason=reason,
+                    )
+                )
+                continue
+
+            # Check file size
+            try:
+                size = file_path.stat().st_size
+                if size > max_size:
+                    result.skipped.append(
+                        SkippedItem(
+                            path=str(file_path.relative_to(root)),
+                            reason="file_too_large",
+                        )
+                    )
+                    continue
+            except OSError:
+                continue
+
+            # Detect language
+            language = detect_language(file_path)
+            if language is None:
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason="unknown_extension",
+                    )
+                )
+                continue
+
+            # Check if language is supported (for non-config files)
+            if language not in SUPPORTED_LANGUAGES and language not in {
+                "yaml",
+                "json",
+                "toml",
+                "markdown",
+            }:
+                result.skipped.append(
+                    SkippedItem(
+                        path=str(file_path.relative_to(root)),
+                        reason="unsupported_language",
+                    )
+                )
+                continue
+
+            # Gather file info
+            lines = count_lines(file_path)
+            file_hash = compute_file_hash(file_path)
+
+            file_info = FileInfo(
+                path=str(file_path.relative_to(root)),
+                language=language,
+                size_bytes=size,
+                hash=file_hash,
+                lines=lines,
+            )
+            result.files.append(file_info)
+
+            # Update stats
+            result.stats.total_files += 1
+            result.stats.total_lines += lines
+            result.stats.languages[language] = result.stats.languages.get(language, 0) + 1
+
+    logger.info(f"Found {result.stats.total_files} files, {result.stats.total_lines} lines")
+    return result
+
+
+def _scan_codebase_rust(root: Path, config: MUConfig) -> ScanResult:
+    """Scan a codebase using the Rust scanner (fast path).
+
+    Args:
+        root: Root directory to scan
+        config: MU configuration
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    logger = get_logger()
+    root = root.resolve()
+
+    if _rust_core is None:
+        raise RuntimeError("Rust scanner not available")
+
+    logger.info(f"Scanning {root} (Rust scanner)")
+
+    # Build extension filter from supported languages
+    extensions = list(
+        {
+            ext.lstrip(".")
+            for ext, lang in LANGUAGE_EXTENSIONS.items()
+            if lang in SUPPORTED_LANGUAGES or lang in {"yaml", "json", "toml", "markdown"}
+        }
+    )
+
+    # Call Rust scanner
+    rust_result = _rust_core.scan_directory(
+        str(root),
+        extensions=extensions,
+        ignore_patterns=config.scanner.ignore if config.scanner.ignore else None,
+        follow_symlinks=False,
+        compute_hashes=True,
+        count_lines_flag=True,
+    )
+
+    # Convert Rust result to Python dataclass
+    result = ScanResult(
+        root=str(root),
+        scanned_at=datetime.now(UTC).isoformat(),
+    )
+
+    for rust_file in rust_result.files:
+        file_info = FileInfo(
+            path=rust_file.path,
+            language=rust_file.language,
+            size_bytes=rust_file.size_bytes,
+            hash=rust_file.hash or "",
+            lines=rust_file.lines,
+        )
+        result.files.append(file_info)
+        result.stats.total_files += 1
+        result.stats.total_lines += rust_file.lines
+        result.stats.languages[rust_file.language] = (
+            result.stats.languages.get(rust_file.language, 0) + 1
+        )
+
+    # Add skipped info (just count, since Rust doesn't track individual skipped items)
+    for _ in range(rust_result.skipped_count):
+        result.skipped.append(SkippedItem(path="<filtered>", reason="extension_filter"))
+
+    logger.info(
+        f"Found {result.stats.total_files} files, {result.stats.total_lines} lines "
+        f"({rust_result.duration_ms:.2f}ms)"
+    )
+    return result
+
+
+def scan_codebase_auto(root: Path, config: MUConfig) -> ScanResult:
+    """Scan a codebase using the best available scanner.
+
+    Automatically selects the Rust scanner if available and enabled,
+    falling back to the Python scanner otherwise.
+
+    Args:
+        root: Root directory or single file to scan
+        config: MU configuration
+
+    Returns:
+        ScanResult with file information and statistics
+    """
+    if _USE_RUST_SCANNER and root.is_dir():
+        try:
+            return _scan_codebase_rust(root, config)
+        except Exception as e:
+            logger = get_logger()
+            logger.warning(f"Rust scanner failed, falling back to Python: {e}")
+            return scan_codebase(root, config)
+    return scan_codebase(root, config)
