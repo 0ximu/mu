@@ -41,7 +41,7 @@ Fun aliases for common operations:
 - `mu yolo` - Impact analysis
 - `mu sus` - Suspicious code warnings
 - `mu vibe` - Pattern validation
-- `mu zen` - Cache cleanup
+- `mu zen` - Cache cleanup (`--reset` for full reset including database)
 
 ### Services
 - `mu serve` - Start MU server (daemon with HTTP/WebSocket API)

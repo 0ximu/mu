@@ -121,11 +121,40 @@ deps Auth d2          -- Dependencies of Auth, depth 2
 
 ## Configuration
 
-`.murc.toml` at project root:
+`.murc.toml` at project root. All sections are optional.
+
 ```toml
 [mu]
-exclude = ["vendor/", "node_modules/"]
+version = "1.0"  # Config version (informational)
+
+[scanner]
+ignore = ["vendor/", "dist/"]  # Additional patterns to ignore
+include_hidden = false          # Include hidden files (default: false)
+max_file_size_kb = 1024         # Skip files larger than this (KB)
+
+[parser]
+languages = ["python", "typescript", "rust"]  # Only parse these languages
+
+[output]
+format = "table"  # Default output: table, json, csv, mu, tree
+color = true      # Enable colored output
+
+[cache]
+enabled = true           # Enable caching (default: true)
+directory = ".mu/cache"  # Custom cache directory
 ```
+
+### Scanner Section
+- `ignore` - Glob patterns to exclude (combined with `.gitignore`, `.muignore`)
+- `include_hidden` - Process files starting with `.`
+- `max_file_size_kb` - Skip large files (useful for generated code)
+
+### Parser Section
+- `languages` - Restrict parsing to specific languages. Supported: `python`, `typescript`, `javascript`, `tsx`, `jsx`, `rust`, `go`, `java`, `csharp`
+
+### Output Section
+- `format` - Default output format for CLI commands
+- `color` - Override auto-detection for colored output
 
 ## Local Overrides
 

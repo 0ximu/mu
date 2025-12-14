@@ -59,6 +59,7 @@ duckdb = { version = "1.1", features = ["bundled"] }
 
 # Terminal
 terminal_size = "0.4"
+dialoguer = "0.11"
 
 # Graph algorithms
 petgraph = "0.6"

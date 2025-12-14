@@ -61,9 +61,13 @@ enum Commands {
         #[arg(short, long)]
         force: bool,
 
-        /// Generate embeddings for semantic search
+        /// Generate embeddings for semantic search (enables mu search)
         #[arg(short, long)]
         embed: bool,
+
+        /// Skip embedding generation without prompting
+        #[arg(long, conflicts_with = "embed")]
+        no_embed: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -308,8 +312,8 @@ enum Commands {
         convention: Option<String>,
     },
 
-    /// Achieve enlightenment - clear cache, reset database
-    
+    /// Achieve enlightenment - clear caches and temp files
+
     Zen {
         /// Path to clean
         #[arg(default_value = ".")]
@@ -318,6 +322,10 @@ enum Commands {
         /// Skip confirmation prompt
         #[arg(short, long)]
         yes: bool,
+
+        /// Full reset: remove ALL MU files (.mu/, .murc.toml, .mubase)
+        #[arg(short, long)]
+        reset: bool,
     },
 
     // ==================== Analysis & Export ====================
@@ -447,9 +455,12 @@ async fn main() -> anyhow::Result<()> {
 
     match command {
         // Core commands
-        Commands::Bootstrap { path, force, embed } => {
-            bootstrap::run(&path, force, embed, format).await
-        }
+        Commands::Bootstrap {
+            path,
+            force,
+            embed,
+            no_embed,
+        } => bootstrap::run(&path, force, embed, no_embed, format).await,
         Commands::Compress {
             path,
             output,
@@ -524,7 +535,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Vibe { path, convention } => {
             vibes::vibe::run(&path, format, convention.as_deref()).await
         }
-        Commands::Zen { path, yes } => vibes::zen::run(&path, yes, format).await,
+        Commands::Zen { path, yes, reset } => vibes::zen::run(&path, yes, reset, format).await,
 
         // Analysis commands
         Commands::Patterns {

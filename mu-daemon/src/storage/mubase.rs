@@ -350,6 +350,37 @@ impl MUbase {
         }
     }
 
+    /// Get all nodes from the database.
+    pub fn all_nodes(&self) -> Result<Vec<Node>> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
+             FROM nodes",
+        )?;
+
+        let mut rows = stmt.query([])?;
+        let mut nodes = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_type_str: String = row.get(1)?;
+            let properties_str: Option<String> = row.get(7)?;
+
+            nodes.push(Node {
+                id: row.get(0)?,
+                node_type: NodeType::from_str(&node_type_str).unwrap_or(NodeType::Module),
+                name: row.get(2)?,
+                qualified_name: row.get(3)?,
+                file_path: row.get(4)?,
+                line_start: row.get(5)?,
+                line_end: row.get(6)?,
+                properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
+                complexity: row.get(8)?,
+            });
+        }
+
+        Ok(nodes)
+    }
+
     /// Get all nodes of a specific type.
     pub fn get_nodes_by_type(&self, node_type: NodeType) -> Result<Vec<Node>> {
         let conn = self.acquire_conn()?;
@@ -532,6 +563,13 @@ impl MUbase {
         let count: usize =
             conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
         Ok(count > 0)
+    }
+
+    /// Clear all embeddings from the database.
+    pub fn clear_embeddings(&self) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute("DELETE FROM embeddings", [])?;
+        Ok(())
     }
 
     /// Insert a batch of (node_id, embedding, optional_text) tuples.

@@ -8,10 +8,12 @@
 
 use std::collections::HashMap;
 use std::fs;
+use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::time::Instant;
 
 use colored::Colorize;
+use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 
@@ -206,8 +208,194 @@ fn ensure_config(root: &Path) -> bool {
     false
 }
 
+/// Determine whether to generate embeddings based on flags and user input
+fn should_embed(embed_flag: bool, no_embed_flag: bool) -> bool {
+    // Explicit flags take precedence
+    if embed_flag {
+        return true;
+    }
+    if no_embed_flag {
+        return false;
+    }
+
+    // If running interactively, prompt the user
+    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+        println!();
+        println!(
+            "{} Embeddings dramatically improve semantic search results.",
+            "TIP:".cyan().bold()
+        );
+        println!("     This enables 'mu search' to find code by meaning, not just keywords.");
+        println!("     Embedding takes ~30s for most projects.\n");
+
+        Confirm::new()
+            .with_prompt("Generate embeddings now?")
+            .default(true)
+            .interact()
+            .unwrap_or(false)
+    } else {
+        // Non-interactive: default to no embeddings (user can use --embed explicitly)
+        false
+    }
+}
+
+/// Run embeddings only on an existing database (without rebuilding the graph)
+async fn run_embeddings_only(
+    mubase_path: &Path,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let start = Instant::now();
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+
+    spinner.set_message("Opening database...");
+    let mubase = mu_daemon::storage::MUbase::open(mubase_path)?;
+    let stats = mubase.stats()?;
+
+    spinner.set_message("Loading embedding model...");
+
+    let embeddings_generated = match mu_embeddings::MuSigmaModel::embedded() {
+        Ok(model) => {
+            spinner.set_message("Loading nodes...");
+
+            // Get all nodes from the database
+            let nodes = mubase.all_nodes()?;
+            let nodes_to_embed: Vec<_> = nodes
+                .iter()
+                .filter(|n| n.node_type != mu_daemon::storage::NodeType::External)
+                .collect();
+
+            let total = nodes_to_embed.len();
+            spinner.set_message(format!("Generating embeddings for {} nodes...", total));
+
+            let mut embeddings_batch = Vec::new();
+            let mut embedded_count = 0;
+
+            // Process in batches for better progress feedback
+            let batch_size = 32;
+            for (batch_idx, batch) in nodes_to_embed.chunks(batch_size).enumerate() {
+                spinner.set_message(format!(
+                    "Generating embeddings... {}/{}",
+                    (batch_idx * batch_size).min(total),
+                    total
+                ));
+
+                // Create text content for each node
+                let texts: Vec<String> = batch
+                    .iter()
+                    .map(|n| {
+                        let type_prefix = match n.node_type {
+                            mu_daemon::storage::NodeType::Module => "module",
+                            mu_daemon::storage::NodeType::Class => "class",
+                            mu_daemon::storage::NodeType::Function => "function",
+                            mu_daemon::storage::NodeType::External => "external",
+                        };
+                        format!(
+                            "{} {} {}",
+                            type_prefix,
+                            n.name,
+                            n.qualified_name.as_deref().unwrap_or("")
+                        )
+                    })
+                    .collect();
+
+                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+                match model.embed(&text_refs) {
+                    Ok(batch_embeddings) => {
+                        for (node, (text, embedding)) in
+                            batch.iter().zip(texts.iter().zip(batch_embeddings))
+                        {
+                            embeddings_batch.push((
+                                node.id.clone(),
+                                embedding,
+                                Some(text.clone()),
+                            ));
+                            embedded_count += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to embed batch: {}", e);
+                    }
+                }
+            }
+
+            // Clear existing embeddings and insert new ones
+            if !embeddings_batch.is_empty() {
+                spinner.set_message("Storing embeddings...");
+                mubase.clear_embeddings()?;
+                if let Err(e) =
+                    mubase.insert_embeddings_batch(&embeddings_batch, Some("mu-sigma-v2"))
+                {
+                    tracing::warn!("Failed to store embeddings: {}", e);
+                }
+            }
+
+            embedded_count
+        }
+        Err(e) => {
+            spinner.finish_and_clear();
+            anyhow::bail!("Failed to load embedding model: {}", e);
+        }
+    };
+
+    spinner.finish_and_clear();
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    // Build a simple result for embedding-only mode
+    let result = BootstrapResult {
+        success: true,
+        root_path: mubase_path
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        mubase_path: mubase_path.to_string_lossy().to_string(),
+        files_scanned: 0,
+        files_parsed: 0,
+        node_count: stats.node_count,
+        edge_count: stats.edge_count,
+        nodes_by_type: stats.type_counts,
+        duration_ms,
+        config_created: false,
+        gitignore_updated: false,
+        embeddings_generated,
+    };
+
+    // Custom output for embedding-only mode
+    if format == OutputFormat::Table {
+        println!(
+            "{} Generated {} embeddings in {}ms",
+            "SUCCESS:".green().bold(),
+            embeddings_generated.to_string().green(),
+            duration_ms
+        );
+        println!("\n{}", "Semantic search is now ready!".cyan());
+        println!("  mu search 'auth'       # Find authentication code");
+        println!("  mu search 'database'   # Find database operations");
+    } else {
+        Output::new(result, format).render()?;
+    }
+
+    Ok(())
+}
+
 /// Run the bootstrap command
-pub async fn run(path: &str, force: bool, embed: bool, format: OutputFormat) -> anyhow::Result<()> {
+pub async fn run(
+    path: &str,
+    force: bool,
+    embed: bool,
+    no_embed: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let start = Instant::now();
 
     // Resolve and canonicalize path
@@ -238,6 +426,11 @@ pub async fn run(path: &str, force: bool, embed: bool, format: OutputFormat) -> 
 
     // Check if rebuild is needed
     if mubase_path.exists() && !force {
+        // If --embed is passed, run embedding on existing database without rebuild
+        if embed {
+            return run_embeddings_only(&mubase_path, format).await;
+        }
+
         // Open existing database and show stats
         let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
         let stats = mubase.stats()?;
@@ -256,6 +449,9 @@ pub async fn run(path: &str, force: bool, embed: bool, format: OutputFormat) -> 
         fs::create_dir_all(&mu_dir)?;
     }
 
+    // Determine whether to generate embeddings (prompt if interactive)
+    let do_embed = should_embed(embed, no_embed);
+
     // Show progress
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
@@ -269,15 +465,24 @@ pub async fn run(path: &str, force: bool, embed: bool, format: OutputFormat) -> 
     // Step 1: Scan codebase
     spinner.set_message("Scanning codebase...");
     let root_str = root.to_str().unwrap_or(".");
-    let scan_result = mu_core::scanner::scan_directory_sync(
-        root_str,
-        None,
-        Some(ignore_patterns),
-        false,
-        false,
-        false,
-    )
-    .map_err(|e| anyhow::anyhow!(e))?;
+
+    // Build scan options from config
+    let mut scan_options = mu_core::scanner::ScanOptions::new()
+        .with_ignore_patterns(ignore_patterns)
+        .include_hidden(config.scanner.include_hidden);
+
+    // Apply max file size if configured
+    if let Some(max_size) = config.max_file_size_bytes() {
+        scan_options = scan_options.with_max_file_size(max_size);
+    }
+
+    // Apply language filter if configured
+    if let Some(languages) = config.languages() {
+        scan_options = scan_options.with_languages(languages.to_vec());
+    }
+
+    let scan_result = mu_core::scanner::scan_with_options(root_str, scan_options)
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     let files_scanned = scan_result.files.len();
     spinner.set_message(format!("Found {} files", files_scanned));
@@ -530,7 +735,7 @@ pub async fn run(path: &str, force: bool, embed: bool, format: OutputFormat) -> 
     let stats = mubase.stats()?;
 
     // Step 5: Generate embeddings if requested
-    let embeddings_generated = if embed {
+    let embeddings_generated = if do_embed {
         spinner.set_message("Loading embedding model...");
 
         // Use embedded model weights (compiled into the binary)
