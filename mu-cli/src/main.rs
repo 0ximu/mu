@@ -14,14 +14,18 @@ mod tsconfig;
 use commands::*;
 use output::OutputFormat;
 
-/// MU (Machine Understanding) - Semantic compression for LLMs
+/// Semantic code intelligence for AI-native development.
 ///
-/// Translates codebases into token-efficient representations optimized for
-/// LLM comprehension. Achieves 92-98% compression while preserving semantic signal.
+/// MU parses your codebase into a semantic graph with fast queries,
+/// semantic search, and intelligent context extraction. Feed your
+/// entire codebase to an AI in seconds, not hours.
 #[derive(Parser)]
 #[command(name = "mu")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version)]
+#[command(about = "Semantic code intelligence for AI-native development")]
+#[command(long_about = "MU parses your codebase into a semantic graph with fast queries,\nsemantic search, and intelligent context extraction.\n\n92-98% compression while preserving semantic signal.")]
 #[command(propagate_version = true)]
+#[command(next_help_heading = "Options")]
 pub struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -43,55 +47,11 @@ pub struct Cli {
     version_verbose: bool,
 }
 
-/// Graph analysis subcommands
-#[derive(Subcommand)]
-enum GraphCommands {
-    /// Find downstream impact (what might break if this node changes)
-    Impact {
-        /// Node to analyze
-        node: String,
-
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    /// Find upstream ancestors (what this node depends on)
-    Ancestors {
-        /// Node to analyze
-        node: String,
-
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    /// Detect circular dependencies in the codebase
-    Cycles {
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    /// Find shortest path between two nodes
-    Path {
-        /// Source node
-        from: String,
-
-        /// Target node
-        to: String,
-
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-}
-
 #[derive(Subcommand)]
 enum Commands {
-    // ==================== Core Commands ====================
+    // ==================== Getting Started ====================
     /// Initialize and build MU database in one step
-    #[command(visible_alias = "bs")]
+    #[command(visible_alias = "bs", visible_alias = "init")]
     Bootstrap {
         /// Path to analyze (defaults to current directory)
         #[arg(default_value = ".")]
@@ -131,6 +91,7 @@ enum Commands {
     },
 
     /// Generate or update embeddings (incremental by default)
+    
     Embed {
         /// Path to analyze (defaults to current directory)
         #[arg(default_value = ".")]
@@ -146,12 +107,13 @@ enum Commands {
     },
 
     /// Semantic search across the codebase
+    
     Search {
         /// Search query
         query: String,
 
         /// Maximum results to return
-        #[arg(short = 'n', long = "top", default_value = "10")]
+        #[arg(short = 'n', long = "limit", default_value = "10")]
         limit: usize,
 
         /// Minimum similarity threshold (0.0-1.0)
@@ -160,6 +122,7 @@ enum Commands {
     },
 
     /// Find relevant code context for a question (semantic search)
+    
     Grok {
         /// Question or topic to find context for
         question: String,
@@ -193,6 +156,7 @@ enum Commands {
     },
 
     /// Show dependencies of a node (what this node depends on)
+    
     Deps {
         /// Node to analyze
         node: String,
@@ -210,8 +174,8 @@ enum Commands {
         include_contains: bool,
     },
 
-    /// Show what depends on a node (reverse dependencies) [aliases: rdeps]
-    #[command(alias = "rdeps")]
+    /// Show what depends on a node (reverse dependencies)
+    #[command(visible_alias = "rdeps")]
     Usedby {
         /// Node to analyze
         node: String,
@@ -226,6 +190,7 @@ enum Commands {
     },
 
     /// Read and display a file with MU context
+    
     Read {
         /// File path to read
         path: String,
@@ -236,6 +201,7 @@ enum Commands {
     },
 
     /// Semantic diff between git refs
+    
     Diff {
         /// Base git ref (branch, commit, tag)
         base_ref: String,
@@ -246,6 +212,7 @@ enum Commands {
     },
 
     /// Find downstream impact (what might break if this node changes)
+    
     Impact {
         /// Node to analyze
         node: String,
@@ -256,6 +223,7 @@ enum Commands {
     },
 
     /// Find upstream ancestors (what this node depends on)
+    
     Ancestors {
         /// Node to analyze
         node: String,
@@ -266,26 +234,38 @@ enum Commands {
     },
 
     /// Detect circular dependencies in the codebase
+    
     Cycles {
         /// Filter by edge types (e.g., imports,calls)
         #[arg(short, long, value_delimiter = ',')]
         edge_types: Option<Vec<String>>,
     },
 
-    // ==================== Graph Commands ====================
-    /// Graph analysis subcommands
-    #[command(subcommand)]
-    Graph(GraphCommands),
+    /// Find shortest path between two nodes
+    
+    Path {
+        /// Source node
+        from: String,
 
-    // ==================== Vibe Commands ====================
-    /// Just make it work (auto-fix common issues)
+        /// Target node
+        to: String,
+
+        /// Filter by edge types (e.g., imports,calls)
+        #[arg(short, long, value_delimiter = ',')]
+        edge_types: Option<Vec<String>>,
+    },
+
+    // ==================== Vibes ====================
+    /// Impact analysis with flair - what breaks if this changes?
+    
     Yolo {
         /// Path to fix
         #[arg(default_value = ".")]
         path: String,
     },
 
-    /// Scan codebase for risky code (security, complexity, no tests)
+    /// Find sus code - security risks, complexity, missing tests
+    
     Sus {
         /// File to analyze, or "." to scan entire codebase
         #[arg(default_value = ".")]
@@ -296,13 +276,15 @@ enum Commands {
         threshold: u8,
     },
 
-    /// Show file history, ownership, and co-change patterns
+    /// Git archaeology - why does this code exist?
+    
     Wtf {
         /// File path to analyze (shows origin, evolution, and files that change together)
         target: Option<String>,
     },
 
-    /// Generate OMEGA-compressed codebase overview for LLMs
+    /// OMEGA compressed overview - feed your whole codebase to an LLM
+    
     Omg {
         /// Maximum tokens for output
         #[arg(short = 't', long, default_value = "8000")]
@@ -313,7 +295,8 @@ enum Commands {
         no_edges: bool,
     },
 
-    /// Get the vibe check on a file or codebase
+    /// Naming convention check - does the code pass the vibe check?
+    
     Vibe {
         /// Path to vibe check
         #[arg(default_value = ".")]
@@ -325,7 +308,8 @@ enum Commands {
         convention: Option<String>,
     },
 
-    /// Achieve codebase enlightenment (cache cleanup)
+    /// Achieve enlightenment - clear cache, reset database
+    
     Zen {
         /// Path to clean
         #[arg(default_value = ".")]
@@ -336,8 +320,9 @@ enum Commands {
         yes: bool,
     },
 
-    // ==================== Analysis Commands ====================
+    // ==================== Analysis & Export ====================
     /// Detect code patterns in the codebase
+    
     Patterns {
         /// Filter by pattern category
         #[arg(short, long, value_parser = ["naming", "architecture", "testing", "imports", "error_handling", "api", "async", "logging"])]
@@ -353,6 +338,7 @@ enum Commands {
     },
 
     /// Export the code graph to various formats
+    
     Export {
         /// Export format (mu, json, mermaid, d2, cytoscape)
         #[arg(short = 'F', long = "export-format", default_value = "mu", value_parser = ["mu", "json", "mermaid", "d2", "cytoscape"])]
@@ -367,11 +353,12 @@ enum Commands {
         node: Option<String>,
 
         /// Maximum number of nodes to export
-        #[arg(short = 'l', long)]
+        #[arg(short = 'n', long = "limit")]
         limit: Option<usize>,
     },
 
     /// Show change history for a node
+    
     History {
         /// Node to show history for (ID or name)
         node: String,
@@ -381,8 +368,9 @@ enum Commands {
         limit: usize,
     },
 
-    // ==================== Utility Commands ====================
+    // ==================== Utilities ====================
     /// Run health checks on MU installation
+    
     Doctor {
         /// Path to check (defaults to current directory)
         #[arg(default_value = ".")]
@@ -390,6 +378,7 @@ enum Commands {
     },
 
     /// Generate shell completion scripts
+    
     Completions {
         /// Shell to generate completions for
         #[arg(value_enum)]
@@ -515,28 +504,17 @@ async fn main() -> anyhow::Result<()> {
         Commands::Read { path, line_numbers } => read::run(&path, line_numbers, format).await,
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
 
-        // Top-level graph aliases
+        // Graph analysis commands
         Commands::Impact { node, edge_types } => graph::run_impact(&node, edge_types, format).await,
         Commands::Ancestors { node, edge_types } => {
             graph::run_ancestors(&node, edge_types, format).await
         }
         Commands::Cycles { edge_types } => graph::run_cycles(edge_types, format).await,
-
-        // Graph commands
-        Commands::Graph(graph_cmd) => match graph_cmd {
-            GraphCommands::Impact { node, edge_types } => {
-                graph::run_impact(&node, edge_types, format).await
-            }
-            GraphCommands::Ancestors { node, edge_types } => {
-                graph::run_ancestors(&node, edge_types, format).await
-            }
-            GraphCommands::Cycles { edge_types } => graph::run_cycles(edge_types, format).await,
-            GraphCommands::Path {
-                from,
-                to,
-                edge_types,
-            } => graph::run_path(&from, &to, edge_types, format).await,
-        },
+        Commands::Path {
+            from,
+            to,
+            edge_types,
+        } => graph::run_path(&from, &to, edge_types, format).await,
 
         // Vibe commands
         Commands::Yolo { path } => vibes::yolo::run(&path, format).await,
