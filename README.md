@@ -5,12 +5,12 @@
 <h1 align="center">Machine Understanding</h1>
 
 <p align="center">
-  <strong>Semantic compression for AI-native development.</strong>
+  <strong>Semantic code intelligence for AI-native development.</strong>
 </p>
 
-MU translates codebases into token-efficient representations optimized for LLM comprehension. Feed your entire codebase to an AI in seconds, not hours.
+MU builds a semantic graph of your codebase and provides fast queries, semantic search, and diff analysis. Feed your entire codebase to an AI in seconds, not hours.
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Rust 1.70+](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Tests](https://img.shields.io/badge/tests-passing-green.svg)]()
 
@@ -23,11 +23,11 @@ MU translates codebases into token-efficient representations optimized for LLM c
 
 ## The Solution
 
-MU is not a language you write — it's a language you **translate into**. Any codebase goes in, semantic signal comes out.
+MU parses your codebase into a semantic graph database with blazingly fast queries, semantic search, and intelligent context extraction.
 
 ```
 Input:  66,493 lines of Python
-Output:  5,156 lines of MU (92% compression)
+Output: 2,173 tokens (omg semantic compression)
 Result: LLM correctly answers architectural questions
 ```
 
@@ -35,42 +35,45 @@ Result: LLM correctly answers architectural questions
 
 | Codebase | Original | MU Output | Compression |
 |----------|----------|-----------|-------------|
-| Production Backend (Python) | 66k lines | 5k lines | 92% |
+| Production Backend (Python) | 461k tokens | 2k tokens | 212x |
 | API Gateway (TypeScript) | 407k lines | 6.7k lines | 98% |
 
-**Real test:** Fed MU output to Gemini, asked "How does ride matching work?" — it correctly explained the scoring pipeline, async event workflow, and identified Redis as a SPOF.
+**Real test:** Fed MU output to Claude, asked "How does ride matching work?" — it correctly explained the scoring pipeline, async event workflow, and identified Redis as a SPOF.
 
 ## Installation
 
 ```bash
-# Using uv (recommended)
+# Build from source (requires Rust 1.70+)
 git clone https://github.com/0ximu/mu.git
 cd mu
-uv sync
+cargo build --release
 
-# Or with pip
-git clone https://github.com/0ximu/mu.git
-cd mu
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+# Binary is at: ./target/release/mu
+# Optionally, copy to PATH:
+sudo cp target/release/mu /usr/local/bin/
 ```
 
-**Binary releases** are also available for standalone deployment (no Python installation required). See [Releases](https://github.com/0ximu/mu/releases) for platform-specific binaries.
+**Binary releases** are also available for standalone deployment. See [Releases](https://github.com/0ximu/mu/releases) for platform-specific binaries.
 
 ## Quick Start
 
 ```bash
-# 1. Compress your codebase
-mu compress ./src --output system.mu
+# 1. Initialize and build the code graph
+mu bootstrap
 
-# 2. Feed to any LLM
-cat system.mu | pbcopy  # Copy to clipboard (macOS)
+# 2. Check status
+mu status
 
-# 3. Ask architectural questions
-# "What services would break if Redis goes down?"
-# "How does authentication work?"
-# "Explain the data flow for user registration"
+# 3. Run queries
+mu q "fn c>50"                    # Functions with complexity > 50
+mu q "deps Auth d2"               # Dependencies of Auth, depth 2
+
+# 4. Optional: Enable semantic search
+mu embed                          # Generate embeddings (takes ~1 min per 1000 files)
+mu search "error handling"        # Now uses semantic search
+
+# 5. Generate semantic summary for LLM
+mu omg                            # Dramatic summary of codebase
 ```
 
 ## CLI Commands
@@ -78,285 +81,113 @@ cat system.mu | pbcopy  # Copy to clipboard (macOS)
 ### Core Commands
 
 ```bash
-mu init                             # Create .murc.toml config file
-mu scan <path>                      # Analyze codebase structure
-mu compress <path>                  # Generate MU output
-mu compress <path> -o system.mu     # Save to file
-mu compress <path> -f json          # JSON output format
-mu compress <path> --llm            # Enable LLM summarization
-mu compress <path> --local          # Local-only mode (Ollama)
-mu view <file.mu>                   # Render MU with syntax highlighting
-mu view <file.mu> -f html -o out.html  # Export to HTML
-mu diff <base> <head>               # Semantic diff between git refs
-mu man                              # Interactive manual
-mu man quickstart                   # Topic: intro, quickstart, sigils, query, workflows
+mu bootstrap                      # Initialize and build graph database
+mu status                         # Show project status
+mu doctor                         # Run health checks on MU installation
 ```
 
-### MUbase Graph Database
+### Graph Analysis
 
 ```bash
-mu kernel init .                    # Initialize .mubase graph database
-mu kernel build .                   # Build/rebuild graph from codebase
-mu kernel stats                     # Show graph statistics
-mu kernel query --name "User%"      # Query nodes by pattern
-mu kernel deps <node>               # Show dependencies of a node
-mu kernel deps <node> -r            # Show reverse dependencies (dependents)
+mu deps <node>                    # Show dependencies of a node
+mu deps <node> -r                 # Show reverse dependencies (dependents)
+mu impact <node>                  # Find downstream impact (what breaks if this changes)
+mu ancestors <node>               # Find upstream ancestors (what this depends on)
+mu cycles                         # Detect circular dependencies
 ```
 
-### MUQL Queries (SQL-like interface)
+### Search & Discovery
 
 ```bash
-mu query "SELECT * FROM nodes WHERE type = 'function'"    # MUQL query
-mu q "SELECT name FROM nodes WHERE complexity > 10"       # Short alias
-mu kernel muql -i                   # Interactive REPL
-mu kernel muql --explain "SELECT..."  # Show query execution plan
+mu search "query"                 # Semantic search (requires embeddings)
+mu search "query"                 # Falls back to keyword search if no embeddings
+mu grok "question"                # Ask a question about the codebase
+mu patterns                       # Detect code patterns
+mu read <file>                    # Read and display a file with MU context
 ```
 
-### Semantic Search & Context
+> **Tip:** Run `mu bootstrap --embed` or `mu embed` to enable semantic search. Without embeddings, search uses keyword matching.
+
+### Embeddings
 
 ```bash
-mu kernel embed .                   # Generate embeddings for semantic search
-mu kernel embed . --local           # Use local embeddings (no API)
-mu kernel search "authentication"   # Natural language code search
-mu kernel context "How does auth work?"  # Smart context extraction for questions
-mu kernel context "..." --max-tokens 4000  # Limit output size
+mu embed                          # Generate embeddings (incremental)
+mu embed --force                  # Regenerate all embeddings
+mu embed --status                 # Show embedding coverage status
 ```
 
-### Temporal Features (Time-Travel)
+### MUQL Queries
 
 ```bash
-mu kernel snapshot                  # Create snapshot at current commit
-mu kernel snapshots                 # List all snapshots
-mu kernel history <node>            # Show change history for a node
-mu kernel blame <node>              # Git-blame style attribution
-mu kernel diff <commit1> <commit2>  # Semantic diff between commits
+# Full SQL-like syntax
+mu query "SELECT * FROM functions WHERE complexity > 10"
+mu query "SELECT name, complexity FROM functions ORDER BY complexity DESC LIMIT 20"
+
+# Terse syntax (60-85% fewer tokens)
+mu q "fn c>50"                    # Functions with complexity > 50
+mu q "fn c>50 sort c- 10"         # Sorted descending, limit 10
+mu q "cls n~'Service'"            # Classes matching 'Service'
+mu q "deps Auth d2"               # Dependencies of Auth, depth 2
+mu q "rdeps Parser"               # What depends on Parser
+
+# Interactive REPL
+mu query -i
+```
+
+> **Note:** Graph operations (`deps`, `rdeps`) in terse syntax require the daemon. Start with `mu serve` first, or use full SQL syntax in standalone mode.
+
+### Semantic Diff & History
+
+```bash
+mu diff main HEAD                 # Semantic diff between git refs
+mu diff HEAD~5 HEAD               # Last 5 commits
+mu history <node>                 # Show change history for a node
 ```
 
 ### Export Formats
 
 ```bash
-mu kernel export --format mu        # MU format (default, LLM-optimized)
-mu kernel export --format json      # JSON export
-mu kernel export --format mermaid   # Mermaid diagram
-mu kernel export --format d2        # D2 diagram
-mu kernel export --format cytoscape # Cytoscape.js format
+mu export                         # Default MU format (LLM-optimized)
+mu export -F json                 # JSON export
+mu export -F mermaid              # Mermaid diagram
+mu export -F d2                   # D2 diagram
+mu export -F json -l 100          # Limit to 100 nodes
 ```
 
-### Daemon Mode (Real-Time Updates)
+### Server / Daemon
 
 ```bash
-mu daemon start .                   # Start daemon in background
-mu daemon status                    # Check daemon status
-mu daemon stop                      # Stop running daemon
-mu daemon run .                     # Run in foreground (debugging)
+mu serve                          # Start daemon (HTTP on port 9120)
+mu serve --foreground             # Run in foreground (debug mode)
+mu serve --stop                   # Stop running daemon
+mu serve --mcp                    # Start MCP server (stdio for Claude Code)
+mu serve --list-tools             # List available MCP tools
 ```
 
-### MCP Server (AI Assistant Integration)
+### Vibes (Fun Aliases)
 
 ```bash
-mu mcp serve                        # Start MCP server (stdio for Claude Code)
-mu mcp serve --http --port 9000     # Start with HTTP transport
-mu mcp tools                        # List available MCP tools
+mu yolo <node>                    # Impact analysis ("what breaks?")
+mu sus                            # Find suspicious code patterns
+mu wtf <file>                     # Git archaeology ("what happened here?")
+mu omg                            # Dramatic summary of recent changes
+mu vibe                           # Get the vibe check on the codebase
+mu zen                            # Achieve enlightenment (cache cleanup)
 ```
 
-### Architecture Contracts
+## MCP Server for Claude Code
+
+MU provides a Model Context Protocol (MCP) server for seamless integration with Claude Code:
 
 ```bash
-mu contracts init                   # Create .mu-contracts.yml template
-mu contracts verify                 # Verify architectural rules
-mu contracts verify --format junit  # JUnit XML output for CI
-```
-
-### Agent-Proofing
-
-```bash
-mu describe                         # Self-describe CLI for AI agents
-mu describe --format json           # JSON format
-mu describe --format markdown       # Markdown documentation
-```
-
-### Cache Management
-
-```bash
-mu cache clear                      # Clear all cached data
-mu cache stats                      # Show cache statistics
-mu cache expire                     # Remove expired entries
-```
-
-## Output Format
-
-MU uses a sigil-based syntax optimized for LLM parsing:
-
-```mu
-# MU v1.0
-# source: /path/to/codebase
-# modules: 257
-
-## Module Dependencies
-!auth_service -> jwt, bcrypt, sqlalchemy
-!ride_service -> geoalchemy2, redis
-
-## Modules
-
-!module auth_service
-@deps [jwt, bcrypt, sqlalchemy.ext.asyncio]
-
-$User < BaseModel
-  @attrs [id, email, hashed_password, created_at]
-  #authenticate(email: str, password: str) -> Optional[User]
-  #async create(data: UserCreate) -> User
-
-#async login(credentials: LoginRequest) -> TokenResponse
-#async refresh_token(token: str) -> TokenResponse
-```
-
-### Sigils
-
-| Sigil | Meaning | Example |
-|-------|---------|---------|
-| `!` | Module/Service | `!module AuthService` |
-| `$` | Entity/Class | `$User < BaseModel` |
-| `#` | Function/Method | `#authenticate(email) -> User` |
-| `@` | Metadata/Deps | `@deps [jwt, bcrypt]` |
-| `::` | Annotation | `:: complexity:146` |
-
-### Operators
-
-| Operator | Meaning | Example |
-|----------|---------|---------|
-| `->` | Returns/Output | `#func(x) -> Result` |
-| `=>` | State mutation | `status => PAID` |
-| `<` | Inherits from | `$Admin < User` |
-
-## Configuration
-
-Create `.murc.toml` in your project:
-
-```toml
-[scanner]
-ignore = ["node_modules/", ".git/", "__pycache__/", "*.test.ts"]
-max_file_size_kb = 1000
-
-[reducer]
-complexity_threshold = 20  # Flag functions for LLM summarization
-
-[output]
-format = "mu"  # or "json"
-```
-
-## Supported Languages
-
-| Language | Status |
-|----------|--------|
-| Python | ✅ Full support |
-| TypeScript | ✅ Full support |
-| JavaScript | ✅ Full support |
-| C# | ✅ Full support |
-| Go | ✅ Full support |
-| Rust | ✅ Full support |
-| Java | ✅ Full support |
-
-## How It Works
-
-```
-Source Code → Scanner → Parser → Reducer → MU Output
-                │          │         │
-            manifest    AST     filtered &
-                       data     formatted
-```
-
-1. **Scanner**: Walks filesystem, detects languages, filters noise
-2. **Parser**: Tree-sitter extracts AST (classes, functions, imports)
-3. **Reducer**: Applies transformation rules, strips boilerplate
-4. **Generator**: Outputs MU format with sigils and dependency graph
-
-### What Gets Stripped (Noise)
-
-- Standard library imports
-- Boilerplate (getters, setters, constructors)
-- Dunder methods (`__repr__`, `__str__`, etc.)
-- Trivial functions (< 3 AST nodes)
-- `self`/`cls`/`this` parameters
-
-### What Gets Kept (Signal)
-
-- Function signatures with types
-- Class inheritance
-- External dependencies
-- Async/static/decorator metadata
-- Complex function annotations
-
-## Example Prompts for LLMs
-
-After generating MU output, try these prompts:
-
-```
-"What is the authentication flow in this codebase?"
-"How does [feature X] work?"
-"Which services would be affected if [dependency Y] goes down?"
-"Explain the domain structure of this application"
-"What are the main database models and their relationships?"
-"Identify potential race conditions or concurrency issues"
-```
-
-## Development
-
-```bash
-# Run tests
-uv run pytest
-
-# Run specific test file
-uv run pytest tests/unit/test_parser.py -v
-
-# Type checking
-uv run mypy src/mu
-
-# Linting
-uv run ruff check src/
-```
-
-## LLM Integration
-
-MU supports multiple LLM providers for enhanced function summarization:
-
-```bash
-# With Anthropic (requires ANTHROPIC_API_KEY)
-mu compress ./src --llm
-
-# With OpenAI (requires OPENAI_API_KEY)
-mu compress ./src --llm --llm-provider openai
-
-# Local-only with Ollama (no data sent externally)
-mu compress ./src --llm --local
-
-# Disable secret redaction (use with caution)
-mu compress ./src --llm --no-redact
-```
-
-### Security & Privacy
-
-- **Secret detection**: Automatically redacts API keys, tokens, passwords, private keys
-- **Local mode**: Process codebases without any external API calls
-- **Privacy first**: No code leaves your machine without explicit consent
-
-## Agent-Friendly Features
-
-MU is designed to be easily integrated with AI coding agents:
-
-### MCP Server for Claude Code
-
-MU provides a Model Context Protocol (MCP) server for seamless integration with Claude Code and other AI assistants:
-
-```bash
-# Start MCP server (stdio mode for Claude Code)
-mu mcp serve
+# Start MCP server (stdio mode)
+mu serve --mcp
 
 # Available MCP tools:
 # - mu_query: Execute MUQL queries against the code graph
 # - mu_context: Extract smart context for natural language questions
 # - mu_deps: Show dependencies of a code node
-# - mu_node: Look up a specific code node by ID
-# - mu_search: Search for code nodes by name pattern
+# - mu_search: Search for code nodes semantically
 # - mu_status: Get MU daemon status and codebase statistics
 ```
 
@@ -365,82 +196,134 @@ mu mcp serve
 {
   "mu": {
     "command": "mu",
-    "args": ["mcp", "serve"]
+    "args": ["serve", "--mcp"]
   }
 }
 ```
 
-### Query Your Codebase
+## Configuration
 
-```bash
-# MUQL queries (SQL-like syntax)
-mu query "SELECT name, complexity FROM nodes WHERE type = 'function' AND complexity > 10"
-mu q "SELECT * FROM nodes WHERE name LIKE '%User%'"
+Create `.murc.toml` in your project:
 
-# Interactive REPL
-mu kernel muql -i
+```toml
+[mu]
+exclude = ["vendor/", "node_modules/", ".git/", "__pycache__/"]
 
-# Query types: SELECT, SHOW, FIND, PATH, ANALYZE
-mu q "SHOW deps OF 'UserService'"
-mu q "PATH FROM 'auth_service' TO 'database'"
-mu q "ANALYZE complexity"
+[daemon]
+port = 9120
 ```
 
-### Smart Context Extraction
+## Supported Languages
 
-```bash
-# Extract relevant context for natural language questions
-mu kernel context "How does authentication work?"
-mu kernel context "What happens when a user logs in?" --max-tokens 4000
+| Language | Status |
+|----------|--------|
+| Python | Full support |
+| TypeScript | Full support |
+| JavaScript | Full support |
+| Go | Full support |
+| Rust | Full support |
+| Java | Full support |
+| C# | Full support |
 
-# Semantic search with embeddings
-mu kernel embed .                    # Generate embeddings first
-mu kernel search "error handling"    # Natural language search
+## Node Identifiers
+
+MU uses prefixed identifiers to distinguish node types:
+
+| Prefix | Type | Example |
+|--------|------|---------|
+| `mod:` | Module/File | `mod:src/lib/utils.ts` |
+| `cls:` | Class | `cls:src/models/User.ts:User` |
+| `fn:` | Function | `fn:src/api/auth.ts:login` |
+| `ext:` | External dependency | `ext:react` |
+
+When using commands like `mu deps`, you can use:
+- **Short name**: `mu deps UserService` (fuzzy match)
+- **Full ID**: `mu deps mod:src/services/UserService.ts` (exact match)
+
+### Language Notes
+
+| Language | Import Resolution |
+|----------|------------------|
+| TypeScript/JS | File-based with path alias support (`@/*`, `~/*`) |
+| Python | Module-based with relative imports |
+| C# | Namespace-based (e.g., `using System.Net`) |
+| Go | Package-based |
+| Java | Package-based |
+| Rust | Module-based with `use` statements |
+
+**TypeScript Path Aliases**: MU automatically reads `tsconfig.json` or `jsconfig.json` to resolve path aliases like `@/lib/utils`.
+
+## How It Works
+
+```
+Source Code → Scanner → Parser → Graph Builder → DuckDB
+                │          │          │
+            manifest    AST       nodes &
+                       data       edges
 ```
 
-### Self-Description for Agents
+1. **Scanner**: Walks filesystem, detects languages, filters noise
+2. **Parser**: Tree-sitter extracts AST (classes, functions, imports)
+3. **Graph Builder**: Creates nodes and edges for code relationships
+4. **DuckDB**: Stores the semantic graph for fast SQL queries
+
+### Embeddings (MU-SIGMA-V2)
+
+MU includes a bundled BERT model trained on code for semantic search:
+
+- **Dimension**: 384
+- **Max sequence**: 512 tokens
+- **Pooling**: Mean
+- **No API keys required**: Runs locally
+
+## Development
 
 ```bash
-# Generate a complete CLI reference for AI agents
-mu describe                    # Default: MU format
-mu describe --format json      # Structured JSON
-mu describe --format markdown  # Markdown documentation
+# Build
+cargo build --release
 
-# Pipe to your agent's context
-mu describe | pbcopy
+# Run tests
+cargo test
+
+# Format
+cargo fmt
+
+# Lint
+cargo clippy
 ```
 
-The `mu describe` command outputs comprehensive CLI documentation optimized for AI agents, including all commands, arguments, options, and usage patterns.
+## Troubleshooting
+
+```bash
+# Fresh start (clears database and rebuilds)
+rm -rf .mu && mu bootstrap
+
+# Database errors about schema/columns
+# The database may be from an old version. Delete and rebuild:
+rm -rf .mu && mu bootstrap
+
+# Check what's in the database
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
+```
 
 ## Roadmap
 
-- [x] Core CLI (scan, compress, view, diff)
 - [x] Multi-language parsing (Python, TypeScript, JavaScript, C#, Go, Rust, Java)
-- [x] Transformation rules engine
-- [x] MU format generator
-- [x] LLM-enhanced summarization (Anthropic, OpenAI, Ollama, OpenRouter)
-- [x] Caching (incremental processing)
-- [x] `mu view` - render MU with syntax highlighting
-- [x] Secret detection and redaction
-- [x] HTML/Markdown export
-- [x] `mu diff` - semantic diff between git refs
-- [x] VS Code extension (syntax highlighting, commands)
-- [x] GitHub Action for CI/CD integration
-- [x] MUbase graph database with DuckDB
-- [x] MUQL query language with interactive REPL
-- [x] Vector embeddings for semantic search
+- [x] DuckDB graph storage with fast SQL queries
+- [x] MUQL query language with terse syntax
+- [x] Vector embeddings for semantic search (MU-SIGMA-V2)
 - [x] Smart context extraction for questions
-- [x] Temporal features (snapshots, history, blame)
-- [x] Multi-format export (Mermaid, D2, Cytoscape)
-- [x] Real-time daemon mode with WebSocket API
+- [x] Semantic diff between git refs
+- [x] Real-time daemon mode with HTTP API
 - [x] MCP server for AI assistants (Claude Code)
-- [x] Architecture contracts verification
+- [x] Multi-format export (Mermaid, D2, JSON)
 - [ ] mu-viz: Interactive graph visualization
-- [ ] IDE integrations (beyond VS Code)
+- [ ] IDE integrations (VS Code, JetBrains)
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
+Contributions welcome! Please run `cargo test` and `cargo clippy` before submitting PRs.
 
 ## License
 

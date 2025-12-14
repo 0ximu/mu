@@ -14,10 +14,12 @@ ignore = [
     "venv/",
     "dist/",
     "build/",
+    "target/",    # Rust build output
+    "archive/",   # MU archive directory
     "*.min.js",
     "*.bundle.js",
     "*.lock",
-    ".mu/",  # MU data directory
+    ".mu/",       # MU data directory
 ]
 include_hidden = false
 max_file_size_kb = 1000

@@ -1,176 +1,147 @@
 # MU - Claude Code Project Instructions
 
-This file provides project-wide guidance to Claude Code. Nested CLAUDE.md files in subsystem directories provide specialized context.
+MU is a pure Rust project. This file provides project-wide guidance.
 
 ## Pre-PR Checklist
 
 Before creating a pull request, verify:
 
 ### Code Quality
-- [ ] `ruff check src/` passes with no errors
-- [ ] `ruff format src/` applied (code is formatted)
-- [ ] `mypy src/mu` passes with no type errors
-- [ ] No new `# type: ignore` without justification
+- [ ] `cargo check` passes with no errors
+- [ ] `cargo fmt` applied (code is formatted)
+- [ ] `cargo clippy` passes with no warnings
+- [ ] No `#[allow(...)]` without justification
 
 ### Testing
-- [ ] `pytest` passes all tests
+- [ ] `cargo test` passes all tests
 - [ ] New code has corresponding tests
-- [ ] `pytest --cov=src/mu` shows coverage for changed code
 
 ### Architecture
-- [ ] New parsers implement `LanguageExtractor` protocol
-- [ ] New LLM providers added via LiteLLM, not custom code
-- [ ] Data models use dataclasses with `to_dict()` methods
-- [ ] No circular imports between modules
+- [ ] New parsers added to `mu-core/src/parser/`
+- [ ] Types implement `Serialize`/`Deserialize` where needed
+- [ ] No circular dependencies between crates
 
 ### Security
 - [ ] No hardcoded secrets or API keys
-- [ ] New secret patterns added to `security/__init__.py` if needed
-- [ ] Secret redaction tested for new file formats
+- [ ] Secret patterns in `mu-core/src/security/`
 
-## Project Overview
-
-MU (Machine Understanding) is a semantic compression tool that translates codebases into token-efficient representations optimized for LLM comprehension. Achieves 92-98% compression while preserving semantic signal.
-
-### Pipeline Flow
+## Project Structure
 
 ```
-Source Files -> Scanner -> Parser -> Reducer -> Assembler -> Exporter
-                  |           |          |          |
-              manifest    ModuleDef  Reduced   ModuleGraph -> MU/JSON/MD
+mu-cli/          # CLI application (clap-based)
+mu-core/         # Parser, scanner, graph algorithms, diff
+mu-daemon/       # Storage layer (DuckDB), embedding trait
+mu-embeddings/   # MU-SIGMA-V2 embedding model (Candle)
+mu-sigma/        # Training pipeline (Python, model training only)
+models/          # Trained model weights
 ```
 
 ## Essential Commands
 
-**IMPORTANT**: Always use `uv run` prefix for all commands. This ensures the correct virtualenv is used automatically.
-
 ```bash
-# Development (uv handles virtualenv automatically)
-uv sync                         # Install dependencies
-uv run pytest                   # Run all tests
-uv run pytest -v -k "test_name" # Run specific test
-uv run mypy src/mu              # Type checking
-uv run ruff check src/          # Linting
-uv run ruff format src/         # Format code
+# Build
+cargo build --release
 
-# CLI usage
-uv run mu init                  # Create .murc.toml config
-uv run mu scan <path>           # Analyze codebase structure
-uv run mu compress <path>       # Generate MU output
-uv run mu compress <path> --llm # With LLM summarization
-uv run mu view <file.mu>        # Render with syntax highlighting
-uv run mu diff <base> <head>    # Semantic diff between git refs
+# Test
+cargo test
+cargo test -p mu-core           # Test specific crate
+cargo test -- --nocapture       # Show println output
 
-# MUQL Queries
-uv run mu query <muql>          # Execute MUQL query (alias: mu q)
-uv run mu kernel muql -i        # Interactive MUQL REPL
+# Lint & Format
+cargo fmt
+cargo clippy
 
-# Graph Database
-uv run mu kernel init .         # Initialize .mubase
-uv run mu kernel build .        # Build graph from codebase
-uv run mu kernel stats          # Graph statistics
-
-# Semantic Search
-uv run mu kernel embed .        # Generate embeddings
-uv run mu kernel search "query" # Natural language search
-uv run mu kernel context "question" # Smart context extraction
-
-# Cache Management
-uv run mu cache stats           # Cache statistics
-uv run mu cache clear           # Clear cached data
-
-# Agent-Proofing
-uv run mu describe              # CLI self-description for AI agents
-uv run mu mcp serve             # Start MCP server for Claude Code
-uv run mu contracts verify      # Verify architecture contracts
-
-# Daemon Mode
-uv run mu daemon start .        # Start daemon in background
-uv run mu daemon status         # Check daemon status
-uv run mu daemon stop           # Stop daemon
+# Run CLI
+./target/release/mu bootstrap
+./target/release/mu status
+./target/release/mu q "fn c>50"
 ```
 
-## Core Modules Reference
+## Crate Reference
 
-| Module | Purpose | CLAUDE.md |
-|--------|---------|-----------|
-| `parser/` | Tree-sitter AST extraction (7 languages) | Yes |
-| `llm/` | Multi-provider async pool | Yes |
-| `assembler/` | Import resolution, dependency graph | Yes |
-| `reducer/` | Transformation rules, boilerplate stripping | Yes |
-| `diff/` | Semantic diff between git refs | Yes |
-| `security/` | Secret detection and redaction | Yes |
-| `scanner/` | Filesystem walking, language detection | No |
-| `cache/` | Persistent file/LLM caching | No |
-| `viewer/` | MU format rendering | No |
-| `client.py` | Daemon client module (httpx-based) | No |
-| `describe.py` | CLI introspection for AI agents | No |
-| `cli.py` | Click-based CLI orchestration | No |
+| Crate | Purpose |
+|-------|---------|
+| `mu-cli` | CLI commands, output formatting |
+| `mu-core` | Tree-sitter parsing (7 langs), graph algorithms, semantic diff |
+| `mu-daemon` | DuckDB storage layer, embedding trait |
+| `mu-embeddings` | BERT inference via Candle, MU-SIGMA-V2 model |
 
-## Key Data Models
+## Key Types
 
-- **`ModuleDef`** (`parser/models.py`): File-level AST with imports, classes, functions
-- **`ReducedModule`** (`reducer/generator.py`): Post-transformation with `needs_llm` markers
-- **`ModuleGraph`** (`assembler/__init__.py`): Dependency graph with resolved imports
-- **`DiffResult`** (`diff/models.py`): Semantic changes between versions
+- **`ModuleDef`** (`mu-core/src/types.rs`): Parsed file with imports, classes, functions
+- **`Node`** (`mu-daemon/src/storage/`): Graph node (function, class, module)
+- **`Edge`** (`mu-daemon/src/storage/`): Graph edge (calls, imports, inherits)
 
 ## Critical Patterns
 
-### Return Types
-All functions that can fail should return explicit types, not raise exceptions for expected failures:
-```python
-# Good
-def parse_file(path: Path) -> ParsedFile:
-    result = ParsedFile(path=str(path), language=lang)
-    if error:
-        result.error = str(error)
-    return result
+### Error Handling
+Use `anyhow::Result` for application code, `thiserror` for library errors:
+```rust
+// In mu-core (library)
+#[derive(thiserror::Error, Debug)]
+pub enum ParseError {
+    #[error("unsupported language: {0}")]
+    UnsupportedLanguage(String),
+}
 
-# Avoid
-def parse_file(path: Path) -> ModuleDef:
-    raise ParseError("...")  # Only for unexpected failures
+// In mu-cli (application)
+fn main() -> anyhow::Result<()> {
+    // ...
+}
 ```
 
-### Data Model Serialization
-All data models must implement `to_dict()` for JSON serialization:
-```python
-@dataclass
-class MyModel:
-    name: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name}
+### Parallel Processing
+Use Rayon for CPU-bound parallel work:
+```rust
+use rayon::prelude::*;
+modules.par_iter().map(|m| parse(m)).collect()
 ```
 
-### Language-Agnostic Design
-Parser extractors convert language-specific AST to common `ModuleDef` structure. Never expose Tree-sitter node types outside extractors.
+### Async
+Use Tokio for I/O-bound async work:
+```rust
+#[tokio::main]
+async fn main() {
+    // ...
+}
+```
 
-## Anti-Patterns
+## MUQL
 
-1. **Never** import Tree-sitter types outside `parser/` module
-2. **Never** make synchronous LLM calls - always use `LLMPool.summarize_batch()`
-3. **Never** hardcode stdlib lists - use `assembler/` constants
-4. **Never** parse secrets manually - use `SecretScanner`
-5. **Never** assume file encoding - always handle decode errors
+Query language for the code graph:
 
-## Configuration Resolution Order
+```sql
+-- Full syntax
+SELECT name, complexity FROM functions WHERE complexity > 10
 
-1. CLI flags (highest priority)
-2. `.murc.toml` in current directory
-3. `.murc.toml` in home directory
-4. Environment variables (`MU_*` prefix)
-5. Built-in defaults (lowest priority)
+-- Terse syntax
+fn c>50 sort c- 10    -- Functions with complexity > 50
+deps Auth d2          -- Dependencies of Auth, depth 2
+```
 
-## MU Output Format
+## Configuration
 
-Sigil-based syntax for LLM consumption:
-- `!` Module/Service
-- `$` Entity/Class (with `<` for inheritance)
-- `#` Function/Method
-- `@` Metadata/Dependencies
-- `::` Annotations
-- `->` Return type, `=>` State mutation
+`.murc.toml` at project root:
+```toml
+[mu]
+exclude = ["vendor/", "node_modules/"]
+```
 
 ## Local Overrides
 
 Create `.claude/CLAUDE.local.md` for personal customizations (gitignored).
+
+## Troubleshooting
+
+```bash
+# Fresh start (clears database and rebuilds)
+rm -rf .mu && mu bootstrap
+
+# Database errors about schema/columns
+# The database may be from an old version. Delete and rebuild:
+rm -rf .mu && mu bootstrap
+
+# Check database contents
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
+duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
+```
