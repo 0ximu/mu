@@ -74,3 +74,6 @@ checkpoints/
 
 # MU (Machine Understanding)
 .mu/
+
+# Cargo build artifacts
+/target/
