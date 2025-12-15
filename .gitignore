@@ -14,6 +14,7 @@
 
 # Internal - not for public release
 archive/
+examples/
 data/
 mu-sigma/
 checkpoints/
