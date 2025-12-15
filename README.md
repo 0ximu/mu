@@ -43,12 +43,12 @@ Result: LLM correctly answers architectural questions
 
 ## Validated Results
 
-| Codebase | Original | MU Output | Compression |
-|----------|----------|-----------|-------------|
-| Production Backend (Python) | 461k tokens | 2k tokens | 212x |
-| API Gateway (TypeScript) | 407k lines | 6.7k lines | 98% |
+| Codebase | Files | Lines | MU Nodes | Export LOC | Bootstrap |
+|----------|-------|-------|----------|------------|-----------|
+| Next.js 14 App (TypeScript) | 1,112 | 406k | 4,471 | 16k | 63s |
+| .NET 8 Microservices (C#) | 796 | 147k | 6,843 | 22k | 117s |
 
-**Real test:** Fed MU output to Claude, asked "How does ride matching work?" — it correctly explained the scoring pipeline, async event workflow, and identified Redis as a SPOF.
+**Real test:** Fed MU output to Claude, asked architectural questions — correctly explained service patterns, identified dependencies, found complexity hotspots.
 
 ## Installation
 
@@ -146,8 +146,6 @@ mu q "rdeps Parser"               # What depends on Parser
 mu query -i
 ```
 
-> **Note:** Graph operations (`deps`, `rdeps`) in terse syntax require the daemon. Start with `mu serve` first, or use full SQL syntax in standalone mode.
-
 ### Semantic Diff & History
 
 ```bash
@@ -165,16 +163,6 @@ mu export -F json                 # JSON export
 mu export -F mermaid              # Mermaid diagram
 mu export -F d2                   # D2 diagram
 mu export -F json -l 100          # Limit to 100 nodes
-```
-
-### Server / Daemon
-
-```bash
-mu serve                          # Start daemon (HTTP on port 9120)
-mu serve --foreground             # Run in foreground (debug mode)
-mu serve --stop                   # Stop running daemon
-mu serve --mcp                    # Start MCP server (stdio for Claude Code)
-mu serve --list-tools             # List available MCP tools
 ```
 
 ### Vibes
@@ -196,9 +184,9 @@ mu omg             # "OMEGA context extraction"
                    # → Compressed codebase overview for LLMs. Ranks nodes
                    #   by importance (complexity + connectivity). ~4k tokens.
 
-mu vibe            # "Project health check"
-                   # → Overall codebase vibe. Is it cozy? Chaotic?
-                   #   A beautiful mess? MU knows.
+mu vibe            # "Naming convention check"
+                   # → Are you snake_case or camelCase? PascalCase purist?
+                   #   MU checks if your code follows consistent conventions.
 
 mu zen             # "Digital declutter"
                    # → Clear caches, reset state, achieve inner peace.
@@ -207,32 +195,6 @@ mu zen             # "Digital declutter"
 
 > **Philosophy**: Most CLI tools are either boring or try-hard. MU aims for the sweet spot — useful AND fun. The vibes are real.
 
-## MCP Server for Claude Code
-
-MU provides a Model Context Protocol (MCP) server for seamless integration with Claude Code:
-
-```bash
-# Start MCP server (stdio mode)
-mu serve --mcp
-
-# Available MCP tools:
-# - mu_query: Execute MUQL queries against the code graph
-# - mu_context: Extract smart context for natural language questions
-# - mu_deps: Show dependencies of a code node
-# - mu_search: Search for code nodes semantically
-# - mu_status: Get MU daemon status and codebase statistics
-```
-
-**Configure in Claude Code** (`~/.claude/mcp_servers.json`):
-```json
-{
-  "mu": {
-    "command": "mu",
-    "args": ["serve", "--mcp"]
-  }
-}
-```
-
 ## Configuration
 
 Create `.murc.toml` in your project:
@@ -240,9 +202,6 @@ Create `.murc.toml` in your project:
 ```toml
 [mu]
 exclude = ["vendor/", "node_modules/", ".git/", "__pycache__/"]
-
-[daemon]
-port = 9120
 ```
 
 ## Supported Languages
@@ -324,17 +283,57 @@ cargo fmt
 cargo clippy
 ```
 
-## Troubleshooting
+## Known Limitations
+
+### Test Coverage Detection
+
+The `mu sus` command detects test coverage by looking for test files in the scanned directory tree. If your tests live in a sibling directory (e.g., `src/` and `tests/` at the same level), MU won't find them.
+
+**Workaround**: Run `mu bootstrap` from the parent directory, or configure test paths in `.murc.toml`:
+
+```toml
+[scanner]
+# Include sibling test directory
+include_paths = ["../tests"]
+```
+
+### .NET Solutions
+
+For .NET projects with a solution file at root and code in `src/`, run MU from the `src/` directory:
 
 ```bash
-# Fresh start (clears database and rebuilds)
-rm -rf .mu && mu bootstrap
+cd src && mu bootstrap --embed
+```
 
-# Database errors about schema/columns
-# The database may be from an old version. Delete and rebuild:
-rm -rf .mu && mu bootstrap
+### Monorepo Support
 
-# Check what's in the database
+MU works best when run from the directory containing your source code. For monorepos, bootstrap each project separately or run from the root with appropriate excludes.
+
+## Troubleshooting
+
+### "No supported files found"
+
+MU didn't find parseable files in the current directory. Check:
+- You're in the right directory (source code, not project root)
+- Files aren't excluded by `.murc.toml` or `.gitignore`
+- Language is supported (run `mu doctor`)
+
+### Database errors
+
+```bash
+rm -rf .mu && mu bootstrap
+```
+
+### Embeddings not working
+
+```bash
+mu embed --status  # Check coverage
+mu embed --force   # Regenerate all
+```
+
+### Check what's in the database
+
+```bash
 duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
 duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 ```
@@ -347,9 +346,9 @@ duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 - [x] Vector embeddings for semantic search (MU-SIGMA-V2)
 - [x] Smart context extraction for questions
 - [x] Semantic diff between git refs
-- [x] Real-time daemon mode with HTTP API
-- [x] MCP server for AI assistants (Claude Code)
 - [x] Multi-format export (Mermaid, D2, JSON)
+- [ ] Real-time daemon mode with HTTP API
+- [ ] MCP server for AI assistants (Claude Code)
 - [ ] mu-viz: Interactive graph visualization
 - [ ] IDE integrations (VS Code, JetBrains)
 
