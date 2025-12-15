@@ -78,8 +78,8 @@ mu q "deps Auth d2"               # Dependencies of Auth, depth 2
 # 3. Semantic search (powered by local MU-SIGMA model)
 mu search "error handling"        # No API keys needed
 
-# 4. Export for LLMs
-mu export > codebase.mu           # Feed entire codebase to Claude/GPT
+# 4. Compress for LLMs (the killer feature)
+mu compress > codebase.txt        # Feed entire codebase to Claude/GPT
 
 # 5. Get the vibes
 mu omg                            # Dramatic summary. The tea. The drama.
@@ -154,14 +154,54 @@ mu diff HEAD~5 HEAD               # Last 5 commits
 mu history <node>                 # Show change history for a node
 ```
 
-### Export Formats
+### Compress (The Killer Feature)
+
+Feed your entire codebase to an LLM in seconds. MU compresses your code into a hierarchical, star-ranked format that preserves semantic structure while minimizing tokens.
 
 ```bash
-mu export                         # Default MU format (LLM-optimized)
-mu export > codebase.mu           # Save to file for LLM consumption
-mu export -F json                 # JSON export
+mu compress                       # Compress codebase to stdout
+mu compress > codebase.txt        # Save for LLM consumption
+mu c                              # Alias
+
+# Detail levels
+mu compress --detail low          # Minimal: just structure
+mu compress --detail medium       # Default: structure + hot paths + core entities
+mu compress --detail high         # Full: everything including relationship clusters
+
+# Output to file
+mu compress -o context.mu         # Write directly to file
+```
+
+**Output includes:**
+- **Core Entities** with star rankings (`★`, `★★`, `★★★`) based on importance (connectivity + usage)
+- **Hot Paths** — functions with high complexity (>20) or call counts (>5)
+- **Hierarchical Tree** — folder structure with modules, classes, functions
+- **Relationship Clusters** — who uses what (at `high` detail level)
+
+**Example output:**
+```
+# MU v2.0 - Compressed Codebase
+# 42 modules, 15 classes, 128 functions, 245 edges
+
+## Domain Overview
+### Core Entities
+$ AuthService  [★★★]
+  @attrs [user_repo, token_manager]
+  → Database (uses), UserRepo (calls)
+  ← LoginHandler, ApiMiddleware
+
+## Hot Paths (complexity > 20 or calls > 5)
+  # process_request  c=35  calls=12 ★★
+    | src/handlers/api.rs
+```
+
+### Export Formats
+
+For diagram generation and data interchange:
+
+```bash
+mu export -F json                 # JSON graph export
 mu export -F mermaid              # Mermaid diagram
-mu export -F d2                   # D2 diagram
 mu export -F json -l 100          # Limit to 100 nodes
 ```
 
