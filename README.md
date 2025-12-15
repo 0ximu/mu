@@ -192,8 +192,9 @@ mu sus             # "Emergency code review"
 mu wtf <file>      # "Archaeology expedition"
                    # → Git blame on steroids. Who did this? When? WHY?
 
-mu omg             # "Monday morning standup"
-                   # → Dramatic summary of what changed. The tea. The drama.
+mu omg             # "OMEGA context extraction"
+                   # → Compressed codebase overview for LLMs. Ranks nodes
+                   #   by importance (complexity + connectivity). ~4k tokens.
 
 mu vibe            # "Project health check"
                    # → Overall codebase vibe. Is it cozy? Chaotic?
