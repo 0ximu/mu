@@ -68,18 +68,20 @@ sudo cp target/release/mu /usr/local/bin/
 ## Quick Start
 
 ```bash
-# 1. Bootstrap (builds the code graph)
-mu bootstrap
+# 1. Bootstrap with embeddings (recommended)
+mu bootstrap --embed              # Builds graph + generates embeddings
 
 # 2. Query (terse syntax = fewer tokens)
 mu q "fn c>50"                    # Functions with complexity > 50
 mu q "deps Auth d2"               # Dependencies of Auth, depth 2
 
-# 3. Enable semantic search (optional but recommended)
-mu embed                          # ~1 min per 1000 files
-mu search "error handling"        # Now powered by embeddings
+# 3. Semantic search (powered by local MU-SIGMA model)
+mu search "error handling"        # No API keys needed
 
-# 4. Get the vibes
+# 4. Export for LLMs
+mu export > codebase.mu           # Feed entire codebase to Claude/GPT
+
+# 5. Get the vibes
 mu omg                            # Dramatic summary. The tea. The drama.
 ```
 
@@ -91,6 +93,7 @@ That's it. Your codebase is now understood.
 
 ```bash
 mu bootstrap                      # Initialize and build graph database
+mu bootstrap --embed              # Build graph + generate embeddings (recommended)
 mu status                         # Show project status
 mu doctor                         # Run health checks on MU installation
 ```
@@ -157,6 +160,7 @@ mu history <node>                 # Show change history for a node
 
 ```bash
 mu export                         # Default MU format (LLM-optimized)
+mu export > codebase.mu           # Save to file for LLM consumption
 mu export -F json                 # JSON export
 mu export -F mermaid              # Mermaid diagram
 mu export -F d2                   # D2 diagram
