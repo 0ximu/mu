@@ -4,7 +4,7 @@
 
 set -e
 
-VERSION="${1:-v0.1.0}"
+VERSION="${1:-v0.0.1}"
 VERSION_NUM="${VERSION#v}"
 FORMULA="mu.rb"
 REPO="0ximu/mu"

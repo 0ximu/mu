@@ -136,7 +136,7 @@ impl TableDisplay for BootstrapResult {
 /// Default .murc.toml content
 fn get_default_config() -> &'static str {
     r#"# MU Configuration
-# https://github.com/dominaite/mu
+# https://github.com/0ximu/mu
 
 [mu]
 version = "1.0"

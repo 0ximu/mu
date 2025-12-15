@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # MU Install Script
-# Usage: curl -sSL https://raw.githubusercontent.com/dominaite/mu/main/scripts/install.sh | sh
+# Usage: curl -sSL https://raw.githubusercontent.com/0ximu/mu/main/scripts/install.sh | sh
 #
 # This script downloads and installs the latest MU binary for your platform.
 
@@ -15,7 +15,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-GITHUB_REPO="dominaite/mu"
+GITHUB_REPO="0ximu/mu"
 INSTALL_DIR="${MU_INSTALL_DIR:-$HOME/.local/bin}"
 
 # Print colored message

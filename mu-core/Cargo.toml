@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "High-performance Rust core for MU (Machine Understanding)"
-authors = ["Yavor Kangalov <yavor@dominaite.com>"]
-repository = "https://github.com/dominaite/mu"
+authors = ["Yavor Kangalov <0ximu@proton.me>"]
+repository = "https://github.com/0ximu/mu"
 keywords = ["llm", "code-analysis", "parsing", "tree-sitter"]
 
 [lib]

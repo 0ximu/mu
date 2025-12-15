@@ -490,7 +490,7 @@ Graph operations (use dedicated commands):
   mu cycles                                  # Find circular dependencies
   mu path cli parser                         # Path between nodes
 
-For more details: https://github.com/dominaite/mu#muql
+For more details: https://github.com/0ximu/mu#muql
 "#;
 
 /// MUQL schema reference shown with --schema flag
