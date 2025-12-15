@@ -191,8 +191,40 @@ impl GraphData {
         self.traverse_bfs(node_id, Direction::Incoming, edge_types, max_depth)
     }
 
-    /// Find shortest path between two nodes
+    /// Find shortest path between two nodes (bidirectional search).
+    ///
+    /// Tries multiple strategies to find a path:
+    /// 1. Forward direction (follow outgoing edges from -> to)
+    /// 2. Reverse direction (follow outgoing edges to -> from, then reverse path)
+    /// 3. Undirected (treat all edges as bidirectional)
     pub fn shortest_path(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        edge_types: Option<&[String]>,
+    ) -> Option<Vec<String>> {
+        // Handle self-loop case
+        if from_id == to_id && self.node_map.contains_key(from_id) {
+            return Some(vec![from_id.to_string()]);
+        }
+
+        // Try forward direction first (most common case)
+        if let Some(path) = self.shortest_path_directed(from_id, to_id, edge_types) {
+            return Some(path);
+        }
+
+        // Try reverse direction (what if edges go the other way?)
+        if let Some(mut path) = self.shortest_path_directed(to_id, from_id, edge_types) {
+            path.reverse();
+            return Some(path);
+        }
+
+        // Try undirected (treat all edges as bidirectional)
+        self.shortest_path_undirected(from_id, to_id, edge_types)
+    }
+
+    /// Find shortest path following edges in their natural direction.
+    fn shortest_path_directed(
         &self,
         from_id: &str,
         to_id: &str,
@@ -223,6 +255,70 @@ impl GraphData {
                 }
 
                 let neighbor = edge.target();
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    parent.insert(neighbor, current);
+
+                    if neighbor == end {
+                        // Reconstruct path
+                        let mut path = vec![self.reverse_map[&end].clone()];
+                        let mut curr = end;
+                        while let Some(&p) = parent.get(&curr) {
+                            path.push(self.reverse_map[&p].clone());
+                            curr = p;
+                        }
+                        path.reverse();
+                        return Some(path);
+                    }
+
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Find shortest path treating edges as undirected (bidirectional).
+    fn shortest_path_undirected(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        edge_types: Option<&[String]>,
+    ) -> Option<Vec<String>> {
+        let start = *self.node_map.get(from_id)?;
+        let end = *self.node_map.get(to_id)?;
+
+        if start == end {
+            return Some(vec![from_id.to_string()]);
+        }
+
+        let allowed: Option<HashSet<&String>> = edge_types.map(|t| t.iter().collect());
+
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        let mut parent: HashMap<NodeIndex, NodeIndex> = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        visited.insert(start);
+        queue.push_back(start);
+
+        while let Some(current) = queue.pop_front() {
+            // Check both outgoing and incoming edges (undirected)
+            let outgoing_neighbors: Vec<_> = self
+                .graph
+                .edges_directed(current, Direction::Outgoing)
+                .filter(|edge| allowed.as_ref().is_none_or(|a| a.contains(edge.weight())))
+                .map(|e| e.target())
+                .collect();
+
+            let incoming_neighbors: Vec<_> = self
+                .graph
+                .edges_directed(current, Direction::Incoming)
+                .filter(|edge| allowed.as_ref().is_none_or(|a| a.contains(edge.weight())))
+                .map(|e| e.source())
+                .collect();
+
+            for neighbor in outgoing_neighbors.into_iter().chain(incoming_neighbors) {
                 if !visited.contains(&neighbor) {
                     visited.insert(neighbor);
                     parent.insert(neighbor, current);
@@ -981,5 +1077,60 @@ mod tests {
         assert!(impact.contains(&"mod:b".to_string()));
         assert!(impact.contains(&"mod:c".to_string()));
         assert!(!impact.contains(&"mod:d".to_string()));
+    }
+
+    #[test]
+    fn test_shortest_path_self_loop() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // Self-loop should return single-element path
+        let path = graph.shortest_path("mod:a", "mod:a", None);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert_eq!(path.len(), 1);
+        assert_eq!(path[0], "mod:a");
+    }
+
+    #[test]
+    fn test_shortest_path_reverse_direction() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // In test_db: a -> b -> d (via calls)
+        // Searching d -> a should find a path via reverse/undirected search
+        let path = graph.shortest_path("mod:d", "mod:a", None);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        // Path should be d -> b -> a (reversed)
+        assert_eq!(path[0], "mod:d");
+        assert!(path.contains(&"mod:b".to_string()));
+        assert_eq!(path[path.len() - 1], "mod:a");
+    }
+
+    #[test]
+    fn test_shortest_path_nonexistent_node() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // Path to nonexistent node should return None
+        let path = graph.shortest_path("mod:a", "mod:nonexistent", None);
+        assert!(path.is_none());
+    }
+
+    #[test]
+    fn test_shortest_path_undirected() {
+        // Create a test case where only undirected search would work
+        // (no forward or reverse path, but connected through multiple hops)
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // In the test db: a -> b -> c -> a (cycle) and b -> d
+        // Path from c to d: c -> a -> b -> d (via undirected/cycle)
+        let path = graph.shortest_path("mod:c", "mod:d", None);
+        assert!(path.is_some());
+        let path = path.unwrap();
+        assert_eq!(path[0], "mod:c");
+        assert_eq!(path[path.len() - 1], "mod:d");
     }
 }

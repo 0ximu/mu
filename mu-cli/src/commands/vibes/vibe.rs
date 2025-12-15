@@ -18,10 +18,63 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use super::conventions::{
-    check_convention, convention_for, detect_language, is_csharp_test_method, is_dunder,
+    check_convention, convention_for_entity_with_context, detect_language, is_csharp_test_method,
+    is_dunder, is_kebab_case, is_pascal_case, should_skip_naming_check, EntityType,
     NamingConvention,
 };
 use crate::output::OutputFormat;
+
+/// Framework-required file names that should be skipped for naming convention checks.
+/// These are Next.js and similar framework conventions that use kebab-case intentionally.
+const FRAMEWORK_FILES: &[&str] = &[
+    "not-found",
+    "error",
+    "loading",
+    "layout",
+    "page",
+    "route",
+    "middleware",
+    "global-error",
+    "default",
+    "template",
+    "sitemap",
+    "robots",
+    "manifest",
+    "opengraph-image",
+    "twitter-image",
+    "icon",
+    "apple-icon",
+    "instrumentation",
+];
+
+/// Check if a file path is a build artifact or generated file that should be skipped.
+///
+/// This function detects:
+/// - Common build output directories (_expo, dist, build, .next, etc.)
+/// - Dependency directories (node_modules, target, __pycache__, .venv)
+/// - Cache directories (.turbo, coverage)
+/// - Generated files with hash patterns (file-abc123def.js)
+fn is_build_artifact(path: &str) -> bool {
+    let build_patterns = [
+        "/_expo/",
+        "/dist/",
+        "/build/",
+        "/.next/",
+        "/node_modules/",
+        "/.turbo/",
+        "/coverage/",
+        "/target/",
+        "/__pycache__/",
+        "/.venv/",
+    ];
+    if build_patterns.iter().any(|p| path.contains(p)) {
+        return true;
+    }
+    // Check for hash patterns like file-abc123def.js
+    // Look for -[8+ hex chars]. pattern
+    let re_pattern = regex::Regex::new(r"-[a-f0-9]{8,}\.").unwrap();
+    re_pattern.is_match(path)
+}
 
 /// A pattern issue found during vibe check
 #[derive(Debug, Clone, serde::Serialize)]
@@ -104,11 +157,34 @@ fn check_naming_conventions(
             continue;
         }
 
+        // Skip private functions and constants (underscore-prefixed)
+        if should_skip_naming_check(&node.name) {
+            continue;
+        }
+
+        // Skip build artifacts and generated files
+        if let Some(ref path) = node.file_path {
+            if is_build_artifact(path) {
+                continue;
+            }
+        }
+
         // Skip EF Core migrations (they use timestamp_Name convention intentionally)
         if let Some(ref path) = node.file_path {
             if path.contains("/Migrations/") || path.contains("\\Migrations\\") {
                 continue;
             }
+        }
+
+        // Skip framework-required file names (Next.js conventions)
+        if node.node_type == "module" && FRAMEWORK_FILES.contains(&node.name.as_str()) {
+            continue;
+        }
+
+        // Skip dotted module names - these are intentional platform/test/style suffixes
+        // e.g., RoutePolyline.native, validation.test, MatchDetailsScreen.styles
+        if node.node_type == "module" && node.name.contains('.') {
+            continue;
         }
 
         // Determine the language from file path
@@ -144,9 +220,43 @@ fn check_naming_conventions(
             continue;
         }
 
-        // Get expected convention (override or language-specific)
-        let expected_convention =
-            convention_override.unwrap_or_else(|| convention_for(language, entity_type));
+        // Skip React component functions - PascalCase functions in .tsx/.jsx files
+        // React components are functions that start with uppercase (e.g., RideStatusBadge, UserProfile)
+        if (entity_type == "function" || entity_type == "method")
+            && node
+                .file_path
+                .as_ref()
+                .map(|p| p.ends_with(".tsx") || p.ends_with(".jsx"))
+                .unwrap_or(false)
+            && node
+                .name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+        {
+            continue;
+        }
+
+        // For JS/TS modules, accept multiple valid conventions:
+        // - camelCase (default)
+        // - kebab-case (common in Next.js, test files, utilities)
+        // - PascalCase (services, classes exported as modules)
+        if entity_type == "module"
+            && (language == "javascript" || language == "typescript")
+            && (is_kebab_case(&node.name) || is_pascal_case(&node.name))
+        {
+            continue;
+        }
+
+        // Get expected convention (override or language-specific with file context)
+        let expected_convention = convention_override.unwrap_or_else(|| {
+            convention_for_entity_with_context(
+                language,
+                entity_type.parse().unwrap_or(EntityType::Variable),
+                node.file_path.as_deref(),
+            )
+        });
 
         // Check if the name follows the expected convention
         if let Some(suggestion) = check_convention(&node.name, expected_convention) {
@@ -357,11 +467,28 @@ fn check_imports(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
     Ok(issues)
 }
 
+/// Check if a file path is a test file
+fn is_test_file(path: &str) -> bool {
+    let path_lower = path.to_lowercase();
+    path_lower.contains("/tests/")
+        || path_lower.contains("/test/")
+        || path_lower.contains("/__tests__/")
+        || path_lower.contains(".test.")
+        || path_lower.contains(".spec.")
+        || path_lower.contains("_test.")
+        || path_lower.starts_with("test_")
+        || path_lower.ends_with("_test.py")
+        || path_lower.ends_with("_test.go")
+        || path_lower.ends_with("tests.cs")
+}
+
 /// Check API patterns
 fn check_api_patterns(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
     let mut issues = Vec::new();
 
     let path_filter = path_filter_clause(path, "n.file_path");
+    // Check if the function itself has a docstring in its properties
+    // Previous bug: was checking if ANY node in the file had a docstring
     let query = format!(
         r#"
         SELECT n.name, n.file_path
@@ -369,11 +496,10 @@ fn check_api_patterns(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
         WHERE n.type = 'function'
           AND (n.name LIKE '%api%' OR n.name LIKE '%endpoint%' OR n.name LIKE '%route%')
           AND n.file_path IS NOT NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM nodes doc
-              WHERE doc.file_path = n.file_path
-                AND doc.properties::TEXT LIKE '%docstring%'
-          )
+          AND n.file_path NOT LIKE '%test%'
+          AND n.file_path NOT LIKE '%/tests/%'
+          AND n.file_path NOT LIKE '%/__tests__/%'
+          AND (n.properties IS NULL OR n.properties::TEXT NOT LIKE '%docstring%')
           {}
         LIMIT 50
     "#,
@@ -387,6 +513,17 @@ fn check_api_patterns(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
         let func_name: String = row.get(0)?;
         let file_path: String = row.get(1)?;
 
+        // Double-check with helper function for edge cases
+        if is_test_file(&file_path) {
+            continue;
+        }
+
+        // Skip underscore-prefixed private functions
+        // These are internal implementation details, not public API
+        if func_name.starts_with('_') && !is_dunder(&func_name) {
+            continue;
+        }
+
         issues.push(VibeIssue {
             file: file_path,
             category: "api".to_string(),
@@ -399,6 +536,9 @@ fn check_api_patterns(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
 }
 
 /// Check async/await patterns
+/// NOTE: Currently disabled in run() - too pedantic for real-world codebases.
+/// Kept for potential future use with config flags.
+#[allow(dead_code)]
 fn check_async_patterns(conn: &Connection, path: &str) -> Result<Vec<VibeIssue>> {
     let mut issues = Vec::new();
 
@@ -516,9 +656,12 @@ pub async fn run(
     let api_issues = check_api_patterns(&conn, path)?;
     all_issues.extend(api_issues);
 
-    patterns_checked += 1;
-    let async_issues = check_async_patterns(&conn, path)?;
-    all_issues.extend(async_issues);
+    // Async naming check disabled - too pedantic for real-world codebases
+    // where async functions follow language conventions, not async_/Async prefixes.
+    // Keep check_async_patterns() function available for future config flags.
+    // patterns_checked += 1;
+    // let async_issues = check_async_patterns(&conn, path)?;
+    // all_issues.extend(async_issues);
 
     let result = VibeResult {
         path: path.to_string(),
@@ -771,25 +914,30 @@ fn print_vibe_output(result: &VibeResult, convention_override: Option<NamingConv
     } else {
         println!(
             "{}",
-            format!("{} issues found", result.issues.len()).red().bold()
+            format!("{} hints (opinionated)", result.issues.len())
+                .yellow()
+                .bold()
         );
         println!();
 
         for issue in &result.issues {
             println!(
                 "{} {} {}",
-                "X".red(),
+                "~".yellow(),
                 format!("[{}]", issue.category).cyan(),
                 issue.message
             );
             println!("  {}", issue.file.dimmed());
             if let Some(suggestion) = &issue.suggestion {
-                println!("  {} {}", "->".green(), suggestion);
+                println!("  {} {}", "->".dimmed(), suggestion);
             }
             println!();
         }
 
-        println!("{}", "The vibe is... off.".dimmed());
+        println!(
+            "{}",
+            "These are suggestions, not errors. Use --strict for CI enforcement.".dimmed()
+        );
     }
 
     println!();
@@ -911,9 +1059,81 @@ mod tests {
             infer_test_path("src/services/user_service.py"),
             "tests/test_services/user_service.py"
         );
-        assert_eq!(
-            infer_test_path("utils/helpers.py"),
-            "tests/test_helpers.py"
-        );
+        assert_eq!(infer_test_path("utils/helpers.py"), "tests/test_helpers.py");
+    }
+
+    // ========================================================================
+    // Build Artifact Detection Tests
+    // ========================================================================
+
+    #[test]
+    fn test_is_build_artifact_common_dirs() {
+        // Common build directories should be detected
+        assert!(is_build_artifact("frontend/web/_expo/static/js/main.js"));
+        assert!(is_build_artifact("project/dist/bundle.js"));
+        assert!(is_build_artifact("app/build/output.js"));
+        assert!(is_build_artifact("web/.next/server/app.js"));
+        assert!(is_build_artifact("project/node_modules/lodash/index.js"));
+        assert!(is_build_artifact("app/.turbo/cache/hash"));
+        assert!(is_build_artifact("project/coverage/lcov.info"));
+        assert!(is_build_artifact("rust-project/target/debug/main"));
+        assert!(is_build_artifact("python/__pycache__/module.pyc"));
+        assert!(is_build_artifact("project/.venv/lib/python3.11/site.py"));
+    }
+
+    #[test]
+    fn test_is_build_artifact_hash_patterns() {
+        // Files with hash patterns should be detected
+        assert!(is_build_artifact("web/static/main-abc123def.js"));
+        assert!(is_build_artifact("dist/chunk-12345678.js"));
+        assert!(is_build_artifact("build/style-deadbeef01.css"));
+        assert!(is_build_artifact("output/index-a1b2c3d4e5f6.js"));
+    }
+
+    #[test]
+    fn test_is_build_artifact_non_artifacts() {
+        // Regular source files should NOT be detected
+        assert!(!is_build_artifact("src/main.ts"));
+        assert!(!is_build_artifact("src/components/Button.tsx"));
+        assert!(!is_build_artifact("lib/utils.py"));
+        assert!(!is_build_artifact("app/services/user-service.ts"));
+        // Short hash (less than 8 chars) should not trigger
+        assert!(!is_build_artifact("src/file-abc123.ts"));
+    }
+
+    // ========================================================================
+    // Framework Files Tests
+    // ========================================================================
+
+    #[test]
+    fn test_framework_files_constant() {
+        // Verify all expected Next.js framework files are in the list
+        assert!(FRAMEWORK_FILES.contains(&"not-found"));
+        assert!(FRAMEWORK_FILES.contains(&"error"));
+        assert!(FRAMEWORK_FILES.contains(&"loading"));
+        assert!(FRAMEWORK_FILES.contains(&"layout"));
+        assert!(FRAMEWORK_FILES.contains(&"page"));
+        assert!(FRAMEWORK_FILES.contains(&"route"));
+        assert!(FRAMEWORK_FILES.contains(&"middleware"));
+        assert!(FRAMEWORK_FILES.contains(&"global-error"));
+        assert!(FRAMEWORK_FILES.contains(&"default"));
+        assert!(FRAMEWORK_FILES.contains(&"template"));
+        assert!(FRAMEWORK_FILES.contains(&"sitemap"));
+        assert!(FRAMEWORK_FILES.contains(&"robots"));
+        assert!(FRAMEWORK_FILES.contains(&"manifest"));
+        assert!(FRAMEWORK_FILES.contains(&"opengraph-image"));
+        assert!(FRAMEWORK_FILES.contains(&"twitter-image"));
+        assert!(FRAMEWORK_FILES.contains(&"icon"));
+        assert!(FRAMEWORK_FILES.contains(&"apple-icon"));
+        assert!(FRAMEWORK_FILES.contains(&"instrumentation"));
+    }
+
+    #[test]
+    fn test_framework_files_not_in_list() {
+        // Regular module names should not be in the framework list
+        assert!(!FRAMEWORK_FILES.contains(&"index"));
+        assert!(!FRAMEWORK_FILES.contains(&"main"));
+        assert!(!FRAMEWORK_FILES.contains(&"app"));
+        assert!(!FRAMEWORK_FILES.contains(&"user-service"));
     }
 }

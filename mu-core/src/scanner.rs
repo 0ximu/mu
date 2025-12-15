@@ -309,9 +309,9 @@ pub fn scan_with_options(root_path: &str, options: ScanOptions) -> Result<ScanRe
     });
 
     // Build language filter set (lowercase for case-insensitive matching)
-    let lang_filter: Option<HashSet<String>> = options.languages.map(|langs| {
-        langs.into_iter().map(|l| l.to_lowercase()).collect()
-    });
+    let lang_filter: Option<HashSet<String>> = options
+        .languages
+        .map(|langs| langs.into_iter().map(|l| l.to_lowercase()).collect());
 
     // Build the walker with ignore crate
     let mut builder = WalkBuilder::new(root);

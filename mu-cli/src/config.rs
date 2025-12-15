@@ -28,7 +28,42 @@
 //! ```
 
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+
+/// Errors that can occur when loading configuration.
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    /// Failed to read the configuration file.
+    #[error("Failed to read config file {}: {}", .0.display(), .1)]
+    ReadError(PathBuf, std::io::Error),
+
+    /// Failed to parse the configuration file.
+    #[error("Failed to parse {}: {}\n  Hint: {}", .path.display(), .error, .suggestion)]
+    ParseError {
+        path: PathBuf,
+        error: String,
+        suggestion: String,
+    },
+}
+
+/// Suggest a fix for common TOML parsing errors.
+fn suggest_config_fix(error: &toml::de::Error) -> String {
+    let msg = error.to_string();
+    if msg.contains("expected array") {
+        "Use array syntax: languages = [\"python\", \"rust\"]".to_string()
+    } else if msg.contains("expected string") {
+        "Use quotes around string values".to_string()
+    } else if msg.contains("expected boolean") {
+        "Use true or false (without quotes)".to_string()
+    } else if msg.contains("expected integer") {
+        "Use a number without quotes".to_string()
+    } else if msg.contains("invalid type") {
+        "Check that the value type matches expected (string, array, boolean, etc.)".to_string()
+    } else {
+        "Check TOML syntax at https://toml.io".to_string()
+    }
+}
 
 /// Root configuration structure loaded from `.murc.toml`.
 ///
@@ -229,6 +264,54 @@ impl MuConfig {
         Self::default()
     }
 
+    /// Load configuration with strict validation - returns error on parse failure.
+    ///
+    /// Unlike [`load`], this method returns meaningful errors when the configuration
+    /// file exists but cannot be parsed. Use this for commands where users expect
+    /// their configuration to be applied (e.g., `mu bootstrap --strict`).
+    ///
+    /// # Arguments
+    ///
+    /// * `root` - Project root directory to search for `.murc.toml`
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(config)` if the file doesn't exist (uses defaults) or was parsed successfully
+    /// - `Err(ConfigError)` if the file exists but couldn't be read or parsed
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// match MuConfig::load_strict(&project_root) {
+    ///     Ok(config) => println!("Config loaded"),
+    ///     Err(e) => eprintln!("Config error: {}", e),
+    /// }
+    /// ```
+    pub fn load_strict(root: &Path) -> Result<Self, ConfigError> {
+        let config_path = root.join(".murc.toml");
+
+        // No config file = use defaults (not an error)
+        if !config_path.exists() {
+            return Ok(Self::default());
+        }
+
+        // Read the file
+        let content = std::fs::read_to_string(&config_path)
+            .map_err(|e| ConfigError::ReadError(config_path.clone(), e))?;
+
+        // Empty file = use defaults
+        if content.trim().is_empty() {
+            return Ok(Self::default());
+        }
+
+        // Parse the TOML
+        toml::from_str(&content).map_err(|e| ConfigError::ParseError {
+            path: config_path,
+            error: e.to_string(),
+            suggestion: suggest_config_fix(&e),
+        })
+    }
+
     /// Get ignore patterns for the scanner, with defaults included.
     ///
     /// Combines user-specified patterns from `[scanner].ignore` with
@@ -399,5 +482,111 @@ max_file_size_kb = 100
 "#;
         let config: MuConfig = toml::from_str(toml_content).unwrap();
         assert_eq!(config.max_file_size_bytes(), Some(100 * 1024));
+    }
+
+    #[test]
+    fn test_load_strict_no_file() {
+        let temp_dir = std::env::temp_dir().join("mu_test_no_config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Remove config file if it exists
+        let config_path = temp_dir.join(".murc.toml");
+        let _ = std::fs::remove_file(&config_path);
+
+        let result = MuConfig::load_strict(&temp_dir);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        // Should use defaults
+        assert!(config.cache.enabled);
+    }
+
+    #[test]
+    fn test_load_strict_empty_file() {
+        let temp_dir = std::env::temp_dir().join("mu_test_empty_config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let config_path = temp_dir.join(".murc.toml");
+        std::fs::write(&config_path, "").unwrap();
+
+        let result = MuConfig::load_strict(&temp_dir);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        // Should use defaults
+        assert!(config.cache.enabled);
+    }
+
+    #[test]
+    fn test_load_strict_valid_config() {
+        let temp_dir = std::env::temp_dir().join("mu_test_valid_config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let config_path = temp_dir.join(".murc.toml");
+        std::fs::write(
+            &config_path,
+            r#"
+[cache]
+enabled = false
+"#,
+        )
+        .unwrap();
+
+        let result = MuConfig::load_strict(&temp_dir);
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert!(!config.cache.enabled);
+    }
+
+    #[test]
+    fn test_load_strict_invalid_toml() {
+        let temp_dir = std::env::temp_dir().join("mu_test_invalid_config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let config_path = temp_dir.join(".murc.toml");
+        std::fs::write(&config_path, "this is not valid toml [[[").unwrap();
+
+        let result = MuConfig::load_strict(&temp_dir);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("Failed to parse"));
+        assert!(err_msg.contains("Hint:"));
+    }
+
+    #[test]
+    fn test_load_strict_type_error() {
+        let temp_dir = std::env::temp_dir().join("mu_test_type_error_config");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let config_path = temp_dir.join(".murc.toml");
+        // languages should be an array, not a string
+        std::fs::write(
+            &config_path,
+            r#"
+[parser]
+languages = "python"
+"#,
+        )
+        .unwrap();
+
+        let result = MuConfig::load_strict(&temp_dir);
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("Failed to parse"));
+        // Should suggest array syntax
+        assert!(err_msg.contains("array"));
+    }
+
+    #[test]
+    fn test_suggest_config_fix_array_error() {
+        // Create a fake toml parse error for array
+        let bad_toml = r#"languages = "python""#;
+        let err: Result<ParserConfig, _> = toml::from_str(bad_toml);
+        if let Err(e) = err {
+            let suggestion = suggest_config_fix(&e);
+            assert!(suggestion.contains("array"));
+        }
     }
 }

@@ -16,6 +16,7 @@ use colored::Colorize;
 use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
+use serde_json::json;
 
 use crate::cache::{CacheStats, ParseCache};
 use crate::config::MuConfig;
@@ -248,10 +249,7 @@ fn should_embed(embed_flag: bool, no_embed_flag: bool) -> bool {
 }
 
 /// Run embeddings only on an existing database (without rebuilding the graph)
-async fn run_embeddings_only(
-    mubase_path: &Path,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
+async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow::Result<()> {
     let start = Instant::now();
 
     let spinner = ProgressBar::new_spinner();
@@ -321,11 +319,7 @@ async fn run_embeddings_only(
                         for (node, (text, embedding)) in
                             batch.iter().zip(texts.iter().zip(batch_embeddings))
                         {
-                            embeddings_batch.push((
-                                node.id.clone(),
-                                embedding,
-                                Some(text.clone()),
-                            ));
+                            embeddings_batch.push((node.id.clone(), embedding, Some(text.clone())));
                             embedded_count += 1;
                         }
                     }
@@ -403,6 +397,7 @@ pub async fn run(
     force: bool,
     embed: bool,
     no_embed: bool,
+    strict: bool,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let start = Instant::now();
@@ -425,7 +420,11 @@ pub async fn run(
     let gitignore_updated = update_gitignore(&root);
 
     // Load configuration (after ensuring config exists)
-    let config = MuConfig::load(&root);
+    let config = if strict {
+        MuConfig::load_strict(&root)?
+    } else {
+        MuConfig::load(&root)
+    };
     let ignore_patterns = config.ignore_patterns();
     tracing::debug!("Loaded ignore patterns: {:?}", ignore_patterns);
 
@@ -523,11 +522,7 @@ pub async fn run(
     let mut cache_stats = CacheStats::default();
 
     // Build set of current file paths for cache pruning
-    let current_files: HashSet<String> = scan_result
-        .files
-        .iter()
-        .map(|f| f.path.clone())
-        .collect();
+    let current_files: HashSet<String> = scan_result.files.iter().map(|f| f.path.clone()).collect();
 
     // Prune cache of files that no longer exist
     if cache_enabled && !cache.is_empty() {
@@ -585,7 +580,8 @@ pub async fn run(
 
     // Update cache with freshly parsed results
     if cache_enabled {
-        for ((scanned_file, _content), result) in files_to_parse.iter().zip(fresh_parse_results.iter())
+        for ((scanned_file, _content), result) in
+            files_to_parse.iter().zip(fresh_parse_results.iter())
         {
             if result.success {
                 if let (Some(hash), Some(module)) = (&scanned_file.hash, &result.module) {
@@ -686,12 +682,16 @@ pub async fn run(
 
             // Create class nodes
             for class in &module.classes {
-                let class_node = mu_daemon::storage::Node::class(
+                let mut class_node = mu_daemon::storage::Node::class(
                     rel_path,
                     &class.name,
                     class.start_line,
                     class.end_line,
                 );
+                // Add docstring to properties if present
+                if let Some(ref docstring) = class.docstring {
+                    class_node = class_node.with_properties(json!({"docstring": docstring}));
+                }
                 let class_id = class_node.id.clone();
                 nodes.push(class_node);
 
@@ -712,7 +712,7 @@ pub async fn run(
 
                 // Create method nodes
                 for method in &class.methods {
-                    let method_node = mu_daemon::storage::Node::function(
+                    let mut method_node = mu_daemon::storage::Node::function(
                         rel_path,
                         &method.name,
                         Some(&class.name),
@@ -720,6 +720,11 @@ pub async fn run(
                         method.end_line,
                         method.body_complexity,
                     );
+                    // Add docstring to properties if present
+                    if let Some(ref docstring) = method.docstring {
+                        method_node =
+                            method_node.with_properties(json!({"docstring": docstring}));
+                    }
                     let method_id = method_node.id.clone();
                     nodes.push(method_node);
 
@@ -730,7 +735,7 @@ pub async fn run(
 
             // Create function nodes (module-level)
             for func in &module.functions {
-                let func_node = mu_daemon::storage::Node::function(
+                let mut func_node = mu_daemon::storage::Node::function(
                     rel_path,
                     &func.name,
                     None,
@@ -738,6 +743,10 @@ pub async fn run(
                     func.end_line,
                     func.body_complexity,
                 );
+                // Add docstring to properties if present
+                if let Some(ref docstring) = func.docstring {
+                    func_node = func_node.with_properties(json!({"docstring": docstring}));
+                }
                 let func_id = func_node.id.clone();
                 nodes.push(func_node);
 

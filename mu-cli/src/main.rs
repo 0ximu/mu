@@ -39,7 +39,9 @@ use output::OutputFormat;
 #[command(name = "mu")]
 #[command(author, version)]
 #[command(about = "Semantic code intelligence for AI-native development")]
-#[command(long_about = "MU parses your codebase into a semantic graph with fast queries,\nsemantic search, and intelligent context extraction.\n\n92-98% compression while preserving semantic signal.")]
+#[command(
+    long_about = "MU parses your codebase into a semantic graph with fast queries,\nsemantic search, and intelligent context extraction.\n\n92-98% compression while preserving semantic signal."
+)]
 #[command(propagate_version = true)]
 #[command(next_help_heading = "Options")]
 #[command(after_help = "Quick Start:
@@ -94,6 +96,10 @@ enum Commands {
         /// Skip embedding generation without prompting
         #[arg(long, conflicts_with = "embed")]
         no_embed: bool,
+
+        /// Fail on .murc.toml errors instead of silently using defaults
+        #[arg(long)]
+        strict: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -121,7 +127,6 @@ enum Commands {
     },
 
     /// Generate or update embeddings (incremental by default)
-    
     Embed {
         /// Path to analyze (defaults to current directory)
         #[arg(default_value = ".")]
@@ -137,7 +142,6 @@ enum Commands {
     },
 
     /// Semantic search across the codebase
-    
     Search {
         /// Search query
         query: String,
@@ -152,7 +156,6 @@ enum Commands {
     },
 
     /// Find relevant code context for a question (semantic search)
-    
     Grok {
         /// Question or topic to find context for
         question: String,
@@ -186,7 +189,6 @@ enum Commands {
     },
 
     /// Show dependencies of a node (what this node depends on)
-    
     Deps {
         /// Node to analyze
         node: String,
@@ -220,7 +222,6 @@ enum Commands {
     },
 
     /// Read and display a file with MU context
-    
     Read {
         /// File path to read
         path: String,
@@ -231,7 +232,6 @@ enum Commands {
     },
 
     /// Semantic diff between git refs
-    
     Diff {
         /// Base git ref (branch, commit, tag)
         base_ref: String,
@@ -242,7 +242,6 @@ enum Commands {
     },
 
     /// Find downstream impact (what might break if this node changes)
-
     Impact {
         /// Node to analyze
         node: String,
@@ -257,7 +256,6 @@ enum Commands {
     },
 
     /// Find upstream ancestors (what this node depends on)
-
     Ancestors {
         /// Node to analyze
         node: String,
@@ -272,7 +270,6 @@ enum Commands {
     },
 
     /// Detect circular dependencies in the codebase
-    
     Cycles {
         /// Filter by edge types (e.g., imports,calls)
         #[arg(short, long, value_delimiter = ',')]
@@ -280,7 +277,6 @@ enum Commands {
     },
 
     /// Find shortest path between two nodes
-    
     Path {
         /// Source node
         from: String,
@@ -295,7 +291,6 @@ enum Commands {
 
     // ==================== Vibes ====================
     /// Impact analysis with flair - what breaks if this changes?
-    
     Yolo {
         /// Path to fix
         #[arg(default_value = ".")]
@@ -303,7 +298,6 @@ enum Commands {
     },
 
     /// Find sus code - security risks, complexity, missing tests
-    
     Sus {
         /// File to analyze, or "." to scan entire codebase
         #[arg(default_value = ".")]
@@ -315,14 +309,12 @@ enum Commands {
     },
 
     /// Git archaeology - why does this code exist?
-    
     Wtf {
         /// File path to analyze (shows origin, evolution, and files that change together)
         target: Option<String>,
     },
 
     /// OMEGA compressed overview - feed your whole codebase to an LLM
-    
     Omg {
         /// Maximum tokens for output
         #[arg(short = 't', long, default_value = "8000")]
@@ -334,7 +326,6 @@ enum Commands {
     },
 
     /// Naming convention check - does the code pass the vibe check?
-    
     Vibe {
         /// Path to vibe check
         #[arg(default_value = ".")]
@@ -347,7 +338,6 @@ enum Commands {
     },
 
     /// Achieve enlightenment - clear caches and temp files
-
     Zen {
         /// Path to clean
         #[arg(default_value = ".")]
@@ -364,7 +354,6 @@ enum Commands {
 
     // ==================== Analysis & Export ====================
     /// Detect code patterns in the codebase
-    
     Patterns {
         /// Filter by pattern category
         #[arg(short, long, value_parser = ["naming", "architecture", "testing", "imports", "error_handling", "api", "async", "logging"])]
@@ -380,7 +369,6 @@ enum Commands {
     },
 
     /// Export the code graph to various formats
-    
     Export {
         /// Export format (mu, json, mermaid, d2, cytoscape)
         #[arg(short = 'F', long = "export-format", default_value = "mu", value_parser = ["mu", "json", "mermaid", "d2", "cytoscape"])]
@@ -400,7 +388,6 @@ enum Commands {
     },
 
     /// Show change history for a node
-    
     History {
         /// Node to show history for (ID or name)
         node: String,
@@ -412,7 +399,6 @@ enum Commands {
 
     // ==================== Utilities ====================
     /// Run health checks on MU installation
-    
     Doctor {
         /// Path to check (defaults to current directory)
         #[arg(default_value = ".")]
@@ -420,7 +406,6 @@ enum Commands {
     },
 
     /// Generate shell completion scripts
-    
     Completions {
         /// Shell to generate completions for
         #[arg(value_enum)]
@@ -508,7 +493,8 @@ async fn main() -> anyhow::Result<()> {
             force,
             embed,
             no_embed,
-        } => bootstrap::run(&path, force, embed, no_embed, format).await,
+            strict,
+        } => bootstrap::run(&path, force, embed, no_embed, strict, format).await,
         Commands::Compress {
             path,
             output,
@@ -585,7 +571,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Yolo { path } => vibes::yolo::run(&path, format).await,
         Commands::Sus { path, threshold } => vibes::sus::run(&path, threshold, format).await,
         Commands::Wtf { target } => vibes::wtf::run(target.as_deref(), format).await,
-        Commands::Omg { max_tokens, no_edges } => vibes::omg::run(max_tokens, !no_edges, format).await,
+        Commands::Omg {
+            max_tokens,
+            no_edges,
+        } => vibes::omg::run(max_tokens, !no_edges, format).await,
         Commands::Vibe { path, convention } => {
             vibes::vibe::run(&path, format, convention.as_deref()).await
         }

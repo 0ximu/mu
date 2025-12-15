@@ -223,8 +223,7 @@ pub fn load_from_database(db_path: &Path, source: &str) -> Result<CompressedCode
     let call_counts = count_incoming_calls(&edges);
     let (outgoing_map, incoming_map) = build_relationship_maps(&edges);
 
-    let node_by_id: HashMap<&str, &RawNode> =
-        nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+    let node_by_id: HashMap<&str, &RawNode> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
 
     let modules: Vec<&RawNode> = nodes.iter().filter(|n| n.node_type == "module").collect();
     let classes: Vec<&RawNode> = nodes.iter().filter(|n| n.node_type == "class").collect();
@@ -553,16 +552,63 @@ fn is_infrastructure_class(name: &str, file_path: Option<&str>) -> bool {
     }
 
     let infra_name_patterns = [
-        "test", "spec", "mock", "fake", "stub", "base", "abstract", "context",
-        "dbcontext", "connection", "session", "middleware", "filter", "handler",
-        "interceptor", "extension", "helper", "util", "utils", "config",
-        "configuration", "settings", "options", "validator", "serializer",
-        "mapper", "converter", "factory", "builder", "provider", "dto",
-        "request", "response", "viewmodel", "exception", "error", "migration",
-        "seed", "schema", "startup", "program", "host", "controller",
-        "endpoint", "api", "repository", "service", "event", "publisher",
-        "subscriber", "listener", "mixin", "trait", "protocol", "coordinator",
-        "orchestrator", "manager",
+        "test",
+        "spec",
+        "mock",
+        "fake",
+        "stub",
+        "base",
+        "abstract",
+        "context",
+        "dbcontext",
+        "connection",
+        "session",
+        "middleware",
+        "filter",
+        "handler",
+        "interceptor",
+        "extension",
+        "helper",
+        "util",
+        "utils",
+        "config",
+        "configuration",
+        "settings",
+        "options",
+        "validator",
+        "serializer",
+        "mapper",
+        "converter",
+        "factory",
+        "builder",
+        "provider",
+        "dto",
+        "request",
+        "response",
+        "viewmodel",
+        "exception",
+        "error",
+        "migration",
+        "seed",
+        "schema",
+        "startup",
+        "program",
+        "host",
+        "controller",
+        "endpoint",
+        "api",
+        "repository",
+        "service",
+        "event",
+        "publisher",
+        "subscriber",
+        "listener",
+        "mixin",
+        "trait",
+        "protocol",
+        "coordinator",
+        "orchestrator",
+        "manager",
     ];
 
     for pattern in &infra_name_patterns {
@@ -573,7 +619,11 @@ fn is_infrastructure_class(name: &str, file_path: Option<&str>) -> bool {
 
     if name.starts_with('I')
         && name.len() > 1
-        && name.chars().nth(1).map(|c| c.is_uppercase()).unwrap_or(false)
+        && name
+            .chars()
+            .nth(1)
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false)
     {
         return true;
     }
@@ -592,13 +642,38 @@ fn is_infrastructure_class(name: &str, file_path: Option<&str>) -> bool {
     if let Some(path) = file_path {
         let path_lower = path.to_lowercase();
         let infra_path_patterns = [
-            "/test", "/tests/", "/spec/", "/__tests__/", "_test.",
-            "/migrations/", "/seeds/", "/fixtures/", "/config/",
-            "/configuration/", "/middleware/", "/interceptors/", "/filters/",
-            "/infrastructure/", "/framework/", "/bootstrap/", "/controllers/",
-            "/endpoints/", "/api/", "/services/", "/repositories/",
-            "/contracts/", "/responses/", "/requests/", "/dtos/", "/viewmodels/",
-            "/shared/", "/common/", "/base/", "/events/", "/messaging/", "/pubsub/",
+            "/test",
+            "/tests/",
+            "/spec/",
+            "/__tests__/",
+            "_test.",
+            "/migrations/",
+            "/seeds/",
+            "/fixtures/",
+            "/config/",
+            "/configuration/",
+            "/middleware/",
+            "/interceptors/",
+            "/filters/",
+            "/infrastructure/",
+            "/framework/",
+            "/bootstrap/",
+            "/controllers/",
+            "/endpoints/",
+            "/api/",
+            "/services/",
+            "/repositories/",
+            "/contracts/",
+            "/responses/",
+            "/requests/",
+            "/dtos/",
+            "/viewmodels/",
+            "/shared/",
+            "/common/",
+            "/base/",
+            "/events/",
+            "/messaging/",
+            "/pubsub/",
         ];
         for pattern in &infra_path_patterns {
             if path_lower.contains(pattern) {
@@ -694,13 +769,48 @@ fn score_entity(
     }
 
     let core_domain_names = [
-        "transaction", "payment", "order", "invoice", "customer", "user",
-        "account", "merchant", "product", "subscription", "payout", "refund",
-        "booking", "reservation", "shipment", "delivery", "cart", "checkout",
-        "contract", "agreement", "claim", "policy", "ticket", "case", "ride",
-        "trip", "driver", "vehicle", "passenger", "route", "message",
-        "conversation", "chat", "employee", "company", "organization", "team",
-        "riderequest", "ridebooking", "request", "notification", "rating",
+        "transaction",
+        "payment",
+        "order",
+        "invoice",
+        "customer",
+        "user",
+        "account",
+        "merchant",
+        "product",
+        "subscription",
+        "payout",
+        "refund",
+        "booking",
+        "reservation",
+        "shipment",
+        "delivery",
+        "cart",
+        "checkout",
+        "contract",
+        "agreement",
+        "claim",
+        "policy",
+        "ticket",
+        "case",
+        "ride",
+        "trip",
+        "driver",
+        "vehicle",
+        "passenger",
+        "route",
+        "message",
+        "conversation",
+        "chat",
+        "employee",
+        "company",
+        "organization",
+        "team",
+        "riderequest",
+        "ridebooking",
+        "request",
+        "notification",
+        "rating",
     ];
     if core_domain_names.contains(&name_lower.as_str()) {
         score += 25;
@@ -711,9 +821,21 @@ fn score_entity(
     }
 
     let child_entity_suffixes = [
-        "line", "item", "entry", "detail", "history", "log", "event",
-        "assignment", "membership", "attachment", "note", "comment",
-        "status", "state", "type",
+        "line",
+        "item",
+        "entry",
+        "detail",
+        "history",
+        "log",
+        "event",
+        "assignment",
+        "membership",
+        "attachment",
+        "note",
+        "comment",
+        "status",
+        "state",
+        "type",
     ];
     for suffix in &child_entity_suffixes {
         if name_lower.ends_with(suffix) {
@@ -723,9 +845,24 @@ fn score_entity(
     }
 
     let support_entity_patterns = [
-        "preference", "setting", "config", "token", "session", "cache",
-        "job", "task", "queue", "import", "export", "sync", "audit",
-        "template", "lookup", "reference", "code", "attempt",
+        "preference",
+        "setting",
+        "config",
+        "token",
+        "session",
+        "cache",
+        "job",
+        "task",
+        "queue",
+        "import",
+        "export",
+        "sync",
+        "audit",
+        "template",
+        "lookup",
+        "reference",
+        "code",
+        "attempt",
     ];
     for pattern in &support_entity_patterns {
         if name_lower.contains(pattern) {
@@ -759,7 +896,9 @@ fn score_entity(
         }
     }
 
-    let generic_names = ["item", "data", "record", "object", "entity", "model", "info", "result"];
+    let generic_names = [
+        "item", "data", "record", "object", "entity", "model", "info", "result",
+    ];
     if generic_names.contains(&name_lower.as_str()) {
         score -= 15;
     }
@@ -843,11 +982,21 @@ fn detect_flows(nodes: &[&RawNode]) -> Vec<StateFlow> {
 
 fn detect_integrations(external_deps: &[String]) -> Vec<String> {
     let integration_patterns: &[(&str, &str)] = &[
-        ("stripe", "payments"), ("braintree", "payments"), ("paypal", "payments"),
-        ("sendgrid", "email"), ("mailgun", "email"), ("rabbitmq", "messaging"),
-        ("kafka", "messaging"), ("redis", "cache"), ("elasticsearch", "search"),
-        ("auth0", "auth"), ("cognito", "auth"), ("s3", "storage"),
-        ("datadog", "monitoring"), ("sentry", "monitoring"), ("twilio", "sms"),
+        ("stripe", "payments"),
+        ("braintree", "payments"),
+        ("paypal", "payments"),
+        ("sendgrid", "email"),
+        ("mailgun", "email"),
+        ("rabbitmq", "messaging"),
+        ("kafka", "messaging"),
+        ("redis", "cache"),
+        ("elasticsearch", "search"),
+        ("auth0", "auth"),
+        ("cognito", "auth"),
+        ("s3", "storage"),
+        ("datadog", "monitoring"),
+        ("sentry", "monitoring"),
+        ("twilio", "sms"),
     ];
 
     let mut found: Vec<String> = Vec::new();
@@ -871,11 +1020,20 @@ fn detect_tech_stack(external_deps: &[String]) -> Vec<String> {
     let mut seen: HashSet<String> = HashSet::new();
 
     let stack_patterns: &[(&str, &str)] = &[
-        ("tokio", "Rust/Tokio"), ("actix", "Rust/Actix"), ("axum", "Rust/Axum"),
-        ("django", "Python/Django"), ("flask", "Python/Flask"), ("fastapi", "Python/FastAPI"),
-        ("express", "Node.js/Express"), ("spring", "Java/Spring"), ("aspnet", "C#/ASP.NET"),
-        ("postgres", "PostgreSQL"), ("mysql", "MySQL"), ("mongodb", "MongoDB"),
-        ("redis", "Redis"), ("kafka", "Kafka"),
+        ("tokio", "Rust/Tokio"),
+        ("actix", "Rust/Actix"),
+        ("axum", "Rust/Axum"),
+        ("django", "Python/Django"),
+        ("flask", "Python/Flask"),
+        ("fastapi", "Python/FastAPI"),
+        ("express", "Node.js/Express"),
+        ("spring", "Java/Spring"),
+        ("aspnet", "C#/ASP.NET"),
+        ("postgres", "PostgreSQL"),
+        ("mysql", "MySQL"),
+        ("mongodb", "MongoDB"),
+        ("redis", "Redis"),
+        ("kafka", "Kafka"),
     ];
 
     for dep in external_deps {
@@ -950,9 +1108,17 @@ fn build_domain_overview(
             let name = &node.name;
             let name_lower = name.to_lowercase();
             if name_lower.ends_with("status") {
-                Some(name.trim_end_matches("Status").trim_end_matches("status").to_lowercase())
+                Some(
+                    name.trim_end_matches("Status")
+                        .trim_end_matches("status")
+                        .to_lowercase(),
+                )
             } else if name_lower.ends_with("state") {
-                Some(name.trim_end_matches("State").trim_end_matches("state").to_lowercase())
+                Some(
+                    name.trim_end_matches("State")
+                        .trim_end_matches("state")
+                        .to_lowercase(),
+                )
             } else {
                 None
             }
@@ -1005,12 +1171,12 @@ fn build_domain_overview(
                     rels.iter()
                         .filter(|(_, t)| t != "contains")
                         .filter_map(|(target_id, edge_type)| {
-                            node_by_id.get(target_id.as_str()).map(|target| {
-                                EntityRelationship {
+                            node_by_id
+                                .get(target_id.as_str())
+                                .map(|target| EntityRelationship {
                                     target: target.name.clone(),
                                     rel_type: infer_relationship_type(node, target, edge_type),
-                                }
-                            })
+                                })
                         })
                         .take(5)
                         .collect()
@@ -1023,12 +1189,12 @@ fn build_domain_overview(
                     rels.iter()
                         .filter(|(_, t)| t != "contains")
                         .filter_map(|(source_id, edge_type)| {
-                            node_by_id.get(source_id.as_str()).map(|source| {
-                                EntityRelationship {
+                            node_by_id
+                                .get(source_id.as_str())
+                                .map(|source| EntityRelationship {
                                     target: source.name.clone(),
                                     rel_type: edge_type.clone(),
-                                }
-                            })
+                                })
                         })
                         .take(5)
                         .collect()

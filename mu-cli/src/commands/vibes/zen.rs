@@ -304,10 +304,7 @@ fn print_zen_output(stats: &ZenStats) {
         println!("{}", "[OK] Already clean.".green());
         println!();
         if stats.reset_mode {
-            println!(
-                "{}",
-                "No MU files found. Nothing to reset.".dimmed()
-            );
+            println!("{}", "No MU files found. Nothing to reset.".dimmed());
         } else {
             println!(
                 "{}",
@@ -326,7 +323,10 @@ fn print_zen_output(stats: &ZenStats) {
         println!();
         println!("{}", "Usage:".cyan());
         println!("  {} mu zen              # Clean caches only", "$".dimmed());
-        println!("  {} mu zen --reset      # Full reset (removes database)", "$".dimmed());
+        println!(
+            "  {} mu zen --reset      # Full reset (removes database)",
+            "$".dimmed()
+        );
         println!("  {} mu zen --yes        # Skip confirmation", "$".dimmed());
     } else {
         if stats.reset_mode {
@@ -341,7 +341,11 @@ fn print_zen_output(stats: &ZenStats) {
                 "{} Removed {} {}",
                 "[OK]".green(),
                 stats.cache_entries_removed,
-                if stats.reset_mode { "files" } else { "cached entries" }
+                if stats.reset_mode {
+                    "files"
+                } else {
+                    "cached entries"
+                }
             );
         }
 
@@ -360,7 +364,10 @@ fn print_zen_output(stats: &ZenStats) {
 
         println!();
         if stats.reset_mode {
-            println!("{}", "Full reset complete. Run 'mu bootstrap' to rebuild.".dimmed());
+            println!(
+                "{}",
+                "Full reset complete. Run 'mu bootstrap' to rebuild.".dimmed()
+            );
         } else {
             println!("{}", "Zen achieved.".dimmed());
         }

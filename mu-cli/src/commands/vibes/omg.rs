@@ -41,7 +41,11 @@ impl OmgResult {
 }
 
 /// Run the omg command - OMEGA compressed context with intelligent ranking
-pub async fn run(max_tokens: usize, include_edges: bool, format: OutputFormat) -> anyhow::Result<()> {
+pub async fn run(
+    max_tokens: usize,
+    include_edges: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     // Find mubase
     let cwd = std::env::current_dir()?;
     let mubase_path = match find_mubase_path(&cwd) {
@@ -313,10 +317,7 @@ fn generate_schema_seed(include_edges: bool) -> String {
 }
 
 /// Generate compressed body with nodes grouped by file and edges section
-fn generate_compressed_body(
-    nodes: &[Node],
-    edges: &[(String, String, String)],
-) -> String {
+fn generate_compressed_body(nodes: &[Node], edges: &[(String, String, String)]) -> String {
     let mut output = String::from("(context\n");
 
     // Group nodes by file
@@ -405,7 +406,10 @@ fn generate_compressed_body(
                 // Limit per type
                 let src_name = extract_node_name(source);
                 let tgt_name = extract_node_name(target);
-                output.push_str(&format!("    (-> {} {} {})\n", src_name, tgt_name, edge_type));
+                output.push_str(&format!(
+                    "    (-> {} {} {})\n",
+                    src_name, tgt_name, edge_type
+                ));
             }
         }
 
@@ -491,8 +495,14 @@ fn print_omg_output(result: &OmgResult) {
         println!("  {} S-expression format for dense encoding", "*".dimmed());
         println!();
         println!("{}", "Usage:".cyan());
-        println!("  {} mu omg                    # Default 8000 tokens", "$".dimmed());
-        println!("  {} mu omg -t 4000            # Smaller budget", "$".dimmed());
+        println!(
+            "  {} mu omg                    # Default 8000 tokens",
+            "$".dimmed()
+        );
+        println!(
+            "  {} mu omg -t 4000            # Smaller budget",
+            "$".dimmed()
+        );
         println!("  {} mu omg --no-edges         # Nodes only", "$".dimmed());
     } else {
         // Show schema seed

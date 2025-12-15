@@ -609,10 +609,10 @@ pub fn semantic_diff_files(
     use std::fs;
 
     // Read files
-    let base_source = fs::read_to_string(base_path)
-        .map_err(|e| format!("Failed to read base file: {}", e))?;
-    let head_source = fs::read_to_string(head_path)
-        .map_err(|e| format!("Failed to read head file: {}", e))?;
+    let base_source =
+        fs::read_to_string(base_path).map_err(|e| format!("Failed to read base file: {}", e))?;
+    let head_source =
+        fs::read_to_string(head_path).map_err(|e| format!("Failed to read head file: {}", e))?;
 
     // Use normalized path if requested (default: true for CLI usage)
     let effective_base_path = if normalize_paths {

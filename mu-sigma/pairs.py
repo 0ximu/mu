@@ -10,12 +10,19 @@ import random
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from mu.sigma.models import PairType, QAPair, TrainingPair
 
 if TYPE_CHECKING:
     from mu.kernel import MUbase
+    from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
+
+# Semantic similarity threshold for negative validation
+# Negatives with similarity above this threshold are rejected as potentially too similar
+NEGATIVE_SIMILARITY_THRESHOLD = 0.7
 
 # Weights for different pair types
 PAIR_WEIGHTS = {
@@ -471,12 +478,117 @@ def _extract_same_file_pairs(
     return pairs
 
 
+def _cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
+
+def is_valid_negative(
+    anchor_emb: np.ndarray,
+    negative_emb: np.ndarray,
+    threshold: float = NEGATIVE_SIMILARITY_THRESHOLD,
+) -> bool:
+    """Check if a negative is semantically dissimilar enough from anchor.
+
+    Rejects negatives that are too similar to the anchor, which could
+    introduce noise into training (false negatives).
+
+    Args:
+        anchor_emb: Embedding vector for anchor
+        negative_emb: Embedding vector for candidate negative
+        threshold: Maximum allowed similarity (default 0.7)
+
+    Returns:
+        True if negative is valid (dissimilar enough), False otherwise
+    """
+    sim = _cosine_similarity(anchor_emb, negative_emb)
+    return sim < threshold
+
+
+def validate_negatives_batch(
+    pairs: list[TrainingPair],
+    model: SentenceTransformer,
+    threshold: float = NEGATIVE_SIMILARITY_THRESHOLD,
+    batch_size: int = 64,
+) -> tuple[list[TrainingPair], int]:
+    """Validate negatives in a batch using semantic similarity.
+
+    Filters out pairs where the negative is too similar to the anchor.
+    This is a post-processing step to improve training data quality.
+
+    Args:
+        pairs: List of training pairs to validate
+        model: SentenceTransformer model for computing embeddings
+        threshold: Maximum allowed similarity between anchor and negative
+        batch_size: Batch size for embedding computation
+
+    Returns:
+        Tuple of (valid_pairs, num_rejected)
+    """
+    if not pairs:
+        return [], 0
+
+    # Extract all unique texts for batch encoding
+    all_anchors = [p.anchor for p in pairs]
+    all_negatives = [p.negative for p in pairs]
+
+    # Encode in batches
+    logger.info(f"Validating {len(pairs)} pairs for semantic negative quality...")
+
+    try:
+        anchor_embeddings = model.encode(
+            all_anchors,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        negative_embeddings = model.encode(
+            all_negatives,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to compute embeddings for validation: {e}")
+        return pairs, 0  # Return all pairs if validation fails
+
+    valid_pairs = []
+    rejected = 0
+
+    for i, pair in enumerate(pairs):
+        anchor_emb = anchor_embeddings[i]
+        negative_emb = negative_embeddings[i]
+
+        if is_valid_negative(anchor_emb, negative_emb, threshold):
+            valid_pairs.append(pair)
+        else:
+            rejected += 1
+            logger.debug(
+                f"Rejected negative '{pair.negative}' for anchor '{pair.anchor}' "
+                f"(similarity too high)"
+            )
+
+    if rejected > 0:
+        logger.info(
+            f"Rejected {rejected}/{len(pairs)} pairs with semantically similar negatives "
+            f"({100 * rejected / len(pairs):.1f}%)"
+        )
+
+    return valid_pairs, rejected
+
+
 def _get_hard_negative(
     anchor: str,
     positive: str,
     all_node_names: list[str],
     max_attempts: int = 20,
     node_connections: dict[str, set[str]] | None = None,
+    embeddings_cache: dict[str, np.ndarray] | None = None,
+    similarity_threshold: float = NEGATIVE_SIMILARITY_THRESHOLD,
 ) -> str | None:
     """Get a hard negative from the same codebase.
 
@@ -489,6 +601,8 @@ def _get_hard_negative(
         all_node_names: Pool of candidate negative nodes
         max_attempts: Maximum random sampling attempts
         node_connections: Optional dict mapping node names to their connected nodes
+        embeddings_cache: Optional pre-computed embeddings for semantic validation
+        similarity_threshold: Max similarity for semantic validation (if embeddings provided)
     """
     exclude = {anchor, positive}
 
@@ -496,6 +610,8 @@ def _get_hard_negative(
     if node_connections:
         exclude.update(node_connections.get(anchor, set()))
         exclude.update(node_connections.get(positive, set()))
+
+    anchor_emb = embeddings_cache.get(anchor) if embeddings_cache else None
 
     # Try to find a good negative
     for _ in range(max_attempts):
@@ -505,6 +621,12 @@ def _get_hard_negative(
         # Skip if too similar in name (likely related)
         if _names_too_similar(anchor, negative) or _names_too_similar(positive, negative):
             continue
+        # Semantic similarity check if embeddings available
+        if anchor_emb is not None and embeddings_cache:
+            negative_emb = embeddings_cache.get(negative)
+            if negative_emb is not None:
+                if not is_valid_negative(anchor_emb, negative_emb, similarity_threshold):
+                    continue  # Too similar semantically, try another
         return negative
 
     # Fallback: just find any non-excluded node

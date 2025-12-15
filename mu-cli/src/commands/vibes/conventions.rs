@@ -106,6 +106,11 @@ impl std::str::FromStr for EntityType {
 ///
 /// # Returns
 /// The expected `NamingConvention` for this language/entity pair
+///
+/// # Note
+/// For context-aware convention detection (e.g., React components), use
+/// `convention_for_entity_with_context` instead.
+#[allow(dead_code)]
 pub fn convention_for(language: &str, entity: &str) -> NamingConvention {
     let entity_type = entity.parse::<EntityType>().unwrap_or(EntityType::Variable);
     convention_for_entity(language, entity_type)
@@ -282,6 +287,44 @@ pub fn convention_for_entity(language: &str, entity: EntityType) -> NamingConven
     }
 }
 
+/// Get the expected naming convention with file context.
+///
+/// This function handles special cases like React component files where the
+/// convention differs from standard TypeScript/JavaScript files.
+///
+/// # Arguments
+/// * `language` - Programming language (e.g., "typescript", "javascript")
+/// * `entity` - Entity type (e.g., Module, Function)
+/// * `file_path` - Optional file path for context-aware detection
+///
+/// # Returns
+/// The expected `NamingConvention` for this language/entity/context combination
+pub fn convention_for_entity_with_context(
+    language: &str,
+    entity: EntityType,
+    file_path: Option<&str>,
+) -> NamingConvention {
+    // Detect React component files: .tsx/.jsx with PascalCase filename
+    if let Some(path) = file_path {
+        if (path.ends_with(".tsx") || path.ends_with(".jsx")) && entity == EntityType::Module {
+            // Check if filename starts with uppercase (React component convention)
+            if let Some(filename) = path.split('/').next_back() {
+                // Handle backslash for Windows paths too
+                let filename = filename.split('\\').next_back().unwrap_or(filename);
+                if filename
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
+                    return NamingConvention::PascalCase;
+                }
+            }
+        }
+    }
+    convention_for_entity(language, entity)
+}
+
 /// Check if a name follows the expected convention and return a suggestion if not.
 ///
 /// # Arguments
@@ -383,6 +426,9 @@ pub fn is_pascal_case(s: &str) -> bool {
     // Strip generic type parameters before checking (e.g., "ServiceResult<T>" -> "ServiceResult")
     let base_name = strip_generic_params(s);
 
+    // Strip platform/test suffixes (e.g., "RoutePolyline.native" -> "RoutePolyline")
+    let base_name = strip_platform_suffix(base_name);
+
     // Must start with uppercase letter
     let first_char = base_name.chars().next().unwrap_or(' ');
     if !first_char.is_ascii_uppercase() {
@@ -397,6 +443,31 @@ pub fn is_pascal_case(s: &str) -> bool {
     }
 
     true
+}
+
+/// Strip platform/test suffixes from module names.
+///
+/// React/React Native projects use dotted suffixes for platform-specific
+/// and test files. These should be stripped before checking naming conventions.
+///
+/// Examples:
+/// - `RoutePolyline.native` -> `RoutePolyline`
+/// - `BillboardContent.test` -> `BillboardContent`
+/// - `MatchDetailsScreen.styles` -> `MatchDetailsScreen`
+/// - `App.web` -> `App`
+/// - `NoSuffix` -> `NoSuffix`
+fn strip_platform_suffix(s: &str) -> &str {
+    const PLATFORM_SUFFIXES: &[&str] = &[
+        ".native", ".web", ".ios", ".android", ".macos", ".windows", ".test", ".spec", ".stories",
+        ".styles", ".styled", ".mock",
+    ];
+
+    for suffix in PLATFORM_SUFFIXES {
+        if let Some(base) = s.strip_suffix(suffix) {
+            return base;
+        }
+    }
+    s
 }
 
 /// Strip generic type parameters from a type name.
@@ -481,6 +552,69 @@ pub fn is_screaming_snake_case(s: &str) -> bool {
 /// Check if a string is a Python dunder method (e.g., __init__, __str__).
 pub fn is_dunder(s: &str) -> bool {
     s.len() > 4 && s.starts_with("__") && s.ends_with("__") && !s[2..s.len() - 2].contains("__")
+}
+
+/// Check if a string is in kebab-case (lowercase with hyphens).
+///
+/// Valid kebab-case:
+/// - `user-client`
+/// - `get-user-by-id`
+/// - `simple`
+///
+/// Invalid kebab-case:
+/// - `User-Client` (contains uppercase)
+/// - `user--client` (double hyphen)
+/// - `-user-client` (starts with hyphen)
+/// - `user-client-` (ends with hyphen)
+/// - `user_client` (contains underscore)
+pub fn is_kebab_case(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    // Must not start or end with hyphen
+    if s.starts_with('-') || s.ends_with('-') {
+        return false;
+    }
+
+    // Must not contain double hyphens
+    if s.contains("--") {
+        return false;
+    }
+
+    // All characters must be lowercase letters, digits, or hyphens
+    for c in s.chars() {
+        if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Check if a name should be skipped from naming convention checks.
+///
+/// Returns true for:
+/// - SCREAMING_SNAKE_CASE constants (e.g., `MAX_SIZE`, `API_KEY`)
+/// - Underscore-prefixed private names (e.g., `_private_var`, `_internal`)
+/// - But NOT dunder methods (e.g., `__init__`, `__str__`) which have their own conventions
+///
+/// # Arguments
+/// * `name` - The name to check
+///
+/// # Returns
+/// * `true` if the name should be skipped from convention checks
+/// * `false` if the name should be checked
+pub fn should_skip_naming_check(name: &str) -> bool {
+    // Skip SCREAMING_SNAKE_CASE (constants)
+    if is_screaming_snake_case(name) {
+        return true;
+    }
+    // Skip underscore-prefixed private names (except dunders)
+    if name.starts_with('_') && !is_dunder(name) {
+        return true;
+    }
+    false
 }
 
 /// Check if a method name follows the C# test method naming pattern.
@@ -641,9 +775,21 @@ pub fn to_pascal_case(s: &str) -> String {
     result
 }
 
-/// Convert a string to camelCase.
+/// Check if a string has internal uppercase letters (indicating PascalCase or camelCase).
+fn has_internal_uppercase(s: &str) -> bool {
+    s.chars().skip(1).any(|c| c.is_uppercase())
+}
+
+/// Convert to camelCase, preserving existing case boundaries when possible.
+///
+/// If the input is PascalCase (has internal uppercase, no underscores/hyphens),
+/// just lowercase the first character. Otherwise use standard conversion.
 ///
 /// # Examples
+/// - `AppError` -> `appError` (preserve boundary)
+/// - `NetworkMonitor` -> `networkMonitor` (preserve boundary)
+/// - `user_client` -> `userClient` (standard conversion)
+/// - `USER_CLIENT` -> `userClient` (standard conversion)
 /// - `hello_world` -> `helloWorld`
 /// - `GetUserById` -> `getUserById`
 /// - `HELLO_WORLD` -> `helloWorld`
@@ -652,15 +798,28 @@ pub fn to_camel_case(s: &str) -> String {
         return String::new();
     }
 
-    let pascal = to_pascal_case(s);
-    if pascal.is_empty() {
-        return pascal;
-    }
+    // Check if already has case boundaries (PascalCase-like)
+    let has_separator = s.contains('_') || s.contains('-') || s.contains(' ');
+    let is_all_upper = s.chars().all(|c| !c.is_alphabetic() || c.is_uppercase());
 
-    let mut chars = pascal.chars();
-    match chars.next() {
-        Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
-        None => String::new(),
+    if has_internal_uppercase(s) && !has_separator && !is_all_upper {
+        // Preserve case boundaries, just lowercase first char
+        let mut chars = s.chars();
+        match chars.next() {
+            Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
+            None => String::new(),
+        }
+    } else {
+        // Standard conversion through pascal_case
+        let pascal = to_pascal_case(s);
+        if pascal.is_empty() {
+            return pascal;
+        }
+        let mut chars = pascal.chars();
+        match chars.next() {
+            Some(first) => first.to_ascii_lowercase().to_string() + chars.as_str(),
+            None => String::new(),
+        }
     }
 }
 
@@ -838,10 +997,14 @@ mod tests {
     #[test]
     fn test_to_camel_case() {
         assert_eq!(to_camel_case("hello_world"), "helloWorld");
-        assert_eq!(to_camel_case("GetUserById"), "getuserbyid"); // note: loses case info in current impl
         assert_eq!(to_camel_case("HELLO_WORLD"), "helloWorld");
         assert_eq!(to_camel_case("simple"), "simple");
         assert_eq!(to_camel_case("Simple"), "simple");
+        // New: preserve case boundaries for PascalCase input
+        assert_eq!(to_camel_case("AppError"), "appError");
+        assert_eq!(to_camel_case("NetworkMonitor"), "networkMonitor");
+        assert_eq!(to_camel_case("GetUserById"), "getUserById");
+        assert_eq!(to_camel_case("HTTPServer"), "hTTPServer"); // preserves acronym casing
     }
 
     #[test]
@@ -1074,5 +1237,233 @@ mod tests {
         // Invalid - still catches non-PascalCase base names
         assert!(!is_pascal_case("serviceResult<T>"));
         assert!(!is_pascal_case("service_result<T>"));
+    }
+
+    // ========================================================================
+    // Platform Suffix Tests
+    // ========================================================================
+
+    #[test]
+    fn test_strip_platform_suffix() {
+        // Platform-specific suffixes
+        assert_eq!(
+            strip_platform_suffix("RoutePolyline.native"),
+            "RoutePolyline"
+        );
+        assert_eq!(strip_platform_suffix("MapView.web"), "MapView");
+        assert_eq!(strip_platform_suffix("Camera.ios"), "Camera");
+        assert_eq!(strip_platform_suffix("Bluetooth.android"), "Bluetooth");
+
+        // Test-related suffixes
+        assert_eq!(
+            strip_platform_suffix("BillboardContent.test"),
+            "BillboardContent"
+        );
+        assert_eq!(strip_platform_suffix("UserService.spec"), "UserService");
+        assert_eq!(strip_platform_suffix("Button.stories"), "Button");
+        assert_eq!(strip_platform_suffix("Header.mock"), "Header");
+
+        // Style suffixes
+        assert_eq!(
+            strip_platform_suffix("MatchDetailsScreen.styles"),
+            "MatchDetailsScreen"
+        );
+        assert_eq!(strip_platform_suffix("Card.styled"), "Card");
+
+        // No suffix - returns unchanged
+        assert_eq!(
+            strip_platform_suffix("RegularComponent"),
+            "RegularComponent"
+        );
+        assert_eq!(strip_platform_suffix("App"), "App");
+    }
+
+    #[test]
+    fn test_is_pascal_case_with_platform_suffix() {
+        // Valid PascalCase with platform suffixes
+        assert!(is_pascal_case("RoutePolyline.native"));
+        assert!(is_pascal_case("MapView.web"));
+        assert!(is_pascal_case("BillboardContent.test"));
+        assert!(is_pascal_case("MatchDetailsScreen.styles"));
+        assert!(is_pascal_case("UserService.spec"));
+        assert!(is_pascal_case("Button.stories"));
+
+        // Invalid - base name is not PascalCase
+        assert!(!is_pascal_case("routePolyline.native"));
+        assert!(!is_pascal_case("route_polyline.native"));
+    }
+
+    // ========================================================================
+    // React Component Convention Tests
+    // ========================================================================
+
+    #[test]
+    fn test_react_component_convention() {
+        // PascalCase .tsx files should expect PascalCase for modules (React component files)
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Module,
+                Some("src/ChatRoute.tsx")
+            ),
+            NamingConvention::PascalCase
+        );
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Module,
+                Some("src/components/App.tsx")
+            ),
+            NamingConvention::PascalCase
+        );
+        assert_eq!(
+            convention_for_entity_with_context(
+                "javascript",
+                EntityType::Module,
+                Some("src/components/Button.jsx")
+            ),
+            NamingConvention::PascalCase
+        );
+    }
+
+    #[test]
+    fn test_regular_ts_files_use_camelcase() {
+        // Regular .ts files should still expect camelCase for modules
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Module,
+                Some("src/utils.ts")
+            ),
+            NamingConvention::CamelCase
+        );
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Module,
+                Some("src/helpers/format.ts")
+            ),
+            NamingConvention::CamelCase
+        );
+    }
+
+    #[test]
+    fn test_lowercase_tsx_files_use_camelcase() {
+        // Lowercase .tsx/.jsx files (like index.tsx) should still use camelCase
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Module,
+                Some("src/components/index.tsx")
+            ),
+            NamingConvention::CamelCase
+        );
+        assert_eq!(
+            convention_for_entity_with_context(
+                "javascript",
+                EntityType::Module,
+                Some("src/utils/index.jsx")
+            ),
+            NamingConvention::CamelCase
+        );
+    }
+
+    #[test]
+    fn test_react_file_non_module_entities() {
+        // Non-module entities in React files should follow normal conventions
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Function,
+                Some("src/ChatRoute.tsx")
+            ),
+            NamingConvention::CamelCase
+        );
+        assert_eq!(
+            convention_for_entity_with_context(
+                "typescript",
+                EntityType::Class,
+                Some("src/ChatRoute.tsx")
+            ),
+            NamingConvention::PascalCase
+        );
+    }
+
+    #[test]
+    fn test_context_aware_without_path() {
+        // Without file path, should fall back to normal behavior
+        assert_eq!(
+            convention_for_entity_with_context("typescript", EntityType::Module, None),
+            NamingConvention::CamelCase
+        );
+    }
+
+    // ========================================================================
+    // Kebab Case Tests
+    // ========================================================================
+
+    #[test]
+    fn test_is_kebab_case() {
+        // Valid kebab-case
+        assert!(is_kebab_case("user-client"));
+        assert!(is_kebab_case("get-user-by-id"));
+        assert!(is_kebab_case("simple"));
+        assert!(is_kebab_case("with-123-numbers"));
+        assert!(is_kebab_case("a"));
+        assert!(is_kebab_case("my-component"));
+
+        // Invalid kebab-case
+        assert!(!is_kebab_case("User-Client")); // contains uppercase
+        assert!(!is_kebab_case("user--client")); // double hyphen
+        assert!(!is_kebab_case("-user-client")); // starts with hyphen
+        assert!(!is_kebab_case("user-client-")); // ends with hyphen
+        assert!(!is_kebab_case("user_client")); // contains underscore
+        assert!(!is_kebab_case("userClient")); // camelCase, has uppercase
+        assert!(!is_kebab_case("UserClient")); // PascalCase
+        assert!(!is_kebab_case("")); // empty string
+        assert!(!is_kebab_case("HELLO-WORLD")); // all uppercase
+    }
+
+    // ========================================================================
+    // Should Skip Naming Check Tests
+    // ========================================================================
+
+    #[test]
+    fn test_should_skip_naming_check_constants() {
+        // SCREAMING_SNAKE_CASE constants should be skipped
+        assert!(should_skip_naming_check("MAX_SIZE"));
+        assert!(should_skip_naming_check("API_KEY"));
+        assert!(should_skip_naming_check("DEFAULT_TIMEOUT"));
+        assert!(should_skip_naming_check("SIMPLE"));
+        assert!(should_skip_naming_check("WITH_123_NUMBERS"));
+    }
+
+    #[test]
+    fn test_should_skip_naming_check_private_names() {
+        // Underscore-prefixed private names should be skipped
+        assert!(should_skip_naming_check("_private"));
+        assert!(should_skip_naming_check("_private_var"));
+        assert!(should_skip_naming_check("_internal"));
+        assert!(should_skip_naming_check("__private")); // double underscore prefix (not dunder)
+        assert!(should_skip_naming_check("_")); // single underscore
+    }
+
+    #[test]
+    fn test_should_skip_naming_check_dunders_not_skipped() {
+        // Dunder methods should NOT be skipped (they have their own conventions)
+        assert!(!should_skip_naming_check("__init__"));
+        assert!(!should_skip_naming_check("__str__"));
+        assert!(!should_skip_naming_check("__getitem__"));
+        assert!(!should_skip_naming_check("__enter__"));
+    }
+
+    #[test]
+    fn test_should_skip_naming_check_regular_names() {
+        // Regular names should NOT be skipped
+        assert!(!should_skip_naming_check("getUserById"));
+        assert!(!should_skip_naming_check("hello_world"));
+        assert!(!should_skip_naming_check("HelloWorld"));
+        assert!(!should_skip_naming_check("simple"));
+        assert!(!should_skip_naming_check("user-client"));
     }
 }

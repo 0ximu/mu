@@ -94,11 +94,7 @@ impl CsvOutput {
             if let serde_json::Value::Object(obj) = item {
                 let row: Vec<String> = headers
                     .iter()
-                    .map(|h| {
-                        obj.get(h)
-                            .map(Self::value_to_csv)
-                            .unwrap_or_default()
-                    })
+                    .map(|h| obj.get(h).map(Self::value_to_csv).unwrap_or_default())
                     .collect();
                 output.push_str(&row.join(","));
                 output.push('\n');

@@ -25,6 +25,7 @@ models/
 docs/prd/
 docs/epics/
 docs/internal/
+docs/brainstorms/
 
 # Python (legacy, for mu-sigma training only)
 __pycache__/

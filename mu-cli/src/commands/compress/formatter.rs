@@ -95,8 +95,11 @@ impl CompressedCodebase {
 
                 // Incoming relationships (just names)
                 if !entity.incoming_rels.is_empty() {
-                    let rels: Vec<String> =
-                        entity.incoming_rels.iter().map(|r| r.target.clone()).collect();
+                    let rels: Vec<String> = entity
+                        .incoming_rels
+                        .iter()
+                        .map(|r| r.target.clone())
+                        .collect();
                     out.push_str(&format!("  ← {}\n", rels.join(", ")));
                 }
             }
@@ -112,7 +115,10 @@ impl CompressedCodebase {
 
         // Integrations
         if !domain.integrations.is_empty() {
-            out.push_str(&format!("\n@external [{}]\n", domain.integrations.join(", ")));
+            out.push_str(&format!(
+                "\n@external [{}]\n",
+                domain.integrations.join(", ")
+            ));
         }
 
         // Tech stack
@@ -171,12 +177,7 @@ impl CompressedCodebase {
         out
     }
 
-    fn format_class(
-        &self,
-        class: &CompressedClass,
-        depth: usize,
-        detail: DetailLevel,
-    ) -> String {
+    fn format_class(&self, class: &CompressedClass, depth: usize, detail: DetailLevel) -> String {
         let mut out = String::new();
         let indent = "  ".repeat(depth);
 
@@ -191,18 +192,10 @@ impl CompressedCodebase {
         // Relationships (medium+)
         if detail >= DetailLevel::Medium {
             if !class.uses.is_empty() {
-                out.push_str(&format!(
-                    "{}  → {}\n",
-                    indent,
-                    class.uses.join(", ")
-                ));
+                out.push_str(&format!("{}  → {}\n", indent, class.uses.join(", ")));
             }
             if !class.used_by.is_empty() {
-                out.push_str(&format!(
-                    "{}  ← {}\n",
-                    indent,
-                    class.used_by.join(", ")
-                ));
+                out.push_str(&format!("{}  ← {}\n", indent, class.used_by.join(", ")));
             }
         }
 

@@ -161,7 +161,6 @@ fn format_file_size(bytes: u64) -> String {
     }
 }
 
-
 /// Check for MCP configuration
 fn check_mcp_config(root: &Path) -> Option<String> {
     // Check for .claude.json

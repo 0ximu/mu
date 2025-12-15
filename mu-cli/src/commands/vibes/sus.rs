@@ -206,7 +206,11 @@ fn print_scan_output(scan: &ScanResult) {
     if scan.suspicious_count == 0 {
         println!(
             "{}",
-            format!("Scanned {} files. All clear, nothing sus!", scan.total_scanned).green()
+            format!(
+                "Scanned {} files. All clear, nothing sus!",
+                scan.total_scanned
+            )
+            .green()
         );
         println!();
         return;
@@ -232,10 +236,7 @@ fn print_scan_output(scan: &ScanResult) {
             colored::Color::Green
         };
 
-        let file_display = result
-            .file_path
-            .as_deref()
-            .unwrap_or(&result.target);
+        let file_display = result.file_path.as_deref().unwrap_or(&result.target);
 
         println!(
             "{} {}",
@@ -252,11 +253,7 @@ fn print_scan_output(scan: &ScanResult) {
                 WarningLevel::Warn => "! ".yellow(),
                 WarningLevel::Info => "i ".cyan(),
             };
-            println!(
-                "       {} {}",
-                icon,
-                warning.message.dimmed()
-            );
+            println!("       {} {}", icon, warning.message.dimmed());
         }
         println!();
     }
@@ -500,13 +497,30 @@ fn analyze_risk(conn: &Connection, node_id: &str, threshold: u8) -> Result<SusRe
         .any(|kw| node_name.contains(kw) || file_path_str.to_lowercase().contains(kw));
 
     if is_security_sensitive {
-        warnings.push(SusWarning {
-            level: WarningLevel::Error,
-            category: "security sensitive".to_string(),
-            message: "This code handles authentication, secrets, or cryptography".to_string(),
-            suggestion: Some("Extra caution required. Security review recommended.".to_string()),
-        });
-        risk_score += 3;
+        // Check if this security-sensitive code has tests
+        let has_security_tests = check_for_tests(conn, node_id, file_path_str)?;
+
+        if has_security_tests {
+            // Expected security code with tests - just note it exists
+            warnings.push(SusWarning {
+                level: WarningLevel::Info,
+                category: "security".to_string(),
+                message: "Security-sensitive code (auth/crypto) with test coverage".to_string(),
+                suggestion: None,
+            });
+            risk_score += 1; // Lower score when tested
+        } else {
+            // Security code WITHOUT tests - this is concerning
+            warnings.push(SusWarning {
+                level: WarningLevel::Error,
+                category: "security sensitive".to_string(),
+                message: "Security-sensitive code WITHOUT test coverage".to_string(),
+                suggestion: Some(
+                    "Critical: Add security tests before modifying this code.".to_string(),
+                ),
+            });
+            risk_score += 4; // Higher score when untested
+        }
     }
 
     // Check 4: No tests detected

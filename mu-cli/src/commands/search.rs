@@ -33,7 +33,6 @@ pub struct SearchResults {
     pub duration_ms: u64,
 }
 
-
 impl TableDisplay for SearchResults {
     fn to_table(&self) -> String {
         let mut output = String::new();
