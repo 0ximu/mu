@@ -166,6 +166,39 @@ fn load_nodes(conn: &Connection, node_filter: Option<&str>) -> Result<Vec<GraphN
     Ok(nodes)
 }
 
+/// Load nodes by their IDs
+fn load_nodes_by_ids(conn: &Connection, ids: &[String]) -> Result<Vec<GraphNode>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let id_list: Vec<String> = ids
+        .iter()
+        .map(|id| format!("'{}'", id.replace('\'', "''")))
+        .collect();
+
+    let sql = format!(
+        "SELECT id, name, type, file_path, complexity FROM nodes WHERE id IN ({})",
+        id_list.join(",")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let mut rows = stmt.query([])?;
+    let mut nodes = Vec::new();
+
+    while let Some(row) = rows.next()? {
+        nodes.push(GraphNode {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            node_type: row.get(2)?,
+            file_path: row.get(3)?,
+            complexity: row.get(4)?,
+        });
+    }
+
+    Ok(nodes)
+}
+
 /// Load edges from the database
 fn load_edges(conn: &Connection, node_ids: Option<&[String]>) -> Result<Vec<GraphEdge>> {
     let sql = if let Some(ids) = node_ids {
@@ -308,11 +341,13 @@ fn export_mermaid_format(nodes: &[GraphNode], edges: &[GraphEdge]) -> String {
     output.push_str("    %% Nodes\n");
     for node in nodes {
         if let Some(clean_id) = id_map.get(node.id.as_str()) {
+            // Escape special characters in node names for Mermaid
+            let safe_name = node.name.replace('"', "'");
             let shape = match node.node_type.as_str() {
-                "module" => format!("{}[[\"{}\n📦 module\"]]", clean_id, node.name),
-                "class" => format!("{}[/\"{}\n📦 class\"/]", clean_id, node.name),
-                "function" => format!("{}(\"{}\n⚙️ function\")", clean_id, node.name),
-                _ => format!("{}[\"{}\"]", clean_id, node.name),
+                "module" => format!("{}[[\"{}  📦 module\"]]", clean_id, safe_name),
+                "class" => format!("{}[/\"{}  📦 class\"/]", clean_id, safe_name),
+                "function" => format!("{}(\"{}  ⚙️ fn\")", clean_id, safe_name),
+                _ => format!("{}[\"{}\"]", clean_id, safe_name),
             };
             output.push_str(&format!("    {}\n", shape));
         }
@@ -514,21 +549,67 @@ async fn run_direct(
     )
     .with_context(|| format!("Failed to open database: {:?}", db_path))?;
 
-    // Load nodes
-    let mut nodes = load_nodes(&conn, node_filter)?;
+    // Load nodes and edges
+    let (mut nodes, edges) = if let Some(_filter) = node_filter {
+        // When filtering by node, we need to include connected nodes for edges to render
+        let filtered_nodes = load_nodes(&conn, node_filter)?;
 
-    // Apply limit if specified
-    if let Some(max_nodes) = limit {
-        nodes.truncate(max_nodes);
-    }
+        if filtered_nodes.is_empty() {
+            (filtered_nodes, Vec::new())
+        } else {
+            // Get IDs of filtered nodes
+            let filtered_ids: Vec<String> = filtered_nodes.iter().map(|n| n.id.clone()).collect();
 
-    // Load edges (filtered if we have a node filter)
-    let node_ids: Option<Vec<String>> = if node_filter.is_some() {
-        Some(nodes.iter().map(|n| n.id.clone()).collect())
+            // Load edges involving filtered nodes
+            let edges = load_edges(&conn, Some(&filtered_ids))?;
+
+            // Find neighbor node IDs from edges (nodes not in our filtered set)
+            let existing_ids: std::collections::HashSet<&str> =
+                filtered_ids.iter().map(|s| s.as_str()).collect();
+
+            let neighbor_ids: Vec<String> = edges
+                .iter()
+                .flat_map(|e| vec![e.source.clone(), e.target.clone()])
+                .filter(|id| !existing_ids.contains(id.as_str()))
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
+            // Load neighbor nodes
+            let neighbor_nodes = load_nodes_by_ids(&conn, &neighbor_ids)?;
+
+            // Combine: filtered nodes first, then neighbors
+            let mut all_nodes = filtered_nodes;
+            all_nodes.extend(neighbor_nodes);
+
+            (all_nodes, edges)
+        }
     } else {
-        None
+        // No filter - load all nodes, then apply limit before loading edges
+        let mut nodes = load_nodes(&conn, None)?;
+
+        // Apply limit if specified (before loading edges for efficiency)
+        if let Some(max_nodes) = limit {
+            nodes.truncate(max_nodes);
+        }
+
+        // Load edges for the (potentially limited) node set
+        let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+        let edges = if limit.is_some() {
+            load_edges(&conn, Some(&node_ids))?
+        } else {
+            load_edges(&conn, None)?
+        };
+
+        (nodes, edges)
     };
-    let edges = load_edges(&conn, node_ids.as_deref())?;
+
+    // Apply limit after including neighbors (for filtered case)
+    if node_filter.is_some() {
+        if let Some(max_nodes) = limit {
+            nodes.truncate(max_nodes);
+        }
+    }
 
     // Generate export content
     let content = match exp_format {
