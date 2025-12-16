@@ -13,6 +13,7 @@ pub mod export;
 pub mod graph;
 pub mod grok;
 pub mod history;
+pub mod mcp;
 pub mod patterns;
 pub mod query;
 pub mod read;

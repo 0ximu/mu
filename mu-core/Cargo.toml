@@ -35,12 +35,7 @@ tree-sitter-rust = "0.23"
 tree-sitter-c-sharp = "0.23"
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.10"       # Temporary directories for testing
-
-[[bench]]
-name = "parsing"
-harness = false
 
 [profile.release]
 lto = true
