@@ -1,0 +1,1375 @@
+# MU v2.0 - Compressed Codebase
+# source: /Users/imu/Dev/work/mu
+# 105 modules, 228 classes, 919 functions, 2526 edges
+
+
+## Domain Overview
+@ Mu
+
+### Core Entities
+$ Outputter  [★★★]
+$ AsTable  [★★]
+$ DaemonPidInfo  [★★]
+$ TableDisplay  [★★]
+
+
+  ## benches/
+    ! benches/bench_rust_vs_python.py
+      $ TestSecretDetection
+        # test_rust_redact_secrets()  c=3
+        # test_rust_find_secrets()  c=2
+      $ TestComplexity
+        # test_rust_complexity()  c=2
+      $ TestParsingMultipleFiles
+        # test_python_parse_100_files()  c=5
+        # test_rust_parse_100_files()  c=5
+      $ TestParsingSingleFile
+        # test_rust_parse_small()  c=2
+        # test_python_parse_large()  c=3
+        # test_rust_parse_medium()  c=2
+        # test_rust_parse_large()  c=2
+        # test_python_parse_medium()  c=2
+        # test_python_parse_small()  c=3
+        # test_rust_parse_typescript()  c=2
+      # multiple_files()  c=3
+      # python_temp_file()  c=2
+      # quick_comparison()  c=14
+    ! benches/__init__.py
+
+  ## mu-cli/
+
+    ### mu-cli/src/
+      ! mu-cli/src/tsconfig.rs
+        $ CompilerOptions
+        $ TsConfig
+        $ PathAliasResolver
+          # resolve_file()  c=8 calls=1
+          # resolve_target()  c=4 calls=1
+          # resolve_extends()  c=5
+          # from_project()  c=3
+          # from_config_file()  c=9
+          # resolve()  c=5 calls=3
+          # match_pattern()  c=4 calls=1
+        # strip_json_comments()  c=19 calls=2
+      ! mu-cli/src/cache.rs
+        $ Default
+          # default()  c=1
+        $ CacheStats
+          # hit_rate()  c=2
+        $ ParseCache
+          # prune()  c=2
+          # load()  c=9
+          # new()  c=1
+          # get()  c=2
+          # save()  c=2
+          # insert()  c=1
+          # cache_path()  c=4
+          # len()  c=1 calls=3
+          # is_empty()  c=1
+        $ CacheEntry
+      ! mu-cli/src/main.rs
+        $ Cli
+        $ Commands
+        # main()  c=35 ★★
+        # parse_threshold()  c=2
+        # setup_logging()  c=3 calls=1
+        # print_verbose_version()  c=1 calls=1
+      ! mu-cli/src/config.rs
+        $ OutputSettings
+        $ Default
+          # default()  c=1
+        $ ParserConfig
+        $ MuSection
+        $ CacheConfig
+        $ ConfigError
+        $ ScannerConfig
+        $ MuConfig
+          # load_strict()  c=3
+          # cache_directory()  c=1
+          # languages()  c=1
+          # use_color()  c=1
+          # max_file_size_bytes()  c=1
+          # ignore_patterns()  c=3
+          # default_format()  c=1
+          # load()  c=8
+          # cache_enabled()  c=1
+        # suggest_config_fix()  c=6 calls=1
+        # default_cache_enabled()  c=1
+
+      #### mu-cli/src/commands/
+        ! mu-cli/src/commands/status.rs
+          $ GraphStats
+          $ TableDisplay
+            # to_table()  c=7
+            # to_mu()  c=4
+          $ StatusInfo
+          # run()  c=5
+          # find_mubase_path()  c=3 calls=1
+          # get_stats()  c=5 calls=1
+        ! mu-cli/src/commands/search.rs
+          $ SearchResults
+          $ TableDisplay
+            # to_mu()  c=8
+            # to_table()  c=8
+          $ SearchResult
+          # run_semantic_search()  c=1 calls=1
+          # run_keyword_search()  c=1 calls=1
+          # run_direct()  c=5 calls=1
+          # run()  c=2
+          # find_mubase_path()  c=4 calls=1
+        ! mu-cli/src/commands/doctor.rs
+          $ TableDisplay
+            # to_table()  c=4
+            # to_mu()  c=8
+          $ DoctorResult
+          $ CheckItem
+            # warning()  c=1
+            # error()  c=1
+            # ok()  c=1
+          $ CheckStatus
+            # colored_icon()  c=5
+          # parse_major_version()  c=1 calls=1
+          # run()  c=24 ★
+          # compare_versions()  c=7 calls=1
+          # get_schema_version()  c=1 calls=1
+          # find_mubase_path()  c=3 calls=1
+          # get_node_count()  c=1 calls=1
+          # format_file_size()  c=4
+          # get_edge_count()  c=1 calls=1
+          # check_mcp_config()  c=5 calls=1
+          # get_embeddings_stats()  c=2 calls=1
+        ! mu-cli/src/commands/grok.rs
+          $ GrokResult
+          $ TableDisplay
+            # to_mu()  c=18
+            # to_table()  c=16
+          $ SearchMethod
+          $ GrokContext
+          # extract_keywords()  c=2 calls=1
+          # extract_source_code()  c=7 calls=1
+          # get_node_dependencies()  c=1 calls=2
+          # run_semantic_search()  c=1 calls=1
+          # run_keyword_search()  c=2 calls=1
+          # run()  c=16
+          # find_project_root()  c=4 calls=1
+          # get_related_nodes()  c=9 calls=1
+          # find_mubase_path()  c=4 calls=1
+        ! mu-cli/src/commands/bootstrap.rs
+          $ BootstrapResult
+          $ TableDisplay
+            # to_table()  c=11
+            # to_mu()  c=1
+          # update_gitignore()  c=6 calls=1
+          # run_embeddings_only()  c=17 calls=1
+          # build_csharp_namespace_map()  c=6 calls=1
+          # resolve_import()  c=8 calls=1
+          # should_embed()  c=5 calls=1
+          # ensure_config()  c=3 calls=1
+          # get_default_config()  c=1 calls=1
+          # run()  c=76 ★★
+          # resolve_call_site()  c=25 calls=1 ★
+          # resolve_python_import()  c=8 calls=1
+          # is_typescript_style_import()  c=2 calls=1
+          # resolve_typescript_import()  c=13 calls=1
+          # resolve_csharp_import()  c=19 calls=1
+        ! mu-cli/src/commands/query.rs
+          $ TableDisplay
+            # to_mu()  c=3
+            # to_table()  c=4
+          $ QueryResult
+          $ TerseParseResult
+          # to_csv()  c=1
+          # run()  c=3
+          # rewrite_virtual_tables()  c=4 calls=1
+          # run_extended()  c=8
+          # find_mubase()  c=7 calls=1
+          # print_result()  c=7 calls=2
+          # try_convert_terse_to_sql()  c=43 calls=1 ★★
+          # format_csv()  c=7 calls=1
+          # normalize_type_in_sql()  c=1 calls=1
+          # execute_query_direct()  c=22 calls=2 ★
+        ! mu-cli/src/commands/read.rs
+          $ TableDisplay
+            # to_table()  c=7
+            # to_mu()  c=2
+          $ NodeInfo
+          $ Clone
+            # clone()  c=1
+          $ SourceCode
+          # format_with_line_numbers()  c=3 calls=1
+          # resolve_node()  c=16 calls=1
+          # highlight_code()  c=4 calls=1
+          # run()  c=5
+          # find_mubase()  c=7 calls=1
+          # get_mubase_root()  c=2 calls=1
+          # read_source_file()  c=3 calls=1
+        ! mu-cli/src/commands/export.rs
+          $ TableDisplay
+            # to_mu()  c=1
+            # to_table()  c=2
+          $ ExportResult
+          $ GraphEdge
+          $ GraphNode
+          $ ExportFormat
+            # as_str()  c=7
+            # from_str()  c=8
+          # export_json_format()  c=1 calls=1
+          # load_nodes()  c=3 calls=1
+          # load_edges()  c=3 calls=1
+          # run_direct()  c=11 calls=1
+          # export_mermaid_format()  c=16 calls=1
+          # find_mubase()  c=7 calls=1
+          # export_mu_format()  c=11 calls=1
+          # export_cytoscape_format()  c=1 calls=1
+          # export_d2_format()  c=17 calls=1
+          # run()  c=1
+        ! mu-cli/src/commands/graph.rs
+          $ ImpactResult
+          $ Cycle
+          $ AffectedNode
+          $ CycleResult
+          $ TableDisplay
+            # to_mu()  c=3
+            # to_table()  c=13
+          $ NodeInfo
+          $ CycleNode
+          $ GraphData
+            # traverse_bfs()  c=12 calls=2
+            # ancestors()  c=1
+            # edge_count()  c=1
+            # shortest_path_undirected()  c=7 calls=1
+            # get_info()  c=1
+            # from_db()  c=4
+            # impact()  c=1
+            # has_node()  c=1
+            # shortest_path()  c=5
+            # find_cycles()  c=5
+            # shortest_path_directed()  c=9 calls=1
+            # node_count()  c=1
+          $ PathResult
+          $ PathNode
+          # find_mubase()  c=7 calls=1
+          # run_cycles_direct()  c=1 calls=1
+          # run_ancestors_direct()  c=2 calls=1
+          # run_path()  c=1
+          # run_cycles()  c=1
+          # open_db()  c=1 calls=4
+          # run_impact()  c=1
+          # run_ancestors()  c=1
+          # run_impact_direct()  c=2 calls=1
+          # resolve_node_id()  c=12 calls=3
+        ! mu-cli/src/commands/mod.rs
+        ! mu-cli/src/commands/completions.rs
+          $ CompletionInstructions
+          $ TableDisplay
+            # to_table()  c=2
+            # to_mu()  c=2
+          $ Shell
+            # fmt()  c=7
+          # run()  c=2
+          # get_instructions()  c=7 calls=1
+          # generate_completions_with_cmd()  c=7
+        ! mu-cli/src/commands/deps.rs
+          $ DependencyNode
+          $ DependencyInfo
+          $ TableDisplay
+            # to_mu()  c=3
+            # to_table()  c=11
+          # find_mubase()  c=7 calls=1
+          # find_parent_module()  c=6 calls=1
+          # run_direct()  c=2 calls=1
+          # resolve_node_id()  c=12 calls=1
+          # find_dependencies()  c=10 calls=1
+          # run()  c=2
+          # get_node_info()  c=2 calls=1
+        ! mu-cli/src/commands/embed.rs
+          $ EmbedStatusResult
+          $ TableDisplay
+            # to_table()  c=7
+            # to_mu()  c=1
+          $ EmbedResult
+          # compute_all_hashes()  c=3 calls=2
+          # compute_file_hash()  c=1 calls=1
+          # run_incremental()  c=30 ★
+          # run_status()  c=4
+        ! mu-cli/src/commands/diff.rs
+          $ DiffResult
+          $ SemanticChange
+          $ TableDisplay
+            # to_table()  c=28 ★
+            # to_mu()  c=10
+          # extract_entities()  c=5 calls=1
+          # get_file_at_ref()  c=2 calls=1
+          # run()  c=9
+          # detect_language()  c=10 calls=3
+          # diff_entities()  c=6 calls=1
+          # get_changed_files()  c=2 calls=1
+        ! mu-cli/src/commands/history.rs
+          $ NodeHistory
+          $ TableDisplay
+            # to_table()  c=11
+            # to_mu()  c=8
+          $ NodeInfo
+          $ HistoryCommit
+          # get_git_history()  c=11 calls=1
+          # resolve_node()  c=15 calls=1
+          # run()  c=1
+          # find_mubase()  c=7 calls=1
+        ! mu-cli/src/commands/patterns.rs
+          $ PatternAnalysis
+          $ DetectedPattern
+          $ PatternCategory
+            # as_str()  c=10
+            # all()  c=1 calls=3
+            # from_str()  c=11
+          $ TableDisplay
+            # to_mu()  c=3
+            # to_table()  c=7
+          # run()  c=1
+          # detect_logging_patterns()  c=3 calls=1
+          # get_examples()  c=2 calls=7 ★
+          # detect_import_patterns()  c=5 calls=1
+          # detect_architecture_patterns()  c=8 calls=1
+          # detect_naming_patterns()  c=9 calls=1
+          # make_confidence_bar()  c=1 calls=1
+          # detect_testing_patterns()  c=5 calls=1
+          # find_mubase()  c=7 calls=1
+          # run_direct()  c=14 calls=1
+          # detect_error_handling_patterns()  c=3 calls=1
+          # detect_api_patterns()  c=5 calls=1
+          # detect_async_patterns()  c=3 calls=1
+
+        #### mu-cli/src/commands/compress/
+          ! mu-cli/src/commands/compress/models.rs
+            $ RelationshipCluster
+            $ DetailLevel
+              # from_str()  c=6
+            $ EntityRelationship
+            $ Relationship
+            $ DomainEntity
+            $ HotPath
+            $ CodebaseStats
+            $ CompressedFunction
+            $ FolderNode
+              # new()  c=1
+            $ CompressedModule
+            $ CompressedCodebase
+            $ CompressResult
+            $ CompressedClass
+            $ StateFlow
+            $ DomainOverview
+          ! mu-cli/src/commands/compress/loader.rs
+            $ RawNode
+            $ RawEdge
+            # build_folder_tree()  c=5 calls=2
+            # detect_tech_stack()  c=5 calls=1
+            # detect_flows()  c=9 calls=1
+            # detect_integrations()  c=5 calls=1
+            # build_domain_overview()  c=4 calls=1
+            # load_from_database()  c=25 ★
+            # load_nodes()  c=2 calls=1
+            # load_from_source()  c=8
+            # build_relationship_clusters()  c=3 calls=1
+            # extract_attributes()  c=4 calls=2
+            # is_likely_entity_path()  c=6 calls=1
+            # infer_relationship_type()  c=8 calls=1
+            # score_entity()  c=24 calls=1 ★
+            # find_mubase()  c=7
+            # extract_signature()  c=6 calls=1
+            # load_edges()  c=2 calls=1
+            # is_infrastructure_class()  c=15 calls=2
+            # importance_to_stars()  c=2 calls=1
+            # infer_domain_name()  c=14 calls=1
+            # extract_bases()  c=4 calls=1
+            # extract_docstring()  c=3 calls=1
+            # count_foreign_keys()  c=5 calls=1
+            # build_relationship_maps()  c=2 calls=3
+            # count_incoming_calls()  c=3 calls=1
+            # format_signature()  c=3 calls=1
+            # has_foreign_key_to()  c=9 calls=1
+          ! mu-cli/src/commands/compress/mod.rs
+            # run()  c=4
+          ! mu-cli/src/commands/compress/formatter.rs
+            $ CompressedCodebase
+              # format_domain_overview()  c=12 calls=1
+              # format_tree()  c=5 calls=2
+              # format_hot_paths()  c=3 calls=1
+              # format_header()  c=2 calls=1
+              # format_function()  c=9 calls=2
+              # format_relationship_clusters()  c=4 calls=1
+              # to_mu_format()  c=7
+              # format_class()  c=6 calls=1
+              # format_module()  c=3 calls=1
+            $ TableDisplay
+              # to_table()  c=1
+              # to_mu()  c=1
+
+        #### mu-cli/src/commands/vibes/
+          ! mu-cli/src/commands/vibes/wtf.rs
+            $ WtfResult
+            $ CommitInfo
+            # parse_commit_line()  c=2 calls=1
+            # analyze_file()  c=1 calls=1
+            # get_origin_commit()  c=4 calls=1
+            # print_wtf_output()  c=15 calls=1
+            # resolve_node_to_file()  c=9 calls=1
+            # get_contributors()  c=1 calls=2
+            # find_mubase()  c=7 calls=1
+            # generate_evolution_summary()  c=17 calls=2
+            # extract_reason()  c=1 calls=2
+            # analyze_repository()  c=1 calls=1
+            # get_cochanged_files()  c=7 calls=1
+            # get_primary_author()  c=2 calls=2
+            # get_file_commits()  c=2 calls=1
+            # run()  c=12
+            # print_not_a_repo()  c=1 calls=1
+            # get_all_commits()  c=2 calls=1
+            # is_git_repo()  c=1 calls=1
+            # extract_references()  c=8 calls=2
+          ! mu-cli/src/commands/vibes/omg.rs
+            $ RawOmegaData
+            $ OmgResult
+              # has_content()  c=1
+            # run()  c=10
+            # print_omg_output()  c=3 calls=1
+            # generate_compressed_body()  c=22 calls=1 ★
+            # compute_edge_counts()  c=2 calls=1
+            # simplify_path()  c=1 calls=1
+            # estimate_tokens()  c=1 calls=1
+            # extract_node_name()  c=6 calls=1
+            # generate_schema_seed()  c=2 calls=1
+            # select_top_nodes()  c=1 calls=1
+            # find_mubase_path()  c=4 calls=1
+            # generate_omega_context()  c=3 calls=1
+            # select_edges()  c=6 calls=1
+            # score_node()  c=7 calls=1
+          ! mu-cli/src/commands/vibes/vibe.rs
+            $ VibeResult
+              # is_immaculate()  c=1
+            $ NodeData
+            $ VibeIssue
+            # capitalize_first()  c=4
+            # check_naming_conventions()  c=43 calls=1 ★★
+            # check_async_patterns()  c=5
+            # check_api_patterns()  c=5 calls=1
+            # load_nodes_from_path()  c=3 calls=1
+            # check_circular_imports()  c=3 calls=1
+            # check_test_coverage()  c=6 calls=1
+            # run()  c=10
+            # count_unique_files()  c=3 calls=1
+            # print_vibe_output()  c=6 calls=1
+            # infer_test_path()  c=13 calls=1
+            # find_mubase()  c=7 calls=1
+            # is_test_file()  c=10 calls=1
+            # is_build_artifact()  c=2 calls=1
+            # get_file_from_node_id()  c=3 calls=1
+            # check_imports()  c=4 calls=1
+            # path_filter_clause()  c=2 calls=5
+          ! mu-cli/src/commands/vibes/sus.rs
+            $ WarningLevel
+            $ ScanResult
+            $ SusResult
+              # is_sus()  c=1
+            $ NodeInfo
+            $ SusWarning
+            # check_for_tests()  c=7 calls=1
+            # get_node_info()  c=2 calls=1
+            # find_mubase()  c=7 calls=1
+            # count_dependents()  c=2 calls=1
+            # resolve_node_id()  c=14 calls=1
+            # run()  c=21 ★
+            # print_scan_output()  c=10 calls=1
+            # scan_all_nodes()  c=4 calls=1
+            # print_sus_output()  c=11 calls=1
+            # analyze_risk()  c=15 calls=2
+          ! mu-cli/src/commands/vibes/conventions.rs
+            $ NamingConvention
+              # fmt()  c=6
+              # from_str()  c=7
+            $ EntityType
+              # from_str()  c=14
+            # is_csharp_test_method()  c=9 calls=1
+            # convention_for_entity()  c=89 calls=2 ★★
+            # to_snake_case()  c=12 calls=2
+            # strip_generic_params()  c=4 calls=1
+            # has_internal_uppercase()  c=1 calls=1
+            # is_pascal_case()  c=5 calls=2
+            # should_skip_naming_check()  c=4 calls=1
+            # convention_for_entity_with_context()  c=7 calls=1
+            # is_screaming_snake_case()  c=8 calls=2
+            # convention_for()  c=1
+            # is_snake_case()  c=10 calls=1
+            # is_camel_case()  c=5 calls=1
+            # check_convention()  c=12 calls=1
+            # to_screaming_snake_case()  c=1 calls=1
+            # to_pascal_case()  c=7 calls=2
+            # is_kebab_case()  c=9 calls=1
+            # to_camel_case()  c=15 calls=1
+            # strip_platform_suffix()  c=3 calls=1
+            # is_dunder()  c=4 calls=4
+            # detect_language()  c=33 ★★
+          ! mu-cli/src/commands/vibes/zen.rs
+            $ ZenStats
+              # is_already_clean()  c=2
+              # bytes_freed_mb()  c=1
+            # run()  c=22 ★
+            # calculate_size()  c=5 calls=2
+            # delete_path()  c=2 calls=1
+            # find_cache_targets()  c=6 calls=1
+            # count_files()  c=5 calls=2
+            # find_reset_targets()  c=5 calls=1
+            # print_zen_output()  c=9 calls=1
+          ! mu-cli/src/commands/vibes/yolo.rs
+            $ ImpactedNode
+            $ RiskLevel
+              # message()  c=6
+              # color()  c=6
+              # from_count()  c=6
+            $ YoloResult
+            # find_impacted_nodes()  c=5 calls=1
+            # find_mubase()  c=7 calls=1
+            # run()  c=11
+            # resolve_target()  c=11 calls=1
+            # print_yolo_output()  c=6 calls=1
+          ! mu-cli/src/commands/vibes/mod.rs
+
+      #### mu-cli/src/output/
+        ! mu-cli/src/output/json.rs
+          $ JsonOutput
+            # format()  c=2
+            # format_envelope()  c=1
+            # format_lines()  c=1
+            # format_array()  c=1
+        ! mu-cli/src/output/mu.rs
+          $ Sigil
+            # char()  c=13 calls=1
+            # format()  c=14
+          $ MuOutput
+            # infer_sigil()  c=24 ★
+            # format_object()  c=8
+            # format()  c=2
+            # function()  c=4
+            # type_def()  c=4
+            # section()  c=2
+            # format_value()  c=12
+            # format_simple_value()  c=13
+            # module()  c=2
+        ! mu-cli/src/output/table.rs
+          $ AsTable
+            # columns()
+          $ TableOutput
+            # format()  c=2
+            # format_with_columns()  c=13
+            # format_value()  c=3
+            # value_to_string()  c=8
+            # format_key_value()  c=4
+            # from_rows()  c=5
+        ! mu-cli/src/output/tree.rs
+          $ TreeNode
+            # with_children()  c=1
+            # add_child()  c=1
+            # with_suffix()  c=1
+            # new()  c=1
+          $ TreeOutput
+            # from_nodes()  c=2
+            # format_nodes()  c=13
+            # format_value()  c=13
+            # format_array()  c=9
+            # format_object()  c=9
+            # format()  c=2
+          $ TreeChars
+            # get()  c=1
+          $ NodeKind
+        ! mu-cli/src/output/csv.rs
+          $ CsvOutput
+            # format_object_value()  c=1
+            # escape_value()  c=5
+            # format()  c=6
+            # format_array_value()  c=5
+            # format_with_columns()  c=4
+            # value_to_csv()  c=8
+        ! mu-cli/src/output/mod.rs
+          $ ErrorMessage
+            # new()  c=1
+            # with_details()  c=1
+          $ NotImplemented
+            # new()  c=1
+          $ Column
+            # with_max_width()  c=1
+            # new()  c=1
+            # with_alignment()  c=1
+          $ Alignment
+          $ SuccessMessage
+            # new()  c=1
+          $ OutputConfig
+            # effective_width()  c=1
+            # compact()  c=1
+            # use_colors()  c=1
+            # with_width()  c=1
+            # without_colors()  c=1
+            # should_truncate()  c=1
+            # auto_detect()  c=1
+            # without_truncation()  c=1
+            # new()  c=1
+            # auto_detect_with_color_override()  c=1
+          $ Default
+            # default()  c=1
+          $ FromStr
+            # from_str()  c=8
+          $ OutputFormat
+          $ TableDisplay
+            # to_mu()  c=1
+            # to_table()  c=1 calls=1
+          $ Outputter
+            # output()  c=1
+            # to_table()  c=1 calls=3
+            # to_json()  c=1 calls=1
+            # render()  c=7
+            # to_tree()  c=1 calls=1
+            # to_csv()  c=1 calls=1
+            # to_mu()  c=1 calls=1
+          $ Output
+            # with_config()  c=1
+            # render()  c=1
+            # render_to_string()  c=1
+            # new()  c=1
+          # is_tty()  c=1
+          # terminal_width()  c=1
+          # truncate()  c=3 calls=1
+          # not_implemented()  c=1
+
+    ### mu-cli/tests/
+      ! mu-cli/tests/integration_tests.rs
+        # test_status_uninitialized()  c=1
+        # test_status_after_bootstrap()  c=1
+        # test_parallel_execution_isolation()  c=2
+        # test_query_schema_no_daemon()  c=1
+        # test_version_flag()  c=1
+        # test_bootstrap_force_rebuilds_database()  c=1
+        # test_quiet_flag()  c=1
+        # test_bootstrap_updates_gitignore()  c=1
+        # run_mu()  c=1 calls=28 ★★
+        # test_verbose_flag()  c=1
+        # test_bootstrap_creates_murc_toml()  c=1
+        # test_status_json_has_required_fields()  c=2
+        # test_query_alias_works()  c=1
+        # mu_binary()  c=1 calls=1
+        # test_file_instead_of_directory()  c=1
+        # stderr()  c=1
+        # test_bootstrap_empty_directory()  c=1
+        # test_status_json_format_uninitialized()  c=1
+        # test_bootstrap_without_force_shows_info()  c=1
+        # test_query_examples_no_daemon()  c=1
+        # test_status_alias_st()  c=1
+        # test_status_json_format_after_bootstrap()  c=2
+        # create_sample_python_file()  c=1 calls=2
+        # test_help_flag()  c=1
+        # setup_sample_project()  c=1 calls=14 ★★
+        # test_format_table_produces_readable_output()  c=1
+        # test_format_mu_produces_sigil_output()  c=1
+        # test_bootstrap_creates_mubase()  c=1
+        # test_bootstrap_json_format()  c=1
+        # test_bootstrap_json_has_required_fields()  c=2
+        # test_format_json_produces_valid_json()  c=1
+        # test_bootstrap_alias_bs()  c=1
+        # stdout()  c=1 calls=18 ★★
+        # test_nonexistent_path()  c=1
+
+  ## mu-core/
+
+    ### mu-core/benches/
+      ! mu-core/benches/parsing.rs
+        # bench_parse_multiple_files()  c=1
+        # bench_parse_python()  c=1
+
+    ### mu-core/python/
+
+      #### mu-core/python/mu/
+        ! mu-core/python/mu/__init__.py
+        ! mu-core/python/mu/_core.pyi
+          $ ImportDef
+          $ ModuleDef
+            # to_dict()  c=1
+          $ ClassDef
+          $ FileInfo
+          $ ParameterDef
+          $ ParseResult
+          $ SecretMatch
+          $ FunctionDef
+          # parse_file()  c=1
+          # redact_secrets()  c=1
+          # find_secrets()  c=1
+          # export_json()  c=1
+          # parse_files()  c=1
+          # export_mu()  c=1
+          # export_markdown()  c=1
+          # calculate_complexity()  c=1
+
+    ### mu-core/src/
+      ! mu-core/src/types.rs
+        $ FileInfo
+          # new()  c=1
+        $ RedactedSecret
+          # new()  c=1
+        $ ExportConfig
+          # new()  c=1
+        $ FunctionDef
+          # new()  c=1
+        $ ModuleDef
+          # new()  c=1
+        $ ParameterDef
+          # new()  c=1
+        $ ParseResult
+          # ok()  c=1
+          # err()  c=1
+          # new()  c=1
+        $ ClassDef
+          # new()  c=1
+        $ SecretMatch
+          # new()  c=1
+        $ CallSiteDef
+          # new()  c=1
+        $ ImportDef
+          # new()  c=1
+      ! mu-core/src/scanner.rs
+        $ ScannedFile
+          # new()  c=1
+        $ ScanResult
+          # len()  c=1
+          # is_empty()  c=1
+        $ ScanOptions
+          # follow_symlinks()  c=1
+          # with_max_file_size()  c=1
+          # count_lines()  c=1
+          # with_extensions()  c=1
+          # with_languages()  c=1
+          # new()  c=1
+          # with_ignore_patterns()  c=1
+          # include_hidden()  c=1
+          # compute_hashes()  c=1
+        # scan_directory_sync()  c=1 calls=1
+        # scan_with_options()  c=23 calls=1 ★
+        # compute_file_hash()  c=1 calls=1
+        # detect_language()  c=24 calls=1 ★
+        # is_supported_language()  c=1 calls=1
+        # scan_directory()  c=1 calls=1
+        # count_lines()  c=1 calls=1
+      ! mu-core/src/graph.rs
+        $ GraphEngine
+          # ancestors()  c=1
+          # traverse_bfs()  c=10 calls=2
+          # neighbors()  c=20
+          # new()  c=4
+          # edge_count()  c=1
+          # edge_types()  c=1
+          # find_cycles()  c=5
+          # impact()  c=1
+          # has_node()  c=1
+          # shortest_path()  c=9
+          # node_count()  c=1
+      ! mu-core/src/lib.rs
+        # export_mu()  c=1
+        # version()  c=1
+        # export_json()  c=2
+        # find_secrets()  c=1
+        # parse_files()  c=1
+        # calculate_complexity()  c=1
+        # export_markdown()  c=1
+        # redact_secrets()  c=1
+        # parse_file()  c=1
+      ! mu-core/src/incremental.rs
+        $ IncrementalParseResult
+        $ IncrementalParser
+          # get_file_path()  c=1
+          # apply_edit()  c=9
+          # get_language()  c=1
+          # byte_count()  c=1
+          # get_module()  c=1
+          # new()  c=1
+          # line_count()  c=1
+          # reset()  c=1
+          # has_errors()  c=1
+          # get_source()  c=1
+          # byte_to_position()  c=2
+          # has_tree()  c=1
+          # position_to_byte()  c=7
+        # byte_offset_to_point()  c=1 calls=2
+        # normalize_language()  c=10 calls=2
+        # get_tree_sitter_language()  c=10 calls=1
+
+      #### mu-core/src/differ/
+        ! mu-core/src/differ/comparator.rs
+          # generate_signature()  c=4 calls=3
+          # diff_single_module()  c=10 calls=1
+          # diff_classes()  c=9 calls=1
+          # semantic_diff_files()  c=2
+          # diff_functions()  c=15 calls=2
+          # semantic_diff()  c=1
+          # semantic_diff_modules()  c=8 calls=2
+          # diff_parameters()  c=17 calls=1
+        ! mu-core/src/differ/changes.rs
+          $ DiffSummary
+            # record()  c=39 ★★
+            # new()  c=1
+            # text()  c=26 ★
+          $ EntityChange
+            # full_name()  c=4
+            # with_signatures()  c=1
+            # create()  c=1
+            # new()  c=1
+            # with_parent()  c=1
+            # with_details()  c=1
+            # mark_breaking()  c=1
+          $ EntityType
+            # as_str()  c=10
+          $ ChangeType
+            # as_str()  c=6
+          $ SemanticDiffResult
+            # add_change()  c=2
+            # finalize()  c=1
+            # filter_entity_type()  c=1
+            # is_breaking()  c=1
+            # new()  c=1
+            # is_changed()  c=1
+            # change_count()  c=1
+            # has_breaking_changes()  c=1
+            # has_changes()  c=1
+            # filter_by_path()  c=1
+        ! mu-core/src/differ/mod.rs
+
+      #### mu-core/src/exporter/
+        ! mu-core/src/exporter/mod.rs
+        ! mu-core/src/exporter/mu_format.rs
+          # export_class()  c=8 calls=1
+          # export()  c=1
+          # export_all()  c=2
+          # export_module()  c=10 calls=2
+          # export_function()  c=17 calls=2
+          # truncate_docstring()  c=2
+        ! mu-core/src/exporter/json.rs
+          # export()  c=2
+        ! mu-core/src/exporter/markdown.rs
+          # export_module()  c=10 calls=2
+          # export_all()  c=2
+          # export_function()  c=5 calls=1
+          # export_class()  c=8 calls=1
+          # export()  c=1
+
+      #### mu-core/src/parser/
+        ! mu-core/src/parser/mod.rs
+          # parse_source()  c=13 calls=1
+          # parse_files_parallel()  c=7 calls=1
+          # supported_languages()  c=1
+        ! mu-core/src/parser/typescript.rs
+          # extract_interface_body()  c=16 calls=1
+          # extract_method()  c=13 calls=1
+          # extract_heritage()  c=7 calls=1
+          # extract_class_body()  c=7 calls=1
+          # find_dynamic_imports_recursive()  c=4 calls=2
+          # find_call_sites_recursive()  c=4 calls=2
+          # extract_parameters()  c=14 calls=4
+          # extract_import()  c=7 calls=1
+          # extract_dynamic_imports()  c=1 calls=1
+          # extract_call_site()  c=6 calls=1
+          # extract_interface()  c=10 calls=2
+          # extract_variable_functions()  c=6 calls=2
+          # extract_import_clause()  c=11 calls=1
+          # extract_class()  c=8 calls=2
+          # extract_call_sites()  c=1 calls=3
+          # check_dynamic_import()  c=14 calls=1
+          # extract_export()  c=8 calls=1
+          # extract_function()  c=12 calls=2
+          # parse()  c=13
+          # extract_arrow_function()  c=9 calls=1
+        ! mu-core/src/parser/go.rs
+          # extract_call_site()  c=9 calls=1
+          # extract_package_name()  c=4 calls=1
+          # extract_call_sites()  c=1 calls=2
+          # find_call_sites_recursive()  c=4 calls=2
+          # extract_type_spec()  c=10 calls=1
+          # extract_struct_fields()  c=8 calls=1
+          # extract_interface_methods()  c=17 calls=1
+          # extract_imports()  c=11 calls=1
+          # extract_type_declarations()  c=4 calls=1
+          # extract_function()  c=12 calls=1
+          # extract_method()  c=11 calls=1
+          # extract_parameters()  c=20 calls=3
+          # extract_receiver_type()  c=7 calls=1
+          # parse()  c=8
+          # extract_import_spec()  c=7 calls=1
+        ! mu-core/src/parser/python.rs
+          $ Decorated
+          # extract_typed_parameter()  c=6 calls=1
+          # check_dynamic_import_call()  c=4 calls=1
+          # extract_typed_default_parameter()  c=8 calls=1
+          # extract_class()  c=10 calls=2
+          # find_call_sites_recursive()  c=4 calls=2
+          # extract_call_sites()  c=1 calls=1
+          # extract_string()  c=10 calls=5
+          # extract_class_body()  c=12 calls=1
+          # extract_parameters()  c=10 calls=1
+          # extract_decorated()  c=9 calls=2
+          # extract_from_import()  c=14 calls=1
+          # parse()  c=16
+          # extract_dynamic_imports()  c=1 calls=1
+          # extract_builtin_import_call()  c=4 calls=1
+          # extract_function()  c=20 calls=3
+          # find_dynamic_imports_recursive()  c=4 calls=2
+          # extract_importlib_call()  c=8 calls=1
+          # extract_import()  c=9 calls=1
+          # extract_call_site()  c=7 calls=1
+          # extract_default_parameter()  c=6 calls=1
+        ! mu-core/src/parser/csharp.rs
+          # find_call_sites_recursive()  c=8 calls=2
+          # process_node()  c=15 calls=2
+          # extract_class_body()  c=10 calls=1
+          # extract_record()  c=1 calls=1
+          # extract_class()  c=9 calls=3
+          # extract_struct()  c=1 calls=1
+          # extract_invocation_call_site()  c=15 calls=1
+          # extract_property()  c=12 calls=2
+          # extract_fields()  c=6 calls=1
+          # extract_constructor()  c=7 calls=1
+          # extract_base_list()  c=5 calls=2
+          # extract_using()  c=12 calls=1
+          # extract_namespace_name()  c=5 calls=1
+          # extract_parameters()  c=11 calls=2
+          # extract_interface()  c=11 calls=1
+          # extract_enum()  c=10 calls=1
+          # extract_object_creation_call_site()  c=1 calls=1
+          # extract_method()  c=13 calls=2
+          # parse()  c=1
+          # extract_call_sites()  c=1 calls=2
+          # extract_modifiers()  c=9 calls=6 ★
+        ! mu-core/src/parser/rust_lang.rs
+          # extract_use_list()  c=8 calls=1
+          # extract_use()  c=25 calls=1 ★
+          # extract_trait()  c=11 calls=1
+          # extract_parameters()  c=15 calls=1
+          # extract_trait_methods()  c=4 calls=1
+          # find_call_sites_recursive()  c=8 calls=2
+          # extract_struct_fields()  c=4 calls=1
+          # extract_call_site()  c=16 calls=1
+          # extract_impl_methods()  c=4 calls=1
+          # extract_impl()  c=9 calls=1
+          # parse()  c=17
+          # extract_function()  c=18 calls=3
+          # extract_struct()  c=8 calls=1
+          # extract_macro_invocation()  c=2 calls=1
+          # extract_call_sites()  c=1 calls=1
+          # extract_enum()  c=11 calls=1
+        ! mu-core/src/parser/java.rs
+          # extract_interfaces()  c=6 calls=2
+          # extract_modifiers()  c=11 calls=5
+          # extract_interface_body()  c=3 calls=1
+          # parse()  c=9
+          # extract_parameters()  c=13 calls=2
+          # extract_object_creation()  c=8 calls=1
+          # extract_method_invocation()  c=12 calls=1
+          # extract_import()  c=10 calls=1
+          # extract_interface()  c=8 calls=1
+          # extract_fields()  c=4 calls=1
+          # extract_constructor()  c=7 calls=1
+          # extract_call_sites()  c=1 calls=2
+          # extract_package_name()  c=5 calls=1
+          # find_call_sites_recursive()  c=8 calls=2
+          # extract_class_body()  c=9 calls=1
+          # extract_method()  c=12 calls=2
+          # extract_class()  c=15 calls=1
+          # extract_enum()  c=10 calls=1
+        ! mu-core/src/parser/helpers.rs
+          # count_nodes()  c=2 calls=1
+          # find_children_by_type()  c=3
+          # get_child_by_field()  c=1
+          # collect_type_strings_from_methods()  c=4 calls=9 ★
+          # get_builtins_for_language()  c=9 calls=1
+          # get_end_line()  c=1 calls=27 ★★
+          # get_node_text()  c=4 calls=80 ★★
+          # find_child_by_type()  c=3 calls=33 ★★
+          # extract_docstring()  c=2
+          # count_lines()  c=1 calls=6 ★
+          # get_start_line()  c=1 calls=38 ★★
+          # has_child_of_type()  c=1
+          # extract_referenced_types()  c=6 calls=9 ★
+
+      #### mu-core/src/reducer/
+        ! mu-core/src/reducer/rules.rs
+          $ TransformationRules
+            # new()  c=1
+            # filter_parameter()  c=1
+            # should_strip_import()  c=2
+            # should_strip_method()  c=2
+        ! mu-core/src/reducer/mod.rs
+        ! mu-core/src/reducer/complexity.rs
+          # calculate_for_node()  c=9
+          # calculate()  c=3
+
+      #### mu-core/src/security/
+        ! mu-core/src/security/mod.rs
+        ! mu-core/src/security/patterns.rs
+          $ SecretPattern
+          # find_secrets()  c=3 calls=1
+        ! mu-core/src/security/redact.rs
+          # position_to_line_col_full()  c=5 calls=1
+          # redact()  c=1
+          # position_to_line_col()  c=4
+          # redact_secrets()  c=2 calls=1
+
+  ## mu-daemon/
+
+    ### mu-daemon/python/
+      ! mu-daemon/python/lifecycle.py
+        $ DaemonLifecycle
+          # status()  c=15
+          # start_background()  c=4
+          # read_pid_info()  c=6 calls=1
+          # _start_rust_daemon()  c=7 calls=1
+          # stop()  c=7
+          # _cleanup_stale_pid()  c=3 calls=3
+          # _write_pid_info()  c=2 calls=2
+          # __init__()  c=3
+          # is_running()  c=6 calls=3
+          # _cleanup_pid()  c=3 calls=1
+          # start_foreground()  c=5
+        $ DaemonPidInfo
+        # find_rust_daemon_binary()  c=4 calls=2
+      ! mu-daemon/python/__init__.py
+      ! mu-daemon/python/config.py
+        $ DaemonConfig
+
+    ### mu-daemon/src/
+      ! mu-daemon/src/lib.rs
+      ! mu-daemon/src/embeddings.rs
+        $ EmbeddingModel
+          # embed() calls=2
+          # embed_async()  c=1
+          # dimension()
+          # is_ready()  c=1
+          # model_name()
+          # embed_batch()  c=1
+        $ EmbeddingError
+
+      #### mu-daemon/src/storage/
+        ! mu-daemon/src/storage/nodes.rs
+          $ Node
+            # with_properties()  c=1
+            # external()  c=1
+            # module()  c=1
+            # function()  c=7
+            # class()  c=1
+        ! mu-daemon/src/storage/mubase.rs
+          $ AccessMode
+          $ QueryResult
+            # as_dicts()  c=1
+            # row_count()  c=1
+          $ MUbase
+            # delete_nodes_for_file()  c=1
+            # insert_node()  c=1
+            # query_with_params()  c=8 calls=1
+            # set_file_hashes_batch()  c=2
+            # stats()  c=2
+            # open_read_only()  c=1
+            # all_nodes()  c=2
+            # open()  c=1
+            # insert_nodes()  c=3
+            # clear()  c=1
+            # open_with_mode()  c=5
+            # get_nodes_by_type()  c=2
+            # insert_edge()  c=1
+            # get_stale_files()  c=5
+            # init_schema()  c=2
+            # has_embeddings()  c=1
+            # embedding_stats()  c=2
+            # cleanup_stale_file_hashes()  c=3
+            # acquire_conn()  c=4 calls=21 ★★
+            # vector_search()  c=7
+            # insert_embeddings_batch()  c=2
+            # clear_embeddings()  c=1
+            # query()  c=1
+            # get_node()  c=2
+            # load_graph()  c=3
+            # cleanup_orphaned_embeddings()  c=1
+            # get_all_file_hashes()  c=2 calls=2
+            # insert_edges()  c=5
+          $ GraphStats
+        ! mu-daemon/src/storage/edges.rs
+          $ Edge
+            # imports()  c=1
+            # inherits()  c=1
+            # calls()  c=1
+            # new()  c=1
+            # with_properties()  c=1
+            # uses()  c=1
+            # contains()  c=1
+        ! mu-daemon/src/storage/mod.rs
+        ! mu-daemon/src/storage/embeddings.rs
+          $ VectorSearchResult
+          $ EmbeddingStats
+          # cosine_similarity()  c=5 calls=1
+        ! mu-daemon/src/storage/schema.rs
+          $ EdgeType
+            # as_str()  c=7
+            # parse()  c=8
+            # fmt()  c=1
+          $ NodeType
+            # fmt()  c=1
+            # parse()  c=7
+            # as_str()  c=6
+        ! mu-daemon/src/storage/graph_engine.rs
+          $ Default
+            # default()  c=1
+          $ GraphEngine
+            # get_edges()  c=1
+            # edge_count()  c=1
+            # new()  c=1
+            # node_count()  c=1
+            # from_data()  c=2
+            # get_nodes()  c=1
+            # has_node()  c=1
+
+    ### mu-daemon/tests/
+      ! mu-daemon/tests/concurrent_access.rs
+        # test_access_mode_enum()  c=1
+        # test_graph_load_during_writes()  c=8
+        # test_daemon_write_cli_read_concurrent()  c=12
+        # test_query_during_indexing()  c=9
+        # test_stats_during_writes()  c=8
+        # test_concurrent_readers()  c=5
+        # test_read_only_prevents_writes()  c=1
+
+  ## mu-embeddings/
+
+    ### mu-embeddings/src/
+      ! mu-embeddings/src/model.rs
+        $ MuSigmaModel
+          # load()  c=4
+          # load_weights()  c=2
+          # from_embedded()  c=1
+          # device()  c=1
+          # embedded()  c=1
+          # with_pooling()  c=1
+          # embed_one()  c=1
+          # pool_embeddings()  c=5 calls=1
+          # config()  c=1
+          # tensor_to_vecs()  c=2 calls=1
+          # load_weights_from_bytes()  c=1
+          # encodings_to_tensors()  c=2 calls=1
+          # embed()  c=2 calls=1
+          # embedding_dim()  c=1
+          # get_device()  c=3
+        $ ModelConfig
+          # from_file()  c=1
+          # to_bert_config()  c=1
+        $ PoolingStrategy
+        $ Default
+          # default()  c=1
+        # default_hidden_act()  c=1 calls=1
+        # default_type_vocab_size()  c=1 calls=1
+        # default_layer_norm_eps()  c=1 calls=1
+        # default_dropout()  c=1 calls=1
+      ! mu-embeddings/src/tokenizer.rs
+        $ MuTokenizer
+          # max_length()  c=1
+          # with_max_length()  c=1
+          # from_json()  c=1
+          # encode()  c=2 calls=1
+          # vocab_size()  c=1
+          # from_file()  c=2
+          # encode_batch()  c=4
+        $ EncodedInput
+      ! mu-embeddings/src/lib.rs
+      ! mu-embeddings/src/error.rs
+        $ EmbeddingError
+        $ From
+          # from()  c=1
+
+  ## tools/
+
+    ### tools/vscode-mu/
+
+      #### tools/vscode-mu/src/
+        ! tools/vscode-mu/src/extension.ts
+          $ MuHoverProvider
+            # provideHover()  c=5
+          # checkDaemonAndConnect()  c=3 calls=2
+          # openVisualization()  c=1
+          # runMuCompress()  c=4 calls=3
+          # compressCommand()  c=3
+          # runMuCommand()  c=4 calls=3
+          # updateStatusBar()  c=4 calls=2
+          # activate()  c=1
+          # diffCommand()  c=6
+          # previewCommand()  c=3
+          # compressFileCommand()  c=2
+          # deactivate()  c=3
+          # startDaemon()  c=5 calls=1
+          # compressWorkspaceCommand()  c=3
+
+        #### tools/vscode-mu/src/client/
+          ! tools/vscode-mu/src/client/types.ts
+            $ Node
+            $ WebSocketMessage
+            $ QueryResult
+            $ Edge
+            $ GraphEvent
+            $ ContextResult
+            $ ExportOptions
+            $ NeighborsResponse
+            $ ContractViolation
+            $ ContractsResult
+            $ StatusResponse
+          ! tools/vscode-mu/src/client/MUClient.ts
+            $ MUClient
+              # query()  c=5 calls=2
+              # onGraphUpdate()  c=2
+              # constructor()  c=2
+              # findPath()  c=8 calls=1
+              # getContext()  c=2 calls=1
+              # getStatus()  c=1
+              # verifyContracts()  c=1
+              # isValidNodeId()  c=1 calls=1
+              # connectWebSocket()  c=1
+              # request()  c=9 calls=4
+              # setConnectionState()  c=2 calls=2
+              # disconnect()  c=1 calls=1
+              # getConnectionState()  c=1
+              # getBaseUrl()  c=1 calls=1
+              # getNode()  c=1
+              # getNeighbors()  c=1
+              # dispose()  c=1
+              # isValidFilePath()  c=3 calls=1
+              # getNodesForFile()  c=5
+              # sanitizeForQuery()  c=1 calls=2
+          ! tools/vscode-mu/src/client/index.ts
+
+        #### tools/vscode-mu/src/commands/
+          ! tools/vscode-mu/src/commands/navigate.ts
+            # getNodeAtCursor()  c=11 calls=2
+            # showDependencies()  c=7 calls=1
+            # navigateToNode()  c=5 calls=1
+            # showDependents()  c=7 calls=1
+            # showNodePicker()  c=14 calls=2
+            # getNodeIcon()  c=5 calls=1
+          ! tools/vscode-mu/src/commands/context.ts
+            # getContext()  c=11
+            # getContextForSelection()  c=14 calls=1
+          ! tools/vscode-mu/src/commands/index.ts
+          ! tools/vscode-mu/src/commands/query.ts
+            # sanitizeForQuery()  c=1 calls=1
+            # isValidNodeInput()  c=1 calls=1
+            # findPath()  c=21 ★
+            # disposeQueryChannel()  c=1 calls=1
+            # getOutputChannel()  c=2 calls=2
+            # runQuery()  c=21 calls=1 ★
+
+        #### tools/vscode-mu/src/providers/
+          ! tools/vscode-mu/src/providers/ExplorerProvider.ts
+            $ ExplorerProvider
+              # getChildNodes()  c=4 calls=1
+              # getHotspotsQuery()  c=1 calls=1
+              # getChildren()  c=4
+              # getRootNodes()  c=4 calls=1
+              # constructor()  c=1
+              # nodesToItems()  c=4 calls=2
+              # refresh()  c=1
+              # isContainedType()  c=2 calls=1
+              # getTreeItem()  c=1
+              # getQueryForViewType()  c=5 calls=1
+            $ NodeItem
+              # constructor()  c=3
+              # getIcon()  c=5 calls=1
+              # buildTooltip()  c=6 calls=1
+              # buildDescription()  c=5 calls=1
+          ! tools/vscode-mu/src/providers/CodeLensProvider.ts
+            $ FileCache
+            $ CodeLensProvider
+              # resolveCodeLens()  c=5
+              # constructor()  c=1
+              # refresh()  c=1
+              # provideCodeLenses()  c=11
+          ! tools/vscode-mu/src/providers/DiagnosticsProvider.ts
+            $ DiagnosticsProvider
+              # constructor()  c=1
+              # violationToDiagnostic()  c=3 calls=1
+              # refresh()  c=11 calls=1
+              # dispose()  c=2
+              # clear()  c=1
+          ! tools/vscode-mu/src/providers/index.ts
+          ! tools/vscode-mu/src/providers/DecorationProvider.ts
+            $ FileCache
+            $ DecorationProvider
+              # updateDecorations()  c=15 calls=2
+              # refresh()  c=2
+              # dispose()  c=2
+              # constructor()  c=7
+              # clearDecorations()  c=1 calls=1
+
+        #### tools/vscode-mu/src/test/
+          ! tools/vscode-mu/src/test/runTest.ts
+            # main()  c=2
+
+          #### tools/vscode-mu/src/test/suite/
+            ! tools/vscode-mu/src/test/suite/index.ts
+              # run()  c=3
+            ! tools/vscode-mu/src/test/suite/commands.test.ts
+              $ MockQueryResult
+              $ MockContextResult
+              $ MockNode
+              # createMockClient()  c=1
+            ! tools/vscode-mu/src/test/suite/client.test.ts
+              $ MockStatusResponse
+              $ MockContractsResult
+              $ MockQueryResult
+              $ MockNeighborsResponse
+              $ MockNode
+              $ MockContextResult
+              # createMockRequest()  c=1
+              # createMockResponse()  c=1
+            ! tools/vscode-mu/src/test/suite/providers.test.ts
+              $ MockNode
+              $ MockQueryResult
+              $ MockContractsResult
+              # createMockClient()  c=1
+
+## Hot Paths (complexity > 20 or calls > 5)
+  # mu-core/src/parser/helpers.rs:get_node_text  c=4  calls=80
+    | mu-core/src/parser/helpers.rs
+  # mu-cli/src/commands/vibes/conventions.rs:convention_for_entity  c=89  calls=2
+    | mu-cli/src/commands/vibes/conventions.rs
+  # mu-core/src/parser/helpers.rs:get_start_line  c=1  calls=38
+    | mu-core/src/parser/helpers.rs
+  # mu-cli/src/commands/bootstrap.rs:run  c=76
+    | mu-cli/src/commands/bootstrap.rs
+  # mu-core/src/parser/helpers.rs:find_child_by_type  c=3  calls=33
+    | mu-core/src/parser/helpers.rs
+  # mu-cli/tests/integration_tests.rs:run_mu  c=1  calls=28
+    | mu-cli/tests/integration_tests.rs
+  # mu-core/src/parser/helpers.rs:get_end_line  c=1  calls=27
+    | mu-core/src/parser/helpers.rs
+  # mu-daemon/src/storage/mubase.rs:MUbase.acquire_conn  c=4  calls=21
+    | mu-daemon/src/storage/mubase.rs
+  # mu-cli/src/commands/vibes/vibe.rs:check_naming_conventions  c=43  calls=1
+    | mu-cli/src/commands/vibes/vibe.rs
+  # mu-cli/src/commands/query.rs:try_convert_terse_to_sql  c=43  calls=1
+    | mu-cli/src/commands/query.rs
+  # mu-core/src/differ/changes.rs:DiffSummary.record  c=39
+    | mu-core/src/differ/changes.rs
+  # mu-cli/tests/integration_tests.rs:stdout  c=1  calls=18
+    | mu-cli/tests/integration_tests.rs
+  # mu-cli/src/main.rs:main  c=35
+    | mu-cli/src/main.rs
+  # mu-cli/src/commands/vibes/conventions.rs:detect_language  c=33
+    | mu-cli/src/commands/vibes/conventions.rs
+  # mu-cli/src/commands/embed.rs:run_incremental  c=30
+    | mu-cli/src/commands/embed.rs
+  # mu-cli/tests/integration_tests.rs:setup_sample_project  c=1  calls=14
+    | mu-cli/tests/integration_tests.rs
+  # mu-cli/src/commands/diff.rs:TableDisplay.to_table  c=28
+    | mu-cli/src/commands/diff.rs
+  # mu-cli/src/commands/bootstrap.rs:resolve_call_site  c=25  calls=1
+    | mu-cli/src/commands/bootstrap.rs
+  # mu-core/src/parser/rust_lang.rs:extract_use  c=25  calls=1
+    | mu-core/src/parser/rust_lang.rs
+  # mu-core/src/differ/changes.rs:DiffSummary.text  c=26
+    | mu-core/src/differ/changes.rs
+

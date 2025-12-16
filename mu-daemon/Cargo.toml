@@ -1,0 +1,33 @@
+[package]
+name = "mu-daemon"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "MU storage library"
+authors = ["Yavor Kangalov <0ximu@proton.me>"]
+repository = "https://github.com/0ximu/mu"
+keywords = ["llm", "code-analysis", "storage", "code-intelligence"]
+
+[lib]
+name = "mu_daemon"
+path = "src/lib.rs"
+
+[dependencies]
+# Our core library (parser, scanner, graph, etc.)
+mu-core = { path = "../mu-core", default-features = false }
+
+# Database
+duckdb = { version = "1.1", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Utilities
+tracing = "0.1"
+thiserror = "2"
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
