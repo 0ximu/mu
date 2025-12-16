@@ -74,6 +74,13 @@ pub struct SusParams {
     pub min_complexity: Option<i64>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct OracleParams {
+    /// The task you want to accomplish (e.g., "fix the login bug where sessions expire too early")
+    #[schemars(description = "Natural language description of the task you want to accomplish")]
+    pub task: String,
+}
+
 #[tool_router]
 impl MuMcpServer {
     pub fn new(mubase: mu_daemon::storage::MUbase, project_root: PathBuf) -> Self {
@@ -659,10 +666,339 @@ impl MuMcpServer {
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
+
+    /// Oracle: Task-aware context retrieval - THE divine feature
+    #[tool(description = "Get exactly what you need to accomplish a task. Returns must-read code, supporting context, and relevant patterns. Use this when you have a specific task like 'fix bug X' or 'add feature Y'.")]
+    async fn mu_oracle(&self, Parameters(params): Parameters<OracleParams>) -> Result<CallToolResult, McpError> {
+        let start = Instant::now();
+
+        // Extract task-aware keywords
+        let keywords = self.extract_task_keywords(&params.task);
+
+        let mut output = String::new();
+        output.push_str(&format!("# Oracle: \"{}\"\n", params.task));
+
+        // Get must-read nodes via semantic search
+        let must_read = if self.mubase.has_embeddings().unwrap_or(false) {
+            self.run_semantic_search(&params.task, 7).await.unwrap_or_default()
+        } else {
+            self.run_keyword_search(&params.task, 7).unwrap_or_default()
+        };
+
+        // Collect file paths from must-read for pattern extraction
+        let must_read_files: Vec<String> = must_read.iter()
+            .filter_map(|r| r.file_path.clone())
+            .collect();
+
+        // Get supporting context via graph expansion
+        let must_read_ids: Vec<&str> = must_read.iter().map(|r| r.name.as_str()).collect();
+        let context_nodes = self.get_context_nodes(&must_read_ids, &keywords);
+
+        // Extract patterns from the codebase relevant to this task
+        let patterns = self.extract_patterns(&keywords, &must_read_files);
+
+        let duration = start.elapsed().as_millis();
+        output.push_str(&format!("# {} must-read, {} context, {} patterns | {}ms\n\n",
+            must_read.len(), context_nodes.len(), patterns.len(), duration));
+
+        // === MUST READ SECTION ===
+        output.push_str("## Must Read\n");
+        output.push_str("Critical code for this task:\n\n");
+
+        if must_read.is_empty() {
+            output.push_str("No directly relevant code found. Try rephrasing the task.\n\n");
+        } else {
+            for result in &must_read {
+                let sigil = match result.node_type.as_str() {
+                    "module" => "!",
+                    "class" => "$",
+                    "function" => "#",
+                    _ => "@",
+                };
+
+                output.push_str(&format!("### {}{} [{}] — {:.0}% relevant\n",
+                    sigil, result.name, result.node_type, result.similarity * 100.0));
+
+                if let Some(ref path) = result.file_path {
+                    output.push_str(&format!("File: {}\n", path));
+
+                    // Read and show full code
+                    let full_path = self.project_root.join(path);
+                    if let Ok(content) = fs::read_to_string(&full_path) {
+                        if let Some(snippet) = self.extract_snippet(&content, &result.name, &result.node_type) {
+                            output.push_str("```\n");
+                            output.push_str(&snippet);
+                            if !snippet.ends_with('\n') {
+                                output.push('\n');
+                            }
+                            output.push_str("```\n");
+                        }
+                    }
+                }
+                output.push('\n');
+            }
+        }
+
+        // === CONTEXT SECTION ===
+        output.push_str("## Context\n");
+        output.push_str("Supporting code you should understand:\n\n");
+
+        if context_nodes.is_empty() {
+            output.push_str("No additional context found.\n\n");
+        } else {
+            for (name, node_type, file_path, signature) in &context_nodes {
+                let sigil = match node_type.as_str() {
+                    "module" => "!",
+                    "class" => "$",
+                    "function" => "#",
+                    _ => "@",
+                };
+                output.push_str(&format!("{}{} — {}\n", sigil, name, file_path));
+                if let Some(sig) = signature {
+                    output.push_str(&format!("  `{}`\n", sig));
+                }
+            }
+            output.push('\n');
+        }
+
+        // === PATTERNS SECTION ===
+        output.push_str("## Patterns\n");
+        output.push_str("Relevant conventions in this codebase:\n\n");
+
+        if patterns.is_empty() {
+            output.push_str("No specific patterns detected.\n");
+        } else {
+            for pattern in &patterns {
+                output.push_str(&format!("- {}\n", pattern));
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
 }
 
 // Helper methods
 impl MuMcpServer {
+    /// Extract task-aware keywords - smarter than basic stop-word filtering
+    fn extract_task_keywords(&self, task: &str) -> Vec<String> {
+        // Task action words that hint at intent but aren't searchable
+        const TASK_WORDS: &[&str] = &[
+            "fix", "add", "implement", "create", "update", "change", "modify",
+            "refactor", "remove", "delete", "debug", "investigate", "find",
+            "bug", "issue", "error", "problem", "feature", "improve",
+            "the", "a", "an", "is", "are", "was", "were", "be", "been",
+            "have", "has", "had", "do", "does", "did", "will", "would",
+            "could", "should", "may", "might", "must", "shall",
+            "this", "that", "these", "those", "it", "its",
+            "and", "or", "but", "if", "then", "else", "when", "where",
+            "what", "which", "who", "how", "why",
+            "with", "without", "for", "from", "to", "in", "on", "at", "by",
+            "of", "about", "into", "through", "during", "before", "after",
+            "above", "below", "between", "under", "over",
+            "i", "me", "my", "we", "our", "you", "your",
+            "need", "want", "like", "make", "get", "set", "use",
+            "new", "old", "some", "any", "all", "each", "every",
+            "code", "function", "method", "class", "file", "module",
+        ];
+
+        task.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+            .filter(|w| w.len() > 2)
+            .filter(|w| !TASK_WORDS.contains(&w.to_lowercase().as_str()))
+            .map(|w| w.to_string())
+            .collect()
+    }
+
+    /// Get supporting context nodes through graph traversal
+    fn get_context_nodes(&self, must_read_names: &[&str], keywords: &[String]) -> Vec<(String, String, String, Option<String>)> {
+        let mut context = Vec::new();
+        let mut seen: std::collections::HashSet<String> = must_read_names.iter().map(|s| s.to_string()).collect();
+
+        // Get dependencies of must-read nodes
+        for name in must_read_names {
+            let sql = format!(
+                "SELECT DISTINCT n.name, n.type, n.file_path, n.line_start, n.line_end
+                 FROM edges e
+                 JOIN nodes n ON n.id = e.target_id
+                 WHERE e.source_id IN (SELECT id FROM nodes WHERE name = '{}')
+                   AND e.type IN ('imports', 'calls', 'uses')
+                 LIMIT 5",
+                name.replace('\'', "''")
+            );
+
+            if let Ok(result) = self.mubase.query(&sql) {
+                for row in &result.rows {
+                    let dep_name = row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if seen.insert(dep_name.clone()) {
+                        let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let line_start = row.get(3).and_then(|v| v.as_i64());
+                        let line_end = row.get(4).and_then(|v| v.as_i64());
+
+                        // Extract signature if it's a function
+                        let signature = if node_type == "function" {
+                            self.get_function_signature(&file_path, line_start, line_end)
+                        } else {
+                            None
+                        };
+
+                        context.push((dep_name, node_type, file_path, signature));
+                    }
+                }
+            }
+        }
+
+        // Also find nodes matching keywords that aren't already included
+        for keyword in keywords.iter().take(3) {
+            let sql = format!(
+                "SELECT name, type, file_path, line_start, line_end FROM nodes
+                 WHERE LOWER(name) LIKE '%{}%'
+                 LIMIT 3",
+                keyword.to_lowercase().replace('\'', "''")
+            );
+
+            if let Ok(result) = self.mubase.query(&sql) {
+                for row in &result.rows {
+                    let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if seen.insert(name.clone()) {
+                        let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let line_start = row.get(3).and_then(|v| v.as_i64());
+                        let line_end = row.get(4).and_then(|v| v.as_i64());
+
+                        let signature = if node_type == "function" {
+                            self.get_function_signature(&file_path, line_start, line_end)
+                        } else {
+                            None
+                        };
+
+                        context.push((name, node_type, file_path, signature));
+                    }
+                }
+            }
+        }
+
+        // Limit total context
+        context.truncate(10);
+        context
+    }
+
+    /// Get function signature (first line of definition)
+    fn get_function_signature(&self, file_path: &str, line_start: Option<i64>, _line_end: Option<i64>) -> Option<String> {
+        let full_path = self.project_root.join(file_path);
+        let content = fs::read_to_string(&full_path).ok()?;
+        let lines: Vec<&str> = content.lines().collect();
+
+        let start = line_start.unwrap_or(1) as usize;
+        if start > 0 && start <= lines.len() {
+            let first_line = lines[start - 1].trim();
+            // Truncate long signatures
+            if first_line.len() > 80 {
+                Some(format!("{}...", &first_line[..77]))
+            } else {
+                Some(first_line.to_string())
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Extract relevant patterns from the codebase
+    fn extract_patterns(&self, keywords: &[String], relevant_files: &[String]) -> Vec<String> {
+        let mut patterns = Vec::new();
+
+        // Check for error handling patterns
+        let error_sql = "SELECT DISTINCT
+            CASE
+                WHEN name LIKE '%Error%' OR name LIKE '%Exception%' THEN name
+                ELSE NULL
+            END as error_type
+            FROM nodes
+            WHERE (name LIKE '%Error%' OR name LIKE '%Exception%')
+              AND type = 'class'
+            LIMIT 5";
+
+        if let Ok(result) = self.mubase.query(error_sql) {
+            let error_types: Vec<String> = result.rows.iter()
+                .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+                .collect();
+            if !error_types.is_empty() {
+                patterns.push(format!("Error types: {}", error_types.join(", ")));
+            }
+        }
+
+        // Check if task mentions config-related keywords
+        let config_keywords = ["config", "setting", "option", "timeout", "expire", "limit"];
+        let has_config_keyword = keywords.iter()
+            .any(|k| config_keywords.iter().any(|ck| k.to_lowercase().contains(ck)));
+
+        if has_config_keyword {
+            // Look for config-related files
+            let config_sql = "SELECT DISTINCT file_path FROM nodes
+                WHERE LOWER(file_path) LIKE '%config%'
+                   OR LOWER(file_path) LIKE '%settings%'
+                   OR LOWER(file_path) LIKE '%.toml'
+                   OR LOWER(file_path) LIKE '%.yaml'
+                   OR LOWER(file_path) LIKE '%.json'
+                LIMIT 5";
+
+            if let Ok(result) = self.mubase.query(config_sql) {
+                let config_files: Vec<String> = result.rows.iter()
+                    .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    .collect();
+                if !config_files.is_empty() {
+                    patterns.push(format!("Config files: {}", config_files.join(", ")));
+                }
+            }
+        }
+
+        // Look for test patterns related to the files we found
+        if !relevant_files.is_empty() {
+            let test_paths: Vec<String> = relevant_files.iter()
+                .filter_map(|f| {
+                    // Common test file patterns
+                    if f.contains("test") || f.contains("spec") {
+                        return None; // Already a test file
+                    }
+                    let stem = f.trim_end_matches(".rs")
+                        .trim_end_matches(".py")
+                        .trim_end_matches(".ts")
+                        .trim_end_matches(".js");
+                    Some(format!("{}test%' OR file_path LIKE '%{}_test%' OR file_path LIKE '%{}_spec%",
+                        stem.replace('\'', "''"), stem.replace('\'', "''"), stem.replace('\'', "''")))
+                })
+                .take(3)
+                .collect();
+
+            if !test_paths.is_empty() {
+                let test_sql = format!(
+                    "SELECT DISTINCT file_path FROM nodes WHERE file_path LIKE '%{}' LIMIT 3",
+                    test_paths.first().unwrap_or(&String::new())
+                );
+
+                if let Ok(result) = self.mubase.query(&test_sql) {
+                    let test_files: Vec<String> = result.rows.iter()
+                        .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+                        .collect();
+                    if !test_files.is_empty() {
+                        patterns.push(format!("Related tests: {}", test_files.join(", ")));
+                    }
+                }
+            }
+        }
+
+        // Check for common architectural patterns in the must-read files
+        if let Some(file_pattern) = relevant_files.first() {
+            if file_pattern.contains("controller") || file_pattern.contains("handler") {
+                patterns.push("Architecture: Controller/Handler pattern detected".to_string());
+            } else if file_pattern.contains("service") {
+                patterns.push("Architecture: Service layer pattern detected".to_string());
+            } else if file_pattern.contains("repository") || file_pattern.contains("repo") {
+                patterns.push("Architecture: Repository pattern detected".to_string());
+            }
+        }
+
+        patterns
+    }
     async fn run_semantic_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
         let model = self.model
             .get_or_try_init(|| async { mu_embeddings::MuSigmaModel::embedded() })
@@ -786,6 +1122,7 @@ impl ServerHandler for MuMcpServer {
             },
             instructions: Some(
                 "MU - semantic code intelligence. Tools:\n\
+                 • mu_oracle: THE divine tool - get exactly what you need for a task (must-read code, context, patterns)\n\
                  • mu_grok: Understand code (semantic search + snippets)\n\
                  • mu_find: Find exact symbol by name\n\
                  • mu_compress: Get codebase overview\n\
