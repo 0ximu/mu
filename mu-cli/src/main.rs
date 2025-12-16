@@ -383,7 +383,7 @@ enum Commands {
         node: Option<String>,
 
         /// Maximum number of nodes to export
-        #[arg(short = 'n', long = "limit")]
+        #[arg(short = 'l', long = "limit")]
         limit: Option<usize>,
     },
 

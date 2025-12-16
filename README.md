@@ -36,19 +36,36 @@ MU parses your codebase into a semantic graph database. Fast queries. Semantic s
 
 ```
 Input:  66,493 lines of Python
-Output: 2,173 tokens
-Vibe:   omg, semantic compression
+Output: 2,173 tokens (mu compress)
 Result: LLM correctly answers architectural questions
 ```
 
+## Feature Reality Check
+
+Tested on real codebases. Here's what actually works:
+
+| Feature | Rating | Notes |
+|---------|--------|-------|
+| `mu c` (compress) | ★★★★★ | **Best feature** - structured compression with sigils |
+| `mu q` (SQL mode) | ★★★★ | Full SQL works great |
+| `mu search` | ★★★★ | Fast semantic search (~115ms), good relevance |
+| `mu path` | ★★★★ | Shows dependency paths between nodes |
+| `mu ancestors` | ★★★ | Good for functions, weaker for classes |
+| `mu impact` | ★★★ | Shows downstream effects |
+| `mu sus` | ★★★ | Finds untested security code |
+| `mu export` | ★★★ | Mermaid/D2/JSON export |
+| `mu q` (terse) | ★★ | Terse syntax is unreliable - use SQL instead |
+| `mu grok` | ★★ | Slower than search, less useful |
+| `mu omg` | ★ | Unstructured output - use `mu c` instead |
+
 ## Validated Results
 
-| Codebase | Original | MU Output | Compression |
-|----------|----------|-----------|-------------|
-| Production Backend (Python) | 461k tokens | 2k tokens | 212x |
-| API Gateway (TypeScript) | 407k lines | 6.7k lines | 98% |
+| Codebase | Files | Lines | MU Nodes | Export LOC | Bootstrap |
+|----------|-------|-------|----------|------------|-----------|
+| Next.js 14 App (TypeScript) | 1,112 | 406k | 4,471 | 16k | 63s |
+| .NET 8 Microservices (C#) | 796 | 147k | 6,843 | 22k | 117s |
 
-**Real test:** Fed MU output to Claude, asked "How does ride matching work?" — it correctly explained the scoring pipeline, async event workflow, and identified Redis as a SPOF.
+**Real test:** Fed MU output to Claude, asked architectural questions — correctly explained service patterns, identified dependencies, found complexity hotspots.
 
 ## Installation
 
@@ -71,18 +88,18 @@ sudo cp target/release/mu /usr/local/bin/
 # 1. Bootstrap with embeddings (recommended)
 mu bootstrap --embed              # Builds graph + generates embeddings
 
-# 2. Query (terse syntax = fewer tokens)
-mu q "fn c>50"                    # Functions with complexity > 50
-mu q "deps Auth d2"               # Dependencies of Auth, depth 2
+# 2. Compress for LLMs (the killer feature)
+mu c > codebase.txt               # Feed entire codebase to Claude/GPT
 
-# 3. Semantic search (powered by local MU-SIGMA model)
-mu search "error handling"        # No API keys needed
+# 3. Semantic search (fast, ~115ms)
+mu search "webhook processing"    # 90% relevance scores
 
-# 4. Export for LLMs
-mu export > codebase.mu           # Feed entire codebase to Claude/GPT
+# 4. SQL queries (use full SQL, not terse syntax)
+mu query "SELECT name, complexity FROM functions WHERE complexity > 30 ORDER BY complexity DESC"
 
-# 5. Get the vibes
-mu omg                            # Dramatic summary. The tea. The drama.
+# 5. Dependency analysis
+mu path AuthService UserRepo      # How are these connected?
+mu impact TransactionService      # What breaks if I change this?
 ```
 
 That's it. Your codebase is now understood.
@@ -98,55 +115,89 @@ mu status                         # Show project status
 mu doctor                         # Run health checks on MU installation
 ```
 
+### Compress (The Killer Feature)
+
+Feed your entire codebase to an LLM in seconds. MU compresses your code into a hierarchical, star-ranked format that preserves semantic structure while minimizing tokens.
+
+```bash
+mu compress                       # Compress codebase to stdout
+mu compress > codebase.txt        # Save for LLM consumption
+mu c                              # Alias
+
+# Detail levels
+mu compress --detail low          # Minimal: just structure
+mu compress --detail medium       # Default: structure + hot paths + core entities
+mu compress --detail high         # Full: everything including relationship clusters
+
+# Output to file
+mu compress -o context.mu         # Write directly to file
+```
+
+**Why this is the best feature:**
+- **Sigil notation**: `!` modules, `$` classes, `#` functions
+- **Complexity scores**: `c=14` shows cyclomatic complexity
+- **Call counts**: `calls=11` shows how often it's called
+- **Importance stars**: `★★★` for high-connectivity nodes
+- **Hierarchical structure** that mirrors actual code organization
+
+**Example output:**
+```
+# MU v2.0 - Compressed Codebase
+# 42 modules, 15 classes, 128 functions, 245 edges
+
+## Domain Overview
+### Core Entities
+$ AuthService  [★★★]
+  @attrs [user_repo, token_manager]
+  → Database (uses), UserRepo (calls)
+  ← LoginHandler, ApiMiddleware
+
+## Hot Paths (complexity > 20 or calls > 5)
+  # process_request  c=35  calls=12 ★★
+    | src/handlers/api.rs
+```
+
+This preserves semantic structure for LLMs, not just random token soup.
+
 ### Graph Analysis
 
 ```bash
 mu deps <node>                    # Show dependencies of a node
 mu deps <node> -r                 # Show reverse dependencies (dependents)
+mu path <from> <to>               # Find path between nodes (★★★★ actually useful)
 mu impact <node>                  # Find downstream impact (what breaks if this changes)
-mu ancestors <node>               # Find upstream ancestors (what this depends on)
+mu ancestors <node>               # Find upstream (works best for functions)
 mu cycles                         # Detect circular dependencies
 ```
 
 ### Search & Discovery
 
 ```bash
-mu search "query"                 # Semantic search (requires embeddings)
-mu search "query"                 # Falls back to keyword search if no embeddings
-mu grok "question"                # Ask a question about the codebase
+mu search "query"                 # Semantic search - fast (~115ms), good relevance
 mu patterns                       # Detect code patterns
 mu read <file>                    # Read and display a file with MU context
 ```
 
-> **Tip:** Run `mu bootstrap --embed` or `mu embed` to enable semantic search. Without embeddings, search uses keyword matching.
-
-### Embeddings
-
-```bash
-mu embed                          # Generate embeddings (incremental)
-mu embed --force                  # Regenerate all embeddings
-mu embed --status                 # Show embedding coverage status
-```
+> **Tip:** Run `mu bootstrap --embed` to enable semantic search. It actually works well - "webhook processing" returns 90% match to WebhookService.cs.
 
 ### MUQL Queries
 
+**Use full SQL syntax.** The terse syntax (`fn c>50`) is unreliable.
+
 ```bash
-# Full SQL-like syntax
+# Full SQL syntax (recommended - this works)
 mu query "SELECT * FROM functions WHERE complexity > 10"
 mu query "SELECT name, complexity FROM functions ORDER BY complexity DESC LIMIT 20"
+mu query "SELECT name FROM functions WHERE name LIKE '%Create%'"
 
-# Terse syntax (60-85% fewer tokens)
-mu q "fn c>50"                    # Functions with complexity > 50
-mu q "fn c>50 sort c- 10"         # Sorted descending, limit 10
-mu q "cls n~'Service'"            # Classes matching 'Service'
-mu q "deps Auth d2"               # Dependencies of Auth, depth 2
-mu q "rdeps Parser"               # What depends on Parser
+# Aggregations work too
+mu query "SELECT file_path, COUNT(*) FROM functions GROUP BY file_path ORDER BY 2 DESC"
 
 # Interactive REPL
 mu query -i
 ```
 
-> **Note:** Graph operations (`deps`, `rdeps`) in terse syntax require the daemon. Start with `mu serve` first, or use full SQL syntax in standalone mode.
+**Note:** Terse syntax (`mu q "fn c>50"`) often returns no results. Stick with full SQL.
 
 ### Semantic Diff & History
 
@@ -156,82 +207,48 @@ mu diff HEAD~5 HEAD               # Last 5 commits
 mu history <node>                 # Show change history for a node
 ```
 
-### Export Formats
+### Embeddings
 
 ```bash
-mu export                         # Default MU format (LLM-optimized)
-mu export > codebase.mu           # Save to file for LLM consumption
-mu export -F json                 # JSON export
+mu embed                          # Generate embeddings (incremental)
+mu embed --force                  # Regenerate all embeddings
+mu embed --status                 # Show embedding coverage status
+```
+
+### Export Formats
+
+For diagram generation and data interchange:
+
+```bash
+mu export -F json                 # JSON graph export
 mu export -F mermaid              # Mermaid diagram
 mu export -F d2                   # D2 diagram
 mu export -F json -l 100          # Limit to 100 nodes
 ```
 
-### Server / Daemon
-
-```bash
-mu serve                          # Start daemon (HTTP on port 9120)
-mu serve --foreground             # Run in foreground (debug mode)
-mu serve --stop                   # Stop running daemon
-mu serve --mcp                    # Start MCP server (stdio for Claude Code)
-mu serve --list-tools             # List available MCP tools
-```
-
 ### Vibes
 
-MU doesn't take itself too seriously. These commands do real work with real personality.
+Fun aliases that do real work:
 
 ```bash
-mu yolo <node>     # "Mass deploy on Friday"
-                   # → Impact analysis. What breaks if you touch this?
+mu yolo <node>     # Impact analysis with personality
+                   # → "Low impact. Go ahead, YOLO!"
 
-mu sus             # "Emergency code review"
-                   # → Find suspicious patterns: complexity bombs,
-                   #   security smells, code that makes you go "hmm"
+mu sus             # Find suspicious patterns
+                   # → Security-sensitive code without tests
+                   # → High complexity functions
 
-mu wtf <file>      # "Archaeology expedition"
-                   # → Git blame on steroids. Who did this? When? WHY?
+mu wtf <file>      # Git archaeology
+                   # → Original author, evolution history
+                   # → Co-changed files, related issues
 
-mu omg             # "OMEGA context extraction"
-                   # → Compressed codebase overview for LLMs. Ranks nodes
-                   #   by importance (complexity + connectivity). ~4k tokens.
+mu vibe            # Naming convention check
+                   # → snake_case vs camelCase consistency
 
-mu vibe            # "Project health check"
-                   # → Overall codebase vibe. Is it cozy? Chaotic?
-                   #   A beautiful mess? MU knows.
-
-mu zen             # "Digital declutter"
-                   # → Clear caches, reset state, achieve inner peace.
-                   #   Sometimes you just need a fresh start.
+mu zen             # Clear caches, reset state
 ```
 
-> **Philosophy**: Most CLI tools are either boring or try-hard. MU aims for the sweet spot — useful AND fun. The vibes are real.
-
-## MCP Server for Claude Code
-
-MU provides a Model Context Protocol (MCP) server for seamless integration with Claude Code:
-
-```bash
-# Start MCP server (stdio mode)
-mu serve --mcp
-
-# Available MCP tools:
-# - mu_query: Execute MUQL queries against the code graph
-# - mu_context: Extract smart context for natural language questions
-# - mu_deps: Show dependencies of a code node
-# - mu_search: Search for code nodes semantically
-# - mu_status: Get MU daemon status and codebase statistics
-```
-
-**Configure in Claude Code** (`~/.claude/mcp_servers.json`):
-```json
-{
-  "mu": {
-    "command": "mu",
-    "args": ["serve", "--mcp"]
-  }
-}
-```
+**Skip `mu omg`** - it outputs unstructured token soup. Use `mu c` instead.
 
 ## Configuration
 
@@ -240,9 +257,6 @@ Create `.murc.toml` in your project:
 ```toml
 [mu]
 exclude = ["vendor/", "node_modules/", ".git/", "__pycache__/"]
-
-[daemon]
-port = 9120
 ```
 
 ## Supported Languages
@@ -324,17 +338,65 @@ cargo fmt
 cargo clippy
 ```
 
-## Troubleshooting
+## Known Limitations
+
+### Terse Query Syntax
+
+The terse MUQL syntax (`fn c>50`, `deps Auth d2`) is unreliable and often returns no results. **Use full SQL syntax instead.**
+
+### Test Coverage Detection
+
+The `mu sus` command detects test coverage by looking for test files in the scanned directory tree. If your tests live in a sibling directory (e.g., `src/` and `tests/` at the same level), MU won't find them.
+
+**Workaround**: Run `mu bootstrap` from the parent directory, or configure test paths in `.murc.toml`:
+
+```toml
+[scanner]
+# Include sibling test directory
+include_paths = ["../tests"]
+```
+
+### Ancestors for Classes
+
+`mu ancestors` works well for functions but is less useful for classes/services. Target specific functions instead.
+
+### .NET Solutions
+
+For .NET projects with a solution file at root and code in `src/`, run MU from the `src/` directory:
 
 ```bash
-# Fresh start (clears database and rebuilds)
-rm -rf .mu && mu bootstrap
+cd src && mu bootstrap --embed
+```
 
-# Database errors about schema/columns
-# The database may be from an old version. Delete and rebuild:
-rm -rf .mu && mu bootstrap
+### Monorepo Support
 
-# Check what's in the database
+MU works best when run from the directory containing your source code. For monorepos, bootstrap each project separately or run from the root with appropriate excludes.
+
+## Troubleshooting
+
+### "No supported files found"
+
+MU didn't find parseable files in the current directory. Check:
+- You're in the right directory (source code, not project root)
+- Files aren't excluded by `.murc.toml` or `.gitignore`
+- Language is supported (run `mu doctor`)
+
+### Database errors
+
+```bash
+rm -rf .mu && mu bootstrap
+```
+
+### Embeddings not working
+
+```bash
+mu embed --status  # Check coverage
+mu embed --force   # Regenerate all
+```
+
+### Check what's in the database
+
+```bash
 duckdb .mu/mubase "SELECT type, COUNT(*) FROM nodes GROUP BY type"
 duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 ```
@@ -343,13 +405,14 @@ duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 
 - [x] Multi-language parsing (Python, TypeScript, JavaScript, C#, Go, Rust, Java)
 - [x] DuckDB graph storage with fast SQL queries
-- [x] MUQL query language with terse syntax
+- [x] MUQL query language (SQL mode works; terse syntax needs work)
 - [x] Vector embeddings for semantic search (MU-SIGMA-V2)
-- [x] Smart context extraction for questions
+- [x] Smart context extraction (`mu compress`)
 - [x] Semantic diff between git refs
-- [x] Real-time daemon mode with HTTP API
-- [x] MCP server for AI assistants (Claude Code)
 - [x] Multi-format export (Mermaid, D2, JSON)
+- [ ] Fix terse query syntax
+- [ ] Real-time daemon mode with HTTP API
+- [ ] MCP server for AI assistants (Claude Code)
 - [ ] mu-viz: Interactive graph visualization
 - [ ] IDE integrations (VS Code, JetBrains)
 
