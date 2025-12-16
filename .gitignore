@@ -16,7 +16,12 @@
 archive/
 examples/
 data/
+DATA/
+benches/
 mu-sigma/
+tools/
+.claude/
+CLAUDE.md
 checkpoints/
 models/
 !mu-embeddings/models/
