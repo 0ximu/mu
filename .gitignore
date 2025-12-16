@@ -1,0 +1,96 @@
+# Cargo build artifacts
+/target/
+**/target/
+
+# MU runtime
+.mu/
+.mu-cache/
+*.mu
+*.omg
+.mubase
+.mubase.wal
+.mu.pid
+.murc.toml
+
+# Internal - not for public release
+archive/
+examples/
+data/
+DATA/
+benches/
+mu-sigma/
+tools/
+.claude/
+CLAUDE.md
+docs/
+
+# Legacy Python stubs (now pure Rust)
+mu-core/python/
+mu-daemon/python/
+checkpoints/
+models/
+!mu-embeddings/models/
+.beads/
+.benchmarks/
+.bmad
+docs/prd/
+docs/epics/
+docs/internal/
+docs/brainstorms/
+
+# Python (legacy, for mu-sigma training only)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code extension
+tools/vscode-mu/node_modules/
+*.vsix
+*.tasks.md
