@@ -199,7 +199,10 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         watching: state.config.watch,
     };
 
-    Json(ApiResponse::ok(response, start.elapsed().as_millis() as u64))
+    Json(ApiResponse::ok(
+        response,
+        start.elapsed().as_millis() as u64,
+    ))
 }
 
 async fn compress(
@@ -213,7 +216,12 @@ async fn compress(
     // Build compressed output from database
     let stats = match mubase.stats() {
         Ok(s) => s,
-        Err(e) => return Json(ApiResponse::<String>::err(format!("Failed to get stats: {}", e))),
+        Err(e) => {
+            return Json(ApiResponse::<String>::err(format!(
+                "Failed to get stats: {}",
+                e
+            )))
+        }
     };
 
     let detail = params.detail.as_str();
@@ -228,7 +236,8 @@ async fn compress(
 
     let mut output = String::new();
     output.push_str(&format!("# MU Codebase Overview\n\n"));
-    output.push_str(&format!("Files: {} | Symbols: {} | Edges: {}\n\n",
+    output.push_str(&format!(
+        "Files: {} | Symbols: {} | Edges: {}\n\n",
         stats.type_counts.get("module").unwrap_or(&0),
         stats.node_count,
         stats.edge_count
@@ -318,7 +327,8 @@ async fn search(
     };
 
     // Search
-    let results = match mubase.vector_search(query_embedding, params.limit, Some(params.threshold)) {
+    let results = match mubase.vector_search(query_embedding, params.limit, Some(params.threshold))
+    {
         Ok(r) => r,
         Err(e) => {
             return Json(ApiResponse::<Vec<SearchResult>>::err(format!(
@@ -339,7 +349,10 @@ async fn search(
         })
         .collect();
 
-    Json(ApiResponse::ok(search_results, start.elapsed().as_millis() as u64))
+    Json(ApiResponse::ok(
+        search_results,
+        start.elapsed().as_millis() as u64,
+    ))
 }
 
 async fn find(
@@ -369,30 +382,39 @@ async fn find(
 
     let mut results = Vec::new();
     for row in &result.rows {
-        let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?").to_string();
-        let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?").to_string();
+        let node_type = row
+            .first()
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let name = row
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("?")
+            .to_string();
         let file_path = row.get(2).and_then(|v| v.as_str()).map(String::from);
         let line_start = row.get(3).and_then(|v| v.as_i64());
         let line_end = row.get(4).and_then(|v| v.as_i64());
 
         // Try to read snippet
-        let snippet = if let (Some(ref path), Some(start), Some(end)) = (&file_path, line_start, line_end) {
-            let full_path = state.project_root.join(path);
-            std::fs::read_to_string(&full_path)
-                .ok()
-                .and_then(|content| {
-                    let lines: Vec<&str> = content.lines().collect();
-                    let start_idx = (start as usize).saturating_sub(1);
-                    let end_idx = (end as usize).min(lines.len());
-                    if start_idx < lines.len() {
-                        Some(lines[start_idx..end_idx].join("\n"))
-                    } else {
-                        None
-                    }
-                })
-        } else {
-            None
-        };
+        let snippet =
+            if let (Some(ref path), Some(start), Some(end)) = (&file_path, line_start, line_end) {
+                let full_path = state.project_root.join(path);
+                std::fs::read_to_string(&full_path)
+                    .ok()
+                    .and_then(|content| {
+                        let lines: Vec<&str> = content.lines().collect();
+                        let start_idx = (start as usize).saturating_sub(1);
+                        let end_idx = (end as usize).min(lines.len());
+                        if start_idx < lines.len() {
+                            Some(lines[start_idx..end_idx].join("\n"))
+                        } else {
+                            None
+                        }
+                    })
+            } else {
+                None
+            };
 
         results.push(FindResult {
             name,
@@ -424,15 +446,29 @@ async fn impact(
 
     let node_result = match mubase.query(&sql) {
         Ok(r) => r,
-        Err(e) => return Json(ApiResponse::<serde_json::Value>::err(format!("Query failed: {}", e))),
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Query failed: {}",
+                e
+            )))
+        }
     };
 
     if node_result.rows.is_empty() {
-        return Json(ApiResponse::<serde_json::Value>::err(format!("Symbol '{}' not found", params.symbol)));
+        return Json(ApiResponse::<serde_json::Value>::err(format!(
+            "Symbol '{}' not found",
+            params.symbol
+        )));
     }
 
-    let node_id = node_result.rows[0].first().and_then(|v| v.as_str()).unwrap_or("");
-    let node_name = node_result.rows[0].get(1).and_then(|v| v.as_str()).unwrap_or("");
+    let node_id = node_result.rows[0]
+        .first()
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let node_name = node_result.rows[0]
+        .get(1)
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     // Find all nodes that depend on this one (reverse edges)
     let impact_sql = format!(
@@ -446,7 +482,12 @@ async fn impact(
 
     let impact_result = match mubase.query(&impact_sql) {
         Ok(r) => r,
-        Err(e) => return Json(ApiResponse::<serde_json::Value>::err(format!("Impact query failed: {}", e))),
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Impact query failed: {}",
+                e
+            )))
+        }
     };
 
     let mut impacted: Vec<serde_json::Value> = Vec::new();
@@ -467,7 +508,10 @@ async fn impact(
         "impacted": impacted,
     });
 
-    Json(ApiResponse::ok(response, start.elapsed().as_millis() as u64))
+    Json(ApiResponse::ok(
+        response,
+        start.elapsed().as_millis() as u64,
+    ))
 }
 
 // ============================================================================
@@ -500,7 +544,9 @@ fn should_ignore(path: &Path) -> bool {
         ".next",
     ];
 
-    ignore_patterns.iter().any(|pattern| path_str.contains(pattern))
+    ignore_patterns
+        .iter()
+        .any(|pattern| path_str.contains(pattern))
 }
 
 /// Handle file change - incrementally update the graph
@@ -558,7 +604,10 @@ async fn handle_file_change(
     let module = match parse_result.module {
         Some(m) => m,
         None => {
-            warn!("Failed to parse {}: {:?}", relative_path, parse_result.error);
+            warn!(
+                "Failed to parse {}: {:?}",
+                relative_path, parse_result.error
+            );
             return Ok(());
         }
     };
@@ -592,7 +641,10 @@ async fn handle_file_change(
 }
 
 /// Convert a parsed module to nodes
-fn module_to_nodes(module: &mu_core::types::ModuleDef, file_path: &str) -> Vec<mu_daemon::storage::Node> {
+fn module_to_nodes(
+    module: &mu_core::types::ModuleDef,
+    file_path: &str,
+) -> Vec<mu_daemon::storage::Node> {
     use mu_daemon::storage::Node;
     use mu_daemon::storage::NodeType;
 
@@ -660,7 +712,10 @@ fn module_to_nodes(module: &mu_core::types::ModuleDef, file_path: &str) -> Vec<m
 }
 
 /// Convert a parsed module to edges
-fn module_to_edges(module: &mu_core::types::ModuleDef, file_path: &str) -> Vec<mu_daemon::storage::Edge> {
+fn module_to_edges(
+    module: &mu_core::types::ModuleDef,
+    file_path: &str,
+) -> Vec<mu_daemon::storage::Edge> {
     use mu_daemon::storage::Edge;
     use mu_daemon::storage::EdgeType;
 
@@ -691,7 +746,10 @@ fn module_to_edges(module: &mu_core::types::ModuleDef, file_path: &str) -> Vec<m
         // Class contains methods
         for method in &class.methods {
             edges.push(Edge {
-                id: format!("contains:{}->fn:{}:{}::{}", class_id, file_path, class.name, method.name),
+                id: format!(
+                    "contains:{}->fn:{}:{}::{}",
+                    class_id, file_path, class.name, method.name
+                ),
                 source_id: class_id.clone(),
                 target_id: format!("fn:{}:{}::{}", file_path, class.name, method.name),
                 edge_type: EdgeType::Contains,
@@ -727,19 +785,20 @@ async fn start_watcher(
         let tx_clone = tx.clone();
         let mut debouncer = new_debouncer(
             Duration::from_millis(500),
-            move |res: DebounceEventResult| {
-                match res {
-                    Ok(events) => {
-                        let mut seen = HashSet::new();
-                        for event in events {
-                            let path = event.path;
-                            if is_source_file(&path) && !should_ignore(&path) && seen.insert(path.clone()) {
-                                let _ = tx_clone.blocking_send(path);
-                            }
+            move |res: DebounceEventResult| match res {
+                Ok(events) => {
+                    let mut seen = HashSet::new();
+                    for event in events {
+                        let path = event.path;
+                        if is_source_file(&path)
+                            && !should_ignore(&path)
+                            && seen.insert(path.clone())
+                        {
+                            let _ = tx_clone.blocking_send(path);
                         }
                     }
-                    Err(e) => error!("Watch error: {:?}", e),
                 }
+                Err(e) => error!("Watch error: {:?}", e),
             },
         )
         .expect("Failed to create debouncer");
@@ -837,9 +896,18 @@ pub async fn run(path: &str, port: u16, watch: bool, _format: OutputFormat) -> R
     println!();
     println!("  {} MU Server v{}", "▲".cyan(), env!("CARGO_PKG_VERSION"));
     println!();
-    println!("  {} {}", "→".green(), format!("http://localhost:{}", port).cyan());
+    println!(
+        "  {} {}",
+        "→".green(),
+        format!("http://localhost:{}", port).cyan()
+    );
     println!();
-    println!("  {} {} nodes, {} edges", "◆".yellow(), stats.node_count, stats.edge_count);
+    println!(
+        "  {} {} nodes, {} edges",
+        "◆".yellow(),
+        stats.node_count,
+        stats.edge_count
+    );
     if has_embeddings {
         println!("  {} Embeddings enabled", "◆".yellow());
     }

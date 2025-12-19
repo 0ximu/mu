@@ -111,19 +111,13 @@ impl TableDisplay for ReviewResult {
         let mut output = String::new();
 
         // Header
-        output.push_str(&format!(
-            "\n{}\n",
-            "═".repeat(65).cyan()
-        ));
+        output.push_str(&format!("\n{}\n", "═".repeat(65).cyan()));
         output.push_str(&format!(
             "{}  MU Code Review: {}\n",
             " ".repeat(15),
             self.title.cyan().bold()
         ));
-        output.push_str(&format!(
-            "{}\n\n",
-            "═".repeat(65).cyan()
-        ));
+        output.push_str(&format!("{}\n\n", "═".repeat(65).cyan()));
 
         // Summary
         output.push_str(&format!("{}\n", "Summary".bold()));
@@ -168,8 +162,7 @@ impl TableDisplay for ReviewResult {
 
                 output.push_str(&format!(
                     "   │ Risk: {} — Called by {} functions\n",
-                    risk_color,
-                    change.caller_count
+                    risk_color, change.caller_count
                 ));
                 output.push_str(&format!(
                     "   │ Impact radius: {} transitive dependents\n",
@@ -211,14 +204,27 @@ impl TableDisplay for ReviewResult {
         // All changes
         output.push_str(&format!("{}\n", "All Changes".bold()));
 
-        let added: Vec<_> = self.all_changes.iter().filter(|c| c.change_type == "added").collect();
-        let modified: Vec<_> = self.all_changes.iter().filter(|c| c.change_type == "modified").collect();
-        let removed: Vec<_> = self.all_changes.iter().filter(|c| c.change_type == "removed").collect();
+        let added: Vec<_> = self
+            .all_changes
+            .iter()
+            .filter(|c| c.change_type == "added")
+            .collect();
+        let modified: Vec<_> = self
+            .all_changes
+            .iter()
+            .filter(|c| c.change_type == "modified")
+            .collect();
+        let removed: Vec<_> = self
+            .all_changes
+            .iter()
+            .filter(|c| c.change_type == "removed")
+            .collect();
 
         if !added.is_empty() {
             output.push_str(&format!("   {}:\n", "Added".green()));
             for change in &added {
-                let complexity_str = change.complexity
+                let complexity_str = change
+                    .complexity
                     .map(|c| format!(" (complexity: {})", c))
                     .unwrap_or_default();
                 output.push_str(&format!(
@@ -234,15 +240,16 @@ impl TableDisplay for ReviewResult {
         if !modified.is_empty() {
             output.push_str(&format!("   {}:\n", "Modified".yellow()));
             for change in &modified {
-                let complexity_str = if let (Some(c), Some(delta)) = (change.complexity, change.complexity_delta) {
-                    if delta != 0 {
-                        format!(" (complexity: {} → {})", c - delta as u32, c)
+                let complexity_str =
+                    if let (Some(c), Some(delta)) = (change.complexity, change.complexity_delta) {
+                        if delta != 0 {
+                            format!(" (complexity: {} → {})", c - delta as u32, c)
+                        } else {
+                            String::new()
+                        }
                     } else {
                         String::new()
-                    }
-                } else {
-                    String::new()
-                };
+                    };
                 output.push_str(&format!(
                     "     {} {}:{}{}\n",
                     "~".yellow(),
@@ -269,7 +276,10 @@ impl TableDisplay for ReviewResult {
 
         // Suggested reviewers
         if !self.suggested_reviewers.is_empty() {
-            output.push_str(&format!("{}\n", "Suggested Reviewers (by code ownership)".bold()));
+            output.push_str(&format!(
+                "{}\n",
+                "Suggested Reviewers (by code ownership)".bold()
+            ));
             for reviewer in &self.suggested_reviewers {
                 output.push_str(&format!(
                     "   {} — {}% ownership\n",
@@ -309,11 +319,26 @@ impl TableDisplay for ReviewResult {
         let mut output = String::new();
 
         output.push_str(&format!(":: review {}\n", self.title));
-        output.push_str(&format!("# files_changed: {}\n", self.summary.files_changed));
-        output.push_str(&format!("# functions_modified: {}\n", self.summary.functions_modified));
-        output.push_str(&format!("# functions_added: {}\n", self.summary.functions_added));
-        output.push_str(&format!("# functions_removed: {}\n", self.summary.functions_removed));
-        output.push_str(&format!("# total_risk: {:.1}\n\n", self.summary.total_risk_score));
+        output.push_str(&format!(
+            "# files_changed: {}\n",
+            self.summary.files_changed
+        ));
+        output.push_str(&format!(
+            "# functions_modified: {}\n",
+            self.summary.functions_modified
+        ));
+        output.push_str(&format!(
+            "# functions_added: {}\n",
+            self.summary.functions_added
+        ));
+        output.push_str(&format!(
+            "# functions_removed: {}\n",
+            self.summary.functions_removed
+        ));
+        output.push_str(&format!(
+            "# total_risk: {:.1}\n\n",
+            self.summary.total_risk_score
+        ));
 
         output.push_str("## HIGH_RISK\n");
         for change in &self.high_risk_changes {
@@ -345,10 +370,7 @@ impl TableDisplay for ReviewResult {
 }
 
 /// Run the review command
-pub async fn run(
-    range: Option<&str>,
-    format: OutputFormat,
-) -> Result<()> {
+pub async fn run(range: Option<&str>, format: OutputFormat) -> Result<()> {
     let db_path = find_mubase(".")?;
     let conn = Connection::open_with_flags(
         &db_path,
@@ -403,7 +425,11 @@ pub async fn run(
     }
 
     // Sort by risk score descending
-    analyzed_changes.sort_by(|a, b| b.risk_score.partial_cmp(&a.risk_score).unwrap_or(std::cmp::Ordering::Equal));
+    analyzed_changes.sort_by(|a, b| {
+        b.risk_score
+            .partial_cmp(&a.risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     // Separate high-risk changes
     let high_risk_changes: Vec<AnalyzedChange> = analyzed_changes
@@ -419,14 +445,24 @@ pub async fn run(
     let suggested_reviewers = get_suggested_reviewers(&changed_files)?;
 
     // Generate recommendations
-    let recommendations = generate_recommendations(&analyzed_changes, &test_gaps, &suggested_reviewers);
+    let recommendations =
+        generate_recommendations(&analyzed_changes, &test_gaps, &suggested_reviewers);
 
     // Build summary
     let summary = ReviewSummary {
         files_changed: changed_files.len(),
-        functions_modified: analyzed_changes.iter().filter(|c| c.change_type == "modified").count(),
-        functions_added: analyzed_changes.iter().filter(|c| c.change_type == "added").count(),
-        functions_removed: analyzed_changes.iter().filter(|c| c.change_type == "removed").count(),
+        functions_modified: analyzed_changes
+            .iter()
+            .filter(|c| c.change_type == "modified")
+            .count(),
+        functions_added: analyzed_changes
+            .iter()
+            .filter(|c| c.change_type == "added")
+            .count(),
+        functions_removed: analyzed_changes
+            .iter()
+            .filter(|c| c.change_type == "removed")
+            .count(),
         total_risk_score: analyzed_changes.iter().map(|c| c.risk_score).sum(),
     };
 
@@ -476,7 +512,11 @@ fn parse_git_range(range: Option<&str>) -> Result<(String, String, String)> {
     match range {
         None => {
             // No range = uncommitted changes
-            Ok(("HEAD".to_string(), "".to_string(), "uncommitted changes".to_string()))
+            Ok((
+                "HEAD".to_string(),
+                "".to_string(),
+                "uncommitted changes".to_string(),
+            ))
         }
         Some(r) if r.contains("..") => {
             // Range like "main..feature" or "HEAD~3..HEAD"
@@ -506,7 +546,11 @@ fn get_changed_files(base_ref: &str, head_ref: &str) -> Result<Vec<String>> {
             .output()?
     } else {
         Command::new("git")
-            .args(["diff", "--name-only", &format!("{}...{}", base_ref, head_ref)])
+            .args([
+                "diff",
+                "--name-only",
+                &format!("{}...{}", base_ref, head_ref),
+            ])
             .output()?
     };
 
@@ -543,7 +587,11 @@ struct RawChange {
 }
 
 /// Get semantic changes from git diff
-fn get_semantic_changes(base_ref: &str, head_ref: &str, changed_files: &[String]) -> Result<Vec<RawChange>> {
+fn get_semantic_changes(
+    base_ref: &str,
+    head_ref: &str,
+    changed_files: &[String],
+) -> Result<Vec<RawChange>> {
     let mut changes = Vec::new();
 
     for file_path in changed_files {
@@ -605,7 +653,9 @@ fn get_semantic_changes(base_ref: &str, head_ref: &str, changed_files: &[String]
 
                 // Added
                 for (name, entity_type) in &head_entities {
-                    if !base_set.contains(name) && (entity_type == "function" || entity_type == "method") {
+                    if !base_set.contains(name)
+                        && (entity_type == "function" || entity_type == "method")
+                    {
                         changes.push(RawChange {
                             name: name.clone(),
                             entity_type: entity_type.clone(),
@@ -617,7 +667,9 @@ fn get_semantic_changes(base_ref: &str, head_ref: &str, changed_files: &[String]
 
                 // Removed
                 for (name, entity_type) in &base_entities {
-                    if !head_set.contains(name) && (entity_type == "function" || entity_type == "method") {
+                    if !head_set.contains(name)
+                        && (entity_type == "function" || entity_type == "method")
+                    {
                         changes.push(RawChange {
                             name: name.clone(),
                             entity_type: entity_type.clone(),
@@ -630,7 +682,9 @@ fn get_semantic_changes(base_ref: &str, head_ref: &str, changed_files: &[String]
                 // Modified (entities that exist in both but file changed)
                 // For simplicity, mark all existing functions as modified if file changed
                 for (name, entity_type) in &head_entities {
-                    if base_set.contains(name) && (entity_type == "function" || entity_type == "method") {
+                    if base_set.contains(name)
+                        && (entity_type == "function" || entity_type == "method")
+                    {
                         changes.push(RawChange {
                             name: name.clone(),
                             entity_type: entity_type.clone(),
@@ -696,9 +750,8 @@ fn analyze_change(
     // Calculate risk score using the formula:
     // risk = (caller_count * 2) + (transitive_dependents * 0.5) + (complexity_delta * 3)
     let complexity_penalty = complexity_delta.unwrap_or(0i32).abs() as f64 * 3.0;
-    let risk_score = (caller_count as f64 * 2.0)
-        + (transitive_dependents as f64 * 0.5)
-        + complexity_penalty;
+    let risk_score =
+        (caller_count as f64 * 2.0) + (transitive_dependents as f64 * 0.5) + complexity_penalty;
 
     let risk_level = RiskLevel::from_score(risk_score);
 
@@ -724,7 +777,7 @@ fn find_node_id(conn: &Connection, name: &str, file_path: &str) -> Result<Option
         "SELECT id FROM nodes
          WHERE name = ?1
          AND (file_path = ?2 OR file_path LIKE '%' || ?2)
-         LIMIT 1"
+         LIMIT 1",
     )?;
 
     let mut rows = stmt.query([name, file_path])?;
@@ -747,7 +800,7 @@ fn find_node_id(conn: &Connection, name: &str, file_path: &str) -> Result<Option
 /// Count direct callers of a node
 fn count_callers(conn: &Connection, node_id: &str) -> Result<usize> {
     let mut stmt = conn.prepare(
-        "SELECT COUNT(DISTINCT source_id) FROM edges WHERE target_id = ?1 AND type = 'calls'"
+        "SELECT COUNT(DISTINCT source_id) FROM edges WHERE target_id = ?1 AND type = 'calls'",
     )?;
     let mut rows = stmt.query([node_id])?;
 
@@ -775,7 +828,14 @@ fn get_complexity(conn: &Connection, node_id: &str) -> Result<Option<u32>> {
 /// Get last modified date and author for a file
 fn get_last_modified(file_path: &str) -> Result<(Option<String>, Option<String>)> {
     let output = Command::new("git")
-        .args(["log", "-1", "--format=%ad|%an", "--date=short", "--", file_path])
+        .args([
+            "log",
+            "-1",
+            "--format=%ad|%an",
+            "--date=short",
+            "--",
+            file_path,
+        ])
         .output()?;
 
     if !output.status.success() {
@@ -798,7 +858,10 @@ fn get_last_modified(file_path: &str) -> Result<(Option<String>, Option<String>)
 }
 
 /// Detect test coverage gaps
-fn detect_test_gaps(changes: &[AnalyzedChange], test_files_changed: &HashSet<String>) -> Vec<TestGap> {
+fn detect_test_gaps(
+    changes: &[AnalyzedChange],
+    test_files_changed: &HashSet<String>,
+) -> Vec<TestGap> {
     let mut gaps = Vec::new();
 
     for change in changes {
@@ -906,7 +969,11 @@ fn generate_recommendations(
         recommendations.push(format!(
             "Add tests for {} new function{} before merging",
             new_without_tests.len(),
-            if new_without_tests.len() == 1 { "" } else { "s" }
+            if new_without_tests.len() == 1 {
+                ""
+            } else {
+                "s"
+            }
         ));
     }
 
@@ -1002,7 +1069,10 @@ fn extract_entities(content: &str, file_path: &str, language: &str) -> Vec<(Stri
     for class in &module.classes {
         entities.push((class.name.clone(), "class".to_string()));
         for method in &class.methods {
-            entities.push((format!("{}.{}", class.name, method.name), "method".to_string()));
+            entities.push((
+                format!("{}.{}", class.name, method.name),
+                "method".to_string(),
+            ));
         }
     }
 

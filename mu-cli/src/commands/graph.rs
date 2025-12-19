@@ -428,11 +428,7 @@ impl GraphData {
 
     /// Find shortest path with edge types between two nodes.
     /// Returns a vector of PathSteps showing nodes and the edges connecting them.
-    pub fn shortest_path_with_edges(
-        &self,
-        from_id: &str,
-        to_id: &str,
-    ) -> Option<Vec<PathStep>> {
+    pub fn shortest_path_with_edges(&self, from_id: &str, to_id: &str) -> Option<Vec<PathStep>> {
         let start = *self.node_map.get(from_id)?;
         let end = *self.node_map.get(to_id)?;
 
@@ -521,11 +517,15 @@ impl GraphData {
             let to_idx = self.node_map[&path[i + 1].node_id];
 
             // Find the edge between these nodes
-            if let Some(edge) = self.graph.edges_directed(from_idx, Direction::Outgoing)
+            if let Some(edge) = self
+                .graph
+                .edges_directed(from_idx, Direction::Outgoing)
                 .find(|e| e.target() == to_idx)
             {
                 path[i].edge_type = Some(edge.weight().clone());
-            } else if let Some(edge) = self.graph.edges_directed(to_idx, Direction::Outgoing)
+            } else if let Some(edge) = self
+                .graph
+                .edges_directed(to_idx, Direction::Outgoing)
                 .find(|e| e.target() == from_idx)
             {
                 // Edge goes the other direction
@@ -625,7 +625,9 @@ impl GraphData {
                 }
                 path.push((neighbor, None));
 
-                self.dfs_all_paths(neighbor, target, path, visited, all_paths, max_depth, max_paths);
+                self.dfs_all_paths(
+                    neighbor, target, path, visited, all_paths, max_depth, max_paths,
+                );
 
                 path.pop();
                 visited.remove(&neighbor);
@@ -642,7 +644,9 @@ impl GraphData {
                 }
                 path.push((neighbor, None));
 
-                self.dfs_all_paths(neighbor, target, path, visited, all_paths, max_depth, max_paths);
+                self.dfs_all_paths(
+                    neighbor, target, path, visited, all_paths, max_depth, max_paths,
+                );
 
                 path.pop();
                 visited.remove(&neighbor);

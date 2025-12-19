@@ -1068,8 +1068,14 @@ impl MuMcpServer {
     /// - Conceptually related code (e.g., storage/persistence code)
     async fn hybrid_search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
         // Get results from both systems
-        let bm25_results = self.mubase.bm25_search(query, limit * 2).unwrap_or_default();
-        let semantic_results = self.run_semantic_search(query, limit * 2).await.unwrap_or_default();
+        let bm25_results = self
+            .mubase
+            .bm25_search(query, limit * 2)
+            .unwrap_or_default();
+        let semantic_results = self
+            .run_semantic_search(query, limit * 2)
+            .await
+            .unwrap_or_default();
 
         // Convert BM25 results to SearchResult format
         let bm25_converted: Vec<SearchResult> = bm25_results
@@ -1409,7 +1415,8 @@ impl MuMcpServer {
     fn run_keyword_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
         let sql = format!(
             "SELECT type, name, file_path FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
-            query.to_lowercase().replace('\'', "''"), limit
+            query.to_lowercase().replace('\'', "''"),
+            limit
         );
         let result = self.mubase.query(&sql)?;
 

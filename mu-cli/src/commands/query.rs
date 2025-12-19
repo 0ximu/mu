@@ -130,7 +130,10 @@ impl TerseQueryBuilder {
     /// Name pattern filter: n%pattern, name%pattern
     fn try_parse_name(&mut self, token: &str) -> bool {
         let lower = token.to_lowercase();
-        if let Some(pattern) = lower.strip_prefix("n%").or_else(|| lower.strip_prefix("name%")) {
+        if let Some(pattern) = lower
+            .strip_prefix("n%")
+            .or_else(|| lower.strip_prefix("name%"))
+        {
             let escaped = pattern.replace('\'', "''");
             self.conditions.push(format!("name LIKE '%{}%'", escaped));
             return true;
@@ -147,7 +150,8 @@ impl TerseQueryBuilder {
             .or_else(|| lower.strip_prefix("path%"))
         {
             let escaped = pattern.replace('\'', "''");
-            self.conditions.push(format!("file_path LIKE '%{}%'", escaped));
+            self.conditions
+                .push(format!("file_path LIKE '%{}%'", escaped));
             return true;
         }
         false
@@ -361,7 +365,8 @@ fn rewrite_virtual_tables(sql: &str) -> String {
         if re.is_match(&result) {
             // Check if there's already a WHERE clause after the table name
             let where_pattern = format!(r"(?i)\bFROM\s+{}\s+WHERE\b", regex::escape(virtual_table));
-            let where_re = regex::Regex::new(&where_pattern).expect("escaped pattern is valid regex");
+            let where_re =
+                regex::Regex::new(&where_pattern).expect("escaped pattern is valid regex");
 
             if where_re.is_match(&result) {
                 // Has WHERE clause - merge conditions with AND

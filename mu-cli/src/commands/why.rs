@@ -52,10 +52,7 @@ pub struct AnnotatedPath {
 impl AnnotatedPath {
     fn from_steps(steps: Vec<PathStep>) -> Self {
         let hop_count = steps.len().saturating_sub(1);
-        let edge_types: Vec<String> = steps
-            .iter()
-            .filter_map(|s| s.edge_type.clone())
-            .collect();
+        let edge_types: Vec<String> = steps.iter().filter_map(|s| s.edge_type.clone()).collect();
 
         Self {
             steps,
@@ -212,7 +209,10 @@ pub async fn run(
     let paths = if all_paths {
         // Find all paths up to depth 6
         let raw_paths = graph.all_paths_with_edges(&from_id, &to_id, 6, max_paths);
-        raw_paths.into_iter().map(AnnotatedPath::from_steps).collect()
+        raw_paths
+            .into_iter()
+            .map(AnnotatedPath::from_steps)
+            .collect()
     } else {
         // Find just the shortest path
         match graph.shortest_path_with_edges(&from_id, &to_id) {
@@ -286,18 +286,12 @@ fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
 
 /// Extract the short name from a node ID (e.g., "cls:path/file.rs:ClassName" -> "ClassName")
 fn extract_name(node_id: &str) -> &str {
-    node_id
-        .rsplit(':')
-        .next()
-        .unwrap_or(node_id)
+    node_id.rsplit(':').next().unwrap_or(node_id)
 }
 
 /// Extract the type prefix from a node ID (e.g., "cls:path/file.rs:ClassName" -> "cls")
 fn extract_type(node_id: &str) -> &str {
-    node_id
-        .split(':')
-        .next()
-        .unwrap_or("?")
+    node_id.split(':').next().unwrap_or("?")
 }
 
 /// Generate a human-readable verdict about the relationship
@@ -310,7 +304,11 @@ fn generate_verdict(from: &str, to: &str, path: &AnnotatedPath) -> String {
     }
 
     if path.hop_count == 1 {
-        let edge = path.edge_types.first().map(|s| s.as_str()).unwrap_or("connected to");
+        let edge = path
+            .edge_types
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("connected to");
         return format!("{} directly {} {}.", from_name, edge, to_name);
     }
 

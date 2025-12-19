@@ -295,7 +295,8 @@ impl MUbase {
         }
 
         // Check if we have embeddings to index
-        let count: usize = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+        let count: usize =
+            conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
 
         if count == 0 {
             anyhow::bail!("Cannot create HNSW index: no embeddings in database");
@@ -1712,8 +1713,16 @@ mod tests {
 
         // Insert embeddings
         let batch = vec![
-            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
-            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+            (
+                "mod:src/a.py".to_string(),
+                test_embedding(&[1.0, 0.0, 0.0]),
+                None,
+            ),
+            (
+                "mod:src/b.py".to_string(),
+                test_embedding(&[0.0, 1.0, 0.0]),
+                None,
+            ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
@@ -1742,8 +1751,16 @@ mod tests {
 
         // Insert embeddings
         let batch = vec![
-            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
-            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+            (
+                "mod:src/a.py".to_string(),
+                test_embedding(&[1.0, 0.0, 0.0]),
+                None,
+            ),
+            (
+                "mod:src/b.py".to_string(),
+                test_embedding(&[0.0, 1.0, 0.0]),
+                None,
+            ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
@@ -1776,8 +1793,16 @@ mod tests {
         db.insert_nodes(&[node1, node2]).unwrap();
 
         let batch = vec![
-            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
-            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+            (
+                "mod:src/a.py".to_string(),
+                test_embedding(&[1.0, 0.0, 0.0]),
+                None,
+            ),
+            (
+                "mod:src/b.py".to_string(),
+                test_embedding(&[0.0, 1.0, 0.0]),
+                None,
+            ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 

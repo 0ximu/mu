@@ -18,15 +18,7 @@ use crate::output::{Output, OutputFormat, TableDisplay};
 
 /// Entry point patterns to exclude from orphan detection
 const ENTRY_POINT_PATTERNS: &[&str] = &[
-    "main",
-    "run",
-    "start",
-    "__main__",
-    "__init__",
-    "__new__",
-    "setup",
-    "teardown",
-    "setUp",
+    "main", "run", "start", "__main__", "__init__", "__new__", "setup", "teardown", "setUp",
     "tearDown",
 ];
 
@@ -154,7 +146,11 @@ impl TableDisplay for CoverageResult {
                     location.dimmed(),
                     staleness
                 ));
-                output.push_str(&format!("      {} {}\n", "->".dimmed(), func.reason.dimmed()));
+                output.push_str(&format!(
+                    "      {} {}\n",
+                    "->".dimmed(),
+                    func.reason.dimmed()
+                ));
             }
             output.push('\n');
         }
@@ -207,11 +203,7 @@ impl TableDisplay for CoverageResult {
 }
 
 /// Run the coverage command
-pub async fn run(
-    orphans_only: bool,
-    untested_only: bool,
-    format: OutputFormat,
-) -> Result<()> {
+pub async fn run(orphans_only: bool, untested_only: bool, format: OutputFormat) -> Result<()> {
     let db_path = find_mubase(".")?;
     let conn = Connection::open_with_flags(
         &db_path,
@@ -365,14 +357,22 @@ fn find_orphans(conn: &Connection) -> Result<Vec<DeadFunction>> {
         if let Some(ref props_str) = properties {
             if let Ok(props) = serde_json::from_str::<serde_json::Value>(props_str) {
                 // Skip properties on DTO classes (accessed via reflection/serialization)
-                if props.get("parent_is_dto").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if props
+                    .get("parent_is_dto")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
 
                 // Skip ALL orphan properties - if a property has no callers, it's accessed
                 // via reflection (config binding, serialization, ORM, etc.)
                 // Properties WITH callers are already excluded from the orphan set
-                if props.get("is_property").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if props
+                    .get("is_property")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
 
@@ -472,12 +472,20 @@ fn find_untested(conn: &Connection) -> Result<Vec<DeadFunction>> {
         if let Some(ref props_str) = properties {
             if let Ok(props) = serde_json::from_str::<serde_json::Value>(props_str) {
                 // Skip properties on DTO classes (accessed via reflection/serialization)
-                if props.get("parent_is_dto").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if props
+                    .get("parent_is_dto")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
 
                 // Skip ALL properties - they're tested indirectly through the classes that use them
-                if props.get("is_property").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if props
+                    .get("is_property")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
             }
@@ -518,14 +526,7 @@ fn add_staleness_info(functions: &mut [DeadFunction]) -> Result<()> {
 /// Get last modified date for a file via git
 fn get_file_last_modified(file_path: &str) -> Option<String> {
     let output = Command::new("git")
-        .args([
-            "log",
-            "-1",
-            "--format=%ad",
-            "--date=short",
-            "--",
-            file_path,
-        ])
+        .args(["log", "-1", "--format=%ad", "--date=short", "--", file_path])
         .output()
         .ok()?;
 
@@ -576,14 +577,8 @@ fn group_by_directory(mut functions: Vec<DeadFunction>) -> Vec<DirectoryGroup> {
 
     // Sort directories by their oldest function
     result.sort_by(|a, b| {
-        let a_oldest = a
-            .functions
-            .first()
-            .and_then(|f| f.last_modified.as_ref());
-        let b_oldest = b
-            .functions
-            .first()
-            .and_then(|f| f.last_modified.as_ref());
+        let a_oldest = a.functions.first().and_then(|f| f.last_modified.as_ref());
+        let b_oldest = b.functions.first().and_then(|f| f.last_modified.as_ref());
 
         match (a_oldest, b_oldest) {
             (Some(a_date), Some(b_date)) => a_date.cmp(b_date),

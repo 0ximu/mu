@@ -619,7 +619,10 @@ fn build_graph(
     // Build C# namespace map
     let csharp_namespace_map = build_csharp_namespace_map(parse_results);
     if !csharp_namespace_map.is_empty() {
-        tracing::debug!("Built C# namespace map with {} namespaces", csharp_namespace_map.len());
+        tracing::debug!(
+            "Built C# namespace map with {} namespaces",
+            csharp_namespace_map.len()
+        );
     }
 
     let mut nodes = Vec::new();
@@ -657,7 +660,11 @@ fn build_graph(
         "Call sites: {} found, {} resolved ({:.1}%)",
         total,
         resolved,
-        if total > 0 { (resolved as f64 / total as f64) * 100.0 } else { 0.0 }
+        if total > 0 {
+            (resolved as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        }
     );
 
     (nodes, edges)
@@ -730,7 +737,10 @@ fn build_module_graph(
         }
         // Mark as DTO if class has only properties (no method bodies)
         let is_dto = !class.methods.is_empty()
-            && class.methods.iter().all(|m| m.is_property || m.body_source.is_none());
+            && class
+                .methods
+                .iter()
+                .all(|m| m.is_property || m.body_source.is_none());
         if is_dto {
             props.insert("is_dto".to_string(), json!(true));
         }
@@ -940,7 +950,12 @@ fn generate_embeddings(
                     mu_daemon::storage::NodeType::Function => "function",
                     mu_daemon::storage::NodeType::External => "external",
                 };
-                format!("{} {} {}", type_prefix, n.name, n.qualified_name.as_deref().unwrap_or(""))
+                format!(
+                    "{} {} {}",
+                    type_prefix,
+                    n.name,
+                    n.qualified_name.as_deref().unwrap_or("")
+                )
             })
             .collect();
 
@@ -948,7 +963,8 @@ fn generate_embeddings(
 
         match model.embed(&text_refs) {
             Ok(batch_embeddings) => {
-                for (node, (text, embedding)) in batch.iter().zip(texts.iter().zip(batch_embeddings))
+                for (node, (text, embedding)) in
+                    batch.iter().zip(texts.iter().zip(batch_embeddings))
                 {
                     embeddings_batch.push((node.id.clone(), embedding, Some(text.clone())));
                     embedded_count += 1;
@@ -1086,34 +1102,35 @@ pub async fn run(
     spinner.finish_and_clear();
 
     // Step 5: Create HNSW index (optional, based on flags and embedding count)
-    let hnsw_index_created = if embeddings_generated > 0 && should_hnsw(hnsw, no_hnsw, embeddings_generated) {
-        let spinner = create_spinner();
-        spinner.set_message("Creating HNSW index...");
+    let hnsw_index_created =
+        if embeddings_generated > 0 && should_hnsw(hnsw, no_hnsw, embeddings_generated) {
+            let spinner = create_spinner();
+            spinner.set_message("Creating HNSW index...");
 
-        match mubase.create_hnsw_index() {
-            Ok(created) => {
-                spinner.finish_and_clear();
-                if created {
-                    tracing::info!("HNSW index created successfully");
+            match mubase.create_hnsw_index() {
+                Ok(created) => {
+                    spinner.finish_and_clear();
+                    if created {
+                        tracing::info!("HNSW index created successfully");
+                    }
+                    created
                 }
-                created
+                Err(e) => {
+                    spinner.finish_and_clear();
+                    // Don't fail bootstrap if HNSW creation fails - it's optional
+                    tracing::warn!("Failed to create HNSW index: {}", e);
+                    println!(
+                        "{} HNSW index creation failed: {}",
+                        "WARNING:".yellow().bold(),
+                        e
+                    );
+                    println!("         Vector search will use linear scan (still functional).\n");
+                    false
+                }
             }
-            Err(e) => {
-                spinner.finish_and_clear();
-                // Don't fail bootstrap if HNSW creation fails - it's optional
-                tracing::warn!("Failed to create HNSW index: {}", e);
-                println!(
-                    "{} HNSW index creation failed: {}",
-                    "WARNING:".yellow().bold(),
-                    e
-                );
-                println!("         Vector search will use linear scan (still functional).\n");
-                false
-            }
-        }
-    } else {
-        false
-    };
+        } else {
+            false
+        };
 
     // Step 6: Create FTS index for BM25 keyword search (always, if nodes exist)
     let fts_index_created = {

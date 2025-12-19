@@ -152,7 +152,10 @@ const DEFAULT_PROFILE: ConventionProfile = [N, N, P, P, P, P, S, N, N, N, N];
 /// Get the expected naming convention for a given language and entity type.
 pub fn convention_for_entity(language: &str, entity: EntityType) -> NamingConvention {
     let lang = language.to_lowercase();
-    let canonical = LANGUAGE_ALIASES.get(lang.as_str()).copied().unwrap_or(&lang);
+    let canonical = LANGUAGE_ALIASES
+        .get(lang.as_str())
+        .copied()
+        .unwrap_or(&lang);
 
     let profile = CONVENTION_PROFILES
         .get(canonical)

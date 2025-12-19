@@ -616,9 +616,7 @@ async fn main() -> anyhow::Result<()> {
         } => deps::run(&node, true, depth, include_contains, format).await,
         Commands::Read { path, line_numbers } => read::run(&path, line_numbers, format).await,
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
-        Commands::Coverage { orphans, untested } => {
-            coverage::run(orphans, untested, format).await
-        }
+        Commands::Coverage { orphans, untested } => coverage::run(orphans, untested, format).await,
         Commands::Why {
             from,
             to,
@@ -685,7 +683,11 @@ async fn main() -> anyhow::Result<()> {
 
         // Integration commands
         Commands::Mcp { path } => mcp::run(&path).await,
-        Commands::Serve { path, port, no_watch } => serve::run(&path, port, !no_watch, format).await,
+        Commands::Serve {
+            path,
+            port,
+            no_watch,
+        } => serve::run(&path, port, !no_watch, format).await,
 
         // Utility commands
         Commands::Doctor { path } => doctor::run(&path, format).await,
