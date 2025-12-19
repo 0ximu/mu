@@ -111,6 +111,9 @@ pub struct SessionState {
     query_history: VecDeque<String>,
     /// Session start time
     started_at: Option<Instant>,
+    /// Git recency cache: file_path -> commit count in last 30 days
+    /// Lazy-loaded on first access, represents "hot" files in the codebase
+    git_recency: Option<std::collections::HashMap<String, u32>>,
 }
 
 impl SessionState {
@@ -122,6 +125,7 @@ impl SessionState {
             accessed_nodes: VecDeque::new(),
             query_history: VecDeque::new(),
             started_at: Some(Instant::now()),
+            git_recency: None, // Lazy-loaded on first search
         }
     }
 
@@ -199,6 +203,66 @@ impl SessionState {
     /// Check if a node has been seen
     pub fn has_seen(&self, name: &str) -> bool {
         self.accessed_nodes.iter().any(|n| n.name == name)
+    }
+
+    /// Load git recency data (files modified in last 30 days with commit counts).
+    /// This represents "hot" areas of the codebase - recently active circuits.
+    pub fn load_git_recency(&mut self) {
+        if self.git_recency.is_some() {
+            return; // Already loaded
+        }
+
+        let mut recency = std::collections::HashMap::new();
+
+        // Get files changed in last 30 days with commit counts
+        // git log --since="30 days ago" --name-only --pretty=format: gives us file names
+        let output = Command::new("git")
+            .args([
+                "log",
+                "--since=30 days ago",
+                "--name-only",
+                "--pretty=format:",
+            ])
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let file = line.trim();
+                    if !file.is_empty() {
+                        *recency.entry(file.to_string()).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        self.git_recency = Some(recency);
+    }
+
+    /// Get the git recency boost for a file path.
+    /// Returns 0.0-1.0 based on how "hot" (recently modified) the file is.
+    pub fn git_recency_boost(&self, file_path: &str) -> f32 {
+        if let Some(ref recency) = self.git_recency {
+            if let Some(&commit_count) = recency.get(file_path) {
+                // More commits = hotter file
+                // Scale: 1 commit = 0.1, 5+ commits = 0.5 (capped)
+                return (commit_count as f32 * 0.1).min(0.5);
+            }
+        }
+        0.0
+    }
+
+    /// Get all hot files (for debugging/display)
+    pub fn hot_files(&self) -> Vec<(&str, u32)> {
+        if let Some(ref recency) = self.git_recency {
+            let mut files: Vec<_> = recency.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+            files.sort_by(|a, b| b.1.cmp(&a.1));
+            files.truncate(10);
+            files
+        } else {
+            vec![]
+        }
     }
 }
 
@@ -1265,13 +1329,28 @@ impl MuMcpServer {
     /// - Exact keyword matches (e.g., "create_hnsw_index" when searching "hnsw")
     /// - Conceptually related code (e.g., storage/persistence code)
     ///
-    /// Activity-dependent boost: nodes connected to recently accessed symbols
-    /// get a ranking boost (neural plasticity: active circuits strengthen).
+    /// Two types of activity-dependent boost:
+    /// 1. Session activity: nodes connected to recently accessed symbols
+    /// 2. Git recency: files modified recently in git ("hot" codebase areas)
     async fn hybrid_search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
-        // Get recently accessed nodes for activity-dependent boosting
-        let recent_nodes: Vec<String> = {
-            let session = self.session.lock().await;
-            session.unique_nodes().iter().map(|n| n.name.clone()).collect()
+        // Get session context for activity-dependent boosting
+        let (recent_nodes, git_boosts) = {
+            let mut session = self.session.lock().await;
+
+            // Load git recency data if not already cached
+            session.load_git_recency();
+
+            // Get recently accessed nodes
+            let nodes: Vec<String> = session
+                .unique_nodes()
+                .iter()
+                .map(|n| n.name.clone())
+                .collect();
+
+            // Clone git recency for use outside the lock
+            let boosts = session.git_recency.clone().unwrap_or_default();
+
+            (nodes, boosts)
         };
 
         // Get results from both systems
@@ -1295,8 +1374,8 @@ impl MuMcpServer {
             })
             .collect();
 
-        // Apply RRF merge with activity boost
-        self.rrf_merge(bm25_converted, semantic_results, limit, &recent_nodes)
+        // Apply RRF merge with both activity boosts
+        self.rrf_merge(bm25_converted, semantic_results, limit, &recent_nodes, &git_boosts)
     }
 
     /// Reciprocal Rank Fusion - merge two ranked lists into one.
@@ -1308,21 +1387,24 @@ impl MuMcpServer {
     /// BM25 is weighted 2x higher because exact keyword matches are more valuable
     /// for code search than semantic similarity.
     ///
-    /// Activity boost: nodes connected to recently accessed symbols get boosted.
-    /// This implements "activity-dependent plasticity" - active circuits strengthen.
+    /// Two types of activity boost:
+    /// 1. Session activity: nodes connected to recently accessed symbols
+    /// 2. Git recency: files modified recently ("hot" codebase areas)
     fn rrf_merge(
         &self,
         bm25_results: Vec<SearchResult>,
         semantic_results: Vec<SearchResult>,
         limit: usize,
         recent_nodes: &[String],
+        git_boosts: &std::collections::HashMap<String, u32>,
     ) -> Vec<SearchResult> {
         use std::collections::HashMap;
 
         const K: f32 = 60.0; // RRF constant
         const BM25_WEIGHT: f32 = 2.0; // Keyword matches weighted 2x
         const SEMANTIC_WEIGHT: f32 = 1.0;
-        const ACTIVITY_WEIGHT: f32 = 0.5; // Boost for nodes near recent activity
+        const ACTIVITY_WEIGHT: f32 = 0.5; // Boost for nodes near recent session activity
+        const GIT_RECENCY_WEIGHT: f32 = 0.3; // Boost for recently modified files
 
         // Track scores and keep the result data
         let mut scores: HashMap<String, f32> = HashMap::new();
@@ -1342,12 +1424,27 @@ impl MuMcpServer {
             result_data.entry(key).or_insert(result);
         }
 
-        // Activity-dependent boost: strengthen nodes connected to recent activity
+        // Activity-dependent boost: strengthen nodes connected to recent session activity
         if !recent_nodes.is_empty() {
             let activity_boosts = self.compute_activity_boosts(&scores, recent_nodes);
             for (name, boost) in activity_boosts {
                 if let Some(score) = scores.get_mut(&name) {
                     *score += boost * ACTIVITY_WEIGHT;
+                }
+            }
+        }
+
+        // Git recency boost: strengthen nodes in recently modified files
+        if !git_boosts.is_empty() {
+            for (name, result) in result_data.iter() {
+                if let Some(ref file_path) = result.file_path {
+                    if let Some(&commit_count) = git_boosts.get(file_path) {
+                        // More commits = hotter file (capped at 5 commits for max boost)
+                        let boost = (commit_count as f32 * 0.1).min(0.5);
+                        if let Some(score) = scores.get_mut(name) {
+                            *score += boost * GIT_RECENCY_WEIGHT;
+                        }
+                    }
                 }
             }
         }
