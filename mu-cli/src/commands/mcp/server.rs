@@ -2,12 +2,15 @@
 //!
 //! Exposes MU capabilities as MCP tools that can be called by AI assistants.
 
+use std::collections::VecDeque;
 use std::fs;
 use std::future::Future;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
+
+use tokio::sync::Mutex;
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Parameters},
@@ -19,12 +22,17 @@ use serde::Deserialize;
 use tokio::sync::OnceCell;
 
 /// MU MCP Server - exposes codebase intelligence tools
+///
+/// Now with session state for activity-dependent awareness.
+/// MU remembers what you've looked at and can detect patterns.
 #[derive(Clone)]
 pub struct MuMcpServer {
     mubase: Arc<mu_daemon::storage::MUbase>,
     model: Arc<OnceCell<mu_embeddings::MuSigmaModel>>,
     project_root: PathBuf,
     tool_router: ToolRouter<MuMcpServer>,
+    /// Session state for cognitive layer - tracks accessed nodes and queries
+    session: Arc<Mutex<SessionState>>,
 }
 
 // Tool parameter structs
@@ -80,6 +88,120 @@ pub struct OracleParams {
     pub task: String,
 }
 
+// ============================================================================
+// Session State - Activity-dependent awareness for the cognitive layer
+// ============================================================================
+
+/// A node that was accessed during this session
+#[derive(Debug, Clone)]
+pub struct AccessedNode {
+    pub name: String,
+    pub node_type: String,
+    pub file_path: Option<String>,
+    pub accessed_at: Instant,
+    pub query: String, // The query that led to this access
+}
+
+/// Session state tracking - gives MU memory across MCP calls
+#[derive(Debug, Default)]
+pub struct SessionState {
+    /// Recently accessed nodes (most recent first)
+    accessed_nodes: VecDeque<AccessedNode>,
+    /// Query history for pattern detection
+    query_history: VecDeque<String>,
+    /// Session start time
+    started_at: Option<Instant>,
+}
+
+impl SessionState {
+    const MAX_NODES: usize = 50;
+    const MAX_QUERIES: usize = 20;
+
+    pub fn new() -> Self {
+        Self {
+            accessed_nodes: VecDeque::new(),
+            query_history: VecDeque::new(),
+            started_at: Some(Instant::now()),
+        }
+    }
+
+    /// Record that nodes were accessed via a query
+    fn record_access(&mut self, query: &str, nodes: &[SearchResult]) {
+        // Record the query
+        self.query_history.push_front(query.to_string());
+        if self.query_history.len() > Self::MAX_QUERIES {
+            self.query_history.pop_back();
+        }
+
+        // Record accessed nodes
+        let now = Instant::now();
+        for node in nodes {
+            self.accessed_nodes.push_front(AccessedNode {
+                name: node.name.clone(),
+                node_type: node.node_type.clone(),
+                file_path: node.file_path.clone(),
+                accessed_at: now,
+                query: query.to_string(),
+            });
+        }
+
+        // Trim to max size
+        while self.accessed_nodes.len() > Self::MAX_NODES {
+            self.accessed_nodes.pop_back();
+        }
+    }
+
+    /// Get unique nodes accessed (deduped by name)
+    pub fn unique_nodes(&self) -> Vec<&AccessedNode> {
+        let mut seen = std::collections::HashSet::new();
+        self.accessed_nodes
+            .iter()
+            .filter(|n| seen.insert(&n.name))
+            .collect()
+    }
+
+    /// Count how many times a node has been accessed
+    pub fn access_count(&self, name: &str) -> usize {
+        self.accessed_nodes.iter().filter(|n| n.name == name).count()
+    }
+
+    /// Detect if we're stuck in a cluster (same nodes accessed repeatedly)
+    pub fn detect_rumination(&self) -> Option<Vec<String>> {
+        if self.query_history.len() < 3 {
+            return None;
+        }
+
+        // Count node access frequency
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for node in &self.accessed_nodes {
+            *counts.entry(&node.name).or_default() += 1;
+        }
+
+        // Find nodes accessed 3+ times
+        let repeated: Vec<String> = counts
+            .iter()
+            .filter(|(_, count)| **count >= 3)
+            .map(|(name, _)| name.to_string())
+            .collect();
+
+        if repeated.len() >= 2 {
+            Some(repeated)
+        } else {
+            None
+        }
+    }
+
+    /// Get query count
+    pub fn query_count(&self) -> usize {
+        self.query_history.len()
+    }
+
+    /// Check if a node has been seen
+    pub fn has_seen(&self, name: &str) -> bool {
+        self.accessed_nodes.iter().any(|n| n.name == name)
+    }
+}
+
 #[tool_router]
 impl MuMcpServer {
     pub fn new(mubase: mu_daemon::storage::MUbase, project_root: PathBuf) -> Self {
@@ -88,6 +210,7 @@ impl MuMcpServer {
             model: Arc::new(OnceCell::new()),
             project_root,
             tool_router: Self::tool_router(),
+            session: Arc::new(Mutex::new(SessionState::new())),
         }
     }
 
@@ -111,6 +234,12 @@ impl MuMcpServer {
             self.run_keyword_search(&params.query, limit)
                 .unwrap_or_default()
         };
+
+        // Record this access in session state (activity-dependent awareness)
+        {
+            let mut session = self.session.lock().await;
+            session.record_access(&params.query, &results);
+        }
 
         let mut output = String::new();
         output.push_str(&format!("# grok: \"{}\"\n", params.query));
@@ -831,6 +960,12 @@ impl MuMcpServer {
         // with semantic search (finds conceptually related code)
         let must_read = self.hybrid_search(&params.task, 7).await;
 
+        // Record this access in session state (activity-dependent awareness)
+        {
+            let mut session = self.session.lock().await;
+            session.record_access(&params.task, &must_read);
+        }
+
         // Collect file paths from must-read for pattern extraction
         let must_read_files: Vec<String> = must_read
             .iter()
@@ -930,6 +1065,69 @@ impl MuMcpServer {
             for pattern in &patterns {
                 output.push_str(&format!("- {}\n", pattern));
             }
+        }
+
+        // === SESSION AWARENESS SECTION ===
+        // This is the cognitive layer - MU telling the LLM what it knows about the exploration
+        output.push_str("\n---\n\n## 🧠 Session Awareness\n\n");
+
+        let session = self.session.lock().await;
+        let unique_nodes = session.unique_nodes();
+        let query_count = session.query_count();
+
+        output.push_str(&format!(
+            "**Exploration**: {} queries, {} unique symbols explored\n\n",
+            query_count,
+            unique_nodes.len()
+        ));
+
+        // Show recently accessed nodes (brief summary)
+        if !unique_nodes.is_empty() {
+            output.push_str("**Recently accessed**:\n");
+            for node in unique_nodes.iter().take(5) {
+                let sigil = match node.node_type.as_str() {
+                    "module" => "!",
+                    "class" => "$",
+                    "function" => "#",
+                    _ => "@",
+                };
+                let access_count = session.access_count(&node.name);
+                if access_count > 1 {
+                    output.push_str(&format!(
+                        "- {}{} (×{}) — {}\n",
+                        sigil,
+                        node.name,
+                        access_count,
+                        node.file_path.as_deref().unwrap_or("unknown")
+                    ));
+                } else {
+                    output.push_str(&format!(
+                        "- {}{} — {}\n",
+                        sigil,
+                        node.name,
+                        node.file_path.as_deref().unwrap_or("unknown")
+                    ));
+                }
+            }
+            output.push('\n');
+        }
+
+        // Rumination detection - are we stuck in a loop?
+        if let Some(repeated_nodes) = session.detect_rumination() {
+            output.push_str("**⚠️ Pattern Alert**: You've been revisiting the same nodes:\n");
+            for node in &repeated_nodes {
+                output.push_str(&format!("- {} ({}× accessed)\n", node, session.access_count(node)));
+            }
+
+            // Find unexplored neighbors as escape routes
+            let escape_routes = self.find_unexplored_neighbors(&repeated_nodes, &session);
+            if !escape_routes.is_empty() {
+                output.push_str("\n**Suggested escape routes** (unexplored neighbors):\n");
+                for (name, file_path, relationship) in escape_routes.iter().take(3) {
+                    output.push_str(&format!("- {} — {} ({})\n", name, file_path, relationship));
+                }
+            }
+            output.push('\n');
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -1501,6 +1699,63 @@ impl MuMcpServer {
         }
 
         None
+    }
+
+    /// Find unexplored neighbors of nodes the user has been revisiting.
+    /// These are potential "escape routes" from rumination loops.
+    fn find_unexplored_neighbors(
+        &self,
+        repeated_nodes: &[String],
+        session: &SessionState,
+    ) -> Vec<(String, String, String)> {
+        let mut neighbors = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for node_name in repeated_nodes {
+            // Find both incoming and outgoing edges from this node
+            let sql = format!(
+                "SELECT DISTINCT n.name, n.file_path, e.type
+                 FROM edges e
+                 JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id)
+                 WHERE (e.source_id IN (SELECT id FROM nodes WHERE name = '{}')
+                    OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}'))
+                   AND n.name != '{}'
+                 LIMIT 10",
+                node_name.replace('\'', "''"),
+                node_name.replace('\'', "''"),
+                node_name.replace('\'', "''")
+            );
+
+            if let Ok(result) = self.mubase.query(&sql) {
+                for row in &result.rows {
+                    let name = row
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    // Skip if already seen in session or already in our list
+                    if session.has_seen(&name) || !seen.insert(name.clone()) {
+                        continue;
+                    }
+
+                    let file_path = row
+                        .get(1)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let relationship = row
+                        .get(2)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("related")
+                        .to_string();
+
+                    neighbors.push((name, file_path, relationship));
+                }
+            }
+        }
+
+        neighbors
     }
 }
 
