@@ -719,9 +719,25 @@ fn build_module_graph(
             class.start_line,
             class.end_line,
         );
+
+        // Build properties JSON with decorators and metadata
+        let mut props = serde_json::Map::new();
         if let Some(ref docstring) = class.docstring {
-            class_node = class_node.with_properties(json!({"docstring": docstring}));
+            props.insert("docstring".to_string(), json!(docstring));
         }
+        if !class.decorators.is_empty() {
+            props.insert("decorators".to_string(), json!(class.decorators));
+        }
+        // Mark as DTO if class has only properties (no method bodies)
+        let is_dto = !class.methods.is_empty()
+            && class.methods.iter().all(|m| m.is_property || m.body_source.is_none());
+        if is_dto {
+            props.insert("is_dto".to_string(), json!(true));
+        }
+        if !props.is_empty() {
+            class_node = class_node.with_properties(serde_json::Value::Object(props));
+        }
+
         let class_id = class_node.id.clone();
         nodes.push(class_node);
         edges.push(mu_daemon::storage::Edge::contains(&module_id, &class_id));
@@ -754,9 +770,26 @@ fn build_module_graph(
                 method.end_line,
                 method.body_complexity,
             );
+
+            // Build properties JSON with decorators and metadata
+            let mut method_props = serde_json::Map::new();
             if let Some(ref docstring) = method.docstring {
-                method_node = method_node.with_properties(json!({"docstring": docstring}));
+                method_props.insert("docstring".to_string(), json!(docstring));
             }
+            if !method.decorators.is_empty() {
+                method_props.insert("decorators".to_string(), json!(method.decorators));
+            }
+            if method.is_property {
+                method_props.insert("is_property".to_string(), json!(true));
+            }
+            // Inherit DTO status from parent class
+            if is_dto {
+                method_props.insert("parent_is_dto".to_string(), json!(true));
+            }
+            if !method_props.is_empty() {
+                method_node = method_node.with_properties(serde_json::Value::Object(method_props));
+            }
+
             let method_id = method_node.id.clone();
             nodes.push(method_node);
             edges.push(mu_daemon::storage::Edge::contains(&class_id, &method_id));
@@ -773,9 +806,19 @@ fn build_module_graph(
             func.end_line,
             func.body_complexity,
         );
+
+        // Build properties JSON with decorators
+        let mut func_props = serde_json::Map::new();
         if let Some(ref docstring) = func.docstring {
-            func_node = func_node.with_properties(json!({"docstring": docstring}));
+            func_props.insert("docstring".to_string(), json!(docstring));
         }
+        if !func.decorators.is_empty() {
+            func_props.insert("decorators".to_string(), json!(func.decorators));
+        }
+        if !func_props.is_empty() {
+            func_node = func_node.with_properties(serde_json::Value::Object(func_props));
+        }
+
         let func_id = func_node.id.clone();
         nodes.push(func_node);
         edges.push(mu_daemon::storage::Edge::contains(&module_id, &func_id));

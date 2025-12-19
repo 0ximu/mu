@@ -33,6 +33,37 @@ const ENTRY_POINT_PATTERNS: &[&str] = &[
 /// Test function patterns
 const TEST_PATTERNS: &[&str] = &["test_", "_test", "Test", "test"];
 
+/// .NET serialization/ORM attributes that indicate reflection-based access
+/// Functions with these attributes are accessed by frameworks, not direct calls
+const DOTNET_SERIALIZATION_ATTRS: &[&str] = &[
+    "JsonProperty",
+    "JsonPropertyName",
+    "JsonIgnore",
+    "Column",
+    "Required",
+    "Key",
+    "ForeignKey",
+    "NotMapped",
+    "DataMember",
+    "DataContract",
+    "XmlElement",
+    "XmlAttribute",
+    "ProtoMember",
+    "BsonElement",
+    "MaxLength",
+    "MinLength",
+    "Range",
+    "EmailAddress",
+    "Phone",
+    "Url",
+    "RegularExpression",
+    "Compare",
+    "Display",
+    "DisplayName",
+    "Description",
+    "DefaultValue",
+];
+
 /// A potentially dead function
 #[derive(Debug, Clone, Serialize)]
 pub struct DeadFunction {
@@ -296,8 +327,9 @@ fn find_orphans(conn: &Connection) -> Result<Vec<DeadFunction>> {
         .map(|p| format!("AND LOWER(n.name) NOT LIKE '%{}%'", p.to_lowercase()))
         .collect();
 
+    // Include properties in query for filtering
     let sql = format!(
-        "SELECT n.id, n.name, n.file_path, n.line_start
+        "SELECT n.id, n.name, n.file_path, n.line_start, n.properties
          FROM nodes n
          WHERE n.type = 'function'
          AND n.file_path IS NOT NULL
@@ -309,7 +341,7 @@ fn find_orphans(conn: &Connection) -> Result<Vec<DeadFunction>> {
          )
          {}
          ORDER BY n.file_path, n.name
-         LIMIT 100",
+         LIMIT 500",
         entry_point_clauses.join("\n         ")
     );
 
@@ -322,10 +354,44 @@ fn find_orphans(conn: &Connection) -> Result<Vec<DeadFunction>> {
         let name: String = row.get(1)?;
         let file_path: String = row.get(2)?;
         let line_start: Option<i64> = row.get(3)?;
+        let properties: Option<String> = row.get(4)?;
 
         // Additional filter: skip private functions (start with _)
         if name.starts_with('_') && !name.starts_with("__") {
             continue;
+        }
+
+        // Filter out .NET false positives using properties
+        if let Some(ref props_str) = properties {
+            if let Ok(props) = serde_json::from_str::<serde_json::Value>(props_str) {
+                // Skip properties on DTO classes (accessed via reflection/serialization)
+                if props.get("parent_is_dto").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    continue;
+                }
+
+                // Skip ALL orphan properties - if a property has no callers, it's accessed
+                // via reflection (config binding, serialization, ORM, etc.)
+                // Properties WITH callers are already excluded from the orphan set
+                if props.get("is_property").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    continue;
+                }
+
+                // Skip functions with serialization/validation attributes
+                if let Some(decorators) = props.get("decorators").and_then(|v| v.as_array()) {
+                    let has_framework_attr = decorators.iter().any(|d| {
+                        if let Some(decorator_str) = d.as_str() {
+                            DOTNET_SERIALIZATION_ATTRS
+                                .iter()
+                                .any(|attr| decorator_str.contains(attr))
+                        } else {
+                            false
+                        }
+                    });
+                    if has_framework_attr {
+                        continue;
+                    }
+                }
+            }
         }
 
         orphans.push(DeadFunction {
@@ -362,9 +428,9 @@ fn find_untested(conn: &Connection) -> Result<Vec<DeadFunction>> {
         test_condition
     );
 
-    // Find public functions not in the tested set
+    // Find public functions not in the tested set (include properties for filtering)
     let sql = format!(
-        "SELECT n.id, n.name, n.file_path, n.line_start
+        "SELECT n.id, n.name, n.file_path, n.line_start, n.properties
          FROM nodes n
          WHERE n.type = 'function'
          AND n.file_path IS NOT NULL
@@ -373,7 +439,7 @@ fn find_untested(conn: &Connection) -> Result<Vec<DeadFunction>> {
          AND n.file_path NOT LIKE '%mock%'
          AND n.id NOT IN ({})
          ORDER BY n.file_path, n.name
-         LIMIT 100",
+         LIMIT 500",
         test_sql
     );
 
@@ -386,6 +452,7 @@ fn find_untested(conn: &Connection) -> Result<Vec<DeadFunction>> {
         let name: String = row.get(1)?;
         let file_path: String = row.get(2)?;
         let line_start: Option<i64> = row.get(3)?;
+        let properties: Option<String> = row.get(4)?;
 
         // Skip private functions (start with single _)
         if name.starts_with('_') && !name.starts_with("__") {
@@ -399,6 +466,21 @@ fn find_untested(conn: &Connection) -> Result<Vec<DeadFunction>> {
             .any(|p| name_lower.contains(&p.to_lowercase()))
         {
             continue;
+        }
+
+        // Filter out .NET false positives using properties
+        if let Some(ref props_str) = properties {
+            if let Ok(props) = serde_json::from_str::<serde_json::Value>(props_str) {
+                // Skip properties on DTO classes (accessed via reflection/serialization)
+                if props.get("parent_is_dto").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    continue;
+                }
+
+                // Skip ALL properties - they're tested indirectly through the classes that use them
+                if props.get("is_property").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    continue;
+                }
+            }
         }
 
         untested.push(DeadFunction {
