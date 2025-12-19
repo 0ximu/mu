@@ -100,6 +100,14 @@ enum Commands {
         /// Fail on .murc.toml errors instead of silently using defaults
         #[arg(long)]
         strict: bool,
+
+        /// Create HNSW index for fast approximate vector search
+        #[arg(long)]
+        hnsw: bool,
+
+        /// Skip HNSW index creation without prompting
+        #[arg(long, conflicts_with = "hnsw")]
+        no_hnsw: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -239,6 +247,41 @@ enum Commands {
         /// Head git ref (branch, commit, tag) - defaults to HEAD
         #[arg(default_value = "HEAD")]
         head_ref: String,
+    },
+
+    /// Detect dead code and missing test coverage
+    Coverage {
+        /// Show only orphan functions (no callers)
+        #[arg(long)]
+        orphans: bool,
+
+        /// Show only untested public functions
+        #[arg(long)]
+        untested: bool,
+    },
+
+    /// Explain how two nodes are connected in the codebase
+    Why {
+        /// Source node (class, function, or module name)
+        from: String,
+
+        /// Target node (class, function, or module name)
+        to: String,
+
+        /// Show all paths, not just the shortest
+        #[arg(long)]
+        all: bool,
+
+        /// Maximum number of paths to show (default: 5)
+        #[arg(long, default_value = "5")]
+        max_paths: usize,
+    },
+
+    /// Intelligent PR review with risk analysis
+    Review {
+        /// Git range to review (e.g., HEAD~3..HEAD, main..feature-branch)
+        /// If not specified, reviews uncommitted changes
+        range: Option<String>,
     },
 
     /// Find downstream impact (what might break if this node changes)
@@ -397,6 +440,29 @@ enum Commands {
         limit: usize,
     },
 
+    // ==================== Integration ====================
+    /// Start MCP server for AI assistant integration (Claude, etc.)
+    Mcp {
+        /// Working directory (defaults to current)
+        #[arg(default_value = ".")]
+        path: String,
+    },
+
+    /// Start HTTP server with file watching for incremental updates
+    Serve {
+        /// Working directory (defaults to current)
+        #[arg(default_value = ".")]
+        path: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value = "1337")]
+        port: u16,
+
+        /// Disable file watching
+        #[arg(long)]
+        no_watch: bool,
+    },
+
     // ==================== Utilities ====================
     /// Run health checks on MU installation
     Doctor {
@@ -494,7 +560,9 @@ async fn main() -> anyhow::Result<()> {
             embed,
             no_embed,
             strict,
-        } => bootstrap::run(&path, force, embed, no_embed, strict, format).await,
+            hnsw,
+            no_hnsw,
+        } => bootstrap::run(&path, force, embed, no_embed, hnsw, no_hnsw, strict, format).await,
         Commands::Compress {
             path,
             output,
@@ -548,6 +616,14 @@ async fn main() -> anyhow::Result<()> {
         } => deps::run(&node, true, depth, include_contains, format).await,
         Commands::Read { path, line_numbers } => read::run(&path, line_numbers, format).await,
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
+        Commands::Coverage { orphans, untested } => coverage::run(orphans, untested, format).await,
+        Commands::Why {
+            from,
+            to,
+            all,
+            max_paths,
+        } => why::run(&from, &to, all, max_paths, format).await,
+        Commands::Review { range } => review::run(range.as_deref(), format).await,
 
         // Graph analysis commands
         Commands::Impact {
@@ -604,6 +680,14 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::History { node, limit } => history::run(&node, limit, format).await,
+
+        // Integration commands
+        Commands::Mcp { path } => mcp::run(&path).await,
+        Commands::Serve {
+            path,
+            port,
+            no_watch,
+        } => serve::run(&path, port, !no_watch, format).await,
 
         // Utility commands
         Commands::Doctor { path } => doctor::run(&path, format).await,

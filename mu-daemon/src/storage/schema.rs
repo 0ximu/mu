@@ -131,10 +131,10 @@ CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
 
 -- Embeddings table for vector storage
--- Note: embedding stored as JSON array string since DuckDB Rust API has limited FLOAT[] support
+-- Native FLOAT[384] arrays for efficient similarity search with array_cosine_similarity()
 CREATE TABLE IF NOT EXISTS embeddings (
     node_id VARCHAR PRIMARY KEY,
-    embedding VARCHAR NOT NULL,
+    embedding FLOAT[384] NOT NULL,
     model VARCHAR NOT NULL DEFAULT 'mu-sigma-v2',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -150,7 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 "#;
 
 /// Schema version for migrations
-pub const SCHEMA_VERSION: &str = "1.0.0";
+/// - 1.0.0: Initial schema with VARCHAR JSON embeddings
+/// - 1.1.0: Native FLOAT[384] embeddings with in-SQL cosine similarity
+pub const SCHEMA_VERSION: &str = "1.1.0";
 
 #[cfg(test)]
 mod tests {

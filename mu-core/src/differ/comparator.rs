@@ -650,7 +650,6 @@ pub fn semantic_diff_files(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ImportDef;
 
     fn make_param(name: &str, type_ann: Option<&str>, default: Option<&str>) -> ParameterDef {
         ParameterDef {

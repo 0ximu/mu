@@ -48,6 +48,14 @@ tracing-subscriber = { workspace = true }
 # HTTP client
 reqwest = { workspace = true }
 
+# HTTP server (for mu serve)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# File watching (for incremental updates)
+notify = "7"
+notify-debouncer-mini = "0.5"
+
 # Utilities
 chrono = { workspace = true }
 dirs = "5"
@@ -69,6 +77,10 @@ blake3 = "1.5"
 
 # Syntax highlighting
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
+
+# MCP server (Model Context Protocol)
+rmcp = { version = "0.3", features = ["server", "transport-io"] }
+schemars = "1.0.0-alpha.17"
 
 [dev-dependencies]
 tempfile = "3"

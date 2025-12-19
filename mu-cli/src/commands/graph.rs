@@ -69,9 +69,17 @@ pub struct GraphData {
 
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
-    name: String,
-    node_type: String,
-    file_path: Option<String>,
+    pub name: String,
+    pub node_type: String,
+    pub file_path: Option<String>,
+}
+
+/// A step in a path with the edge type used to reach the next node.
+/// The last step in a path will have edge_type = None.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PathStep {
+    pub node_id: String,
+    pub edge_type: Option<String>,
 }
 
 impl GraphData {
@@ -181,14 +189,89 @@ impl GraphData {
         self.traverse_bfs(node_id, Direction::Outgoing, edge_types, max_depth)
     }
 
-    /// Find ancestors (upstream reachable nodes)
+    /// Find ancestors (upstream reachable nodes - what this node depends on)
+    ///
+    /// For most edge types (calls, imports, inherits), follows incoming edges.
+    /// For `uses` edges, follows outgoing edges since A--uses-->B means A depends on B.
     pub fn ancestors(
         &self,
         node_id: &str,
         edge_types: Option<&[String]>,
         max_depth: Option<u8>,
     ) -> Vec<String> {
-        self.traverse_bfs(node_id, Direction::Incoming, edge_types, max_depth)
+        self.traverse_bfs_ancestors(node_id, edge_types, max_depth)
+    }
+
+    /// BFS traversal for ancestors that handles `uses` edges specially.
+    /// - For `uses` edges: follow Outgoing (A--uses-->B means A depends on B)
+    /// - For other edges: follow Incoming (A--calls-->B means B depends on A being called)
+    fn traverse_bfs_ancestors(
+        &self,
+        node_id: &str,
+        edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
+    ) -> Vec<String> {
+        let start = match self.node_map.get(node_id) {
+            Some(&idx) => idx,
+            None => return vec![],
+        };
+
+        let allowed: Option<HashSet<&String>> = edge_types.map(|t| t.iter().collect());
+
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        let mut result = Vec::new();
+        let mut queue: VecDeque<(NodeIndex, u8)> = VecDeque::new();
+
+        visited.insert(start);
+        queue.push_back((start, 0));
+
+        while let Some((current, depth)) = queue.pop_front() {
+            if let Some(max) = max_depth {
+                if depth >= max {
+                    continue;
+                }
+            }
+
+            // For `uses` edges, follow Outgoing direction (A--uses-->B means A depends on B)
+            for edge in self.graph.edges_directed(current, Direction::Outgoing) {
+                if edge.weight() != "uses" {
+                    continue;
+                }
+                if let Some(ref allowed_types) = allowed {
+                    if !allowed_types.contains(edge.weight()) {
+                        continue;
+                    }
+                }
+
+                let neighbor = edge.target();
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    result.push(self.reverse_map[&neighbor].clone());
+                    queue.push_back((neighbor, depth + 1));
+                }
+            }
+
+            // For other edges (calls, imports, inherits, contains), follow Incoming direction
+            for edge in self.graph.edges_directed(current, Direction::Incoming) {
+                if edge.weight() == "uses" {
+                    continue; // Already handled above
+                }
+                if let Some(ref allowed_types) = allowed {
+                    if !allowed_types.contains(edge.weight()) {
+                        continue;
+                    }
+                }
+
+                let neighbor = edge.source();
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    result.push(self.reverse_map[&neighbor].clone());
+                    queue.push_back((neighbor, depth + 1));
+                }
+            }
+        }
+
+        result
     }
 
     /// Find shortest path between two nodes (bidirectional search).
@@ -341,6 +424,234 @@ impl GraphData {
         }
 
         None
+    }
+
+    /// Find shortest path with edge types between two nodes.
+    /// Returns a vector of PathSteps showing nodes and the edges connecting them.
+    pub fn shortest_path_with_edges(&self, from_id: &str, to_id: &str) -> Option<Vec<PathStep>> {
+        let start = *self.node_map.get(from_id)?;
+        let end = *self.node_map.get(to_id)?;
+
+        if start == end {
+            return Some(vec![PathStep {
+                node_id: from_id.to_string(),
+                edge_type: None,
+            }]);
+        }
+
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        // Track parent and the edge type used to reach each node
+        let mut parent: HashMap<NodeIndex, (NodeIndex, String)> = HashMap::new();
+        let mut queue = VecDeque::new();
+
+        visited.insert(start);
+        queue.push_back(start);
+
+        while let Some(current) = queue.pop_front() {
+            // Check both directions to find paths
+            for edge in self.graph.edges_directed(current, Direction::Outgoing) {
+                let neighbor = edge.target();
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    parent.insert(neighbor, (current, edge.weight().clone()));
+
+                    if neighbor == end {
+                        return Some(self.reconstruct_path_with_edges(start, end, &parent));
+                    }
+                    queue.push_back(neighbor);
+                }
+            }
+
+            for edge in self.graph.edges_directed(current, Direction::Incoming) {
+                let neighbor = edge.source();
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    // For incoming edges, we still record the edge type
+                    parent.insert(neighbor, (current, edge.weight().clone()));
+
+                    if neighbor == end {
+                        return Some(self.reconstruct_path_with_edges(start, end, &parent));
+                    }
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Reconstruct path with edge types from parent map.
+    fn reconstruct_path_with_edges(
+        &self,
+        start: NodeIndex,
+        end: NodeIndex,
+        parent: &HashMap<NodeIndex, (NodeIndex, String)>,
+    ) -> Vec<PathStep> {
+        let mut path = Vec::new();
+        let mut curr = end;
+
+        // Build path backwards
+        while curr != start {
+            if let Some((prev, _edge_type)) = parent.get(&curr) {
+                path.push(PathStep {
+                    node_id: self.reverse_map[&curr].clone(),
+                    edge_type: None, // Will be filled in from the next step
+                });
+                curr = *prev;
+            } else {
+                break;
+            }
+        }
+
+        // Add start node
+        path.push(PathStep {
+            node_id: self.reverse_map[&start].clone(),
+            edge_type: None,
+        });
+
+        path.reverse();
+
+        // Now fill in edge types (edge_type on step i = edge from i to i+1)
+        for i in 0..path.len().saturating_sub(1) {
+            let from_idx = self.node_map[&path[i].node_id];
+            let to_idx = self.node_map[&path[i + 1].node_id];
+
+            // Find the edge between these nodes
+            if let Some(edge) = self
+                .graph
+                .edges_directed(from_idx, Direction::Outgoing)
+                .find(|e| e.target() == to_idx)
+            {
+                path[i].edge_type = Some(edge.weight().clone());
+            } else if let Some(edge) = self
+                .graph
+                .edges_directed(to_idx, Direction::Outgoing)
+                .find(|e| e.target() == from_idx)
+            {
+                // Edge goes the other direction
+                path[i].edge_type = Some(format!("<-{}", edge.weight()));
+            }
+        }
+
+        path
+    }
+
+    /// Find all paths between two nodes using DFS with cycle detection.
+    /// Limited by max_depth (default 6) and max_paths.
+    pub fn all_paths_with_edges(
+        &self,
+        from_id: &str,
+        to_id: &str,
+        max_depth: usize,
+        max_paths: usize,
+    ) -> Vec<Vec<PathStep>> {
+        let start = match self.node_map.get(from_id) {
+            Some(&idx) => idx,
+            None => return vec![],
+        };
+        let end = match self.node_map.get(to_id) {
+            Some(&idx) => idx,
+            None => return vec![],
+        };
+
+        if start == end {
+            return vec![vec![PathStep {
+                node_id: from_id.to_string(),
+                edge_type: None,
+            }]];
+        }
+
+        let mut all_paths = Vec::new();
+        let mut current_path: Vec<(NodeIndex, Option<String>)> = vec![(start, None)];
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        visited.insert(start);
+
+        self.dfs_all_paths(
+            start,
+            end,
+            &mut current_path,
+            &mut visited,
+            &mut all_paths,
+            max_depth,
+            max_paths,
+        );
+
+        // Convert to PathSteps
+        all_paths
+            .into_iter()
+            .map(|path| {
+                path.into_iter()
+                    .map(|(idx, edge_type)| PathStep {
+                        node_id: self.reverse_map[&idx].clone(),
+                        edge_type,
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// DFS helper for finding all paths.
+    fn dfs_all_paths(
+        &self,
+        current: NodeIndex,
+        target: NodeIndex,
+        path: &mut Vec<(NodeIndex, Option<String>)>,
+        visited: &mut HashSet<NodeIndex>,
+        all_paths: &mut Vec<Vec<(NodeIndex, Option<String>)>>,
+        max_depth: usize,
+        max_paths: usize,
+    ) {
+        if all_paths.len() >= max_paths {
+            return;
+        }
+
+        if path.len() > max_depth {
+            return;
+        }
+
+        if current == target {
+            all_paths.push(path.clone());
+            return;
+        }
+
+        // Explore outgoing edges
+        for edge in self.graph.edges_directed(current, Direction::Outgoing) {
+            let neighbor = edge.target();
+            if !visited.contains(&neighbor) {
+                visited.insert(neighbor);
+                // Update the edge type on the current node (last in path)
+                if let Some(last) = path.last_mut() {
+                    last.1 = Some(edge.weight().clone());
+                }
+                path.push((neighbor, None));
+
+                self.dfs_all_paths(
+                    neighbor, target, path, visited, all_paths, max_depth, max_paths,
+                );
+
+                path.pop();
+                visited.remove(&neighbor);
+            }
+        }
+
+        // Also explore incoming edges (bidirectional search)
+        for edge in self.graph.edges_directed(current, Direction::Incoming) {
+            let neighbor = edge.source();
+            if !visited.contains(&neighbor) {
+                visited.insert(neighbor);
+                if let Some(last) = path.last_mut() {
+                    last.1 = Some(format!("<-{}", edge.weight()));
+                }
+                path.push((neighbor, None));
+
+                self.dfs_all_paths(
+                    neighbor, target, path, visited, all_paths, max_depth, max_paths,
+                );
+
+                path.pop();
+                visited.remove(&neighbor);
+            }
+        }
     }
 
     /// BFS traversal in a given direction with optional depth limit
@@ -895,7 +1206,8 @@ fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
 
     match matches.len() {
         0 => Err(anyhow::anyhow!("Node not found: {}", query)),
-        1 => Ok(matches.into_iter().next().unwrap().0),
+        // Safe: len() == 1 guarantees next() returns Some
+        1 => Ok(matches.into_iter().next().expect("len is 1").0),
         _ => {
             // Sort matches by type priority (class > module > function) then by name
             let mut matches = matches;

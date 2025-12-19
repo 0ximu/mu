@@ -820,7 +820,7 @@ public class Stream {
 
         // Should capture multiple calls in the chain
         assert!(
-            method.call_sites.len() >= 1,
+            !method.call_sites.is_empty(),
             "Expected at least 1 call site for stream chain"
         );
 

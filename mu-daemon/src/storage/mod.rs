@@ -5,10 +5,12 @@
 //! - Node and edge CRUD operations
 //! - Graph loading into petgraph
 //! - Embedding storage and vector search
+//! - Database migrations between schema versions
 
 mod edges;
 mod embeddings;
 mod graph_engine;
+pub mod migrations;
 mod mubase;
 mod nodes;
 mod schema;
