@@ -1264,7 +1264,16 @@ impl MuMcpServer {
     /// This ensures we find both:
     /// - Exact keyword matches (e.g., "create_hnsw_index" when searching "hnsw")
     /// - Conceptually related code (e.g., storage/persistence code)
+    ///
+    /// Activity-dependent boost: nodes connected to recently accessed symbols
+    /// get a ranking boost (neural plasticity: active circuits strengthen).
     async fn hybrid_search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        // Get recently accessed nodes for activity-dependent boosting
+        let recent_nodes: Vec<String> = {
+            let session = self.session.lock().await;
+            session.unique_nodes().iter().map(|n| n.name.clone()).collect()
+        };
+
         // Get results from both systems
         let bm25_results = self
             .mubase
@@ -1286,8 +1295,8 @@ impl MuMcpServer {
             })
             .collect();
 
-        // Apply RRF merge
-        self.rrf_merge(bm25_converted, semantic_results, limit)
+        // Apply RRF merge with activity boost
+        self.rrf_merge(bm25_converted, semantic_results, limit, &recent_nodes)
     }
 
     /// Reciprocal Rank Fusion - merge two ranked lists into one.
@@ -1298,17 +1307,22 @@ impl MuMcpServer {
     /// k=60 is the standard constant that balances contribution from different ranks.
     /// BM25 is weighted 2x higher because exact keyword matches are more valuable
     /// for code search than semantic similarity.
+    ///
+    /// Activity boost: nodes connected to recently accessed symbols get boosted.
+    /// This implements "activity-dependent plasticity" - active circuits strengthen.
     fn rrf_merge(
         &self,
         bm25_results: Vec<SearchResult>,
         semantic_results: Vec<SearchResult>,
         limit: usize,
+        recent_nodes: &[String],
     ) -> Vec<SearchResult> {
         use std::collections::HashMap;
 
         const K: f32 = 60.0; // RRF constant
         const BM25_WEIGHT: f32 = 2.0; // Keyword matches weighted 2x
         const SEMANTIC_WEIGHT: f32 = 1.0;
+        const ACTIVITY_WEIGHT: f32 = 0.5; // Boost for nodes near recent activity
 
         // Track scores and keep the result data
         let mut scores: HashMap<String, f32> = HashMap::new();
@@ -1326,6 +1340,16 @@ impl MuMcpServer {
             let key = result.name.clone();
             *scores.entry(key.clone()).or_default() += SEMANTIC_WEIGHT / (K + rank as f32 + 1.0);
             result_data.entry(key).or_insert(result);
+        }
+
+        // Activity-dependent boost: strengthen nodes connected to recent activity
+        if !recent_nodes.is_empty() {
+            let activity_boosts = self.compute_activity_boosts(&scores, recent_nodes);
+            for (name, boost) in activity_boosts {
+                if let Some(score) = scores.get_mut(&name) {
+                    *score += boost * ACTIVITY_WEIGHT;
+                }
+            }
         }
 
         // Sort by RRF score
@@ -1756,6 +1780,80 @@ impl MuMcpServer {
         }
 
         neighbors
+    }
+
+    /// Compute activity boosts for search results based on graph proximity to recent nodes.
+    ///
+    /// Neural plasticity principle: nodes connected to recently "active" (accessed) nodes
+    /// should be boosted in search results. This implements "activity-dependent strengthening".
+    ///
+    /// Returns: Vec of (node_name, boost_factor) for nodes that deserve a boost.
+    fn compute_activity_boosts(
+        &self,
+        candidates: &std::collections::HashMap<String, f32>,
+        recent_nodes: &[String],
+    ) -> Vec<(String, f32)> {
+        let mut boosts = Vec::new();
+
+        // Skip if no recent activity
+        if recent_nodes.is_empty() {
+            return boosts;
+        }
+
+        // Build a set of recent node names for quick lookup
+        let recent_set: std::collections::HashSet<&str> =
+            recent_nodes.iter().map(|s| s.as_str()).collect();
+
+        // For each candidate, check if it's connected to any recent node
+        for candidate_name in candidates.keys() {
+            // Skip if the candidate IS a recent node (don't double-boost)
+            if recent_set.contains(candidate_name.as_str()) {
+                // Direct hit: strong boost
+                boosts.push((candidate_name.clone(), 1.0));
+                continue;
+            }
+
+            // Check if candidate is a 1-hop neighbor of any recent node
+            let sql = format!(
+                "SELECT COUNT(*) FROM edges e
+                 JOIN nodes n1 ON n1.id = e.source_id
+                 JOIN nodes n2 ON n2.id = e.target_id
+                 WHERE (n1.name = '{}' AND n2.name IN ({}))
+                    OR (n2.name = '{}' AND n1.name IN ({}))",
+                candidate_name.replace('\'', "''"),
+                recent_nodes
+                    .iter()
+                    .take(10) // Limit to avoid huge queries
+                    .map(|n| format!("'{}'", n.replace('\'', "''")))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                candidate_name.replace('\'', "''"),
+                recent_nodes
+                    .iter()
+                    .take(10)
+                    .map(|n| format!("'{}'", n.replace('\'', "''")))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+
+            if let Ok(result) = self.mubase.query(&sql) {
+                if let Some(count) = result
+                    .rows
+                    .first()
+                    .and_then(|r| r.first())
+                    .and_then(|v| v.as_i64())
+                {
+                    if count > 0 {
+                        // Connected to recent activity: moderate boost
+                        // More connections = stronger boost (capped at 0.8)
+                        let boost = (count as f32 * 0.2).min(0.8);
+                        boosts.push((candidate_name.clone(), boost));
+                    }
+                }
+            }
+        }
+
+        boosts
     }
 }
 
