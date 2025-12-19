@@ -47,10 +47,13 @@ Tested on real codebases. Here's what actually works:
 | Feature | Rating | Notes |
 |---------|--------|-------|
 | `mu c` (compress) | ★★★★★ | **Best feature** - structured compression with sigils |
+| `mu review` | ★★★★★ | **NEW** - PR intelligence with risk scoring |
 | `mu q` (SQL mode) | ★★★★ | Full SQL works great |
 | `mu search` | ★★★★ | Fast semantic search (~115ms), good relevance |
 | `mu path` | ★★★★ | Shows dependency paths between nodes |
-| `mu ancestors` | ★★★ | Good for functions, weaker for classes |
+| `mu why` | ★★★★ | **NEW** - Explain paths with edge types |
+| `mu coverage` | ★★★★ | **NEW** - Dead code detection |
+| `mu ancestors` | ★★★ | Good for functions, now shows composition |
 | `mu impact` | ★★★ | Shows downstream effects |
 | `mu sus` | ★★★ | Finds untested security code |
 | `mu export` | ★★★ | Mermaid/D2/JSON export |
@@ -159,14 +162,50 @@ $ AuthService  [★★★]
 
 This preserves semantic structure for LLMs, not just random token soup.
 
+### Code Review & Analysis (NEW in v0.0.2)
+
+```bash
+mu review                         # Review uncommitted changes
+mu review HEAD~3..HEAD            # Review commit range
+mu review main..feature           # Review branch diff
+mu review --format json           # Machine-readable for CI
+
+mu coverage                       # Full dead code report
+mu coverage --orphans             # Functions with no callers
+mu coverage --untested            # Public functions without tests
+
+mu why AuthService Database       # Explain how nodes are connected
+mu why AuthService Database --all # Show all paths, not just shortest
+```
+
+**`mu review` output:**
+```
+═══════════════════════════════════════════════════════════════════
+                 MU Code Review: HEAD~3..HEAD
+═══════════════════════════════════════════════════════════════════
+
+Summary
+   Files changed: 17
+   Functions modified: 150
+   Functions added: 43
+
+Test Coverage Gaps
+   ⚠ validate_token — New function has no test coverage
+
+Recommendations
+   1. Add tests for 38 new functions before merging
+   2. Consider splitting resolve_call_site — complexity is 25
+```
+
 ### Graph Analysis
 
 ```bash
 mu deps <node>                    # Show dependencies of a node
 mu deps <node> -r                 # Show reverse dependencies (dependents)
 mu path <from> <to>               # Find path between nodes (★★★★ actually useful)
+mu why <from> <to>                # Explain path with edge types (NEW)
 mu impact <node>                  # Find downstream impact (what breaks if this changes)
-mu ancestors <node>               # Find upstream (works best for functions)
+mu ancestors <node>               # Find upstream (now shows composition via `uses` edges)
 mu cycles                         # Detect circular dependencies
 ```
 
@@ -410,9 +449,12 @@ duckdb .mu/mubase "SELECT type, COUNT(*) FROM edges GROUP BY type"
 - [x] Smart context extraction (`mu compress`)
 - [x] Semantic diff between git refs
 - [x] Multi-format export (Mermaid, D2, JSON)
+- [x] MCP server for AI assistants (`mu mcp`)
+- [x] PR intelligence (`mu review`)
+- [x] Dead code detection (`mu coverage`)
+- [x] Path explanation (`mu why`)
 - [ ] Fix terse query syntax
 - [ ] Real-time daemon mode with HTTP API
-- [ ] MCP server for AI assistants (Claude Code)
 - [ ] mu-viz: Interactive graph visualization
 - [ ] IDE integrations (VS Code, JetBrains)
 

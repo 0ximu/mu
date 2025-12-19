@@ -735,6 +735,15 @@ fn build_module_graph(
             edges.push(mu_daemon::storage::Edge::inherits(&class_id, &base_id));
         }
 
+        // Composition edges (uses) - from struct/class fields and method type references
+        for ref_type in &class.referenced_types {
+            // Only create edges for types that exist in our codebase
+            if let Some(target_id) = class_lookup.get(ref_type) {
+                edges.push(mu_daemon::storage::Edge::uses(&class_id, target_id));
+            }
+            // Skip external types - they don't add value to the graph
+        }
+
         // Method nodes
         for method in &class.methods {
             let mut method_node = mu_daemon::storage::Node::function(

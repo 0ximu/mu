@@ -249,6 +249,41 @@ enum Commands {
         head_ref: String,
     },
 
+    /// Detect dead code and missing test coverage
+    Coverage {
+        /// Show only orphan functions (no callers)
+        #[arg(long)]
+        orphans: bool,
+
+        /// Show only untested public functions
+        #[arg(long)]
+        untested: bool,
+    },
+
+    /// Explain how two nodes are connected in the codebase
+    Why {
+        /// Source node (class, function, or module name)
+        from: String,
+
+        /// Target node (class, function, or module name)
+        to: String,
+
+        /// Show all paths, not just the shortest
+        #[arg(long)]
+        all: bool,
+
+        /// Maximum number of paths to show (default: 5)
+        #[arg(long, default_value = "5")]
+        max_paths: usize,
+    },
+
+    /// Intelligent PR review with risk analysis
+    Review {
+        /// Git range to review (e.g., HEAD~3..HEAD, main..feature-branch)
+        /// If not specified, reviews uncommitted changes
+        range: Option<String>,
+    },
+
     /// Find downstream impact (what might break if this node changes)
     Impact {
         /// Node to analyze
@@ -566,6 +601,16 @@ async fn main() -> anyhow::Result<()> {
         } => deps::run(&node, true, depth, include_contains, format).await,
         Commands::Read { path, line_numbers } => read::run(&path, line_numbers, format).await,
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
+        Commands::Coverage { orphans, untested } => {
+            coverage::run(orphans, untested, format).await
+        }
+        Commands::Why {
+            from,
+            to,
+            all,
+            max_paths,
+        } => why::run(&from, &to, all, max_paths, format).await,
+        Commands::Review { range } => review::run(range.as_deref(), format).await,
 
         // Graph analysis commands
         Commands::Impact {
