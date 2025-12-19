@@ -1,17 +1,12 @@
 name: CodeQL
 
-# Disabled: This project is written in Rust which requires manual CodeQL setup
-# TODO: Set up CodeQL for Rust using compiled queries
-# See: https://docs.github.com/en/code-security/code-scanning/creating-an-advanced-setup-for-code-scanning/codeql-code-scanning-for-compiled-languages
-
 on:
-  workflow_dispatch:  # Manual trigger only for now
-  # push:
-  #   branches: [main, develop]
-  # pull_request:
-  #   branches: [main, develop]
-  # schedule:
-  #   - cron: "0 6 * * 1"
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 6 * * 1"
 
 jobs:
   analyze:
@@ -22,25 +17,21 @@ jobs:
       contents: read
       security-events: write
 
-    strategy:
-      fail-fast: false
-      matrix:
-        # Placeholder - workflow is disabled until Rust CodeQL is set up
-        language: [python]
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action@stable
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: ${{ matrix.language }}
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+          languages: rust
+          # Build mode 'none' - CodeQL can analyze Rust without building
+          build-mode: none
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
-          category: "/language:${{ matrix.language }}"
+          category: "/language:rust"
