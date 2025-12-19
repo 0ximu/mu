@@ -479,8 +479,7 @@ mod tests {
     fn test_extract_referenced_types_filters_builtins() {
         // Should filter out Python builtins
         let type_strings = ["Optional[Node]", "List[str]", "Dict[str, Edge]", "Any"];
-        let result =
-            extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
@@ -503,8 +502,7 @@ mod tests {
     fn test_extract_referenced_types_deduplicates() {
         // Should deduplicate types
         let type_strings = ["Node", "Edge", "Node", "Edge", "Node"];
-        let result =
-            extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
@@ -515,8 +513,7 @@ mod tests {
             "Callable[[Request, Response], Handler]",
             "dict[str, list[ConfigItem]]",
         ];
-        let result =
-            extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["ConfigItem", "Handler", "Request", "Response"]);
     }
 
@@ -524,8 +521,7 @@ mod tests {
     fn test_extract_referenced_types_http_style() {
         // Should handle HTTP-style type names
         let type_strings = ["HTTPClient", "URLParser", "JSONResponse"];
-        let result =
-            extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["HTTPClient", "JSONResponse", "URLParser"]);
     }
 }
