@@ -448,6 +448,21 @@ enum Commands {
         path: String,
     },
 
+    /// Start HTTP server with file watching for incremental updates
+    Serve {
+        /// Working directory (defaults to current)
+        #[arg(default_value = ".")]
+        path: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value = "1337")]
+        port: u16,
+
+        /// Disable file watching
+        #[arg(long)]
+        no_watch: bool,
+    },
+
     // ==================== Utilities ====================
     /// Run health checks on MU installation
     Doctor {
@@ -670,6 +685,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Integration commands
         Commands::Mcp { path } => mcp::run(&path).await,
+        Commands::Serve { path, port, no_watch } => serve::run(&path, port, !no_watch, format).await,
 
         // Utility commands
         Commands::Doctor { path } => doctor::run(&path, format).await,

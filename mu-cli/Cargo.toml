@@ -48,6 +48,14 @@ tracing-subscriber = { workspace = true }
 # HTTP client
 reqwest = { workspace = true }
 
+# HTTP server (for mu serve)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
+# File watching (for incremental updates)
+notify = "7"
+notify-debouncer-mini = "0.5"
+
 # Utilities
 chrono = { workspace = true }
 dirs = "5"

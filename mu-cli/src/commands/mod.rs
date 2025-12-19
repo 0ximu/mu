@@ -21,5 +21,6 @@ pub mod read;
 pub mod search;
 pub mod review;
 pub mod status;
+pub mod serve;
 pub mod vibes;
 pub mod why;
