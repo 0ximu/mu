@@ -100,6 +100,14 @@ enum Commands {
         /// Fail on .murc.toml errors instead of silently using defaults
         #[arg(long)]
         strict: bool,
+
+        /// Create HNSW index for fast approximate vector search
+        #[arg(long)]
+        hnsw: bool,
+
+        /// Skip HNSW index creation without prompting
+        #[arg(long, conflicts_with = "hnsw")]
+        no_hnsw: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -502,7 +510,9 @@ async fn main() -> anyhow::Result<()> {
             embed,
             no_embed,
             strict,
-        } => bootstrap::run(&path, force, embed, no_embed, strict, format).await,
+            hnsw,
+            no_hnsw,
+        } => bootstrap::run(&path, force, embed, no_embed, hnsw, no_hnsw, strict, format).await,
         Commands::Compress {
             path,
             output,

@@ -36,11 +36,3 @@ tree-sitter-c-sharp = "0.23"
 
 [dev-dependencies]
 tempfile = "3.10"       # Temporary directories for testing
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-
-[profile.dev]
-opt-level = 1

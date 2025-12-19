@@ -13,6 +13,7 @@
 //! - C#: PascalCase everything (methods, classes, properties)
 
 use std::fmt;
+use std::sync::LazyLock;
 
 /// Naming convention type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,196 +96,83 @@ impl std::str::FromStr for EntityType {
     }
 }
 
-/// Get the expected naming convention for a given language and entity type.
+/// Language convention profile defining conventions for each entity type.
 ///
-/// Returns the most common convention for that language/entity combination.
-/// For languages not explicitly supported, returns a sensible default.
-///
-/// # Arguments
-/// * `language` - Programming language (e.g., "python", "rust", "go", "typescript")
-/// * `entity` - Entity type (e.g., "function", "class", "constant")
-///
-/// # Returns
-/// The expected `NamingConvention` for this language/entity pair
-///
-/// # Note
-/// For context-aware convention detection (e.g., React components), use
-/// `convention_for_entity_with_context` instead.
-#[allow(dead_code)]
-pub fn convention_for(language: &str, entity: &str) -> NamingConvention {
-    let entity_type = entity.parse::<EntityType>().unwrap_or(EntityType::Variable);
-    convention_for_entity(language, entity_type)
-}
+/// Order: [Function, Method, Class, Struct, Interface, Enum, Constant, Variable, Module, Property, Parameter]
+type ConventionProfile = [NamingConvention; 11];
+
+use NamingConvention::{CamelCase as C, PascalCase as P, ScreamingSnakeCase as S, SnakeCase as N};
+
+/// Convention profiles by language.
+/// Maps canonical language name to convention profile.
+static CONVENTION_PROFILES: LazyLock<std::collections::HashMap<&'static str, ConventionProfile>> =
+    LazyLock::new(|| {
+        //                      Fn   Method Class Struct Iface Enum  Const Var  Module Prop  Param
+        let profiles: &[(&str, ConventionProfile)] = &[
+            ("python", [N, N, P, P, P, P, S, N, N, N, N]),
+            ("rust", [N, N, P, P, P, P, S, N, N, N, N]),
+            ("go", [P, P, P, P, P, P, P, C, N, P, C]), // Go: PascalCase exported
+            ("javascript", [C, C, P, P, P, P, S, C, C, C, C]),
+            ("typescript", [C, C, P, P, P, P, S, C, C, C, C]),
+            ("java", [C, C, P, P, P, P, S, C, N, C, C]),
+            ("csharp", [P, P, P, P, P, P, P, C, P, P, C]), // C#: PascalCase for most
+            ("cpp", [N, N, P, P, P, P, S, N, N, N, N]),
+            ("ruby", [N, N, P, P, P, P, S, N, P, N, N]), // Ruby: PascalCase modules
+            ("php", [C, C, P, P, P, P, S, C, P, C, C]),
+            ("kotlin", [C, C, P, P, P, P, S, C, N, C, C]),
+            ("swift", [C, C, P, P, P, P, C, C, P, C, C]), // Swift: camelCase constants
+        ];
+        profiles.iter().copied().collect()
+    });
+
+/// Maps language aliases to canonical language names.
+static LANGUAGE_ALIASES: LazyLock<std::collections::HashMap<&'static str, &'static str>> =
+    LazyLock::new(|| {
+        [
+            ("py", "python"),
+            ("rs", "rust"),
+            ("golang", "go"),
+            ("js", "javascript"),
+            ("ts", "typescript"),
+            ("c#", "csharp"),
+            ("cs", "csharp"),
+            ("c", "cpp"),
+            ("c++", "cpp"),
+            ("cxx", "cpp"),
+            ("rb", "ruby"),
+            ("kt", "kotlin"),
+        ]
+        .into_iter()
+        .collect()
+    });
+
+/// Default convention profile (Python-like, widely understood).
+const DEFAULT_PROFILE: ConventionProfile = [N, N, P, P, P, P, S, N, N, N, N];
 
 /// Get the expected naming convention for a given language and entity type.
 pub fn convention_for_entity(language: &str, entity: EntityType) -> NamingConvention {
     let lang = language.to_lowercase();
+    let canonical = LANGUAGE_ALIASES.get(lang.as_str()).copied().unwrap_or(&lang);
 
-    match lang.as_str() {
-        // Python: snake_case for functions/variables, PascalCase for classes
-        "python" | "py" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::SnakeCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase,
-            EntityType::Property => NamingConvention::SnakeCase,
-        },
+    let profile = CONVENTION_PROFILES
+        .get(canonical)
+        .unwrap_or(&DEFAULT_PROFILE);
 
-        // Rust: snake_case for functions/modules, PascalCase for types
-        "rust" | "rs" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::SnakeCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase,
-            EntityType::Property => NamingConvention::SnakeCase,
-        },
+    let idx = match entity {
+        EntityType::Function => 0,
+        EntityType::Method => 1,
+        EntityType::Class => 2,
+        EntityType::Struct => 3,
+        EntityType::Interface => 4,
+        EntityType::Enum => 5,
+        EntityType::Constant => 6,
+        EntityType::Variable => 7,
+        EntityType::Module => 8,
+        EntityType::Property => 9,
+        EntityType::Parameter => 10,
+    };
 
-        // Go: PascalCase for exported, camelCase for unexported
-        // We default to PascalCase since we can't easily detect export status
-        "go" | "golang" => match entity {
-            EntityType::Function | EntityType::Method => NamingConvention::PascalCase, // Exported
-            EntityType::Variable | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::PascalCase, // Go uses PascalCase for exported constants
-            EntityType::Module => NamingConvention::SnakeCase,    // Package names are lowercase
-            EntityType::Property => NamingConvention::PascalCase,
-        },
-
-        // JavaScript/TypeScript: camelCase for functions, PascalCase for classes
-        "javascript" | "js" | "typescript" | "ts" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::CamelCase,
-            EntityType::Property => NamingConvention::CamelCase,
-        },
-
-        // Java: camelCase for methods/variables, PascalCase for classes
-        "java" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase, // Package names lowercase
-            EntityType::Property => NamingConvention::CamelCase,
-        },
-
-        // C#: PascalCase for almost everything (methods, classes, properties)
-        "csharp" | "c#" | "cs" => match entity {
-            EntityType::Function | EntityType::Method => NamingConvention::PascalCase,
-            EntityType::Variable | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::PascalCase, // C# uses PascalCase for constants
-            EntityType::Module => NamingConvention::PascalCase,   // Namespace names PascalCase
-            EntityType::Property => NamingConvention::PascalCase,
-        },
-
-        // C/C++: snake_case for functions, varies for types
-        "c" | "cpp" | "c++" | "cxx" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::SnakeCase,
-            EntityType::Class | EntityType::Struct => NamingConvention::PascalCase,
-            EntityType::Interface | EntityType::Enum => NamingConvention::PascalCase,
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase,
-            EntityType::Property => NamingConvention::SnakeCase,
-        },
-
-        // Ruby: snake_case for methods, PascalCase for classes
-        "ruby" | "rb" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::SnakeCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::PascalCase, // Ruby modules are PascalCase
-            EntityType::Property => NamingConvention::SnakeCase,
-        },
-
-        // PHP: camelCase for methods, PascalCase for classes (PSR-1/PSR-12)
-        "php" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::PascalCase,
-            EntityType::Property => NamingConvention::CamelCase,
-        },
-
-        // Kotlin: camelCase for functions, PascalCase for classes
-        "kotlin" | "kt" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase,
-            EntityType::Property => NamingConvention::CamelCase,
-        },
-
-        // Swift: camelCase for functions, PascalCase for types
-        "swift" => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::CamelCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::CamelCase, // Swift uses camelCase for constants
-            EntityType::Module => NamingConvention::PascalCase,
-            EntityType::Property => NamingConvention::CamelCase,
-        },
-
-        // Default: Python-like conventions (widely understood)
-        _ => match entity {
-            EntityType::Function
-            | EntityType::Method
-            | EntityType::Variable
-            | EntityType::Parameter => NamingConvention::SnakeCase,
-            EntityType::Class | EntityType::Struct | EntityType::Interface | EntityType::Enum => {
-                NamingConvention::PascalCase
-            }
-            EntityType::Constant => NamingConvention::ScreamingSnakeCase,
-            EntityType::Module => NamingConvention::SnakeCase,
-            EntityType::Property => NamingConvention::SnakeCase,
-        },
-    }
+    profile[idx]
 }
 
 /// Get the expected naming convention with file context.

@@ -5,8 +5,8 @@
 
 mod server;
 
-use std::path::Path;
 use rmcp::{transport::stdio, ServiceExt};
+use std::path::Path;
 
 pub use server::MuMcpServer;
 

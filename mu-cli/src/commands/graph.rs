@@ -895,7 +895,8 @@ fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
 
     match matches.len() {
         0 => Err(anyhow::anyhow!("Node not found: {}", query)),
-        1 => Ok(matches.into_iter().next().unwrap().0),
+        // Safe: len() == 1 guarantees next() returns Some
+        1 => Ok(matches.into_iter().next().expect("len is 1").0),
         _ => {
             // Sort matches by type priority (class > module > function) then by name
             let mut matches = matches;

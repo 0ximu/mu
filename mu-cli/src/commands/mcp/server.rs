@@ -10,11 +10,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rmcp::{
-    ServerHandler,
     handler::server::{router::tool::ToolRouter, tool::Parameters},
     model::{ErrorData as McpError, *},
-    tool, tool_router, tool_handler,
     schemars::JsonSchema,
+    tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::Deserialize;
 use tokio::sync::OnceCell;
@@ -93,21 +92,33 @@ impl MuMcpServer {
     }
 
     /// Grok: Semantic search with actual code snippets
-    #[tool(description = "Find and show relevant code for a question. Returns actual code snippets, not just locations. Use this to understand how something works.")]
-    async fn mu_grok(&self, Parameters(params): Parameters<GrokParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Find and show relevant code for a question. Returns actual code snippets, not just locations. Use this to understand how something works."
+    )]
+    async fn mu_grok(
+        &self,
+        Parameters(params): Parameters<GrokParams>,
+    ) -> Result<CallToolResult, McpError> {
         let start = Instant::now();
-        let limit = params.limit.unwrap_or(3).min(10).max(1);
+        let limit = params.limit.unwrap_or(3).clamp(1, 10);
 
         // Get search results
         let results = if self.mubase.has_embeddings().unwrap_or(false) {
-            self.run_semantic_search(&params.query, limit).await.unwrap_or_default()
+            self.run_semantic_search(&params.query, limit)
+                .await
+                .unwrap_or_default()
         } else {
-            self.run_keyword_search(&params.query, limit).unwrap_or_default()
+            self.run_keyword_search(&params.query, limit)
+                .unwrap_or_default()
         };
 
         let mut output = String::new();
         output.push_str(&format!("# grok: \"{}\"\n", params.query));
-        output.push_str(&format!("# {} results in {}ms\n\n", results.len(), start.elapsed().as_millis()));
+        output.push_str(&format!(
+            "# {} results in {}ms\n\n",
+            results.len(),
+            start.elapsed().as_millis()
+        ));
 
         // For each result, read and show the actual code
         for (i, result) in results.iter().enumerate() {
@@ -120,7 +131,10 @@ impl MuMcpServer {
 
             output.push_str(&format!(
                 "## {}. {}{} [{}] — {:.0}% match\n",
-                i + 1, sigil, result.name, result.node_type,
+                i + 1,
+                sigil,
+                result.name,
+                result.node_type,
                 result.similarity * 100.0
             ));
 
@@ -130,7 +144,9 @@ impl MuMcpServer {
                 // Read and show actual code snippet
                 let full_path = self.project_root.join(path);
                 if let Ok(content) = fs::read_to_string(&full_path) {
-                    if let Some(snippet) = self.extract_snippet(&content, &result.name, &result.node_type) {
+                    if let Some(snippet) =
+                        self.extract_snippet(&content, &result.name, &result.node_type)
+                    {
                         output.push_str("```\n");
                         output.push_str(&snippet);
                         if !snippet.ends_with('\n') {
@@ -147,15 +163,22 @@ impl MuMcpServer {
     }
 
     /// Find: Exact symbol lookup with code
-    #[tool(description = "Find a specific symbol by exact name. Use this when you know the function/class name you're looking for.")]
-    async fn mu_find(&self, Parameters(params): Parameters<FindParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Find a specific symbol by exact name. Use this when you know the function/class name you're looking for."
+    )]
+    async fn mu_find(
+        &self,
+        Parameters(params): Parameters<FindParams>,
+    ) -> Result<CallToolResult, McpError> {
         let sql = format!(
             "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = '{}' OR name LIKE '%.{}' LIMIT 10",
             params.symbol.replace('\'', "''"),
             params.symbol.replace('\'', "''")
         );
 
-        let result = self.mubase.query(&sql)
+        let result = self
+            .mubase
+            .query(&sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let mut output = String::new();
@@ -163,7 +186,7 @@ impl MuMcpServer {
         output.push_str(&format!("# {} matches\n\n", result.rows.len()));
 
         for row in &result.rows {
-            let node_type = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+            let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
             let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
             let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
             let start_line = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
@@ -208,25 +231,38 @@ impl MuMcpServer {
     }
 
     /// Compress: Token-efficient codebase overview
-    #[tool(description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project.")]
+    #[tool(
+        description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project."
+    )]
     async fn mu_compress(&self) -> Result<CallToolResult, McpError> {
         // Get stats
-        let stats = self.mubase.query("SELECT
+        let stats = self
+            .mubase
+            .query(
+                "SELECT
             (SELECT COUNT(*) FROM nodes) as nodes,
             (SELECT COUNT(*) FROM edges) as edges,
-            (SELECT COUNT(DISTINCT file_path) FROM nodes) as files")
+            (SELECT COUNT(DISTINCT file_path) FROM nodes) as files",
+            )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let (node_count, edge_count, file_count) = stats.rows.first()
-            .map(|r| (
-                r.get(0).and_then(|v| v.as_i64()).unwrap_or(0),
-                r.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
-                r.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-            ))
+        let (node_count, edge_count, file_count) = stats
+            .rows
+            .first()
+            .map(|r| {
+                (
+                    r.first().and_then(|v| v.as_i64()).unwrap_or(0),
+                    r.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
+                    r.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                )
+            })
             .unwrap_or((0, 0, 0));
 
         // Detect languages
-        let langs = self.mubase.query("SELECT DISTINCT
+        let langs = self
+            .mubase
+            .query(
+                "SELECT DISTINCT
             CASE
                 WHEN file_path LIKE '%.rs' THEN 'Rust'
                 WHEN file_path LIKE '%.py' THEN 'Python'
@@ -237,18 +273,31 @@ impl MuMcpServer {
                 WHEN file_path LIKE '%.cs' THEN 'C#'
                 ELSE 'Other'
             END as lang
-            FROM nodes WHERE file_path IS NOT NULL")
+            FROM nodes WHERE file_path IS NOT NULL",
+            )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let languages: Vec<String> = langs.rows.iter()
-            .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+        let languages: Vec<String> = langs
+            .rows
+            .iter()
+            .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
             .filter(|s| s != "Other")
             .collect();
 
         let mut output = String::new();
         output.push_str("# MU Codebase Overview\n\n");
-        output.push_str(&format!("Files: {} | Symbols: {} | Edges: {}\n", file_count, node_count, edge_count));
-        output.push_str(&format!("Languages: {}\n\n", if languages.is_empty() { "Unknown".to_string() } else { languages.join(", ") }));
+        output.push_str(&format!(
+            "Files: {} | Symbols: {} | Edges: {}\n",
+            file_count, node_count, edge_count
+        ));
+        output.push_str(&format!(
+            "Languages: {}\n\n",
+            if languages.is_empty() {
+                "Unknown".to_string()
+            } else {
+                languages.join(", ")
+            }
+        ));
 
         // Get structure grouped by directory
         let nodes_result = self.mubase.query(
@@ -259,7 +308,7 @@ impl MuMcpServer {
         let mut current_file = String::new();
 
         for row in &nodes_result.rows {
-            let node_type = row.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("");
             let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("");
             let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("");
             let complexity = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
@@ -274,7 +323,10 @@ impl MuMcpServer {
             // Track file changes
             if file_path != current_file && !file_path.is_empty() {
                 current_file = file_path.to_string();
-                let filename = file_path.rsplit_once('/').map(|(_, f)| f).unwrap_or(file_path);
+                let filename = file_path
+                    .rsplit_once('/')
+                    .map(|(_, f)| f)
+                    .unwrap_or(file_path);
                 output.push_str(&format!("  ! {}\n", filename));
             }
 
@@ -293,8 +345,13 @@ impl MuMcpServer {
     }
 
     /// Impact: What depends on this symbol (with grep fallback)
-    #[tool(description = "Find what code depends on a symbol. Shows what might break if you change it.")]
-    async fn mu_impact(&self, Parameters(params): Parameters<ImpactParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Find what code depends on a symbol. Shows what might break if you change it."
+    )]
+    async fn mu_impact(
+        &self,
+        Parameters(params): Parameters<ImpactParams>,
+    ) -> Result<CallToolResult, McpError> {
         let mut output = String::new();
         output.push_str(&format!("# Impact Analysis: {}\n\n", params.symbol));
 
@@ -307,7 +364,9 @@ impl MuMcpServer {
             params.symbol.replace('\'', "''")
         );
 
-        let result = self.mubase.query(&sql)
+        let result = self
+            .mubase
+            .query(&sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let graph_count = result.rows.len();
@@ -315,7 +374,7 @@ impl MuMcpServer {
         if graph_count > 0 {
             output.push_str(&format!("## Graph Dependencies ({} found)\n", graph_count));
             for row in &result.rows {
-                let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
                 output.push_str(&format!("  {} [{}] — {}\n", name, node_type, file_path));
@@ -328,9 +387,17 @@ impl MuMcpServer {
             output.push_str("## Text References (grep)\n");
 
             let grep_result = Command::new("grep")
-                .args(["-rn", "--include=*.rs", "--include=*.py", "--include=*.ts",
-                       "--include=*.js", "--include=*.go", "--include=*.java",
-                       "-l", &params.symbol])
+                .args([
+                    "-rn",
+                    "--include=*.rs",
+                    "--include=*.py",
+                    "--include=*.ts",
+                    "--include=*.js",
+                    "--include=*.go",
+                    "--include=*.java",
+                    "-l",
+                    &params.symbol,
+                ])
                 .current_dir(&self.project_root)
                 .output();
 
@@ -349,9 +416,17 @@ impl MuMcpServer {
                     // Show a sample of actual usages
                     output.push_str("\n## Sample Usages\n");
                     let context_result = Command::new("grep")
-                        .args(["-rn", "--include=*.rs", "--include=*.py", "--include=*.ts",
-                               "--include=*.js", "--include=*.go", "--include=*.java",
-                               "-C1", &params.symbol])
+                        .args([
+                            "-rn",
+                            "--include=*.rs",
+                            "--include=*.py",
+                            "--include=*.ts",
+                            "--include=*.js",
+                            "--include=*.go",
+                            "--include=*.java",
+                            "-C1",
+                            &params.symbol,
+                        ])
                         .current_dir(&self.project_root)
                         .output();
 
@@ -373,8 +448,13 @@ impl MuMcpServer {
     }
 
     /// Diff: Semantic diff showing what changed
-    #[tool(description = "See what symbols changed between git refs. Shows functions/classes added, modified, or removed.")]
-    async fn mu_diff(&self, Parameters(params): Parameters<DiffParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "See what symbols changed between git refs. Shows functions/classes added, modified, or removed."
+    )]
+    async fn mu_diff(
+        &self,
+        Parameters(params): Parameters<DiffParams>,
+    ) -> Result<CallToolResult, McpError> {
         // Detect default branch
         let base = params.base_ref.unwrap_or_else(|| {
             let result = Command::new("git")
@@ -382,7 +462,8 @@ impl MuMcpServer {
                 .current_dir(&self.project_root)
                 .output();
 
-            result.ok()
+            result
+                .ok()
                 .and_then(|o| String::from_utf8(o.stdout).ok())
                 .and_then(|s| s.trim().rsplit('/').next().map(|s| s.to_string()))
                 .unwrap_or_else(|| "main".to_string())
@@ -419,8 +500,13 @@ impl MuMcpServer {
         }
 
         let total = added_files.len() + modified_files.len() + deleted_files.len();
-        output.push_str(&format!("{} files changed: +{} ~{} -{}\n\n",
-            total, added_files.len(), modified_files.len(), deleted_files.len()));
+        output.push_str(&format!(
+            "{} files changed: +{} ~{} -{}\n\n",
+            total,
+            added_files.len(),
+            modified_files.len(),
+            deleted_files.len()
+        ));
 
         // For each modified file, show what symbols changed
         if !modified_files.is_empty() {
@@ -434,12 +520,20 @@ impl MuMcpServer {
                     file.replace('\'', "''")
                 );
                 if let Ok(nodes) = self.mubase.query(&sql) {
-                    let symbols: Vec<String> = nodes.rows.iter()
+                    let symbols: Vec<String> = nodes
+                        .rows
+                        .iter()
                         .filter_map(|r| {
-                            let t = r.get(0).and_then(|v| v.as_str())?;
+                            let t = r.first().and_then(|v| v.as_str())?;
                             let n = r.get(1).and_then(|v| v.as_str())?;
-                            if t == "module" { return None; }
-                            let sigil = match t { "class" => "$", "function" => "#", _ => "@" };
+                            if t == "module" {
+                                return None;
+                            }
+                            let sigil = match t {
+                                "class" => "$",
+                                "function" => "#",
+                                _ => "@",
+                            };
                             Some(format!("{}{}", sigil, n))
                         })
                         .collect();
@@ -469,8 +563,13 @@ impl MuMcpServer {
     }
 
     /// Sus: Find suspicious code with categories
-    #[tool(description = "Find suspicious code: high complexity, security-sensitive names, large functions. Good for code review.")]
-    async fn mu_sus(&self, Parameters(params): Parameters<SusParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Find suspicious code: high complexity, security-sensitive names, large functions. Good for code review."
+    )]
+    async fn mu_sus(
+        &self,
+        Parameters(params): Parameters<SusParams>,
+    ) -> Result<CallToolResult, McpError> {
         let min_complexity = params.min_complexity.unwrap_or(15);
 
         let mut output = String::new();
@@ -483,14 +582,20 @@ impl MuMcpServer {
              ORDER BY complexity DESC LIMIT 15",
             min_complexity
         );
-        let complex = self.mubase.query(&complex_sql)
+        let complex = self
+            .mubase
+            .query(&complex_sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !complex.rows.is_empty() {
-            output.push_str(&format!("## High Complexity (≥{}) — {} found\n", min_complexity, complex.rows.len()));
+            output.push_str(&format!(
+                "## High Complexity (≥{}) — {} found\n",
+                min_complexity,
+                complex.rows.len()
+            ));
             output.push_str("Functions that are hard to understand and maintain:\n\n");
             for row in &complex.rows {
-                let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
                 let complexity = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
                 output.push_str(&format!("  #{} c={} — {}\n", name, complexity, file_path));
@@ -508,17 +613,26 @@ impl MuMcpServer {
                OR LOWER(name) LIKE '%credential%'
                OR LOWER(name) LIKE '%api_key%'
             ORDER BY file_path LIMIT 20";
-        let security = self.mubase.query(security_sql)
+        let security = self
+            .mubase
+            .query(security_sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !security.rows.is_empty() {
-            output.push_str(&format!("## Security-Sensitive — {} found\n", security.rows.len()));
+            output.push_str(&format!(
+                "## Security-Sensitive — {} found\n",
+                security.rows.len()
+            ));
             output.push_str("Code handling authentication, secrets, or credentials:\n\n");
             for row in &security.rows {
-                let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-                let sigil = match node_type { "class" => "$", "function" => "#", _ => "@" };
+                let sigil = match node_type {
+                    "class" => "$",
+                    "function" => "#",
+                    _ => "@",
+                };
                 output.push_str(&format!("  {}{} — {}\n", sigil, name, file_path));
             }
             output.push('\n');
@@ -533,11 +647,12 @@ impl MuMcpServer {
                 output.push_str("## Large Functions (by lines)\n");
                 output.push_str("Long functions that might need refactoring:\n\n");
                 for row in &large.rows {
-                    let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                    let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                     let file_path = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                     let lines = row.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
                     if lines > 50 {
-                        output.push_str(&format!("  #{} ({} lines) — {}\n", name, lines, file_path));
+                        output
+                            .push_str(&format!("  #{} ({} lines) — {}\n", name, lines, file_path));
                     }
                 }
             }
@@ -547,8 +662,13 @@ impl MuMcpServer {
     }
 
     /// WTF: Git archaeology with context
-    #[tool(description = "Understand why code exists. Shows git history, recent changes, and who works on a file.")]
-    async fn mu_wtf(&self, Parameters(params): Parameters<WtfParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Understand why code exists. Shows git history, recent changes, and who works on a file."
+    )]
+    async fn mu_wtf(
+        &self,
+        Parameters(params): Parameters<WtfParams>,
+    ) -> Result<CallToolResult, McpError> {
         let file_path = &params.file;
         let full_path = self.project_root.join(file_path);
 
@@ -578,13 +698,23 @@ impl MuMcpServer {
             output.push_str("⚠ File not found on disk\n");
         }
 
-        output.push_str(&format!("Git tracked: {}\n\n", if is_tracked { "Yes" } else { "No" }));
+        output.push_str(&format!(
+            "Git tracked: {}\n\n",
+            if is_tracked { "Yes" } else { "No" }
+        ));
 
         if is_tracked {
             // Recent commits
             output.push_str("## Recent Commits\n");
             let log = Command::new("git")
-                .args(["log", "--format=%h %ad %an: %s", "--date=short", "-10", "--", file_path])
+                .args([
+                    "log",
+                    "--format=%h %ad %an: %s",
+                    "--date=short",
+                    "-10",
+                    "--",
+                    file_path,
+                ])
                 .current_dir(&self.project_root)
                 .output();
 
@@ -616,7 +746,14 @@ impl MuMcpServer {
             // First created
             output.push_str("\n## Origin\n");
             let first = Command::new("git")
-                .args(["log", "--format=%ad %an: %s", "--date=short", "--diff-filter=A", "--", file_path])
+                .args([
+                    "log",
+                    "--format=%ad %an: %s",
+                    "--date=short",
+                    "--diff-filter=A",
+                    "--",
+                    file_path,
+                ])
                 .current_dir(&self.project_root)
                 .output();
 
@@ -650,11 +787,17 @@ impl MuMcpServer {
             if !nodes.rows.is_empty() {
                 output.push_str("\n## Symbols in file\n");
                 for row in &nodes.rows {
-                    let node_type = row.get(0).and_then(|v| v.as_str()).unwrap_or("?");
+                    let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                     let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                     let complexity = row.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
-                    if node_type == "module" { continue; }
-                    let sigil = match node_type { "class" => "$", "function" => "#", _ => "@" };
+                    if node_type == "module" {
+                        continue;
+                    }
+                    let sigil = match node_type {
+                        "class" => "$",
+                        "function" => "#",
+                        _ => "@",
+                    };
                     output.push_str(&format!("  {}{}", sigil, name));
                     if complexity > 15 {
                         output.push_str(&format!(" (c={})", complexity));
@@ -668,25 +811,29 @@ impl MuMcpServer {
     }
 
     /// Oracle: Task-aware context retrieval - THE divine feature
-    #[tool(description = "Get exactly what you need to accomplish a task. Returns must-read code, supporting context, and relevant patterns. Use this when you have a specific task like 'fix bug X' or 'add feature Y'.")]
-    async fn mu_oracle(&self, Parameters(params): Parameters<OracleParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Get exactly what you need to accomplish a task. Returns must-read code, supporting context, and relevant patterns. Use this when you have a specific task like 'fix bug X' or 'add feature Y'."
+    )]
+    async fn mu_oracle(
+        &self,
+        Parameters(params): Parameters<OracleParams>,
+    ) -> Result<CallToolResult, McpError> {
         let start = Instant::now();
 
-        // Extract task-aware keywords
+        // Extract task-aware keywords (used for context expansion)
         let keywords = self.extract_task_keywords(&params.task);
 
         let mut output = String::new();
         output.push_str(&format!("# Oracle: \"{}\"\n", params.task));
 
-        // Get must-read nodes via semantic search
-        let must_read = if self.mubase.has_embeddings().unwrap_or(false) {
-            self.run_semantic_search(&params.task, 7).await.unwrap_or_default()
-        } else {
-            self.run_keyword_search(&params.task, 7).unwrap_or_default()
-        };
+        // Get must-read nodes via hybrid search (BM25 + semantic with RRF)
+        // This combines keyword matching (finds exact symbol names like "create_hnsw_index")
+        // with semantic search (finds conceptually related code)
+        let must_read = self.hybrid_search(&params.task, 7).await;
 
         // Collect file paths from must-read for pattern extraction
-        let must_read_files: Vec<String> = must_read.iter()
+        let must_read_files: Vec<String> = must_read
+            .iter()
             .filter_map(|r| r.file_path.clone())
             .collect();
 
@@ -698,8 +845,13 @@ impl MuMcpServer {
         let patterns = self.extract_patterns(&keywords, &must_read_files);
 
         let duration = start.elapsed().as_millis();
-        output.push_str(&format!("# {} must-read, {} context, {} patterns | {}ms\n\n",
-            must_read.len(), context_nodes.len(), patterns.len(), duration));
+        output.push_str(&format!(
+            "# {} must-read, {} context, {} patterns | {}ms\n\n",
+            must_read.len(),
+            context_nodes.len(),
+            patterns.len(),
+            duration
+        ));
 
         // === MUST READ SECTION ===
         output.push_str("## Must Read\n");
@@ -716,8 +868,13 @@ impl MuMcpServer {
                     _ => "@",
                 };
 
-                output.push_str(&format!("### {}{} [{}] — {:.0}% relevant\n",
-                    sigil, result.name, result.node_type, result.similarity * 100.0));
+                output.push_str(&format!(
+                    "### {}{} [{}] — {:.0}% relevant\n",
+                    sigil,
+                    result.name,
+                    result.node_type,
+                    result.similarity * 100.0
+                ));
 
                 if let Some(ref path) = result.file_path {
                     output.push_str(&format!("File: {}\n", path));
@@ -725,7 +882,9 @@ impl MuMcpServer {
                     // Read and show full code
                     let full_path = self.project_root.join(path);
                     if let Ok(content) = fs::read_to_string(&full_path) {
-                        if let Some(snippet) = self.extract_snippet(&content, &result.name, &result.node_type) {
+                        if let Some(snippet) =
+                            self.extract_snippet(&content, &result.name, &result.node_type)
+                        {
                             output.push_str("```\n");
                             output.push_str(&snippet);
                             if !snippet.ends_with('\n') {
@@ -783,22 +942,115 @@ impl MuMcpServer {
     fn extract_task_keywords(&self, task: &str) -> Vec<String> {
         // Task action words that hint at intent but aren't searchable
         const TASK_WORDS: &[&str] = &[
-            "fix", "add", "implement", "create", "update", "change", "modify",
-            "refactor", "remove", "delete", "debug", "investigate", "find",
-            "bug", "issue", "error", "problem", "feature", "improve",
-            "the", "a", "an", "is", "are", "was", "were", "be", "been",
-            "have", "has", "had", "do", "does", "did", "will", "would",
-            "could", "should", "may", "might", "must", "shall",
-            "this", "that", "these", "those", "it", "its",
-            "and", "or", "but", "if", "then", "else", "when", "where",
-            "what", "which", "who", "how", "why",
-            "with", "without", "for", "from", "to", "in", "on", "at", "by",
-            "of", "about", "into", "through", "during", "before", "after",
-            "above", "below", "between", "under", "over",
-            "i", "me", "my", "we", "our", "you", "your",
-            "need", "want", "like", "make", "get", "set", "use",
-            "new", "old", "some", "any", "all", "each", "every",
-            "code", "function", "method", "class", "file", "module",
+            "fix",
+            "add",
+            "implement",
+            "create",
+            "update",
+            "change",
+            "modify",
+            "refactor",
+            "remove",
+            "delete",
+            "debug",
+            "investigate",
+            "find",
+            "bug",
+            "issue",
+            "error",
+            "problem",
+            "feature",
+            "improve",
+            "the",
+            "a",
+            "an",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "shall",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+            "and",
+            "or",
+            "but",
+            "if",
+            "then",
+            "else",
+            "when",
+            "where",
+            "what",
+            "which",
+            "who",
+            "how",
+            "why",
+            "with",
+            "without",
+            "for",
+            "from",
+            "to",
+            "in",
+            "on",
+            "at",
+            "by",
+            "of",
+            "about",
+            "into",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "between",
+            "under",
+            "over",
+            "i",
+            "me",
+            "my",
+            "we",
+            "our",
+            "you",
+            "your",
+            "need",
+            "want",
+            "like",
+            "make",
+            "get",
+            "set",
+            "use",
+            "new",
+            "old",
+            "some",
+            "any",
+            "all",
+            "each",
+            "every",
+            "code",
+            "function",
+            "method",
+            "class",
+            "file",
+            "module",
         ];
 
         task.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
@@ -808,10 +1060,98 @@ impl MuMcpServer {
             .collect()
     }
 
+    /// Perform hybrid search combining BM25 (keyword) and semantic (embedding) results.
+    ///
+    /// Uses Reciprocal Rank Fusion (RRF) to merge rankings from both systems.
+    /// This ensures we find both:
+    /// - Exact keyword matches (e.g., "create_hnsw_index" when searching "hnsw")
+    /// - Conceptually related code (e.g., storage/persistence code)
+    async fn hybrid_search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+        // Get results from both systems
+        let bm25_results = self.mubase.bm25_search(query, limit * 2).unwrap_or_default();
+        let semantic_results = self.run_semantic_search(query, limit * 2).await.unwrap_or_default();
+
+        // Convert BM25 results to SearchResult format
+        let bm25_converted: Vec<SearchResult> = bm25_results
+            .into_iter()
+            .map(|r| SearchResult {
+                name: r.name,
+                node_type: r.node_type,
+                file_path: r.file_path,
+                similarity: r.similarity,
+            })
+            .collect();
+
+        // Apply RRF merge
+        self.rrf_merge(bm25_converted, semantic_results, limit)
+    }
+
+    /// Reciprocal Rank Fusion - merge two ranked lists into one.
+    ///
+    /// RRF score = Σ weight/(k + rank) for each list where the item appears.
+    /// This elegantly combines rankings without needing to normalize scores.
+    ///
+    /// k=60 is the standard constant that balances contribution from different ranks.
+    /// BM25 is weighted 2x higher because exact keyword matches are more valuable
+    /// for code search than semantic similarity.
+    fn rrf_merge(
+        &self,
+        bm25_results: Vec<SearchResult>,
+        semantic_results: Vec<SearchResult>,
+        limit: usize,
+    ) -> Vec<SearchResult> {
+        use std::collections::HashMap;
+
+        const K: f32 = 60.0; // RRF constant
+        const BM25_WEIGHT: f32 = 2.0; // Keyword matches weighted 2x
+        const SEMANTIC_WEIGHT: f32 = 1.0;
+
+        // Track scores and keep the result data
+        let mut scores: HashMap<String, f32> = HashMap::new();
+        let mut result_data: HashMap<String, SearchResult> = HashMap::new();
+
+        // Score from BM25 ranking (keyword matches) - weighted higher
+        for (rank, result) in bm25_results.into_iter().enumerate() {
+            let key = result.name.clone();
+            *scores.entry(key.clone()).or_default() += BM25_WEIGHT / (K + rank as f32 + 1.0);
+            result_data.entry(key).or_insert(result);
+        }
+
+        // Score from semantic ranking (conceptual matches)
+        for (rank, result) in semantic_results.into_iter().enumerate() {
+            let key = result.name.clone();
+            *scores.entry(key.clone()).or_default() += SEMANTIC_WEIGHT / (K + rank as f32 + 1.0);
+            result_data.entry(key).or_insert(result);
+        }
+
+        // Sort by RRF score
+        let mut scored: Vec<(String, f32)> = scores.into_iter().collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Build final results with RRF score as similarity
+        let max_score = scored.first().map(|(_, s)| *s).unwrap_or(1.0);
+        scored
+            .into_iter()
+            .take(limit)
+            .filter_map(|(key, score)| {
+                result_data.remove(&key).map(|mut r| {
+                    // Normalize RRF score to 0-1 range
+                    r.similarity = score / max_score;
+                    r
+                })
+            })
+            .collect()
+    }
+
     /// Get supporting context nodes through graph traversal
-    fn get_context_nodes(&self, must_read_names: &[&str], keywords: &[String]) -> Vec<(String, String, String, Option<String>)> {
+    fn get_context_nodes(
+        &self,
+        must_read_names: &[&str],
+        keywords: &[String],
+    ) -> Vec<(String, String, String, Option<String>)> {
         let mut context = Vec::new();
-        let mut seen: std::collections::HashSet<String> = must_read_names.iter().map(|s| s.to_string()).collect();
+        let mut seen: std::collections::HashSet<String> =
+            must_read_names.iter().map(|s| s.to_string()).collect();
 
         // Get dependencies of must-read nodes
         for name in must_read_names {
@@ -827,10 +1167,22 @@ impl MuMcpServer {
 
             if let Ok(result) = self.mubase.query(&sql) {
                 for row in &result.rows {
-                    let dep_name = row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let dep_name = row
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if seen.insert(dep_name.clone()) {
-                        let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let node_type = row
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let file_path = row
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let line_start = row.get(3).and_then(|v| v.as_i64());
                         let line_end = row.get(4).and_then(|v| v.as_i64());
 
@@ -858,10 +1210,22 @@ impl MuMcpServer {
 
             if let Ok(result) = self.mubase.query(&sql) {
                 for row in &result.rows {
-                    let name = row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let name = row
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if seen.insert(name.clone()) {
-                        let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let node_type = row
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let file_path = row
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         let line_start = row.get(3).and_then(|v| v.as_i64());
                         let line_end = row.get(4).and_then(|v| v.as_i64());
 
@@ -883,7 +1247,12 @@ impl MuMcpServer {
     }
 
     /// Get function signature (first line of definition)
-    fn get_function_signature(&self, file_path: &str, line_start: Option<i64>, _line_end: Option<i64>) -> Option<String> {
+    fn get_function_signature(
+        &self,
+        file_path: &str,
+        line_start: Option<i64>,
+        _line_end: Option<i64>,
+    ) -> Option<String> {
         let full_path = self.project_root.join(file_path);
         let content = fs::read_to_string(&full_path).ok()?;
         let lines: Vec<&str> = content.lines().collect();
@@ -918,8 +1287,10 @@ impl MuMcpServer {
             LIMIT 5";
 
         if let Ok(result) = self.mubase.query(error_sql) {
-            let error_types: Vec<String> = result.rows.iter()
-                .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+            let error_types: Vec<String> = result
+                .rows
+                .iter()
+                .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
                 .collect();
             if !error_types.is_empty() {
                 patterns.push(format!("Error types: {}", error_types.join(", ")));
@@ -928,8 +1299,11 @@ impl MuMcpServer {
 
         // Check if task mentions config-related keywords
         let config_keywords = ["config", "setting", "option", "timeout", "expire", "limit"];
-        let has_config_keyword = keywords.iter()
-            .any(|k| config_keywords.iter().any(|ck| k.to_lowercase().contains(ck)));
+        let has_config_keyword = keywords.iter().any(|k| {
+            config_keywords
+                .iter()
+                .any(|ck| k.to_lowercase().contains(ck))
+        });
 
         if has_config_keyword {
             // Look for config-related files
@@ -942,8 +1316,10 @@ impl MuMcpServer {
                 LIMIT 5";
 
             if let Ok(result) = self.mubase.query(config_sql) {
-                let config_files: Vec<String> = result.rows.iter()
-                    .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+                let config_files: Vec<String> = result
+                    .rows
+                    .iter()
+                    .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
                     .collect();
                 if !config_files.is_empty() {
                     patterns.push(format!("Config files: {}", config_files.join(", ")));
@@ -953,18 +1329,24 @@ impl MuMcpServer {
 
         // Look for test patterns related to the files we found
         if !relevant_files.is_empty() {
-            let test_paths: Vec<String> = relevant_files.iter()
+            let test_paths: Vec<String> = relevant_files
+                .iter()
                 .filter_map(|f| {
                     // Common test file patterns
                     if f.contains("test") || f.contains("spec") {
                         return None; // Already a test file
                     }
-                    let stem = f.trim_end_matches(".rs")
+                    let stem = f
+                        .trim_end_matches(".rs")
                         .trim_end_matches(".py")
                         .trim_end_matches(".ts")
                         .trim_end_matches(".js");
-                    Some(format!("{}test%' OR file_path LIKE '%{}_test%' OR file_path LIKE '%{}_spec%",
-                        stem.replace('\'', "''"), stem.replace('\'', "''"), stem.replace('\'', "''")))
+                    Some(format!(
+                        "{}test%' OR file_path LIKE '%{}_test%' OR file_path LIKE '%{}_spec%",
+                        stem.replace('\'', "''"),
+                        stem.replace('\'', "''"),
+                        stem.replace('\'', "''")
+                    ))
                 })
                 .take(3)
                 .collect();
@@ -976,8 +1358,10 @@ impl MuMcpServer {
                 );
 
                 if let Ok(result) = self.mubase.query(&test_sql) {
-                    let test_files: Vec<String> = result.rows.iter()
-                        .filter_map(|r| r.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()))
+                    let test_files: Vec<String> = result
+                        .rows
+                        .iter()
+                        .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
                         .collect();
                     if !test_files.is_empty() {
                         patterns.push(format!("Related tests: {}", test_files.join(", ")));
@@ -999,38 +1383,54 @@ impl MuMcpServer {
 
         patterns
     }
-    async fn run_semantic_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
-        let model = self.model
+    async fn run_semantic_search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<SearchResult>> {
+        let model = self
+            .model
             .get_or_try_init(|| async { mu_embeddings::MuSigmaModel::embedded() })
             .await?;
         let embedding = model.embed_one(query)?;
         let results = self.mubase.vector_search(&embedding, limit, Some(0.3))?;
 
-        Ok(results.into_iter().map(|r| SearchResult {
-            name: r.name,
-            node_type: r.node_type,
-            file_path: r.file_path,
-            start_line: None,
-            end_line: None,
-            similarity: r.similarity,
-        }).collect())
+        Ok(results
+            .into_iter()
+            .map(|r| SearchResult {
+                name: r.name,
+                node_type: r.node_type,
+                file_path: r.file_path,
+                similarity: r.similarity,
+            })
+            .collect())
     }
 
     fn run_keyword_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
         let sql = format!(
-            "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
+            "SELECT type, name, file_path FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
             query.to_lowercase().replace('\'', "''"), limit
         );
         let result = self.mubase.query(&sql)?;
 
-        Ok(result.rows.iter().map(|row| SearchResult {
-            name: row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            node_type: row.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-            file_path: row.get(2).and_then(|v| v.as_str()).map(|s| s.to_string()),
-            start_line: row.get(3).and_then(|v| v.as_i64()),
-            end_line: row.get(4).and_then(|v| v.as_i64()),
-            similarity: 1.0,
-        }).collect())
+        Ok(result
+            .rows
+            .iter()
+            .map(|row| SearchResult {
+                name: row
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                node_type: row
+                    .first()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                file_path: row.get(2).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                similarity: 1.0,
+            })
+            .collect())
     }
 
     /// Extract a code snippet around a symbol
@@ -1067,8 +1467,7 @@ impl MuMcpServer {
                     // Try to find the end of the block (simple heuristic)
                     let mut brace_count = 0;
                     let mut found_open = false;
-                    for j in i..lines.len().min(i + 50) {
-                        let l = lines[j];
+                    for (offset, l) in lines.iter().skip(i).take(50).enumerate() {
                         for c in l.chars() {
                             if c == '{' || c == '(' && !found_open {
                                 brace_count += 1;
@@ -1077,7 +1476,7 @@ impl MuMcpServer {
                                 brace_count -= 1;
                             }
                         }
-                        end = j + 1;
+                        end = i + offset + 1;
                         if found_open && brace_count <= 0 {
                             break;
                         }
@@ -1103,8 +1502,6 @@ struct SearchResult {
     name: String,
     node_type: String,
     file_path: Option<String>,
-    start_line: Option<i64>,
-    end_line: Option<i64>,
     similarity: f32,
 }
 

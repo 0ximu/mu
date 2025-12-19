@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use duckdb::{params, Config, Connection};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Database access mode for concurrent access control.
@@ -17,7 +18,7 @@ pub enum AccessMode {
 }
 
 use super::edges::Edge;
-use super::embeddings::{cosine_similarity, EmbeddingStats, VectorSearchResult};
+use super::embeddings::{EmbeddingStats, VectorSearchResult};
 use super::graph_engine::GraphEngine;
 use super::nodes::Node;
 use super::schema::{NodeType, SCHEMA_SQL, SCHEMA_VERSION};
@@ -28,6 +29,12 @@ pub struct MUbase {
     /// Path to the database file (stored for potential future use in queries/debugging).
     #[allow(dead_code)]
     path: std::path::PathBuf,
+    /// Whether VSS extension is loaded and HNSW index exists.
+    vss_available: AtomicBool,
+    /// Whether we've already warned about VSS unavailability (warn once).
+    vss_warned: AtomicBool,
+    /// Whether FTS extension is loaded and index exists.
+    fts_available: AtomicBool,
 }
 
 impl MUbase {
@@ -68,12 +75,21 @@ impl MUbase {
         let mubase = Self {
             conn: Arc::new(Mutex::new(conn)),
             path: path.to_path_buf(),
+            vss_available: AtomicBool::new(false),
+            vss_warned: AtomicBool::new(false),
+            fts_available: AtomicBool::new(false),
         };
 
         // Only initialize schema in read-write mode
         if mode == AccessMode::ReadWrite {
             mubase.init_schema()?;
         }
+
+        // Check if VSS extension and HNSW index are available
+        mubase.detect_vss_availability();
+
+        // Check if FTS extension and index are available
+        mubase.detect_fts_availability();
 
         Ok(mubase)
     }
@@ -118,7 +134,22 @@ impl MUbase {
             );
         }
 
-        // Execute schema creation
+        // Check if migration is needed (v1.0.0 JSON embeddings → v1.1.0 native arrays)
+        // We detect this by checking the schema version in metadata table
+        let needs_migrate = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '1.0.0'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if needs_migrate {
+            tracing::info!("Migrating embeddings from JSON to native FLOAT[384]");
+            super::migrations::migrate_embeddings_to_native(&conn)?;
+        }
+
+        // Execute schema creation (CREATE TABLE IF NOT EXISTS is safe for existing tables)
         conn.execute_batch(SCHEMA_SQL)
             .context("Failed to initialize schema")?;
 
@@ -130,6 +161,385 @@ impl MUbase {
         .context("Failed to set schema version")?;
 
         Ok(())
+    }
+
+    /// Get the current schema version from the database.
+    ///
+    /// Returns "1.0.0" if no version is stored (legacy database).
+    pub fn get_schema_version(&self) -> Result<String> {
+        let conn = self.acquire_conn()?;
+        let version: String = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or_else(|_| "1.0.0".to_string());
+        Ok(version)
+    }
+
+    /// Update the schema version in the database.
+    fn set_schema_version(&self, version: &str) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
+            params![version],
+        )?;
+        Ok(())
+    }
+
+    /// Run any pending schema migrations.
+    ///
+    /// Currently migrates v1.0.0 (JSON embeddings) to v1.1.0 (native FLOAT[384]).
+    pub fn run_migrations(&self) -> Result<()> {
+        let current_version = self.get_schema_version()?;
+        if super::migrations::needs_migration(&current_version, super::migrations::TARGET_VERSION) {
+            tracing::info!(
+                "Migrating schema from {} to {}",
+                current_version,
+                super::migrations::TARGET_VERSION
+            );
+            let conn = self.acquire_conn()?;
+            super::migrations::migrate_embeddings_to_native(&conn)?;
+        }
+        Ok(())
+    }
+
+    // ========================================================================
+    // VSS Extension & HNSW Index Support
+    // ========================================================================
+
+    /// Detect if VSS extension is loaded and HNSW index exists.
+    ///
+    /// Called during database open to enable optimized vector search paths.
+    fn detect_vss_availability(&self) {
+        let Ok(conn) = self.acquire_conn() else {
+            return;
+        };
+
+        // Try to load VSS extension (may already be loaded)
+        let _ = conn.execute("LOAD vss", []);
+
+        // Check if HNSW index exists on embeddings table
+        let has_hnsw = conn
+            .query_row(
+                "SELECT 1 FROM duckdb_indexes() WHERE index_name = 'idx_embeddings_hnsw'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if has_hnsw {
+            self.vss_available.store(true, Ordering::Relaxed);
+            tracing::debug!("VSS extension loaded, HNSW index available");
+        }
+    }
+
+    /// Try to load the VSS extension. Returns true if successful.
+    ///
+    /// This installs and loads the DuckDB VSS extension for vector similarity search.
+    /// The extension provides HNSW indexing for O(log n) approximate nearest neighbor search.
+    fn try_load_vss(&self) -> Result<bool> {
+        let conn = self.acquire_conn()?;
+
+        // Try to install VSS (may already be installed)
+        if let Err(e) = conn.execute("INSTALL vss", []) {
+            tracing::debug!("VSS install skipped (may already be installed): {}", e);
+        }
+
+        // Try to load VSS
+        match conn.execute("LOAD vss", []) {
+            Ok(_) => {
+                tracing::info!("VSS extension loaded successfully");
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load VSS extension: {}", e);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Create HNSW index on the embeddings table for fast vector search.
+    ///
+    /// Prerequisites:
+    /// - VSS extension must be installed and loaded
+    /// - Embeddings table must have data (index built from existing vectors)
+    ///
+    /// The index uses cosine distance metric matching our similarity search.
+    /// After creation, vector_search will automatically use the index.
+    pub fn create_hnsw_index(&self) -> Result<bool> {
+        // First ensure VSS is loaded
+        if !self.try_load_vss()? {
+            anyhow::bail!(
+                "Cannot create HNSW index: VSS extension failed to load.\n\
+                 This may be due to network issues or platform limitations."
+            );
+        }
+
+        let conn = self.acquire_conn()?;
+
+        // Check if index already exists
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM duckdb_indexes() WHERE index_name = 'idx_embeddings_hnsw'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if exists {
+            tracing::info!("HNSW index already exists");
+            self.vss_available.store(true, Ordering::Relaxed);
+            return Ok(false); // Index already existed
+        }
+
+        // Check if we have embeddings to index
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))?;
+
+        if count == 0 {
+            anyhow::bail!("Cannot create HNSW index: no embeddings in database");
+        }
+
+        tracing::info!("Creating HNSW index on {} embeddings...", count);
+
+        // Enable experimental persistence for HNSW (required for non-memory databases)
+        conn.execute("SET hnsw_enable_experimental_persistence = true", [])
+            .context("Failed to enable HNSW persistence")?;
+
+        // Create HNSW index with cosine metric
+        // Note: DuckDB VSS uses 'cosine' metric which computes cosine distance (1 - similarity)
+        conn.execute(
+            "CREATE INDEX idx_embeddings_hnsw ON embeddings USING HNSW (embedding) WITH (metric = 'cosine')",
+            [],
+        )
+        .context("Failed to create HNSW index")?;
+
+        self.vss_available.store(true, Ordering::Relaxed);
+        tracing::info!("HNSW index created successfully");
+
+        Ok(true) // Index was created
+    }
+
+    /// Drop the HNSW index if it exists.
+    pub fn drop_hnsw_index(&self) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute("DROP INDEX IF EXISTS idx_embeddings_hnsw", [])?;
+        self.vss_available.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Check if HNSW index is available for vector search.
+    pub fn has_hnsw_index(&self) -> bool {
+        self.vss_available.load(Ordering::Relaxed)
+    }
+
+    // ========================================================================
+    // FTS Extension & BM25 Search Support
+    // ========================================================================
+
+    /// Detect if FTS extension is loaded and index exists.
+    fn detect_fts_availability(&self) {
+        let Ok(conn) = self.acquire_conn() else {
+            return;
+        };
+
+        // Try to load FTS extension
+        let _ = conn.execute("INSTALL fts", []);
+        let _ = conn.execute("LOAD fts", []);
+
+        // Check if FTS index exists on nodes table
+        // DuckDB FTS creates a schema called fts_main_<table>
+        let has_fts = conn
+            .query_row(
+                "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'fts_main_nodes'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if has_fts {
+            self.fts_available.store(true, Ordering::Relaxed);
+            tracing::debug!("FTS extension loaded, BM25 index available");
+        }
+    }
+
+    /// Create FTS index on the nodes table for BM25 keyword search.
+    ///
+    /// Indexes: name, qualified_name, file_path
+    /// This enables fast keyword-based search that complements semantic search.
+    pub fn create_fts_index(&self) -> Result<bool> {
+        let conn = self.acquire_conn()?;
+
+        // Install and load FTS extension
+        conn.execute("INSTALL fts", [])
+            .context("Failed to install FTS extension")?;
+        conn.execute("LOAD fts", [])
+            .context("Failed to load FTS extension")?;
+
+        // Check if index already exists
+        let exists = conn
+            .query_row(
+                "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'fts_main_nodes'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if exists {
+            tracing::info!("FTS index already exists");
+            self.fts_available.store(true, Ordering::Relaxed);
+            return Ok(false);
+        }
+
+        // Check if we have nodes to index
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        if count == 0 {
+            anyhow::bail!("Cannot create FTS index: no nodes in database");
+        }
+
+        tracing::info!("Creating FTS index on {} nodes...", count);
+
+        // Create FTS index on name, qualified_name, and file_path
+        // This allows searching for symbol names and file locations
+        conn.execute(
+            "PRAGMA create_fts_index('nodes', 'id', 'name', 'qualified_name', 'file_path', overwrite=1)",
+            [],
+        )
+        .context("Failed to create FTS index")?;
+
+        self.fts_available.store(true, Ordering::Relaxed);
+        tracing::info!("FTS index created successfully");
+
+        Ok(true)
+    }
+
+    /// Drop the FTS index if it exists.
+    pub fn drop_fts_index(&self) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        let _ = conn.execute("PRAGMA drop_fts_index('nodes')", []);
+        self.fts_available.store(false, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Check if FTS index is available for BM25 search.
+    pub fn has_fts_index(&self) -> bool {
+        self.fts_available.load(Ordering::Relaxed)
+    }
+
+    /// Perform BM25 keyword search on nodes.
+    ///
+    /// Returns nodes matching the query ranked by BM25 score.
+    /// This finds exact keyword matches that semantic search might miss.
+    pub fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<VectorSearchResult>> {
+        let conn = self.acquire_conn()?;
+
+        // Ensure FTS is loaded
+        let _ = conn.execute("LOAD fts", []);
+
+        if !self.has_fts_index() {
+            // Fall back to LIKE-based search if no FTS index
+            return self.fallback_keyword_search(&conn, query, limit);
+        }
+
+        // BM25 search using DuckDB FTS
+        // The fts_main_nodes.match_bm25 function returns a score for matching documents
+        let sql = format!(
+            r#"
+            SELECT
+                n.id,
+                n.name,
+                n.type,
+                n.file_path,
+                n.qualified_name,
+                fts_main_nodes.match_bm25(n.id, ?) AS score
+            FROM nodes n
+            WHERE score IS NOT NULL
+            ORDER BY score DESC
+            LIMIT ?
+            "#
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![query, limit as i64])?;
+        let mut results = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let node_type: String = row.get(2)?;
+            let file_path: Option<String> = row.get(3)?;
+            let qualified_name: Option<String> = row.get(4)?;
+            let score: f64 = row.get(5)?;
+
+            // Normalize BM25 score to 0-1 range (BM25 scores are typically 0-25+)
+            // Using sigmoid-like normalization
+            let similarity = (score / (score + 10.0)) as f32;
+
+            results.push(VectorSearchResult {
+                node_id,
+                name,
+                node_type,
+                file_path,
+                qualified_name,
+                similarity,
+            });
+        }
+
+        Ok(results)
+    }
+
+    /// Fallback keyword search using LIKE when FTS index is not available.
+    fn fallback_keyword_search(
+        &self,
+        conn: &Connection,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<VectorSearchResult>> {
+        // Split query into keywords and search for any match
+        let keywords: Vec<&str> = query.split_whitespace().collect();
+        if keywords.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Build OR conditions for each keyword
+        let conditions: Vec<String> = keywords
+            .iter()
+            .map(|kw| {
+                let escaped = kw.replace('\'', "''").to_lowercase();
+                format!(
+                    "(LOWER(name) LIKE '%{}%' OR LOWER(qualified_name) LIKE '%{}%' OR LOWER(file_path) LIKE '%{}%')",
+                    escaped, escaped, escaped
+                )
+            })
+            .collect();
+
+        let sql = format!(
+            r#"
+            SELECT id, name, type, file_path, qualified_name
+            FROM nodes
+            WHERE {}
+            LIMIT ?
+            "#,
+            conditions.join(" OR ")
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params![limit as i64])?;
+        let mut results = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            results.push(VectorSearchResult {
+                node_id: row.get(0)?,
+                name: row.get(1)?,
+                node_type: row.get(2)?,
+                file_path: row.get(3)?,
+                qualified_name: row.get(4)?,
+                similarity: 0.5, // Fixed score for LIKE matches
+            });
+        }
+
+        Ok(results)
     }
 
     /// Clear all data from the database (no-op since insert functions handle this).
@@ -572,6 +982,9 @@ impl MUbase {
 
     /// Insert a batch of (node_id, embedding, optional_text) tuples.
     ///
+    /// Embeddings are stored as native FLOAT[384] arrays for efficient
+    /// similarity search using `array_cosine_similarity()`.
+    ///
     /// # Arguments
     /// * `batch` - Slice of (node_id, embedding_vector, optional_text) tuples
     /// * `model` - Optional model name (defaults to 'mu-sigma-v2')
@@ -583,16 +996,27 @@ impl MUbase {
         let conn = self.acquire_conn()?;
         let model_name = model.unwrap_or("mu-sigma-v2");
 
-        let mut stmt = conn.prepare(
-            r#"INSERT OR REPLACE INTO embeddings (node_id, embedding, model, created_at)
-               VALUES (?, ?, ?, CURRENT_TIMESTAMP)"#,
-        )?;
-
         for (node_id, embedding, _text) in batch {
-            // Convert Vec<f32> to a DuckDB-compatible array representation
-            // DuckDB expects arrays as JSON-like syntax in parameterized queries
-            let embedding_json = serde_json::to_string(embedding)?;
-            stmt.execute(params![node_id, embedding_json, model_name])?;
+            // Format embedding as DuckDB array literal: [0.1, 0.2, ...]::FLOAT[384]
+            // Note: We use string formatting because duckdb-rs doesn't support
+            // native array parameters well. The node_id is still parameterized
+            // to prevent SQL injection.
+            let array_literal = format!(
+                "[{}]::FLOAT[384]",
+                embedding
+                    .iter()
+                    .map(|f| f.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+
+            let sql = format!(
+                "INSERT OR REPLACE INTO embeddings (node_id, embedding, model, created_at) \
+                 VALUES (?, {}, ?, CURRENT_TIMESTAMP)",
+                array_literal
+            );
+
+            conn.execute(&sql, params![node_id, model_name])?;
         }
 
         Ok(())
@@ -626,8 +1050,12 @@ impl MUbase {
 
     /// Search for similar embeddings using cosine similarity.
     ///
+    /// Uses DuckDB's native vector functions for efficient in-database search.
+    /// When HNSW index is available (via VSS extension), uses O(log n) approximate
+    /// nearest neighbor search. Otherwise falls back to O(n) linear scan.
+    ///
     /// # Arguments
-    /// * `query_embedding` - The query vector to search for
+    /// * `query_embedding` - The query vector to search for (384 dimensions)
     /// * `limit` - Maximum number of results to return
     /// * `threshold` - Optional minimum similarity threshold (0.0 to 1.0)
     ///
@@ -641,61 +1069,118 @@ impl MUbase {
     ) -> Result<Vec<VectorSearchResult>> {
         let conn = self.acquire_conn()?;
 
-        // Fetch all embeddings with node metadata
-        // DuckDB doesn't have native vector similarity, so we compute in Rust
-        let mut stmt = conn.prepare(
-            r#"SELECT e.node_id, e.embedding, n.name, n.type, n.file_path, n.qualified_name
-               FROM embeddings e
-               JOIN nodes n ON e.node_id = n.id"#,
-        )?;
-
-        let mut rows = stmt.query([])?;
-        let mut results: Vec<VectorSearchResult> = Vec::new();
-
-        // Pre-compute query magnitude for cosine similarity
-        let query_magnitude = (query_embedding.iter().map(|x| x * x).sum::<f32>()).sqrt();
-        if query_magnitude == 0.0 {
-            return Ok(results);
-        }
+        // Build query array literal for SQL
+        let query_array = format!(
+            "[{}]::FLOAT[384]",
+            query_embedding
+                .iter()
+                .map(|f| f.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
 
         let min_similarity = threshold.unwrap_or(0.0);
 
-        while let Some(row) = rows.next()? {
-            let node_id: String = row.get(0)?;
-            let embedding_json: String = row.get(1)?;
-            let name: String = row.get(2)?;
-            let node_type: String = row.get(3)?;
-            let file_path: Option<String> = row.get(4)?;
-            let qualified_name: Option<String> = row.get(5)?;
+        // Check if HNSW index is available for faster search
+        let use_hnsw = self.vss_available.load(Ordering::Relaxed);
 
-            // Parse the embedding from JSON array format
-            let stored_embedding: Vec<f32> = match serde_json::from_str(&embedding_json) {
-                Ok(v) => v,
-                Err(_) => continue, // Skip malformed embeddings
-            };
-
-            // Compute cosine similarity
-            let similarity = cosine_similarity(query_embedding, &stored_embedding, query_magnitude);
-
-            if similarity >= min_similarity {
-                results.push(VectorSearchResult {
-                    node_id,
-                    similarity,
-                    name,
-                    node_type,
-                    file_path,
-                    qualified_name,
-                });
+        // Warn once if HNSW is not available (user may want to enable it)
+        if !use_hnsw && !self.vss_warned.swap(true, Ordering::Relaxed) {
+            let count: usize = conn
+                .query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))
+                .unwrap_or(0);
+            if count > 1000 {
+                tracing::warn!(
+                    "Linear scan over {} embeddings. Run `mu bootstrap --hnsw` for faster search.",
+                    count
+                );
             }
         }
 
-        // Sort by similarity (highest first) and truncate to limit
-        results.sort_by(|a, b| {
-            b.similarity
-                .partial_cmp(&a.similarity)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        results.truncate(limit);
+        let sql = if use_hnsw {
+            // HNSW path: Use distance-based ordering for index utilization
+            // HNSW requires ORDER BY distance pattern to use the index effectively
+            // We fetch more results to account for threshold filtering, then filter
+            format!(
+                r#"
+                SELECT
+                    e.node_id,
+                    n.name,
+                    n.type as node_type,
+                    n.file_path,
+                    n.qualified_name,
+                    array_cosine_distance(e.embedding, {query_array}) as distance
+                FROM embeddings e
+                JOIN nodes n ON e.node_id = n.id
+                ORDER BY distance
+                LIMIT {limit}
+                "#,
+                query_array = query_array,
+                limit = limit * 2 // Fetch extra for threshold filtering
+            )
+        } else {
+            // Linear scan path: Use similarity with WHERE filtering
+            format!(
+                r#"
+                SELECT
+                    e.node_id,
+                    n.name,
+                    n.type as node_type,
+                    n.file_path,
+                    n.qualified_name,
+                    array_cosine_similarity(e.embedding, {query_array}) as similarity
+                FROM embeddings e
+                JOIN nodes n ON e.node_id = n.id
+                WHERE array_cosine_similarity(e.embedding, {query_array}) >= {min_similarity}
+                ORDER BY similarity DESC
+                LIMIT {limit}
+                "#,
+                query_array = query_array,
+                min_similarity = min_similarity,
+                limit = limit
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query([])?;
+        let mut results: Vec<VectorSearchResult> = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let node_type: String = row.get(2)?;
+            let file_path: Option<String> = row.get(3)?;
+            let qualified_name: Option<String> = row.get(4)?;
+
+            // Handle distance vs similarity based on query type
+            let similarity = if use_hnsw {
+                let distance: f64 = row.get(5)?;
+                // Convert distance to similarity: similarity = 1 - distance
+                let sim = 1.0 - distance;
+                // Apply threshold filter (HNSW can't filter in ORDER BY)
+                if sim < min_similarity as f64 {
+                    continue;
+                }
+                sim as f32
+            } else {
+                let sim: f64 = row.get(5)?;
+                sim as f32
+            };
+
+            results.push(VectorSearchResult {
+                node_id,
+                similarity,
+                name,
+                node_type,
+                file_path,
+                qualified_name,
+            });
+
+            // Stop if we have enough results (HNSW fetches extra)
+            if results.len() >= limit {
+                break;
+            }
+        }
 
         Ok(results)
     }
@@ -855,6 +1340,18 @@ mod tests {
         MUbase::open(&db_path).unwrap()
     }
 
+    /// Create a 384-dimensional test embedding by padding short vectors with zeros.
+    /// This is needed because the schema uses FLOAT[384] fixed-size arrays.
+    fn test_embedding(values: &[f32]) -> Vec<f32> {
+        let mut embedding = vec![0.0f32; 384];
+        for (i, &v) in values.iter().enumerate() {
+            if i < 384 {
+                embedding[i] = v;
+            }
+        }
+        embedding
+    }
+
     #[test]
     fn test_open_and_init() {
         let db = create_test_db();
@@ -998,8 +1495,12 @@ mod tests {
         let node = Node::module("src/test.py");
         db.insert_node(&node).unwrap();
 
-        // Insert an embedding
-        let batch = vec![("mod:src/test.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        // Insert an embedding (padded to 384 dimensions)
+        let batch = vec![(
+            "mod:src/test.py".to_string(),
+            test_embedding(&[0.1, 0.2, 0.3]),
+            None,
+        )];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
         assert!(db.has_embeddings().unwrap());
@@ -1015,8 +1516,12 @@ mod tests {
         db.insert_node(&node1).unwrap();
         db.insert_node(&node2).unwrap();
 
-        // Insert embedding for one node
-        let batch = vec![("mod:src/a.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        // Insert embedding for one node (padded to 384 dimensions)
+        let batch = vec![(
+            "mod:src/a.py".to_string(),
+            test_embedding(&[0.1, 0.2, 0.3]),
+            None,
+        )];
         db.insert_embeddings_batch(&batch, Some("test-model"))
             .unwrap();
 
@@ -1037,19 +1542,23 @@ mod tests {
         db.insert_node(&node1).unwrap();
         db.insert_node(&node2).unwrap();
 
-        // Insert embeddings - one similar to query, one different
+        // Insert embeddings - one similar to query, one different (padded to 384 dims)
         let batch = vec![
-            ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
+            (
+                "mod:src/similar.py".to_string(),
+                test_embedding(&[1.0, 0.0, 0.0]),
+                None,
+            ),
             (
                 "mod:src/different.py".to_string(),
-                vec![0.0, 1.0, 0.0],
+                test_embedding(&[0.0, 1.0, 0.0]),
                 None,
             ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
-        // Search for vector similar to first embedding
-        let query = vec![0.9, 0.1, 0.0];
+        // Search for vector similar to first embedding (padded to 384 dims)
+        let query = test_embedding(&[0.9, 0.1, 0.0]);
         let results = db.vector_search(&query, 10, None).unwrap();
 
         assert_eq!(results.len(), 2);
@@ -1068,19 +1577,23 @@ mod tests {
         db.insert_node(&node1).unwrap();
         db.insert_node(&node2).unwrap();
 
-        // Insert embeddings
+        // Insert embeddings (padded to 384 dims)
         let batch = vec![
-            ("mod:src/similar.py".to_string(), vec![1.0, 0.0, 0.0], None),
+            (
+                "mod:src/similar.py".to_string(),
+                test_embedding(&[1.0, 0.0, 0.0]),
+                None,
+            ),
             (
                 "mod:src/different.py".to_string(),
-                vec![0.0, 1.0, 0.0],
+                test_embedding(&[0.0, 1.0, 0.0]),
                 None,
             ),
         ];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
-        // Search with high threshold - should only return similar
-        let query = vec![1.0, 0.0, 0.0];
+        // Search with high threshold - should only return similar (padded to 384 dims)
+        let query = test_embedding(&[1.0, 0.0, 0.0]);
         let results = db.vector_search(&query, 10, Some(0.9)).unwrap();
 
         assert_eq!(results.len(), 1);
@@ -1132,16 +1645,20 @@ mod tests {
     fn test_cleanup_orphaned_embeddings() {
         let db = create_test_db();
 
-        // Insert a node and its embedding
+        // Insert a node and its embedding (padded to 384 dims)
         let node = Node::module("src/test.py");
         db.insert_node(&node).unwrap();
-        let batch = vec![("mod:src/test.py".to_string(), vec![0.1, 0.2, 0.3], None)];
+        let batch = vec![(
+            "mod:src/test.py".to_string(),
+            test_embedding(&[0.1, 0.2, 0.3]),
+            None,
+        )];
         db.insert_embeddings_batch(&batch, None).unwrap();
 
         // Also insert an orphan embedding (no corresponding node)
         let orphan_batch = vec![(
             "mod:src/nonexistent.py".to_string(),
-            vec![0.4, 0.5, 0.6],
+            test_embedding(&[0.4, 0.5, 0.6]),
             None,
         )];
         db.insert_embeddings_batch(&orphan_batch, None).unwrap();
@@ -1159,29 +1676,126 @@ mod tests {
         assert_eq!(stats_after.nodes_with_embeddings, 1);
     }
 
+    // Note: cosine_similarity tests removed - now tested via DuckDB's array_cosine_similarity()
+    // See migrations.rs tests for vector similarity validation
+
+    // ========================================================================
+    // HNSW Index Tests
+    // ========================================================================
+
     #[test]
-    fn test_cosine_similarity_identical() {
-        let a = vec![1.0, 0.0, 0.0];
-        let magnitude = 1.0;
-        let similarity = cosine_similarity(&a, &a, magnitude);
-        assert!((similarity - 1.0).abs() < 0.001);
+    fn test_hnsw_availability_detection_no_index() {
+        // Fresh database should not have HNSW available
+        let db = create_test_db();
+        assert!(!db.has_hnsw_index());
     }
 
     #[test]
-    fn test_cosine_similarity_orthogonal() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![0.0, 1.0, 0.0];
-        let magnitude = 1.0;
-        let similarity = cosine_similarity(&a, &b, magnitude);
-        assert!(similarity.abs() < 0.001);
+    fn test_hnsw_create_requires_embeddings() {
+        // Cannot create HNSW on empty embeddings table
+        let db = create_test_db();
+
+        let result = db.create_hnsw_index();
+        // Should fail because there are no embeddings
+        assert!(result.is_err() || matches!(result, Ok(false)));
     }
 
     #[test]
-    fn test_cosine_similarity_opposite() {
-        let a = vec![1.0, 0.0, 0.0];
-        let b = vec![-1.0, 0.0, 0.0];
-        let magnitude = 1.0;
-        let similarity = cosine_similarity(&a, &b, magnitude);
-        assert!((similarity - (-1.0)).abs() < 0.001);
+    #[ignore = "Requires VSS extension to be installed"]
+    fn test_hnsw_create_with_embeddings() {
+        let db = create_test_db();
+
+        // Create nodes
+        let node1 = Node::module("src/a.py");
+        let node2 = Node::module("src/b.py");
+        db.insert_nodes(&[node1, node2]).unwrap();
+
+        // Insert embeddings
+        let batch = vec![
+            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
+            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+        ];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Create HNSW index
+        let result = db.create_hnsw_index();
+        if let Err(e) = &result {
+            // VSS may not be available
+            if e.to_string().contains("VSS") {
+                return; // Skip test if VSS not available
+            }
+        }
+
+        assert!(result.unwrap());
+        assert!(db.has_hnsw_index());
+    }
+
+    #[test]
+    #[ignore = "Requires VSS extension to be installed"]
+    fn test_hnsw_vector_search_uses_index() {
+        let db = create_test_db();
+
+        // Create nodes
+        let node1 = Node::module("src/a.py");
+        let node2 = Node::module("src/b.py");
+        db.insert_nodes(&[node1, node2]).unwrap();
+
+        // Insert embeddings
+        let batch = vec![
+            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
+            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+        ];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Create HNSW index
+        let result = db.create_hnsw_index();
+        if result.is_err() {
+            return; // VSS not available
+        }
+
+        // Search should work with HNSW
+        let query = test_embedding(&[0.9, 0.1, 0.0]);
+        let results = db.vector_search(&query, 5, None).unwrap();
+
+        // Should find node_a as closest match
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, "mod:src/a.py");
+    }
+
+    #[test]
+    fn test_vector_search_fallback_without_hnsw() {
+        // Vector search should work without HNSW (linear scan)
+        let db = create_test_db();
+
+        // Verify HNSW is not available
+        assert!(!db.has_hnsw_index());
+
+        // Create nodes and embeddings
+        let node1 = Node::module("src/a.py");
+        let node2 = Node::module("src/b.py");
+        db.insert_nodes(&[node1, node2]).unwrap();
+
+        let batch = vec![
+            ("mod:src/a.py".to_string(), test_embedding(&[1.0, 0.0, 0.0]), None),
+            ("mod:src/b.py".to_string(), test_embedding(&[0.0, 1.0, 0.0]), None),
+        ];
+        db.insert_embeddings_batch(&batch, None).unwrap();
+
+        // Search should still work via linear scan
+        let query = test_embedding(&[0.9, 0.1, 0.0]);
+        let results = db.vector_search(&query, 5, None).unwrap();
+
+        // Should find node_a as closest match
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, "mod:src/a.py");
+    }
+
+    #[test]
+    fn test_drop_hnsw_index() {
+        let db = create_test_db();
+
+        // Drop should succeed even if index doesn't exist
+        db.drop_hnsw_index().unwrap();
+        assert!(!db.has_hnsw_index());
     }
 }
