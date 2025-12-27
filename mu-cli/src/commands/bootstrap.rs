@@ -844,6 +844,51 @@ pub async fn run(
         }
     );
 
+    // Step 3.5: Detect and fix external dependencies
+    // Import resolution may produce mod:serde/Deserialize for external crates.
+    // If no such module exists in the graph, convert to ext:crate_name (crate only).
+    {
+        let existing_ids: std::collections::HashSet<_> =
+            nodes.iter().map(|n| n.id.as_str()).collect();
+
+        // Fix orphan mod: targets -> convert to ext: with crate/package name
+        for edge in edges.iter_mut() {
+            if edge.target_id.starts_with("mod:")
+                && !existing_ids.contains(edge.target_id.as_str())
+            {
+                // Extract crate/package name: "mod:serde/Deserialize" -> "serde"
+                let path = edge.target_id.strip_prefix("mod:").unwrap_or(&edge.target_id);
+                let crate_name = path.split('/').next().unwrap_or(path);
+                edge.target_id = format!("ext:{}", crate_name);
+                // Update edge ID to match new target
+                edge.id = format!(
+                    "edge:{}:{}:{}",
+                    edge.source_id,
+                    edge.edge_type.as_str(),
+                    edge.target_id
+                );
+            }
+        }
+
+        // Create nodes for all ext: targets that don't have nodes yet
+        let external_targets: std::collections::HashSet<_> = edges
+            .iter()
+            .filter(|e| {
+                e.target_id.starts_with("ext:") && !existing_ids.contains(e.target_id.as_str())
+            })
+            .map(|e| e.target_id.as_str())
+            .collect();
+
+        for ext_id in &external_targets {
+            let name = ext_id.strip_prefix("ext:").unwrap_or(ext_id);
+            nodes.push(mu_daemon::storage::Node::external(name));
+        }
+
+        if !external_targets.is_empty() {
+            tracing::debug!("Created {} external dependency nodes", external_targets.len());
+        }
+    }
+
     spinner.set_message("Writing database...");
 
     // Step 4: Write to database
