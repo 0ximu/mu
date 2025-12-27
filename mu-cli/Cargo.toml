@@ -70,5 +70,9 @@ blake3 = "1.5"
 # Syntax highlighting
 syntect = { version = "5.2", default-features = false, features = ["default-fancy"] }
 
+# MCP server (Model Context Protocol)
+rmcp = { version = "0.3", features = ["server", "transport-io"] }
+schemars = "1.0.0-alpha.17"
+
 [dev-dependencies]
 tempfile = "3"

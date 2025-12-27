@@ -397,6 +397,14 @@ enum Commands {
         limit: usize,
     },
 
+    // ==================== Integration ====================
+    /// Start MCP server for AI assistant integration (Claude, etc.)
+    Mcp {
+        /// Working directory (defaults to current)
+        #[arg(default_value = ".")]
+        path: String,
+    },
+
     // ==================== Utilities ====================
     /// Run health checks on MU installation
     Doctor {
@@ -604,6 +612,9 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::History { node, limit } => history::run(&node, limit, format).await,
+
+        // Integration commands
+        Commands::Mcp { path } => mcp::run(&path).await,
 
         // Utility commands
         Commands::Doctor { path } => doctor::run(&path, format).await,
