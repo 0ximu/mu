@@ -21,7 +21,7 @@ use serde_json::json;
 use crate::cache::{CacheStats, ParseCache};
 use crate::config::MuConfig;
 use crate::output::{Output, OutputFormat, TableDisplay};
-use crate::tsconfig::PathAliasResolver;
+use crate::tsconfig::{PathAliasResolver, WorkspaceResolver};
 
 /// Result of bootstrap operation
 #[derive(Debug, Serialize)]
@@ -634,6 +634,12 @@ pub async fn run(
         tracing::debug!("Loaded TypeScript path alias resolver from tsconfig.json/jsconfig.json");
     }
 
+    // Load workspace resolver for monorepo package imports
+    let workspace_resolver = WorkspaceResolver::from_project(&root);
+    if workspace_resolver.is_some() {
+        tracing::debug!("Loaded workspace resolver from package.json workspaces");
+    }
+
     // Build C# namespace-to-file mapping for resolving using statements
     let csharp_namespace_map = build_csharp_namespace_map(&parse_results);
     if !csharp_namespace_map.is_empty() {
@@ -761,6 +767,7 @@ pub async fn run(
                     rel_path,
                     &module.language,
                     path_alias_resolver.as_ref(),
+                    workspace_resolver.as_ref(),
                     Some(&csharp_namespace_map),
                 );
                 edges.push(mu_daemon::storage::Edge::imports(&module_id, &target_id));
@@ -843,6 +850,51 @@ pub async fn run(
             0.0
         }
     );
+
+    // Step 3.5: Detect and fix external dependencies
+    // Import resolution may produce mod:serde/Deserialize for external crates.
+    // If no such module exists in the graph, convert to ext:crate_name (crate only).
+    {
+        let existing_ids: std::collections::HashSet<_> =
+            nodes.iter().map(|n| n.id.as_str()).collect();
+
+        // Fix orphan mod: targets -> convert to ext: with crate/package name
+        for edge in edges.iter_mut() {
+            if edge.target_id.starts_with("mod:")
+                && !existing_ids.contains(edge.target_id.as_str())
+            {
+                // Extract crate/package name: "mod:serde/Deserialize" -> "serde"
+                let path = edge.target_id.strip_prefix("mod:").unwrap_or(&edge.target_id);
+                let crate_name = path.split('/').next().unwrap_or(path);
+                edge.target_id = format!("ext:{}", crate_name);
+                // Update edge ID to match new target
+                edge.id = format!(
+                    "edge:{}:{}:{}",
+                    edge.source_id,
+                    edge.edge_type.as_str(),
+                    edge.target_id
+                );
+            }
+        }
+
+        // Create nodes for all ext: targets that don't have nodes yet
+        let external_targets: std::collections::HashSet<_> = edges
+            .iter()
+            .filter(|e| {
+                e.target_id.starts_with("ext:") && !existing_ids.contains(e.target_id.as_str())
+            })
+            .map(|e| e.target_id.as_str())
+            .collect();
+
+        for ext_id in &external_targets {
+            let name = ext_id.strip_prefix("ext:").unwrap_or(ext_id);
+            nodes.push(mu_daemon::storage::Node::external(name));
+        }
+
+        if !external_targets.is_empty() {
+            tracing::debug!("Created {} external dependency nodes", external_targets.len());
+        }
+    }
 
     spinner.set_message("Writing database...");
 
@@ -1168,6 +1220,7 @@ fn resolve_import(
     source_file: &str,
     language: &str,
     path_alias_resolver: Option<&PathAliasResolver>,
+    workspace_resolver: Option<&WorkspaceResolver>,
     csharp_namespace_map: Option<&HashMap<String, Vec<String>>>,
 ) -> String {
     // C# uses namespace-based imports - use our namespace map
@@ -1182,6 +1235,13 @@ fn resolve_import(
     // First, try TypeScript path aliases (e.g., @/lib/logger, @components/Button)
     // This takes priority for non-relative imports
     if let Some(resolver) = path_alias_resolver {
+        if let Some(resolved) = resolver.resolve(import_path) {
+            return resolved;
+        }
+    }
+
+    // Try workspace packages (e.g., @myorg/utils from monorepo)
+    if let Some(resolver) = workspace_resolver {
         if let Some(resolved) = resolver.resolve(import_path) {
             return resolved;
         }
@@ -1315,11 +1375,11 @@ mod tests {
     fn test_resolve_import_external() {
         // External single-name imports
         assert_eq!(
-            resolve_import("os", "src/main.py", "python", None, None),
+            resolve_import("os", "src/main.py", "python", None, None, None),
             "ext:os"
         );
         assert_eq!(
-            resolve_import("typing", "src/main.py", "python", None, None),
+            resolve_import("typing", "src/main.py", "python", None, None, None),
             "ext:typing"
         );
     }
@@ -1328,7 +1388,7 @@ mod tests {
     fn test_resolve_import_qualified() {
         // Qualified absolute imports
         assert_eq!(
-            resolve_import("mu.core", "src/main.py", "python", None, None),
+            resolve_import("mu.core", "src/main.py", "python", None, None, None),
             "mod:mu/core"
         );
     }
@@ -1337,7 +1397,7 @@ mod tests {
     fn test_resolve_python_relative_import() {
         // Python relative imports (.foo, ..foo)
         assert_eq!(
-            resolve_import(".utils", "src/mu/commands/routing.py", "python", None, None),
+            resolve_import(".utils", "src/mu/commands/routing.py", "python", None, None, None),
             "mod:src/mu/commands/utils.py"
         );
         assert_eq!(
@@ -1345,6 +1405,7 @@ mod tests {
                 "..kernel.builder",
                 "src/mu/commands/routing.py",
                 "python",
+                None,
                 None,
                 None
             ),
@@ -1362,6 +1423,7 @@ mod tests {
                 "tools/vscode-mu/src/extension.ts",
                 "typescript",
                 None,
+                None,
                 None
             ),
             "mod:tools/vscode-mu/src/client/index.ts"
@@ -1372,6 +1434,7 @@ mod tests {
                 "tools/vscode-mu/src/test/index.ts",
                 "typescript",
                 None,
+                None,
                 None
             ),
             "mod:tools/vscode-mu/src/utils/index.ts"
@@ -1381,6 +1444,7 @@ mod tests {
                 "../../client",
                 "tools/vscode-mu/src/test/suite/commands.test.ts",
                 "typescript",
+                None,
                 None,
                 None
             ),
@@ -1397,6 +1461,7 @@ mod tests {
                 "tools/vscode-mu/src/extension.ts",
                 "typescript",
                 None,
+                None,
                 None
             ),
             "mod:tools/vscode-mu/src/client.ts"
@@ -1406,6 +1471,7 @@ mod tests {
                 "./MUClient.tsx",
                 "tools/vscode-mu/src/extension.ts",
                 "typescript",
+                None,
                 None,
                 None
             ),
@@ -1423,6 +1489,7 @@ mod tests {
                 "../../../../../commands/query",
                 "tools/vscode-mu/src/test/suite/commands.test.ts",
                 "typescript",
+                None,
                 None,
                 None
             ),
@@ -1453,6 +1520,7 @@ mod tests {
                 "src/Controllers/HomeController.cs",
                 "csharp",
                 None,
+                None,
                 Some(&namespace_map)
             ),
             "mod:src/Services/MyService.cs"
@@ -1464,6 +1532,7 @@ mod tests {
                 "DominaiteGateway.Api.Controllers",
                 "src/Services/MyService.cs",
                 "csharp",
+                None,
                 None,
                 Some(&namespace_map)
             ),
@@ -1477,6 +1546,7 @@ mod tests {
                 "src/Services/MyService.cs",
                 "csharp",
                 None,
+                None,
                 Some(&namespace_map)
             ),
             "ext:System.Net.Http"
@@ -1488,6 +1558,7 @@ mod tests {
                 "SomeOther.Library",
                 "src/Services/MyService.cs",
                 "csharp",
+                None,
                 None,
                 Some(&namespace_map)
             ),
@@ -1510,6 +1581,7 @@ mod tests {
                 "Company.App.Services.Auth",
                 "src/Controllers/Ctrl.cs",
                 "csharp",
+                None,
                 None,
                 Some(&namespace_map)
             ),

@@ -250,6 +250,268 @@ impl PathAliasResolver {
     }
 }
 
+/// Resolves npm/yarn/pnpm workspace package imports to actual file paths.
+///
+/// Scans package.json workspaces to map package names like `@myorg/utils`
+/// to their actual module paths like `mod:packages/utils/src/index.ts`.
+#[derive(Debug, Clone)]
+pub struct WorkspaceResolver {
+    /// Maps package name -> module ID (e.g., "@expo-shell/ui" -> "mod:packages/ui/src/index.ts")
+    packages: HashMap<String, String>,
+}
+
+/// Package.json structure for workspace resolution
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct PackageJson {
+    /// Package name
+    #[serde(default)]
+    name: Option<String>,
+
+    /// Workspaces configuration (array or object with packages field)
+    #[serde(default)]
+    workspaces: Option<WorkspacesConfig>,
+
+    /// Main entry point
+    #[serde(default)]
+    main: Option<String>,
+
+    /// Module entry point (ESM)
+    #[serde(default)]
+    module: Option<String>,
+
+    /// Exports map (modern Node.js)
+    #[serde(default)]
+    exports: Option<serde_json::Value>,
+}
+
+/// Workspaces can be an array or an object with a packages field
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum WorkspacesConfig {
+    Array(Vec<String>),
+    Object { packages: Vec<String> },
+}
+
+impl WorkspaceResolver {
+    /// Load a WorkspaceResolver from a project root directory.
+    ///
+    /// Reads package.json, finds all workspace packages, and builds a mapping
+    /// from package names to their module paths.
+    pub fn from_project(root: &Path) -> Option<Self> {
+        let package_json_path = root.join("package.json");
+        if !package_json_path.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(&package_json_path).ok()?;
+        let package_json: PackageJson = serde_json::from_str(&content).ok()?;
+
+        let workspace_patterns = match package_json.workspaces {
+            Some(WorkspacesConfig::Array(patterns)) => patterns,
+            Some(WorkspacesConfig::Object { packages }) => packages,
+            None => return None,
+        };
+
+        let mut packages = HashMap::new();
+
+        for pattern in workspace_patterns {
+            // Expand glob pattern to find workspace directories
+            let workspace_dirs = Self::expand_workspace_pattern(root, &pattern);
+
+            for ws_dir in workspace_dirs {
+                if let Some((name, module_id)) = Self::read_workspace_package(root, &ws_dir) {
+                    packages.insert(name, module_id);
+                }
+            }
+        }
+
+        if packages.is_empty() {
+            return None;
+        }
+
+        tracing::debug!(
+            "WorkspaceResolver: found {} workspace packages",
+            packages.len()
+        );
+
+        Some(Self { packages })
+    }
+
+    /// Expand a workspace pattern like "packages/*" to actual directories
+    fn expand_workspace_pattern(root: &Path, pattern: &str) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+
+        if pattern.ends_with("/*") {
+            // Simple glob: packages/* -> list all subdirectories of packages/
+            let base_dir = root.join(pattern.trim_end_matches("/*"));
+            if let Ok(entries) = fs::read_dir(&base_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() && path.join("package.json").exists() {
+                        dirs.push(path);
+                    }
+                }
+            }
+        } else if !pattern.contains('*') {
+            // Exact path: packages/core
+            let path = root.join(pattern);
+            if path.is_dir() && path.join("package.json").exists() {
+                dirs.push(path);
+            }
+        }
+        // More complex globs like "packages/**" are not supported yet
+
+        dirs
+    }
+
+    /// Read a workspace package's package.json and return (name, module_id)
+    fn read_workspace_package(root: &Path, ws_dir: &Path) -> Option<(String, String)> {
+        let pkg_json_path = ws_dir.join("package.json");
+        let content = fs::read_to_string(&pkg_json_path).ok()?;
+        let pkg: PackageJson = serde_json::from_str(&content).ok()?;
+
+        let name = pkg.name.clone()?;
+
+        // Find entry point: exports > module > main > src/index.ts > index.ts
+        let entry_point = Self::find_entry_point(&pkg, ws_dir)?;
+
+        // Make path relative to root
+        let relative_path = entry_point.strip_prefix(root).ok()?;
+        let module_id = format!("mod:{}", relative_path.display());
+
+        Some((name, module_id))
+    }
+
+    /// Find the entry point file for a package
+    fn find_entry_point(pkg: &PackageJson, ws_dir: &Path) -> Option<PathBuf> {
+        // Check exports field (modern)
+        if let Some(exports) = &pkg.exports {
+            if let Some(entry) = Self::parse_exports(exports, ws_dir) {
+                return Some(entry);
+            }
+        }
+
+        // Check module field (ESM)
+        if let Some(module) = &pkg.module {
+            let path = ws_dir.join(module);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Check main field
+        if let Some(main) = &pkg.main {
+            let path = ws_dir.join(main);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Common conventions
+        let conventions = [
+            "src/index.ts",
+            "src/index.tsx",
+            "src/index.js",
+            "lib/index.ts",
+            "lib/index.js",
+            "index.ts",
+            "index.tsx",
+            "index.js",
+        ];
+
+        for conv in conventions {
+            let path = ws_dir.join(conv);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        None
+    }
+
+    /// Parse exports field to find the main entry point
+    fn parse_exports(exports: &serde_json::Value, ws_dir: &Path) -> Option<PathBuf> {
+        match exports {
+            // String: "exports": "./dist/index.js"
+            serde_json::Value::String(s) => {
+                let path = ws_dir.join(s.trim_start_matches("./"));
+                if path.exists() {
+                    return Some(path);
+                }
+            }
+            // Object: "exports": { ".": "./dist/index.js" } or { "import": "...", "require": "..." }
+            serde_json::Value::Object(obj) => {
+                // Check for "." entry (main export)
+                if let Some(main_export) = obj.get(".") {
+                    return Self::parse_exports(main_export, ws_dir);
+                }
+                // Check for "import" or "default" or "types"
+                for key in ["import", "default", "require", "types"] {
+                    if let Some(serde_json::Value::String(s)) = obj.get(key) {
+                        let path = ws_dir.join(s.trim_start_matches("./"));
+                        if path.exists() {
+                            return Some(path);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Resolve a package import to a module path.
+    ///
+    /// Takes an import like `@myorg/utils` or `@myorg/utils/lib/helpers`
+    /// and returns the resolved module ID.
+    pub fn resolve(&self, import_path: &str) -> Option<String> {
+        // Direct match: @myorg/utils -> mod:packages/utils/src/index.ts
+        if let Some(module_id) = self.packages.get(import_path) {
+            return Some(module_id.clone());
+        }
+
+        // Subpath match: @myorg/utils/lib/foo -> find @myorg/utils, append subpath
+        // Find the longest matching package name
+        for (pkg_name, module_id) in &self.packages {
+            if import_path.starts_with(pkg_name)
+                && import_path
+                    .chars()
+                    .nth(pkg_name.len())
+                    .map_or(false, |c| c == '/')
+            {
+                // Extract subpath and resolve
+                let subpath = &import_path[pkg_name.len() + 1..];
+                // Get package directory from module_id
+                if let Some(pkg_dir) = Self::module_id_to_dir(module_id) {
+                    let sub_module_id = format!("mod:{}/{}", pkg_dir, subpath);
+                    return Some(sub_module_id);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Convert a module ID like "mod:packages/ui/src/index.ts" to directory "packages/ui"
+    fn module_id_to_dir(module_id: &str) -> Option<String> {
+        let path = module_id.strip_prefix("mod:")?;
+        // Find src/ or lib/ or the parent of index.* file
+        if let Some(idx) = path.find("/src/") {
+            return Some(path[..idx].to_string());
+        }
+        if let Some(idx) = path.find("/lib/") {
+            return Some(path[..idx].to_string());
+        }
+        // If it ends with index.*, use parent directory
+        if path.contains("/index.") {
+            let parent = Path::new(path).parent()?;
+            return Some(parent.display().to_string());
+        }
+        None
+    }
+}
+
 /// Strip JSON comments (// and /* */) from content.
 ///
 /// tsconfig.json allows JavaScript-style comments which standard JSON parsers reject.
