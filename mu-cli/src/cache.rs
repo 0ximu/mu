@@ -190,6 +190,7 @@ pub struct CacheStats {
 
 impl CacheStats {
     /// Calculate hit rate as a percentage.
+    #[allow(dead_code)] // Useful for diagnostics, kept for future use
     pub fn hit_rate(&self) -> f64 {
         let total = self.hits + self.misses;
         if total == 0 {

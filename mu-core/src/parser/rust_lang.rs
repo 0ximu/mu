@@ -84,8 +84,17 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         }
         // Collect type annotations from all methods and extract referenced types
         let type_strings = collect_type_strings_from_methods(&class.methods);
-        class.referenced_types =
+        let method_types =
             extract_referenced_types(type_strings.iter().map(|s| s.as_str()), &class.name, "rust");
+
+        // Merge field types (already in referenced_types from extract_struct) with method types
+        let mut all_types: Vec<String> = class.referenced_types.drain(..).collect();
+        all_types.extend(method_types);
+        // Filter self-references and deduplicate
+        all_types.retain(|t| t != &class.name);
+        all_types.sort();
+        all_types.dedup();
+        class.referenced_types = all_types;
     }
 
     // Add remaining impl methods as standalone (for trait impls on external types)
@@ -337,6 +346,7 @@ fn extract_struct(node: &Node, source: &str) -> ClassDef {
     };
 
     class_def.decorators.push("struct".to_string());
+    let mut field_types: Vec<String> = Vec::new();
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
@@ -350,25 +360,99 @@ fn extract_struct(node: &Node, source: &str) -> ClassDef {
                 }
             }
             "field_declaration_list" => {
-                extract_struct_fields(&child, source, &mut class_def.attributes);
+                extract_struct_fields(&child, source, &mut class_def.attributes, &mut field_types);
             }
             _ => {}
         }
     }
 
+    // Add field types to referenced_types (will be deduplicated later)
+    class_def.referenced_types = field_types;
+
     class_def
 }
 
-/// Extract struct fields.
-fn extract_struct_fields(node: &Node, source: &str, attributes: &mut Vec<String>) {
+/// Extract struct fields and their types.
+/// Returns a tuple of (field_names, field_types) where field_types are type identifiers
+/// that can be used for composition detection.
+fn extract_struct_fields(
+    node: &Node,
+    source: &str,
+    attributes: &mut Vec<String>,
+    field_types: &mut Vec<String>,
+) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() == "field_declaration" {
+            // Extract field name
             if let Some(id) = find_child_by_type(&child, "field_identifier") {
                 attributes.push(get_node_text(&id, source).to_string());
             }
+            // Extract field type - look for type_identifier within the type annotation
+            extract_type_identifiers(&child, source, field_types);
         }
     }
+}
+
+/// Recursively extract type identifiers from a type node.
+/// Handles simple types (Connection), generic types (Vec<Node>), references (&Connection), etc.
+fn extract_type_identifiers(node: &Node, source: &str, types: &mut Vec<String>) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "type_identifier" => {
+                let type_name = get_node_text(&child, source).to_string();
+                // Skip common primitive/std types
+                if !is_rust_builtin(&type_name) {
+                    types.push(type_name);
+                }
+            }
+            // Recursively search in generic types, references, etc.
+            "generic_type" | "reference_type" | "scoped_type_identifier" | "type_arguments" => {
+                extract_type_identifiers(&child, source, types);
+            }
+            _ => {
+                // Continue searching in other nodes
+                extract_type_identifiers(&child, source, types);
+            }
+        }
+    }
+}
+
+/// Check if a type name is a Rust builtin that shouldn't create uses edges.
+fn is_rust_builtin(name: &str) -> bool {
+    matches!(
+        name,
+        "String"
+            | "Vec"
+            | "Option"
+            | "Result"
+            | "Box"
+            | "Rc"
+            | "Arc"
+            | "HashMap"
+            | "HashSet"
+            | "BTreeMap"
+            | "BTreeSet"
+            | "VecDeque"
+            | "LinkedList"
+            | "BinaryHeap"
+            | "PathBuf"
+            | "Path"
+            | "OsString"
+            | "OsStr"
+            | "CString"
+            | "CStr"
+            | "Cow"
+            | "Cell"
+            | "RefCell"
+            | "Mutex"
+            | "RwLock"
+            | "Sender"
+            | "Receiver"
+            | "Pin"
+            | "PhantomData"
+    )
 }
 
 /// Extract enum item.

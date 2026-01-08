@@ -39,6 +39,8 @@ pub struct BootstrapResult {
     pub config_created: bool,
     pub gitignore_updated: bool,
     pub embeddings_generated: usize,
+    pub hnsw_index_created: bool,
+    pub fts_index_created: bool,
 }
 
 impl TableDisplay for BootstrapResult {
@@ -100,12 +102,26 @@ impl TableDisplay for BootstrapResult {
             }
         }
 
-        if self.embeddings_generated > 0 {
-            output.push_str(&format!("\n{}\n", "Embeddings".cyan().bold()));
-            output.push_str(&format!(
-                "  Generated: {} (semantic search ready)\n",
-                self.embeddings_generated.to_string().green()
-            ));
+        if self.embeddings_generated > 0 || self.hnsw_index_created || self.fts_index_created {
+            output.push_str(&format!("\n{}\n", "Search".cyan().bold()));
+            if self.fts_index_created {
+                output.push_str(&format!(
+                    "  FTS Index:  {} (BM25 keyword search)\n",
+                    "created".green()
+                ));
+            }
+            if self.embeddings_generated > 0 {
+                output.push_str(&format!(
+                    "  Embeddings: {} (semantic search)\n",
+                    self.embeddings_generated.to_string().green()
+                ));
+            }
+            if self.hnsw_index_created {
+                output.push_str(&format!(
+                    "  HNSW Index: {} (fast vector search)\n",
+                    "created".green()
+                ));
+            }
         }
 
         output.push_str(&format!("\n{}\n", "Next Steps".cyan().bold()));
@@ -113,6 +129,9 @@ impl TableDisplay for BootstrapResult {
         output.push_str("  mu query 'functions'   # Query the graph\n");
         if self.embeddings_generated > 0 {
             output.push_str("  mu search 'auth'       # Semantic search\n");
+            if !self.hnsw_index_created && self.embeddings_generated > 5000 {
+                output.push_str("  mu bootstrap --hnsw    # Enable fast search (recommended)\n");
+            }
         } else {
             output.push_str("  mu bootstrap --embed   # Enable semantic search\n");
         }
@@ -248,6 +267,48 @@ fn should_embed(embed_flag: bool, no_embed_flag: bool) -> bool {
     }
 }
 
+/// Determine whether to create HNSW index based on flags, embedding count, and user input.
+///
+/// HNSW is only useful when:
+/// 1. Embeddings exist (otherwise nothing to index)
+/// 2. There are enough embeddings to benefit from indexing (>5000 threshold)
+fn should_hnsw(hnsw_flag: bool, no_hnsw_flag: bool, embedding_count: usize) -> bool {
+    // Explicit flags take precedence
+    if hnsw_flag {
+        return true;
+    }
+    if no_hnsw_flag {
+        return false;
+    }
+
+    // Only consider HNSW if we have enough embeddings to benefit
+    const HNSW_THRESHOLD: usize = 5000;
+    if embedding_count < HNSW_THRESHOLD {
+        return false;
+    }
+
+    // If running interactively, prompt the user
+    if io::stdin().is_terminal() && io::stdout().is_terminal() {
+        println!();
+        println!(
+            "{} You have {} embeddings. HNSW indexing can speed up vector search.",
+            "TIP:".cyan().bold(),
+            embedding_count
+        );
+        println!("     This creates an index for O(log n) approximate nearest neighbor search.");
+        println!("     Index creation takes ~10s and adds ~10MB to database size.\n");
+
+        Confirm::new()
+            .with_prompt("Create HNSW index for faster search?")
+            .default(true)
+            .interact()
+            .unwrap_or(false)
+    } else {
+        // Non-interactive: default to no HNSW (user can use --hnsw explicitly)
+        false
+    }
+}
+
 /// Run embeddings only on an existing database (without rebuilding the graph)
 async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow::Result<()> {
     let start = Instant::now();
@@ -262,6 +323,7 @@ async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow
     spinner.enable_steady_tick(std::time::Duration::from_millis(100));
 
     spinner.set_message("Opening database...");
+    // Note: MUbase::open() automatically runs any needed migrations (v1.0.0 → v1.1.0)
     let mubase = mu_daemon::storage::MUbase::open(mubase_path)?;
     let stats = mubase.stats()?;
 
@@ -371,6 +433,8 @@ async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow
         config_created: false,
         gitignore_updated: false,
         embeddings_generated,
+        hnsw_index_created: false, // HNSW not created in embedding-only mode
+        fts_index_created: false,  // FTS not created in embedding-only mode
     };
 
     // Custom output for embedding-only mode
@@ -391,104 +455,39 @@ async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow
     Ok(())
 }
 
-/// Run the bootstrap command
-pub async fn run(
-    path: &str,
-    force: bool,
-    embed: bool,
-    no_embed: bool,
-    strict: bool,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
-    let start = Instant::now();
+// ============================================================================
+// Scanning & Parsing
+// ============================================================================
 
-    // Resolve and canonicalize path
-    let root = Path::new(path)
-        .canonicalize()
-        .unwrap_or_else(|_| Path::new(path).to_path_buf());
+/// Result of scanning and parsing the codebase.
+struct ParsedCodebase {
+    parse_results: Vec<mu_core::types::ParseResult>,
+    files_scanned: usize,
+    files_parsed: usize,
+    files_cached: usize,
+}
 
-    if !root.exists() {
-        anyhow::bail!("Path does not exist: {}", root.display());
-    }
-
-    if !root.is_dir() {
-        anyhow::bail!("Path is not a directory: {}", root.display());
-    }
-
-    // Setup: config and gitignore
-    let config_created = ensure_config(&root);
-    let gitignore_updated = update_gitignore(&root);
-
-    // Load configuration (after ensuring config exists)
-    let config = if strict {
-        MuConfig::load_strict(&root)?
-    } else {
-        MuConfig::load(&root)
-    };
-    let ignore_patterns = config.ignore_patterns();
-    tracing::debug!("Loaded ignore patterns: {:?}", ignore_patterns);
-
-    // Determine mubase path
-    let mu_dir = root.join(".mu");
-    let mubase_path = mu_dir.join("mubase");
-
-    // Check if rebuild is needed
-    if mubase_path.exists() && !force {
-        // If --embed is passed, run embedding on existing database without rebuild
-        if embed {
-            return run_embeddings_only(&mubase_path, format).await;
-        }
-
-        // Open existing database and show stats
-        let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
-        let stats = mubase.stats()?;
-
-        println!(
-            "{} MU already initialized. Use --force to rebuild.",
-            "INFO:".yellow().bold()
-        );
-        println!("  Nodes: {}", stats.node_count);
-        println!("  Edges: {}", stats.edge_count);
-        return Ok(());
-    }
-
-    // Create .mu directory if needed
-    if !mu_dir.exists() {
-        fs::create_dir_all(&mu_dir)?;
-    }
-
-    // Determine whether to generate embeddings (prompt if interactive)
-    let do_embed = should_embed(embed, no_embed);
-
-    // Show progress
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg}")
-            .unwrap(),
-    );
-    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-
+/// Scan the codebase and parse all source files, using cache when available.
+fn scan_and_parse(
+    root: &Path,
+    config: &MuConfig,
+    spinner: &ProgressBar,
+) -> anyhow::Result<ParsedCodebase> {
     // Step 1: Scan codebase
     spinner.set_message("Scanning codebase...");
     let root_str = root.to_str().unwrap_or(".");
-
-    // Check if caching is enabled
     let cache_enabled = config.cache_enabled();
+    let ignore_patterns = config.ignore_patterns();
 
     // Build scan options from config
     let mut scan_options = mu_core::scanner::ScanOptions::new()
         .with_ignore_patterns(ignore_patterns)
         .include_hidden(config.scanner.include_hidden)
-        .compute_hashes(cache_enabled); // Enable hash computation for caching
+        .compute_hashes(cache_enabled);
 
-    // Apply max file size if configured
     if let Some(max_size) = config.max_file_size_bytes() {
         scan_options = scan_options.with_max_file_size(max_size);
     }
-
-    // Apply language filter if configured
     if let Some(languages) = config.languages() {
         scan_options = scan_options.with_languages(languages.to_vec());
     }
@@ -500,54 +499,46 @@ pub async fn run(
     spinner.set_message(format!("Found {} files", files_scanned));
 
     if files_scanned == 0 {
-        spinner.finish_and_clear();
-        println!(
-            "{} No supported files found in {}",
-            "WARNING:".yellow().bold(),
-            root.display()
-        );
-        return Ok(());
+        return Ok(ParsedCodebase {
+            parse_results: Vec::new(),
+            files_scanned: 0,
+            files_parsed: 0,
+            files_cached: 0,
+        });
     }
 
-    // Step 2: Load cache and parse files
+    // Step 2: Load cache and determine what needs parsing
     spinner.set_message("Loading cache...");
-
-    // Load existing cache if caching is enabled
     let mut cache = if cache_enabled {
-        ParseCache::load(config.cache_directory(), &root)
+        ParseCache::load(config.cache_directory(), root)
     } else {
         ParseCache::new()
     };
 
     let mut cache_stats = CacheStats::default();
-
-    // Build set of current file paths for cache pruning
     let current_files: HashSet<String> = scan_result.files.iter().map(|f| f.path.clone()).collect();
 
-    // Prune cache of files that no longer exist
     if cache_enabled && !cache.is_empty() {
         let before = cache.len();
         cache.prune(&current_files);
         cache_stats.pruned = before - cache.len();
     }
 
-    // Separate files into cached (with matching hash) and needs-parsing
+    // Separate files into cached vs needs-parsing
     spinner.set_message("Checking cache...");
     let mut cached_modules: Vec<mu_core::types::ParseResult> = Vec::new();
-    let mut files_to_parse: Vec<(mu_core::scanner::ScannedFile, String)> = Vec::new(); // (file, content)
+    let mut files_to_parse: Vec<(mu_core::scanner::ScannedFile, String)> = Vec::new();
 
     for scanned_file in &scan_result.files {
         let full_path = root.join(&scanned_file.path);
         let content = match fs::read_to_string(&full_path) {
             Ok(c) => c,
-            Err(_) => continue, // Skip unreadable files
+            Err(_) => continue,
         };
 
-        // Check cache if enabled and hash is available
         if cache_enabled {
             if let Some(hash) = &scanned_file.hash {
                 if let Some(cached_module) = cache.get(&scanned_file.path, hash) {
-                    // Cache hit - use cached result
                     cached_modules.push(mu_core::types::ParseResult::ok(cached_module.clone()));
                     cache_stats.hits += 1;
                     continue;
@@ -555,7 +546,6 @@ pub async fn run(
             }
         }
 
-        // Cache miss - needs parsing
         cache_stats.misses += 1;
         files_to_parse.push((scanned_file.clone(), content));
     }
@@ -589,53 +579,45 @@ pub async fn run(
                 }
             }
         }
+        spinner.set_message("Saving cache...");
+        if let Err(e) = cache.save(config.cache_directory(), root) {
+            tracing::warn!("Failed to save parse cache: {}", e);
+        }
     }
 
-    // Merge cached and fresh results
     let parse_results: Vec<mu_core::types::ParseResult> = cached_modules
         .into_iter()
         .chain(fresh_parse_results)
         .collect();
 
-    let files_parsed = cache_stats.misses;
-    let files_cached = cache_stats.hits;
+    Ok(ParsedCodebase {
+        parse_results,
+        files_scanned,
+        files_parsed: cache_stats.misses,
+        files_cached: cache_stats.hits,
+    })
+}
 
-    // Save updated cache
-    if cache_enabled {
-        spinner.set_message("Saving cache...");
-        if let Err(e) = cache.save(config.cache_directory(), &root) {
-            tracing::warn!("Failed to save parse cache: {}", e);
-        } else if cache_stats.hits > 0 || cache_stats.misses > 0 {
-            tracing::debug!(
-                "Cache stats: {} hits, {} misses ({:.1}% hit rate)",
-                cache_stats.hits,
-                cache_stats.misses,
-                cache_stats.hit_rate()
-            );
-        }
-    }
+// ============================================================================
+// Graph Building
+// ============================================================================
 
-    spinner.set_message(format!(
-        "Parsed {} files{}",
-        files_parsed,
-        if files_cached > 0 {
-            format!(" ({} from cache)", files_cached)
-        } else {
-            String::new()
-        }
-    ));
-
-    // Step 3: Build graph
+/// Build graph nodes and edges from parsed modules.
+fn build_graph(
+    parse_results: &[mu_core::types::ParseResult],
+    root: &Path,
+    spinner: &ProgressBar,
+) -> (Vec<mu_daemon::storage::Node>, Vec<mu_daemon::storage::Edge>) {
     spinner.set_message("Building graph...");
 
-    // Load TypeScript/JavaScript path alias resolver if available
-    let path_alias_resolver = PathAliasResolver::from_project(&root);
+    // Load path alias resolver for TS/JS
+    let path_alias_resolver = PathAliasResolver::from_project(root);
     if path_alias_resolver.is_some() {
-        tracing::debug!("Loaded TypeScript path alias resolver from tsconfig.json/jsconfig.json");
+        tracing::debug!("Loaded TypeScript path alias resolver");
     }
 
-    // Build C# namespace-to-file mapping for resolving using statements
-    let csharp_namespace_map = build_csharp_namespace_map(&parse_results);
+    // Build C# namespace map
+    let csharp_namespace_map = build_csharp_namespace_map(parse_results);
     if !csharp_namespace_map.is_empty() {
         tracing::debug!(
             "Built C# namespace map with {} namespaces",
@@ -646,329 +628,549 @@ pub async fn run(
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
 
-    // Pre-pass: Build class/interface lookup map for inheritance resolution
-    // Maps simple name (e.g., "BaseService") to full node ID (e.g., "cls:src/.../BaseService.cs:BaseService")
-    let mut class_lookup: HashMap<String, String> = HashMap::new();
-    for result in &parse_results {
-        if !result.success {
-            continue;
-        }
-        if let Some(ref module) = result.module {
-            let rel_path = &module.path;
-            for class in &module.classes {
-                let class_id = format!("cls:{}:{}", rel_path, class.name);
-                // Map by simple name (may have collisions, last one wins)
-                class_lookup.insert(class.name.clone(), class_id.clone());
-                // Also map interface names (IFoo -> cls:...:IFoo)
-                // This helps resolve interface implementations
-            }
-        }
-    }
+    // Pre-pass: Build class lookup for inheritance resolution
+    let class_lookup = build_class_lookup(parse_results);
     tracing::debug!("Built class lookup with {} entries", class_lookup.len());
 
-    for result in &parse_results {
+    // Build nodes and containment/inheritance/import edges
+    for result in parse_results {
         if !result.success {
             continue;
         }
-
         if let Some(ref module) = result.module {
-            // Make path relative (it should already be relative from scan)
-            let rel_path = &module.path;
-
-            // Create module node
-            let module_node = mu_daemon::storage::Node::module(rel_path);
-            let module_id = module_node.id.clone();
-            nodes.push(module_node);
-
-            // Create class nodes
-            for class in &module.classes {
-                let mut class_node = mu_daemon::storage::Node::class(
-                    rel_path,
-                    &class.name,
-                    class.start_line,
-                    class.end_line,
-                );
-                // Add docstring to properties if present
-                if let Some(ref docstring) = class.docstring {
-                    class_node = class_node.with_properties(json!({"docstring": docstring}));
-                }
-                let class_id = class_node.id.clone();
-                nodes.push(class_node);
-
-                // Module contains class
-                edges.push(mu_daemon::storage::Edge::contains(&module_id, &class_id));
-
-                // Inheritance edges - resolve to internal class if found
-                for base in &class.bases {
-                    let base_id = if let Some(resolved_id) = class_lookup.get(base) {
-                        // Found in codebase - use actual class ID
-                        resolved_id.clone()
-                    } else {
-                        // Not found - mark as external reference
-                        format!("ext:{}", base)
-                    };
-                    edges.push(mu_daemon::storage::Edge::inherits(&class_id, &base_id));
-                }
-
-                // Create method nodes
-                for method in &class.methods {
-                    let mut method_node = mu_daemon::storage::Node::function(
-                        rel_path,
-                        &method.name,
-                        Some(&class.name),
-                        method.start_line,
-                        method.end_line,
-                        method.body_complexity,
-                    );
-                    // Add docstring to properties if present
-                    if let Some(ref docstring) = method.docstring {
-                        method_node =
-                            method_node.with_properties(json!({"docstring": docstring}));
-                    }
-                    let method_id = method_node.id.clone();
-                    nodes.push(method_node);
-
-                    // Class contains method
-                    edges.push(mu_daemon::storage::Edge::contains(&class_id, &method_id));
-                }
-            }
-
-            // Create function nodes (module-level)
-            for func in &module.functions {
-                let mut func_node = mu_daemon::storage::Node::function(
-                    rel_path,
-                    &func.name,
-                    None,
-                    func.start_line,
-                    func.end_line,
-                    func.body_complexity,
-                );
-                // Add docstring to properties if present
-                if let Some(ref docstring) = func.docstring {
-                    func_node = func_node.with_properties(json!({"docstring": docstring}));
-                }
-                let func_id = func_node.id.clone();
-                nodes.push(func_node);
-
-                // Module contains function
-                edges.push(mu_daemon::storage::Edge::contains(&module_id, &func_id));
-            }
-
-            // Create import edges
-            for import in &module.imports {
-                let target_id = resolve_import(
-                    &import.module,
-                    rel_path,
-                    &module.language,
-                    path_alias_resolver.as_ref(),
-                    Some(&csharp_namespace_map),
-                );
-                edges.push(mu_daemon::storage::Edge::imports(&module_id, &target_id));
-            }
+            build_module_graph(
+                module,
+                &class_lookup,
+                path_alias_resolver.as_ref(),
+                &csharp_namespace_map,
+                &mut nodes,
+                &mut edges,
+            );
         }
     }
 
-    // Build func_lookup map for call resolution
-    // Maps: simple name, qualified name, and full ID -> node ID
-    let mut func_lookup: HashMap<String, String> = HashMap::new();
-    for node in &nodes {
-        if node.node_type == mu_daemon::storage::NodeType::Function {
-            // Map by full ID for exact match
-            func_lookup.insert(node.id.clone(), node.id.clone());
-            // Map by simple name for fallback
-            func_lookup.insert(node.name.clone(), node.id.clone());
-            // Map by qualified name for disambiguation
-            if let Some(ref qname) = node.qualified_name {
-                func_lookup.insert(qname.clone(), node.id.clone());
-            }
-        }
-    }
+    // Build function lookup for call resolution
+    let func_lookup = build_function_lookup(&nodes);
     tracing::debug!("Built function lookup with {} entries", func_lookup.len());
 
-    // Pass 2: Create CALLS edges from call_sites
+    // Resolve call sites
     spinner.set_message("Resolving call sites...");
-    let mut total_call_sites = 0usize;
-    let mut resolved_call_sites = 0usize;
-
-    for result in &parse_results {
-        if !result.success {
-            continue;
-        }
-        if let Some(ref module) = result.module {
-            let rel_path = &module.path;
-
-            // Process class methods
-            for class in &module.classes {
-                for method in &class.methods {
-                    let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
-                    total_call_sites += method.call_sites.len();
-                    for call in &method.call_sites {
-                        if let Some(target_id) = resolve_call_site(
-                            call,
-                            rel_path,
-                            Some(&class.name),
-                            &func_lookup,
-                            &module.imports,
-                        ) {
-                            edges.push(mu_daemon::storage::Edge::calls(&method_id, &target_id));
-                            resolved_call_sites += 1;
-                        }
-                    }
-                }
-            }
-
-            // Process module-level functions
-            for func in &module.functions {
-                let func_id = format!("fn:{}:{}", rel_path, func.name);
-                total_call_sites += func.call_sites.len();
-                for call in &func.call_sites {
-                    if let Some(target_id) =
-                        resolve_call_site(call, rel_path, None, &func_lookup, &module.imports)
-                    {
-                        edges.push(mu_daemon::storage::Edge::calls(&func_id, &target_id));
-                        resolved_call_sites += 1;
-                    }
-                }
-            }
-        }
-    }
-
+    let (total, resolved) = resolve_all_call_sites(parse_results, &func_lookup, &mut edges);
     tracing::info!(
         "Call sites: {} found, {} resolved ({:.1}%)",
-        total_call_sites,
-        resolved_call_sites,
-        if total_call_sites > 0 {
-            (resolved_call_sites as f64 / total_call_sites as f64) * 100.0
+        total,
+        resolved,
+        if total > 0 {
+            (resolved as f64 / total as f64) * 100.0
         } else {
             0.0
         }
     );
 
-    spinner.set_message("Writing database...");
+    (nodes, edges)
+}
 
-    // Step 4: Write to database
+/// Build class name -> node ID lookup for inheritance resolution.
+fn build_class_lookup(parse_results: &[mu_core::types::ParseResult]) -> HashMap<String, String> {
+    let mut class_lookup = HashMap::new();
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            for class in &module.classes {
+                let class_id = format!("cls:{}:{}", module.path, class.name);
+                class_lookup.insert(class.name.clone(), class_id);
+            }
+        }
+    }
+    class_lookup
+}
+
+/// Build function name -> node ID lookup for call resolution.
+fn build_function_lookup(nodes: &[mu_daemon::storage::Node]) -> HashMap<String, String> {
+    let mut func_lookup = HashMap::new();
+    for node in nodes {
+        if node.node_type == mu_daemon::storage::NodeType::Function {
+            func_lookup.insert(node.id.clone(), node.id.clone());
+            func_lookup.insert(node.name.clone(), node.id.clone());
+            if let Some(ref qname) = node.qualified_name {
+                func_lookup.insert(qname.clone(), node.id.clone());
+            }
+        }
+    }
+    func_lookup
+}
+
+/// Build graph nodes and edges for a single module.
+fn build_module_graph(
+    module: &mu_core::types::ModuleDef,
+    class_lookup: &HashMap<String, String>,
+    path_alias_resolver: Option<&PathAliasResolver>,
+    csharp_namespace_map: &HashMap<String, Vec<String>>,
+    nodes: &mut Vec<mu_daemon::storage::Node>,
+    edges: &mut Vec<mu_daemon::storage::Edge>,
+) {
+    let rel_path = &module.path;
+
+    // Create module node
+    let module_node = mu_daemon::storage::Node::module(rel_path);
+    let module_id = module_node.id.clone();
+    nodes.push(module_node);
+
+    // Create class nodes
+    for class in &module.classes {
+        let mut class_node = mu_daemon::storage::Node::class(
+            rel_path,
+            &class.name,
+            class.start_line,
+            class.end_line,
+        );
+
+        // Build properties JSON with decorators and metadata
+        let mut props = serde_json::Map::new();
+        if let Some(ref docstring) = class.docstring {
+            props.insert("docstring".to_string(), json!(docstring));
+        }
+        if !class.decorators.is_empty() {
+            props.insert("decorators".to_string(), json!(class.decorators));
+        }
+        // Mark as DTO if class has only properties (no method bodies)
+        let is_dto = !class.methods.is_empty()
+            && class
+                .methods
+                .iter()
+                .all(|m| m.is_property || m.body_source.is_none());
+        if is_dto {
+            props.insert("is_dto".to_string(), json!(true));
+        }
+        if !props.is_empty() {
+            class_node = class_node.with_properties(serde_json::Value::Object(props));
+        }
+
+        let class_id = class_node.id.clone();
+        nodes.push(class_node);
+        edges.push(mu_daemon::storage::Edge::contains(&module_id, &class_id));
+
+        // Inheritance edges
+        for base in &class.bases {
+            let base_id = class_lookup
+                .get(base)
+                .cloned()
+                .unwrap_or_else(|| format!("ext:{}", base));
+            edges.push(mu_daemon::storage::Edge::inherits(&class_id, &base_id));
+        }
+
+        // Composition edges (uses) - from struct/class fields and method type references
+        for ref_type in &class.referenced_types {
+            // Only create edges for types that exist in our codebase
+            if let Some(target_id) = class_lookup.get(ref_type) {
+                edges.push(mu_daemon::storage::Edge::uses(&class_id, target_id));
+            }
+            // Skip external types - they don't add value to the graph
+        }
+
+        // Method nodes
+        for method in &class.methods {
+            let mut method_node = mu_daemon::storage::Node::function(
+                rel_path,
+                &method.name,
+                Some(&class.name),
+                method.start_line,
+                method.end_line,
+                method.body_complexity,
+            );
+
+            // Build properties JSON with decorators and metadata
+            let mut method_props = serde_json::Map::new();
+            if let Some(ref docstring) = method.docstring {
+                method_props.insert("docstring".to_string(), json!(docstring));
+            }
+            if !method.decorators.is_empty() {
+                method_props.insert("decorators".to_string(), json!(method.decorators));
+            }
+            if method.is_property {
+                method_props.insert("is_property".to_string(), json!(true));
+            }
+            // Inherit DTO status from parent class
+            if is_dto {
+                method_props.insert("parent_is_dto".to_string(), json!(true));
+            }
+            if !method_props.is_empty() {
+                method_node = method_node.with_properties(serde_json::Value::Object(method_props));
+            }
+
+            let method_id = method_node.id.clone();
+            nodes.push(method_node);
+            edges.push(mu_daemon::storage::Edge::contains(&class_id, &method_id));
+        }
+    }
+
+    // Module-level function nodes
+    for func in &module.functions {
+        let mut func_node = mu_daemon::storage::Node::function(
+            rel_path,
+            &func.name,
+            None,
+            func.start_line,
+            func.end_line,
+            func.body_complexity,
+        );
+
+        // Build properties JSON with decorators
+        let mut func_props = serde_json::Map::new();
+        if let Some(ref docstring) = func.docstring {
+            func_props.insert("docstring".to_string(), json!(docstring));
+        }
+        if !func.decorators.is_empty() {
+            func_props.insert("decorators".to_string(), json!(func.decorators));
+        }
+        if !func_props.is_empty() {
+            func_node = func_node.with_properties(serde_json::Value::Object(func_props));
+        }
+
+        let func_id = func_node.id.clone();
+        nodes.push(func_node);
+        edges.push(mu_daemon::storage::Edge::contains(&module_id, &func_id));
+    }
+
+    // Import edges
+    for import in &module.imports {
+        let target_id = resolve_import(
+            &import.module,
+            rel_path,
+            &module.language,
+            path_alias_resolver,
+            Some(csharp_namespace_map),
+        );
+        edges.push(mu_daemon::storage::Edge::imports(&module_id, &target_id));
+    }
+}
+
+/// Resolve all call sites across all modules. Returns (total, resolved) counts.
+fn resolve_all_call_sites(
+    parse_results: &[mu_core::types::ParseResult],
+    func_lookup: &HashMap<String, String>,
+    edges: &mut Vec<mu_daemon::storage::Edge>,
+) -> (usize, usize) {
+    let mut total = 0usize;
+    let mut resolved = 0usize;
+
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            let rel_path = &module.path;
+
+            // Class methods
+            for class in &module.classes {
+                for method in &class.methods {
+                    let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                    total += method.call_sites.len();
+                    for call in &method.call_sites {
+                        if let Some(target_id) = resolve_call_site(
+                            call,
+                            rel_path,
+                            Some(&class.name),
+                            func_lookup,
+                            &module.imports,
+                        ) {
+                            edges.push(mu_daemon::storage::Edge::calls(&method_id, &target_id));
+                            resolved += 1;
+                        }
+                    }
+                }
+            }
+
+            // Module-level functions
+            for func in &module.functions {
+                let func_id = format!("fn:{}:{}", rel_path, func.name);
+                total += func.call_sites.len();
+                for call in &func.call_sites {
+                    if let Some(target_id) =
+                        resolve_call_site(call, rel_path, None, func_lookup, &module.imports)
+                    {
+                        edges.push(mu_daemon::storage::Edge::calls(&func_id, &target_id));
+                        resolved += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    (total, resolved)
+}
+
+// ============================================================================
+// Embeddings
+// ============================================================================
+
+/// Generate embeddings for nodes and store them in the database.
+fn generate_embeddings(
+    nodes: &[mu_daemon::storage::Node],
+    mubase: &mu_daemon::storage::MUbase,
+    spinner: &ProgressBar,
+) -> usize {
+    spinner.set_message("Loading embedding model...");
+
+    let model = match mu_embeddings::MuSigmaModel::embedded() {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Failed to load embedding model: {}", e);
+            return 0;
+        }
+    };
+
+    spinner.set_message("Generating embeddings...");
+
+    let nodes_to_embed: Vec<_> = nodes
+        .iter()
+        .filter(|n| n.node_type != mu_daemon::storage::NodeType::External)
+        .collect();
+
+    let total = nodes_to_embed.len();
+    let mut embeddings_batch = Vec::new();
+    let mut embedded_count = 0;
+    let batch_size = 32;
+
+    for (batch_idx, batch) in nodes_to_embed.chunks(batch_size).enumerate() {
+        spinner.set_message(format!(
+            "Generating embeddings... {}/{}",
+            (batch_idx * batch_size).min(total),
+            total
+        ));
+
+        let texts: Vec<String> = batch
+            .iter()
+            .map(|n| {
+                let type_prefix = match n.node_type {
+                    mu_daemon::storage::NodeType::Module => "module",
+                    mu_daemon::storage::NodeType::Class => "class",
+                    mu_daemon::storage::NodeType::Function => "function",
+                    mu_daemon::storage::NodeType::External => "external",
+                };
+                format!(
+                    "{} {} {}",
+                    type_prefix,
+                    n.name,
+                    n.qualified_name.as_deref().unwrap_or("")
+                )
+            })
+            .collect();
+
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+        match model.embed(&text_refs) {
+            Ok(batch_embeddings) => {
+                for (node, (text, embedding)) in
+                    batch.iter().zip(texts.iter().zip(batch_embeddings))
+                {
+                    embeddings_batch.push((node.id.clone(), embedding, Some(text.clone())));
+                    embedded_count += 1;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Failed to embed batch: {}", e);
+            }
+        }
+    }
+
+    if !embeddings_batch.is_empty() {
+        spinner.set_message("Storing embeddings...");
+        if let Err(e) = mubase.insert_embeddings_batch(&embeddings_batch, Some("mu-sigma-v2")) {
+            tracing::warn!("Failed to store embeddings: {}", e);
+        }
+    }
+
+    embedded_count
+}
+
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
+/// Create a spinner for progress display.
+fn create_spinner() -> ProgressBar {
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
+    spinner
+}
+
+/// Run the bootstrap command
+pub async fn run(
+    path: &str,
+    force: bool,
+    embed: bool,
+    no_embed: bool,
+    hnsw: bool,
+    no_hnsw: bool,
+    strict: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let start = Instant::now();
+
+    // Resolve and validate path
+    let root = Path::new(path)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(path).to_path_buf());
+
+    if !root.exists() {
+        anyhow::bail!("Path does not exist: {}", root.display());
+    }
+    if !root.is_dir() {
+        anyhow::bail!("Path is not a directory: {}", root.display());
+    }
+
+    // Setup: config and gitignore
+    let config_created = ensure_config(&root);
+    let gitignore_updated = update_gitignore(&root);
+
+    // Load configuration
+    let config = if strict {
+        MuConfig::load_strict(&root)?
+    } else {
+        MuConfig::load(&root)
+    };
+    tracing::debug!("Loaded ignore patterns: {:?}", config.ignore_patterns());
+
+    // Determine mubase path
+    let mu_dir = root.join(".mu");
+    let mubase_path = mu_dir.join("mubase");
+
+    // Check if rebuild is needed
+    if mubase_path.exists() && !force {
+        if embed {
+            return run_embeddings_only(&mubase_path, format).await;
+        }
+
+        let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
+        let stats = mubase.stats()?;
+        println!(
+            "{} MU already initialized. Use --force to rebuild.",
+            "INFO:".yellow().bold()
+        );
+        println!("  Nodes: {}", stats.node_count);
+        println!("  Edges: {}", stats.edge_count);
+        return Ok(());
+    }
+
+    // Create .mu directory
+    if !mu_dir.exists() {
+        fs::create_dir_all(&mu_dir)?;
+    }
+
+    let do_embed = should_embed(embed, no_embed);
+    let spinner = create_spinner();
+
+    // Step 1: Scan and parse
+    let parsed = scan_and_parse(&root, &config, &spinner)?;
+    if parsed.files_scanned == 0 {
+        spinner.finish_and_clear();
+        println!(
+            "{} No supported files found in {}",
+            "WARNING:".yellow().bold(),
+            root.display()
+        );
+        return Ok(());
+    }
+
+    // Step 2: Build graph
+    let (nodes, edges) = build_graph(&parsed.parse_results, &root, &spinner);
+
+    // Step 3: Write to database
+    spinner.set_message("Writing database...");
     let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
     mubase.clear()?;
     mubase.insert_nodes(&nodes)?;
     mubase.insert_edges(&edges)?;
-
-    // Get final stats
     let stats = mubase.stats()?;
 
-    // Step 5: Generate embeddings if requested
+    // Step 4: Generate embeddings
     let embeddings_generated = if do_embed {
-        spinner.set_message("Loading embedding model...");
-
-        // Use embedded model weights (compiled into the binary)
-        match mu_embeddings::MuSigmaModel::embedded() {
-            Ok(model) => {
-                spinner.set_message("Generating embeddings...");
-
-                // Embed all non-external nodes
-                let nodes_to_embed: Vec<_> = nodes
-                    .iter()
-                    .filter(|n| n.node_type != mu_daemon::storage::NodeType::External)
-                    .collect();
-
-                let total = nodes_to_embed.len();
-                let mut embeddings_batch = Vec::new();
-                let mut embedded_count = 0;
-
-                // Process in batches for better progress feedback
-                let batch_size = 32;
-                for (batch_idx, batch) in nodes_to_embed.chunks(batch_size).enumerate() {
-                    spinner.set_message(format!(
-                        "Generating embeddings... {}/{}",
-                        (batch_idx * batch_size).min(total),
-                        total
-                    ));
-
-                    // Create text content for each node
-                    let texts: Vec<String> = batch
-                        .iter()
-                        .map(|n| {
-                            // Create a semantic text representation of the node
-                            let type_prefix = match n.node_type {
-                                mu_daemon::storage::NodeType::Module => "module",
-                                mu_daemon::storage::NodeType::Class => "class",
-                                mu_daemon::storage::NodeType::Function => "function",
-                                mu_daemon::storage::NodeType::External => "external",
-                            };
-                            format!(
-                                "{} {} {}",
-                                type_prefix,
-                                n.name,
-                                n.qualified_name.as_deref().unwrap_or("")
-                            )
-                        })
-                        .collect();
-
-                    // Convert to &str slice for embedding
-                    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-
-                    match model.embed(&text_refs) {
-                        Ok(batch_embeddings) => {
-                            for (node, (text, embedding)) in
-                                batch.iter().zip(texts.iter().zip(batch_embeddings))
-                            {
-                                embeddings_batch.push((
-                                    node.id.clone(),
-                                    embedding,
-                                    Some(text.clone()),
-                                ));
-                                embedded_count += 1;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to embed batch: {}", e);
-                        }
-                    }
-                }
-
-                // Insert all embeddings
-                if !embeddings_batch.is_empty() {
-                    spinner.set_message("Storing embeddings...");
-                    if let Err(e) =
-                        mubase.insert_embeddings_batch(&embeddings_batch, Some("mu-sigma-v2"))
-                    {
-                        tracing::warn!("Failed to store embeddings: {}", e);
-                    }
-                }
-
-                embedded_count
-            }
-            Err(e) => {
-                spinner.finish_and_clear();
-                println!(
-                    "{} Failed to load embedding model: {}",
-                    "WARNING:".yellow().bold(),
-                    e
-                );
-                0
-            }
-        }
+        generate_embeddings(&nodes, &mubase, &spinner)
     } else {
         0
     };
 
     spinner.finish_and_clear();
 
-    let duration_ms = start.elapsed().as_millis() as u64;
+    // Step 5: Create HNSW index (optional, based on flags and embedding count)
+    let hnsw_index_created =
+        if embeddings_generated > 0 && should_hnsw(hnsw, no_hnsw, embeddings_generated) {
+            let spinner = create_spinner();
+            spinner.set_message("Creating HNSW index...");
 
+            match mubase.create_hnsw_index() {
+                Ok(created) => {
+                    spinner.finish_and_clear();
+                    if created {
+                        tracing::info!("HNSW index created successfully");
+                    }
+                    created
+                }
+                Err(e) => {
+                    spinner.finish_and_clear();
+                    // Don't fail bootstrap if HNSW creation fails - it's optional
+                    tracing::warn!("Failed to create HNSW index: {}", e);
+                    println!(
+                        "{} HNSW index creation failed: {}",
+                        "WARNING:".yellow().bold(),
+                        e
+                    );
+                    println!("         Vector search will use linear scan (still functional).\n");
+                    false
+                }
+            }
+        } else {
+            false
+        };
+
+    // Step 6: Create FTS index for BM25 keyword search (always, if nodes exist)
+    let fts_index_created = {
+        let spinner = create_spinner();
+        spinner.set_message("Creating FTS index for keyword search...");
+
+        match mubase.create_fts_index() {
+            Ok(created) => {
+                spinner.finish_and_clear();
+                if created {
+                    tracing::info!("FTS index created successfully");
+                }
+                created
+            }
+            Err(e) => {
+                spinner.finish_and_clear();
+                // Don't fail bootstrap if FTS creation fails - fallback to LIKE search
+                tracing::warn!("Failed to create FTS index: {}", e);
+                false
+            }
+        }
+    };
+
+    // Output result
     let result = BootstrapResult {
         success: true,
         root_path: root.to_string_lossy().to_string(),
         mubase_path: mubase_path.to_string_lossy().to_string(),
-        files_scanned,
-        files_parsed,
-        files_cached,
+        files_scanned: parsed.files_scanned,
+        files_parsed: parsed.files_parsed,
+        files_cached: parsed.files_cached,
         node_count: stats.node_count,
         edge_count: stats.edge_count,
         nodes_by_type: stats.type_counts,
-        duration_ms,
+        duration_ms: start.elapsed().as_millis() as u64,
         config_created,
         gitignore_updated,
         embeddings_generated,
+        hnsw_index_created,
+        fts_index_created,
     };
 
     Output::new(result, format).render()

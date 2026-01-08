@@ -462,32 +462,31 @@ mod tests {
     #[test]
     fn test_extract_referenced_types_python() {
         // Test Python type extraction
-        let type_strings = vec!["Node | None", "list[Edge]", "str", "MyClass"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "MUbase", "python");
+        let type_strings = ["Node | None", "list[Edge]", "str", "MyClass"];
+        let result = extract_referenced_types(type_strings.iter().copied(), "MUbase", "python");
         assert_eq!(result, vec!["Edge", "MyClass", "Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_filters_class_name() {
         // Should filter out the class's own name
-        let type_strings = vec!["MUbase", "Node"];
-        let result = extract_referenced_types(type_strings.iter().map(|s| *s), "MUbase", "python");
+        let type_strings = ["MUbase", "Node"];
+        let result = extract_referenced_types(type_strings.iter().copied(), "MUbase", "python");
         assert_eq!(result, vec!["Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_filters_builtins() {
         // Should filter out Python builtins
-        let type_strings = vec!["Optional[Node]", "List[str]", "Dict[str, Edge]", "Any"];
-        let result =
-            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let type_strings = ["Optional[Node]", "List[str]", "Dict[str, Edge]", "Any"];
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_typescript() {
         // Test TypeScript type extraction
-        let type_strings = vec![
+        let type_strings = [
             "Node | null",
             "Array<Edge>",
             "string",
@@ -495,37 +494,34 @@ mod tests {
             "Promise<void>",
         ];
         let result =
-            extract_referenced_types(type_strings.iter().map(|s| *s), "Service", "typescript");
+            extract_referenced_types(type_strings.iter().copied(), "Service", "typescript");
         assert_eq!(result, vec!["Edge", "MyClass", "Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_deduplicates() {
         // Should deduplicate types
-        let type_strings = vec!["Node", "Edge", "Node", "Edge", "Node"];
-        let result =
-            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let type_strings = ["Node", "Edge", "Node", "Edge", "Node"];
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["Edge", "Node"]);
     }
 
     #[test]
     fn test_extract_referenced_types_complex_annotations() {
         // Should handle complex type annotations
-        let type_strings = vec![
+        let type_strings = [
             "Callable[[Request, Response], Handler]",
             "dict[str, list[ConfigItem]]",
         ];
-        let result =
-            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["ConfigItem", "Handler", "Request", "Response"]);
     }
 
     #[test]
     fn test_extract_referenced_types_http_style() {
         // Should handle HTTP-style type names
-        let type_strings = vec!["HTTPClient", "URLParser", "JSONResponse"];
-        let result =
-            extract_referenced_types(type_strings.iter().map(|s| *s), "TestClass", "python");
+        let type_strings = ["HTTPClient", "URLParser", "JSONResponse"];
+        let result = extract_referenced_types(type_strings.iter().copied(), "TestClass", "python");
         assert_eq!(result, vec!["HTTPClient", "JSONResponse", "URLParser"]);
     }
 }
