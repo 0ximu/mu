@@ -9,6 +9,7 @@
 
 use crate::output::{Output, OutputFormat, TableDisplay};
 use anyhow::{Context, Result};
+use chrono::Local;
 use colored::Colorize;
 use duckdb::Connection;
 use serde::Serialize;
@@ -16,6 +17,16 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+
+/// Add timestamp to output filename: `foo.mu` → `foo-01082026.mu`
+fn stamp_filename(path: &str) -> String {
+    let timestamp = Local::now().format("%m%d%Y").to_string();
+    if let Some(dot_pos) = path.rfind('.') {
+        format!("{}-{}{}", &path[..dot_pos], timestamp, &path[dot_pos..])
+    } else {
+        format!("{}-{}", path, timestamp)
+    }
+}
 
 /// Find the MUbase database in the given directory or its parents.
 fn find_mubase(start_path: &str) -> Result<PathBuf> {
@@ -622,9 +633,10 @@ async fn run_direct(
 
     // Write to file or stdout
     let output_file = if let Some(path) = output_path {
-        let mut file = fs::File::create(path)?;
+        let stamped_path = stamp_filename(path);
+        let mut file = fs::File::create(&stamped_path)?;
         file.write_all(content.as_bytes())?;
-        Some(path.to_string())
+        Some(stamped_path)
     } else {
         None
     };
