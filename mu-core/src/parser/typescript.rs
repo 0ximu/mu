@@ -829,7 +829,7 @@ const process = (data: string) => {
         let result = parse(source, "test.ts", false).unwrap();
         // Arrow functions are extracted as functions
         assert!(
-            result.functions.len() >= 1,
+            !result.functions.is_empty(),
             "Expected at least 1 function, got {}",
             result.functions.len()
         );

@@ -32,25 +32,5 @@ pub struct EmbeddingStats {
     pub coverage_percent: f32,
 }
 
-/// Compute cosine similarity between two vectors.
-/// Assumes query_magnitude is pre-computed for efficiency.
-pub fn cosine_similarity(query: &[f32], stored: &[f32], query_magnitude: f32) -> f32 {
-    if query.len() != stored.len() || query_magnitude == 0.0 {
-        return 0.0;
-    }
-
-    let mut dot_product = 0.0f32;
-    let mut stored_magnitude_sq = 0.0f32;
-
-    for (q, s) in query.iter().zip(stored.iter()) {
-        dot_product += q * s;
-        stored_magnitude_sq += s * s;
-    }
-
-    let stored_magnitude = stored_magnitude_sq.sqrt();
-    if stored_magnitude == 0.0 {
-        return 0.0;
-    }
-
-    dot_product / (query_magnitude * stored_magnitude)
-}
+// Note: cosine_similarity() removed in v1.1.0 - now computed in-database
+// using DuckDB's native array_cosine_similarity() function

@@ -11,8 +11,19 @@ pub use models::{CompressResult, DetailLevel};
 
 use crate::output::{Output, OutputFormat};
 use anyhow::{Context, Result};
+use chrono::Local;
 use colored::Colorize;
 use std::path::Path;
+
+/// Add timestamp to output filename: `foo.mu` → `foo-01082026.mu`
+fn stamp_filename(path: &str) -> String {
+    let timestamp = Local::now().format("%m%d%Y").to_string();
+    if let Some(dot_pos) = path.rfind('.') {
+        format!("{}-{}{}", &path[..dot_pos], timestamp, &path[dot_pos..])
+    } else {
+        format!("{}-{}", path, timestamp)
+    }
+}
 
 /// Run the compress command
 pub async fn run(
@@ -50,7 +61,8 @@ pub async fn run(
     let content = codebase.to_mu_format(detail_level);
 
     // Write to file or stdout
-    if let Some(output_path) = output {
+    let stamped_output = output.map(stamp_filename);
+    if let Some(ref output_path) = stamped_output {
         std::fs::write(output_path, &content)
             .with_context(|| format!("Failed to write to: {}", output_path))?;
         eprintln!(
@@ -63,7 +75,7 @@ pub async fn run(
     let result = CompressResult {
         source: codebase.source,
         stats: codebase.stats,
-        content: if output.is_some() {
+        content: if stamped_output.is_some() {
             format!(
                 "Compressed {} modules, {} classes, {} functions",
                 codebase.stats.total_modules,

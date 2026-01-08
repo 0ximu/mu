@@ -5,6 +5,47 @@ All notable changes to MU will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2025-12-19
+
+### Added
+
+- **`mu coverage`** — Dead code detection
+  - `--orphans`: Find functions with no callers (excluding entry points)
+  - `--untested`: Find public functions not called by test functions
+  - Results grouped by directory, sorted by staleness (oldest first via git)
+  - Excludes lifecycle hooks (\_\_init\_\_, setup, teardown) and entry points (main, run, start)
+
+- **`mu why <from> <to>`** — Path explanation between nodes
+  - Shows connection paths with edge types at each hop (calls, uses, imports, inherits)
+  - `--all`: Show all paths, not just shortest
+  - `--max-paths`: Limit number of paths returned
+  - Human-readable verdict explaining the relationship
+
+- **`mu review`** — Intelligent PR review (flagship feature)
+  - Risk scoring: `risk = (caller_count × 2) + (transitive_dependents × 0.5) + (complexity_delta × 3)`
+  - Risk levels: CRITICAL (>100), HIGH (>50), MEDIUM (>20), LOW
+  - Test coverage gap detection (checks for corresponding test file changes)
+  - Suggested reviewers based on code ownership (via git shortlog)
+  - Recommendations for test coverage and complexity reduction
+  - Supports: `mu review` (uncommitted), `mu review HEAD~3..HEAD`, `mu review main..feature`
+  - `--format json` for CI integration
+
+- **`uses` edges in graph** — Composition detection
+  - Detects struct/class field types and creates `uses` edges
+  - Enables `mu ancestors` to show composition relationships
+  - Currently supports Rust structs; Python/TypeScript planned
+
+- **MCP Server** — AI assistant integration
+  - `mu_oracle` tool for task-aware context retrieval
+  - BM25 hybrid search for improved accuracy
+
+### Improved
+
+- Graph now includes 5 edge types: `contains`, `calls`, `imports`, `inherits`, `uses`
+- Better path finding with edge type annotations
+
+---
+
 ## [0.1.0-alpha.1] - 2024-12-14
 
 ### Added

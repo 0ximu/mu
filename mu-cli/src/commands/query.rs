@@ -64,6 +64,209 @@ enum TerseParseResult {
     RequiresDaemon(String),
 }
 
+/// Builder for terse SELECT queries.
+/// Accumulates filter conditions from tokens and builds final SQL.
+struct TerseQueryBuilder {
+    conditions: Vec<String>,
+    limit: usize,
+    order_by: Option<String>,
+}
+
+impl TerseQueryBuilder {
+    fn new(sql_type: &'static str) -> Self {
+        Self {
+            conditions: vec![format!("type = '{}'", sql_type)],
+            limit: 100,
+            order_by: None,
+        }
+    }
+
+    /// Parse a single filter token. Returns true if token was consumed.
+    fn parse_filter(&mut self, token: &str) -> bool {
+        self.try_parse_limit(token)
+            || self.try_parse_complexity(token)
+            || self.try_parse_name(token)
+            || self.try_parse_file(token)
+            || self.try_parse_order(token)
+            || self.try_parse_bare_pattern(token)
+    }
+
+    /// Limit filter: l10, limit10
+    fn try_parse_limit(&mut self, token: &str) -> bool {
+        let lower = token.to_lowercase();
+        if let Some(n) = lower.strip_prefix('l') {
+            if let Ok(num) = n.parse::<usize>() {
+                self.limit = num;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Complexity filter: c>50, c<10, c>=20, c=5
+    fn try_parse_complexity(&mut self, token: &str) -> bool {
+        let lower = token.to_lowercase();
+        if !(lower.starts_with("c>") || lower.starts_with("c<") || lower.starts_with("c=")) {
+            return false;
+        }
+
+        // Safe: we checked starts_with above, so index 1 exists
+        let op_char = token.chars().nth(1).expect("token has at least 2 chars");
+        let rest = &token[2..];
+
+        let (op, value) = if let Some(stripped) = rest.strip_prefix('=') {
+            (format!("{}=", op_char), stripped)
+        } else {
+            (op_char.to_string(), rest)
+        };
+
+        if let Ok(num) = value.parse::<i64>() {
+            self.conditions.push(format!("complexity {} {}", op, num));
+            return true;
+        }
+        false
+    }
+
+    /// Name pattern filter: n%pattern, name%pattern
+    fn try_parse_name(&mut self, token: &str) -> bool {
+        let lower = token.to_lowercase();
+        if let Some(pattern) = lower
+            .strip_prefix("n%")
+            .or_else(|| lower.strip_prefix("name%"))
+        {
+            let escaped = pattern.replace('\'', "''");
+            self.conditions.push(format!("name LIKE '%{}%'", escaped));
+            return true;
+        }
+        false
+    }
+
+    /// File path filter: f%pattern, file%pattern, path%pattern
+    fn try_parse_file(&mut self, token: &str) -> bool {
+        let lower = token.to_lowercase();
+        if let Some(pattern) = lower
+            .strip_prefix("f%")
+            .or_else(|| lower.strip_prefix("file%"))
+            .or_else(|| lower.strip_prefix("path%"))
+        {
+            let escaped = pattern.replace('\'', "''");
+            self.conditions
+                .push(format!("file_path LIKE '%{}%'", escaped));
+            return true;
+        }
+        false
+    }
+
+    /// Order clause: o:complexity, o:-complexity (descending), o:name
+    fn try_parse_order(&mut self, token: &str) -> bool {
+        let lower = token.to_lowercase();
+        if let Some(field) = lower.strip_prefix("o:") {
+            let (field_name, desc) = if let Some(f) = field.strip_prefix('-') {
+                (f, true)
+            } else {
+                (field, false)
+            };
+            // Validate field name (basic alphanumeric check)
+            if field_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                self.order_by = Some(if desc {
+                    format!("{} DESC", field_name)
+                } else {
+                    format!("{} ASC", field_name)
+                });
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Bare pattern (no prefix) treated as name filter
+    fn try_parse_bare_pattern(&mut self, token: &str) -> bool {
+        if !token.contains(':')
+            && !token.contains('>')
+            && !token.contains('<')
+            && !token.contains('=')
+        {
+            let escaped = token.replace('\'', "''");
+            self.conditions.push(format!("name LIKE '%{}%'", escaped));
+            return true;
+        }
+        false
+    }
+
+    /// Build the final SQL query
+    fn build(self) -> String {
+        let base_columns = "id, type, name, file_path, line_start, line_end, complexity";
+        let mut sql = format!("SELECT {} FROM nodes", base_columns);
+
+        if !self.conditions.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&self.conditions.join(" AND "));
+        }
+
+        if let Some(ob) = self.order_by {
+            sql.push_str(&format!(" ORDER BY {}", ob));
+        }
+
+        sql.push_str(&format!(" LIMIT {}", self.limit));
+        sql
+    }
+}
+
+/// Check if first token is a graph operation that requires daemon.
+/// Returns Some(suggestion) if it's a graph op, None otherwise.
+fn try_parse_graph_operation(first: &str, tokens: &[&str]) -> Option<TerseParseResult> {
+    let suggestion = match first {
+        "deps" => {
+            if tokens.len() > 1 {
+                let target = tokens[1];
+                let depth = tokens
+                    .get(2)
+                    .and_then(|d| d.strip_prefix('d'))
+                    .unwrap_or("1");
+                format!("SHOW dependencies OF {} DEPTH {}", target, depth)
+            } else {
+                "SHOW dependencies OF <target> DEPTH <n>".to_string()
+            }
+        }
+        "impact" => {
+            if tokens.len() > 1 {
+                format!("SHOW impact OF {}", tokens[1])
+            } else {
+                "SHOW impact OF <target>".to_string()
+            }
+        }
+        "ancestors" => {
+            if tokens.len() > 1 {
+                format!("SHOW ancestors OF {}", tokens[1])
+            } else {
+                "SHOW ancestors OF <target>".to_string()
+            }
+        }
+        "dependents" | "callers" | "callees" | "path" => {
+            format!("Use MUQL: SHOW {} OF <target>", first)
+        }
+        _ => return None,
+    };
+    Some(TerseParseResult::RequiresDaemon(suggestion))
+}
+
+/// Map terse type keyword to SQL type value.
+fn terse_type_to_sql(keyword: &str) -> Option<&'static str> {
+    match keyword {
+        "fn" | "func" | "functions" => Some("function"),
+        "cls" | "class" | "classes" => Some("class"),
+        "mod" | "module" | "modules" => Some("module"),
+        "meth" | "method" | "methods" => Some("function"), // methods are functions
+        _ => None,
+    }
+}
+
+/// SQL keywords that indicate the input is raw SQL, not terse syntax.
+const SQL_KEYWORDS: &[&str] = &[
+    "select", "show", "find", "path", "analyze", "describe", "insert", "update", "delete", "with",
+    "explain",
+];
+
 /// Try to convert terse MUQL syntax to SQL.
 ///
 /// Terse syntax patterns:
@@ -86,15 +289,9 @@ fn try_convert_terse_to_sql(input: &str) -> TerseParseResult {
     }
 
     // Check if it starts with SQL keywords - not terse
-    let sql_keywords = [
-        "select", "show", "find", "path", "analyze", "describe", "insert", "update", "delete",
-        "with", "explain",
-    ];
     let lower = trimmed.to_lowercase();
-    for kw in sql_keywords {
-        if lower.starts_with(kw) {
-            return TerseParseResult::NotTerse;
-        }
+    if SQL_KEYWORDS.iter().any(|kw| lower.starts_with(kw)) {
+        return TerseParseResult::NotTerse;
     }
 
     // Split into tokens
@@ -105,163 +302,32 @@ fn try_convert_terse_to_sql(input: &str) -> TerseParseResult {
 
     let first = tokens[0].to_lowercase();
 
-    // Graph operations that require daemon
-    match first.as_str() {
-        "deps" | "dependents" | "impact" | "ancestors" | "callers" | "callees" | "path" => {
-            let suggestion = match first.as_str() {
-                "deps" => {
-                    if tokens.len() > 1 {
-                        let target = tokens[1];
-                        let depth = tokens
-                            .get(2)
-                            .and_then(|d| d.strip_prefix('d'))
-                            .unwrap_or("1");
-                        format!("SHOW dependencies OF {} DEPTH {}", target, depth)
-                    } else {
-                        "SHOW dependencies OF <target> DEPTH <n>".to_string()
-                    }
-                }
-                "impact" => {
-                    if tokens.len() > 1 {
-                        format!("SHOW impact OF {}", tokens[1])
-                    } else {
-                        "SHOW impact OF <target>".to_string()
-                    }
-                }
-                "ancestors" => {
-                    if tokens.len() > 1 {
-                        format!("SHOW ancestors OF {}", tokens[1])
-                    } else {
-                        "SHOW ancestors OF <target>".to_string()
-                    }
-                }
-                _ => format!("Use MUQL: SHOW {} OF <target>", first),
-            };
-            return TerseParseResult::RequiresDaemon(suggestion);
-        }
-        _ => {}
+    // Check for graph operations
+    if let Some(result) = try_parse_graph_operation(&first, &tokens) {
+        return result;
     }
 
-    // SELECT-convertible terse patterns
-    let sql_type = match first.as_str() {
-        "fn" | "func" | "functions" => "function",
-        "cls" | "class" | "classes" => "class",
-        "mod" | "module" | "modules" => "module",
-        "meth" | "method" | "methods" => "function", // methods are functions
-        _ => return TerseParseResult::NotTerse,
+    // Map type keyword to SQL type
+    let sql_type = match terse_type_to_sql(&first) {
+        Some(t) => t,
+        None => return TerseParseResult::NotTerse,
     };
 
-    // Base query
-    let base_columns = "id, type, name, file_path, line_start, line_end, complexity";
-    let mut conditions: Vec<String> = vec![format!("type = '{}'", sql_type)];
-    let mut limit = 100;
-    let mut order_by: Option<String> = None;
-
-    // Parse remaining tokens as filters
+    // Build query using builder
+    let mut builder = TerseQueryBuilder::new(sql_type);
     for token in tokens.iter().skip(1) {
-        let token_lower = token.to_lowercase();
-
-        // Limit: l10 or limit10
-        if let Some(n) = token_lower.strip_prefix('l') {
-            if let Ok(num) = n.parse::<usize>() {
-                limit = num;
-                continue;
-            }
-        }
-
-        // Complexity filters: c>50, c<10, c>=20, c=5
-        if token_lower.starts_with("c>")
-            || token_lower.starts_with("c<")
-            || token_lower.starts_with("c=")
-        {
-            let op_char = token.chars().nth(1).unwrap();
-            let rest = &token[2..];
-
-            // Handle >= and <=
-            let (op, value) = if let Some(stripped) = rest.strip_prefix('=') {
-                (format!("{}=", op_char), stripped)
-            } else {
-                (op_char.to_string(), rest)
-            };
-
-            if let Ok(num) = value.parse::<i64>() {
-                conditions.push(format!("complexity {} {}", op, num));
-                continue;
-            }
-        }
-
-        // Name pattern: n%pattern or name%pattern
-        if let Some(pattern) = token_lower
-            .strip_prefix("n%")
-            .or_else(|| token_lower.strip_prefix("name%"))
-        {
-            let escaped = pattern.replace('\'', "''");
-            conditions.push(format!("name LIKE '%{}%'", escaped));
-            continue;
-        }
-
-        // File path pattern: f%pattern or file%pattern or path%pattern
-        if let Some(pattern) = token_lower
-            .strip_prefix("f%")
-            .or_else(|| token_lower.strip_prefix("file%"))
-            .or_else(|| token_lower.strip_prefix("path%"))
-        {
-            let escaped = pattern.replace('\'', "''");
-            conditions.push(format!("file_path LIKE '%{}%'", escaped));
-            continue;
-        }
-
-        // Order: o:complexity, o:-complexity (descending), o:name
-        if let Some(field) = token_lower.strip_prefix("o:") {
-            let (field_name, desc) = if let Some(f) = field.strip_prefix('-') {
-                (f, true)
-            } else {
-                (field, false)
-            };
-            // Validate field name (basic alphanumeric check)
-            if field_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                order_by = Some(if desc {
-                    format!("{} DESC", field_name)
-                } else {
-                    format!("{} ASC", field_name)
-                });
-            }
-            continue;
-        }
-
-        // If token looks like a bare pattern (no special prefix), treat as name filter
-        if !token.contains(':')
-            && !token.contains('>')
-            && !token.contains('<')
-            && !token.contains('=')
-        {
-            let escaped = token.replace('\'', "''");
-            conditions.push(format!("name LIKE '%{}%'", escaped));
-        }
+        builder.parse_filter(token);
     }
 
-    // Build final SQL
-    let mut sql = format!("SELECT {} FROM nodes", base_columns);
-
-    if !conditions.is_empty() {
-        sql.push_str(" WHERE ");
-        sql.push_str(&conditions.join(" AND "));
-    }
-
-    if let Some(ob) = order_by {
-        sql.push_str(&format!(" ORDER BY {}", ob));
-    }
-
-    sql.push_str(&format!(" LIMIT {}", limit));
-
-    TerseParseResult::Sql(sql)
+    TerseParseResult::Sql(builder.build())
 }
 
 /// Normalize type values in SQL queries to lowercase.
 /// Database stores types as: 'function', 'class', 'module', 'external'
 fn normalize_type_in_sql(sql: &str) -> String {
     // Match patterns like: type = 'Class' or type='CLASS' or type = "Function"
-    let re = regex::Regex::new(r#"(?i)\btype\s*=\s*['"]([^'"]+)['"]"#).unwrap();
+    let re = regex::Regex::new(r#"(?i)\btype\s*=\s*['"]([^'"]+)['"]"#)
+        .expect("static regex pattern is valid");
     re.replace_all(sql, |caps: &regex::Captures| {
         let type_value = caps.get(1).map(|m| m.as_str()).unwrap_or("");
         format!("type = '{}'", type_value.to_lowercase())
@@ -293,19 +359,21 @@ fn rewrite_virtual_tables(sql: &str) -> String {
         // Pattern: FROM <virtual_table> (case-insensitive, word boundary)
         // Captures optional whitespace and handles WHERE clause presence
         let pattern = format!(r"(?i)\bFROM\s+{}\b", regex::escape(virtual_table));
-        let re = regex::Regex::new(&pattern).unwrap();
+        // Safe: pattern built from regex::escape() which produces valid regex
+        let re = regex::Regex::new(&pattern).expect("escaped pattern is valid regex");
 
         if re.is_match(&result) {
             // Check if there's already a WHERE clause after the table name
-            // Pattern to find WHERE after the table name
             let where_pattern = format!(r"(?i)\bFROM\s+{}\s+WHERE\b", regex::escape(virtual_table));
-            let where_re = regex::Regex::new(&where_pattern).unwrap();
+            let where_re =
+                regex::Regex::new(&where_pattern).expect("escaped pattern is valid regex");
 
             if where_re.is_match(&result) {
                 // Has WHERE clause - merge conditions with AND
                 let replace_pattern =
                     format!(r"(?i)\bFROM\s+{}\s+WHERE\b", regex::escape(virtual_table));
-                let replace_re = regex::Regex::new(&replace_pattern).unwrap();
+                let replace_re =
+                    regex::Regex::new(&replace_pattern).expect("escaped pattern is valid regex");
                 result = replace_re
                     .replace(
                         &result,
@@ -650,35 +718,6 @@ fn format_csv(result: &QueryResult) -> String {
     output
 }
 
-/// Run the query command
-#[allow(dead_code)]
-pub async fn run(query_str: &str, interactive: bool, format: OutputFormat) -> Result<()> {
-    if interactive {
-        // Interactive mode not available without daemon
-        eprintln!(
-            "{} Interactive REPL mode is not available.",
-            "ERROR:".red().bold()
-        );
-        eprintln!();
-        eprintln!("Run queries directly instead:");
-        eprintln!(
-            "  {}",
-            "mu query \"SELECT * FROM functions LIMIT 10\"".cyan()
-        );
-        eprintln!("  {}", "mu query \"fn c>50\"".cyan());
-        std::process::exit(1);
-    }
-
-    let result = execute_query_direct(query_str)?;
-    print_result(&result, format)?;
-
-    if result.error.is_some() {
-        std::process::exit(1);
-    }
-
-    Ok(())
-}
-
 /// Print query result in the specified format
 fn print_result(result: &QueryResult, format: OutputFormat) -> Result<()> {
     match format {
@@ -739,7 +778,8 @@ pub async fn run_extended(
         std::process::exit(1);
     }
 
-    let query_str = query_str.unwrap();
+    // Safe: we exit above if query_str.is_none()
+    let query_str = query_str.expect("query_str is Some after exit guard");
 
     // Apply limit override if specified
     let final_query = if let Some(limit) = limit {
@@ -762,12 +802,6 @@ pub async fn run_extended(
     }
 
     Ok(())
-}
-
-/// Format result as CSV string
-#[allow(dead_code)]
-pub fn to_csv(result: &QueryResult) -> String {
-    format_csv(result)
 }
 
 #[cfg(test)]
@@ -1040,5 +1074,252 @@ mod tests {
         let query = "SELECT * FROM edges";
         let result = rewrite_virtual_tables(query);
         assert_eq!(result, query);
+    }
+
+    // ========== TerseQueryBuilder unit tests ==========
+
+    #[test]
+    fn test_builder_new_creates_type_condition() {
+        let builder = TerseQueryBuilder::new("function");
+        let sql = builder.build();
+        assert!(sql.contains("type = 'function'"));
+        assert!(sql.contains("LIMIT 100")); // default limit
+    }
+
+    #[test]
+    fn test_builder_parse_limit() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_limit("l25"));
+        let sql = builder.build();
+        assert!(sql.contains("LIMIT 25"));
+    }
+
+    #[test]
+    fn test_builder_parse_limit_invalid() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(!builder.try_parse_limit("labc")); // not a number
+        assert!(!builder.try_parse_limit("xyz")); // no l prefix
+    }
+
+    #[test]
+    fn test_builder_parse_complexity_greater() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_complexity("c>50"));
+        let sql = builder.build();
+        assert!(sql.contains("complexity > 50"));
+    }
+
+    #[test]
+    fn test_builder_parse_complexity_less() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_complexity("c<10"));
+        let sql = builder.build();
+        assert!(sql.contains("complexity < 10"));
+    }
+
+    #[test]
+    fn test_builder_parse_complexity_greater_equal() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_complexity("c>=20"));
+        let sql = builder.build();
+        assert!(sql.contains("complexity >= 20"));
+    }
+
+    #[test]
+    fn test_builder_parse_complexity_equal() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_complexity("c=5"));
+        let sql = builder.build();
+        assert!(sql.contains("complexity = 5"));
+    }
+
+    #[test]
+    fn test_builder_parse_complexity_invalid() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(!builder.try_parse_complexity("c>abc")); // not a number
+        assert!(!builder.try_parse_complexity("xyz")); // no c prefix
+    }
+
+    #[test]
+    fn test_builder_parse_name_short_prefix() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_name("n%auth"));
+        let sql = builder.build();
+        assert!(sql.contains("name LIKE '%auth%'"));
+    }
+
+    #[test]
+    fn test_builder_parse_name_long_prefix() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_name("name%handler"));
+        let sql = builder.build();
+        assert!(sql.contains("name LIKE '%handler%'"));
+    }
+
+    #[test]
+    fn test_builder_parse_name_escapes_quotes() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_name("n%it's"));
+        let sql = builder.build();
+        assert!(sql.contains("name LIKE '%it''s%'")); // escaped single quote
+    }
+
+    #[test]
+    fn test_builder_parse_file_short_prefix() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_file("f%src/api"));
+        let sql = builder.build();
+        assert!(sql.contains("file_path LIKE '%src/api%'"));
+    }
+
+    #[test]
+    fn test_builder_parse_file_long_prefixes() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_file("file%utils"));
+
+        let mut builder2 = TerseQueryBuilder::new("function");
+        assert!(builder2.try_parse_file("path%components"));
+    }
+
+    #[test]
+    fn test_builder_parse_order_ascending() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_order("o:name"));
+        let sql = builder.build();
+        assert!(sql.contains("ORDER BY name ASC"));
+    }
+
+    #[test]
+    fn test_builder_parse_order_descending() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_order("o:-complexity"));
+        let sql = builder.build();
+        assert!(sql.contains("ORDER BY complexity DESC"));
+    }
+
+    #[test]
+    fn test_builder_parse_order_invalid_field() {
+        let mut builder = TerseQueryBuilder::new("function");
+        // Field with invalid characters should not be accepted
+        assert!(!builder.try_parse_order("o:field;drop")); // semicolon not alphanumeric
+    }
+
+    #[test]
+    fn test_builder_parse_bare_pattern() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(builder.try_parse_bare_pattern("parse"));
+        let sql = builder.build();
+        assert!(sql.contains("name LIKE '%parse%'"));
+    }
+
+    #[test]
+    fn test_builder_parse_bare_pattern_rejects_operators() {
+        let mut builder = TerseQueryBuilder::new("function");
+        assert!(!builder.try_parse_bare_pattern("c>50")); // has >
+        assert!(!builder.try_parse_bare_pattern("o:name")); // has :
+        assert!(!builder.try_parse_bare_pattern("c=10")); // has =
+    }
+
+    #[test]
+    fn test_builder_combined_filters() {
+        let mut builder = TerseQueryBuilder::new("class");
+        builder.parse_filter("c>20");
+        builder.parse_filter("n%Service");
+        builder.parse_filter("l10");
+        builder.parse_filter("o:-complexity");
+
+        let sql = builder.build();
+        assert!(sql.contains("type = 'class'"));
+        assert!(sql.contains("complexity > 20"));
+        assert!(sql.contains("name LIKE '%service%'")); // lowercase
+        assert!(sql.contains("LIMIT 10"));
+        assert!(sql.contains("ORDER BY complexity DESC"));
+    }
+
+    // ========== Graph operation parser tests ==========
+
+    #[test]
+    fn test_graph_op_deps_with_target() {
+        let tokens = vec!["deps", "AuthService", "d3"];
+        let result = try_parse_graph_operation("deps", &tokens);
+        assert!(result.is_some());
+        if let Some(TerseParseResult::RequiresDaemon(s)) = result {
+            assert!(s.contains("SHOW dependencies OF AuthService DEPTH 3"));
+        }
+    }
+
+    #[test]
+    fn test_graph_op_deps_default_depth() {
+        let tokens = vec!["deps", "UserRepo"];
+        let result = try_parse_graph_operation("deps", &tokens);
+        assert!(result.is_some());
+        if let Some(TerseParseResult::RequiresDaemon(s)) = result {
+            assert!(s.contains("DEPTH 1")); // default depth
+        }
+    }
+
+    #[test]
+    fn test_graph_op_impact() {
+        let tokens = vec!["impact", "Config"];
+        let result = try_parse_graph_operation("impact", &tokens);
+        assert!(result.is_some());
+        if let Some(TerseParseResult::RequiresDaemon(s)) = result {
+            assert!(s.contains("SHOW impact OF Config"));
+        }
+    }
+
+    #[test]
+    fn test_graph_op_ancestors() {
+        let tokens = vec!["ancestors", "Handler"];
+        let result = try_parse_graph_operation("ancestors", &tokens);
+        assert!(result.is_some());
+        if let Some(TerseParseResult::RequiresDaemon(s)) = result {
+            assert!(s.contains("SHOW ancestors OF Handler"));
+        }
+    }
+
+    #[test]
+    fn test_graph_op_unknown_returns_none() {
+        let tokens = vec!["unknown", "target"];
+        let result = try_parse_graph_operation("unknown", &tokens);
+        assert!(result.is_none());
+    }
+
+    // ========== Type mapping tests ==========
+
+    #[test]
+    fn test_type_mapping_function_aliases() {
+        assert_eq!(terse_type_to_sql("fn"), Some("function"));
+        assert_eq!(terse_type_to_sql("func"), Some("function"));
+        assert_eq!(terse_type_to_sql("functions"), Some("function"));
+    }
+
+    #[test]
+    fn test_type_mapping_class_aliases() {
+        assert_eq!(terse_type_to_sql("cls"), Some("class"));
+        assert_eq!(terse_type_to_sql("class"), Some("class"));
+        assert_eq!(terse_type_to_sql("classes"), Some("class"));
+    }
+
+    #[test]
+    fn test_type_mapping_module_aliases() {
+        assert_eq!(terse_type_to_sql("mod"), Some("module"));
+        assert_eq!(terse_type_to_sql("module"), Some("module"));
+        assert_eq!(terse_type_to_sql("modules"), Some("module"));
+    }
+
+    #[test]
+    fn test_type_mapping_method_aliases() {
+        // Methods map to function
+        assert_eq!(terse_type_to_sql("meth"), Some("function"));
+        assert_eq!(terse_type_to_sql("method"), Some("function"));
+        assert_eq!(terse_type_to_sql("methods"), Some("function"));
+    }
+
+    #[test]
+    fn test_type_mapping_unknown() {
+        assert_eq!(terse_type_to_sql("unknown"), None);
+        assert_eq!(terse_type_to_sql(""), None);
+        assert_eq!(terse_type_to_sql("SELECT"), None);
     }
 }
