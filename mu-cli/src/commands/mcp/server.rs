@@ -2,6 +2,7 @@
 //!
 //! Exposes MU capabilities as MCP tools that can be called by AI assistants.
 
+use super::find_project_root;
 use std::collections::VecDeque;
 use std::fs;
 use std::future::Future;
@@ -19,17 +20,33 @@ use rmcp::{
     tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::Deserialize;
-use tokio::sync::OnceCell;
+use tokio::sync::{OnceCell, RwLock};
+
+/// Lazily-initialized project state
+struct ProjectState {
+    mubase: mu_daemon::storage::MUbase,
+    project_root: PathBuf,
+}
 
 /// MU MCP Server - exposes codebase intelligence tools
 ///
 /// Now with session state for activity-dependent awareness.
 /// MU remembers what you've looked at and can detect patterns.
+///
+/// Supports dynamic project detection via MCP client roots - the server will
+/// use the client's working directory instead of its own CWD.
 #[derive(Clone)]
 pub struct MuMcpServer {
-    mubase: Arc<mu_daemon::storage::MUbase>,
+    /// Lazily-initialized project state (mubase + project_root)
+    /// Initialized on first tool call using client roots or fallback directory
+    state: Arc<OnceCell<ProjectState>>,
+    /// Client roots received during MCP initialization
+    /// Used to determine which project the client is working in
+    client_roots: Arc<RwLock<Option<Vec<Root>>>>,
+    /// Fallback directory if no client roots are provided
+    fallback_dir: PathBuf,
+    /// Embedding model (lazily loaded)
     model: Arc<OnceCell<mu_embeddings::MuSigmaModel>>,
-    project_root: PathBuf,
     tool_router: ToolRouter<MuMcpServer>,
     /// Session state for cognitive layer - tracks accessed nodes and queries
     session: Arc<Mutex<SessionState>>,
@@ -268,14 +285,83 @@ impl SessionState {
 
 #[tool_router]
 impl MuMcpServer {
-    pub fn new(mubase: mu_daemon::storage::MUbase, project_root: PathBuf) -> Self {
+    /// Create a new MCP server with lazy project initialization.
+    ///
+    /// The server won't open any database until the first tool call.
+    /// At that point, it will use client roots (if provided during MCP init)
+    /// or fall back to the provided directory.
+    pub fn new(fallback_dir: PathBuf) -> Self {
         Self {
-            mubase: Arc::new(mubase),
+            state: Arc::new(OnceCell::new()),
+            client_roots: Arc::new(RwLock::new(None)),
+            fallback_dir,
             model: Arc::new(OnceCell::new()),
-            project_root,
             tool_router: Self::tool_router(),
             session: Arc::new(Mutex::new(SessionState::new())),
         }
+    }
+
+    /// Ensure the project state is initialized, using client roots if available.
+    ///
+    /// This is called lazily on the first tool invocation.
+    async fn ensure_state(&self) -> Result<&ProjectState, McpError> {
+        self.state
+            .get_or_try_init(|| async {
+                // Determine the starting directory for project search
+                let start_dir = {
+                    let roots = self.client_roots.read().await;
+                    if let Some(ref root_list) = *roots {
+                        if let Some(first_root) = root_list.first() {
+                            // Client provided roots - use the first one
+                            // Root URI is typically "file:///path/to/dir"
+                            let uri = &first_root.uri;
+                            if let Some(path) = uri.strip_prefix("file://") {
+                                PathBuf::from(path)
+                            } else {
+                                // Try as plain path
+                                PathBuf::from(uri)
+                            }
+                        } else {
+                            self.fallback_dir.clone()
+                        }
+                    } else {
+                        self.fallback_dir.clone()
+                    }
+                };
+
+                // Find .mu directory from start_dir
+                let project_root = find_project_root(&start_dir).ok_or_else(|| {
+                    McpError::internal_error(
+                        format!(
+                            "No .mu directory found starting from '{}'. Run 'mu bootstrap' first.",
+                            start_dir.display()
+                        ),
+                        None,
+                    )
+                })?;
+
+                let mubase_path = project_root.join(".mu").join("mubase");
+                let mubase =
+                    mu_daemon::storage::MUbase::open_read_only(&mubase_path).map_err(|e| {
+                        McpError::internal_error(format!("Failed to open mubase: {}", e), None)
+                    })?;
+
+                Ok(ProjectState {
+                    mubase,
+                    project_root,
+                })
+            })
+            .await
+    }
+
+    /// Get the mubase, ensuring lazy initialization
+    async fn mubase(&self) -> Result<&mu_daemon::storage::MUbase, McpError> {
+        Ok(&self.ensure_state().await?.mubase)
+    }
+
+    /// Get the project root, ensuring lazy initialization
+    async fn project_root(&self) -> Result<&PathBuf, McpError> {
+        Ok(&self.ensure_state().await?.project_root)
     }
 
     /// Grok: Semantic search with actual code snippets
@@ -286,16 +372,19 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<GrokParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Ensure lazy state is initialized (uses client roots if available)
+        let state = self.ensure_state().await?;
+
         let start = Instant::now();
         let limit = params.limit.unwrap_or(3).clamp(1, 10);
 
         // Get search results
-        let results = if self.mubase.has_embeddings().unwrap_or(false) {
-            self.run_semantic_search(&params.query, limit)
+        let results = if state.mubase.has_embeddings().unwrap_or(false) {
+            self.run_semantic_search(&state.mubase, &params.query, limit)
                 .await
                 .unwrap_or_default()
         } else {
-            self.run_keyword_search(&params.query, limit)
+            self.run_keyword_search(&state.mubase, &params.query, limit)
                 .unwrap_or_default()
         };
 
@@ -335,7 +424,7 @@ impl MuMcpServer {
                 output.push_str(&format!("File: {}\n", path));
 
                 // Read and show actual code snippet
-                let full_path = self.project_root.join(path);
+                let full_path = state.project_root.join(path);
                 if let Ok(content) = fs::read_to_string(&full_path) {
                     if let Some(snippet) =
                         self.extract_snippet(&content, &result.name, &result.node_type)
@@ -363,13 +452,15 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<FindParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
         let sql = format!(
             "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = '{}' OR name LIKE '%.{}' LIMIT 10",
             params.symbol.replace('\'', "''"),
             params.symbol.replace('\'', "''")
         );
 
-        let result = self
+        let result = state
             .mubase
             .query(&sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -396,7 +487,7 @@ impl MuMcpServer {
             output.push_str(&format!("{}:{}-{}\n", file_path, start_line, end_line));
 
             // Show the actual code
-            let full_path = self.project_root.join(file_path);
+            let full_path = state.project_root.join(file_path);
             if let Ok(content) = fs::read_to_string(&full_path) {
                 let lines: Vec<&str> = content.lines().collect();
                 let start = (start_line as usize).saturating_sub(1);
@@ -428,8 +519,10 @@ impl MuMcpServer {
         description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project."
     )]
     async fn mu_compress(&self) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
         // Get stats
-        let stats = self
+        let stats = state
             .mubase
             .query(
                 "SELECT
@@ -452,7 +545,7 @@ impl MuMcpServer {
             .unwrap_or((0, 0, 0));
 
         // Detect languages
-        let langs = self
+        let langs = state
             .mubase
             .query(
                 "SELECT DISTINCT
@@ -493,7 +586,7 @@ impl MuMcpServer {
         ));
 
         // Get structure grouped by directory
-        let nodes_result = self.mubase.query(
+        let nodes_result = state.mubase.query(
             "SELECT type, name, file_path, complexity FROM nodes ORDER BY file_path, type DESC, name LIMIT 500")
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -545,6 +638,8 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<ImpactParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
         let mut output = String::new();
         output.push_str(&format!("# Impact Analysis: {}\n\n", params.symbol));
 
@@ -557,7 +652,7 @@ impl MuMcpServer {
             params.symbol.replace('\'', "''")
         );
 
-        let result = self
+        let result = state
             .mubase
             .query(&sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -591,7 +686,7 @@ impl MuMcpServer {
                     "-l",
                     &params.symbol,
                 ])
-                .current_dir(&self.project_root)
+                .current_dir(&state.project_root)
                 .output();
 
             if let Ok(grep_out) = grep_result {
@@ -620,7 +715,7 @@ impl MuMcpServer {
                             "-C1",
                             &params.symbol,
                         ])
-                        .current_dir(&self.project_root)
+                        .current_dir(&state.project_root)
                         .output();
 
                     if let Ok(ctx) = context_result {
@@ -648,11 +743,13 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<DiffParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
         // Detect default branch
         let base = params.base_ref.unwrap_or_else(|| {
             let result = Command::new("git")
                 .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
-                .current_dir(&self.project_root)
+                .current_dir(&state.project_root)
                 .output();
 
             result
@@ -668,7 +765,7 @@ impl MuMcpServer {
         // Get changed files
         let diff_result = Command::new("git")
             .args(["diff", "--name-status", &base, "HEAD"])
-            .current_dir(&self.project_root)
+            .current_dir(&state.project_root)
             .output()
             .map_err(|e| McpError::internal_error(format!("git error: {}", e), None))?;
 
@@ -712,7 +809,7 @@ impl MuMcpServer {
                     "SELECT type, name FROM nodes WHERE file_path = '{}' ORDER BY line_start",
                     file.replace('\'', "''")
                 );
-                if let Ok(nodes) = self.mubase.query(&sql) {
+                if let Ok(nodes) = state.mubase.query(&sql) {
                     let symbols: Vec<String> = nodes
                         .rows
                         .iter()
@@ -763,6 +860,7 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<SusParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
         let min_complexity = params.min_complexity.unwrap_or(15);
 
         let mut output = String::new();
@@ -775,7 +873,7 @@ impl MuMcpServer {
              ORDER BY complexity DESC LIMIT 15",
             min_complexity
         );
-        let complex = self
+        let complex = state
             .mubase
             .query(&complex_sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -806,7 +904,7 @@ impl MuMcpServer {
                OR LOWER(name) LIKE '%credential%'
                OR LOWER(name) LIKE '%api_key%'
             ORDER BY file_path LIMIT 20";
-        let security = self
+        let security = state
             .mubase
             .query(security_sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -835,7 +933,7 @@ impl MuMcpServer {
         let large_sql = "SELECT name, file_path, (line_end - line_start) as lines FROM nodes
             WHERE type = 'function' AND line_end > line_start
             ORDER BY lines DESC LIMIT 10";
-        if let Ok(large) = self.mubase.query(large_sql) {
+        if let Ok(large) = state.mubase.query(large_sql) {
             if !large.rows.is_empty() {
                 output.push_str("## Large Functions (by lines)\n");
                 output.push_str("Long functions that might need refactoring:\n\n");
@@ -862,8 +960,9 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<WtfParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
         let file_path = &params.file;
-        let full_path = self.project_root.join(file_path);
+        let full_path = state.project_root.join(file_path);
 
         let mut output = String::new();
         output.push_str(&format!("# WTF: {}\n\n", file_path));
@@ -872,7 +971,7 @@ impl MuMcpServer {
         let file_exists = full_path.exists();
         let is_tracked = Command::new("git")
             .args(["ls-files", file_path])
-            .current_dir(&self.project_root)
+            .current_dir(&state.project_root)
             .output()
             .map(|o| !o.stdout.is_empty())
             .unwrap_or(false);
@@ -908,7 +1007,7 @@ impl MuMcpServer {
                     "--",
                     file_path,
                 ])
-                .current_dir(&self.project_root)
+                .current_dir(&state.project_root)
                 .output();
 
             if let Ok(log_out) = log {
@@ -926,7 +1025,7 @@ impl MuMcpServer {
             output.push_str("\n## Contributors\n");
             let authors = Command::new("git")
                 .args(["shortlog", "-sn", "--", file_path])
-                .current_dir(&self.project_root)
+                .current_dir(&state.project_root)
                 .output();
 
             if let Ok(auth_out) = authors {
@@ -947,7 +1046,7 @@ impl MuMcpServer {
                     "--",
                     file_path,
                 ])
-                .current_dir(&self.project_root)
+                .current_dir(&state.project_root)
                 .output();
 
             if let Ok(first_out) = first {
@@ -976,7 +1075,7 @@ impl MuMcpServer {
             "SELECT type, name, complexity FROM nodes WHERE file_path = '{}' ORDER BY line_start",
             file_path.replace('\'', "''")
         );
-        if let Ok(nodes) = self.mubase.query(&sql) {
+        if let Ok(nodes) = state.mubase.query(&sql) {
             if !nodes.rows.is_empty() {
                 output.push_str("\n## Symbols in file\n");
                 for row in &nodes.rows {
@@ -1011,6 +1110,7 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<OracleParams>,
     ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
         let start = Instant::now();
 
         // Extract task-aware keywords (used for context expansion)
@@ -1022,7 +1122,7 @@ impl MuMcpServer {
         // Get must-read nodes via hybrid search (BM25 + semantic with RRF)
         // This combines keyword matching (finds exact symbol names like "create_hnsw_index")
         // with semantic search (finds conceptually related code)
-        let must_read = self.hybrid_search(&params.task, 7).await;
+        let must_read = self.hybrid_search(&state.mubase, &params.task, 7).await;
 
         // Record this access in session state (activity-dependent awareness)
         {
@@ -1038,10 +1138,10 @@ impl MuMcpServer {
 
         // Get supporting context via graph expansion
         let must_read_ids: Vec<&str> = must_read.iter().map(|r| r.name.as_str()).collect();
-        let context_nodes = self.get_context_nodes(&must_read_ids, &keywords);
+        let context_nodes = self.get_context_nodes(&state.mubase, &state.project_root, &must_read_ids, &keywords);
 
         // Extract patterns from the codebase relevant to this task
-        let patterns = self.extract_patterns(&keywords, &must_read_files);
+        let patterns = self.extract_patterns(&state.mubase, &keywords, &must_read_files);
 
         let duration = start.elapsed().as_millis();
         output.push_str(&format!(
@@ -1079,7 +1179,7 @@ impl MuMcpServer {
                     output.push_str(&format!("File: {}\n", path));
 
                     // Read and show full code
-                    let full_path = self.project_root.join(path);
+                    let full_path = state.project_root.join(path);
                     if let Ok(content) = fs::read_to_string(&full_path) {
                         if let Some(snippet) =
                             self.extract_snippet(&content, &result.name, &result.node_type)
@@ -1184,7 +1284,7 @@ impl MuMcpServer {
             }
 
             // Find unexplored neighbors as escape routes
-            let escape_routes = self.find_unexplored_neighbors(&repeated_nodes, &session);
+            let escape_routes = self.find_unexplored_neighbors(&state.mubase, &repeated_nodes, &session);
             if !escape_routes.is_empty() {
                 output.push_str("\n**Suggested escape routes** (unexplored neighbors):\n");
                 for (name, file_path, relationship) in escape_routes.iter().take(3) {
@@ -1332,7 +1432,7 @@ impl MuMcpServer {
     /// Two types of activity-dependent boost:
     /// 1. Session activity: nodes connected to recently accessed symbols
     /// 2. Git recency: files modified recently in git ("hot" codebase areas)
-    async fn hybrid_search(&self, query: &str, limit: usize) -> Vec<SearchResult> {
+    async fn hybrid_search(&self, mubase: &mu_daemon::storage::MUbase, query: &str, limit: usize) -> Vec<SearchResult> {
         // Get session context for activity-dependent boosting
         let (recent_nodes, git_boosts) = {
             let mut session = self.session.lock().await;
@@ -1354,12 +1454,11 @@ impl MuMcpServer {
         };
 
         // Get results from both systems
-        let bm25_results = self
-            .mubase
+        let bm25_results = mubase
             .bm25_search(query, limit * 2)
             .unwrap_or_default();
         let semantic_results = self
-            .run_semantic_search(query, limit * 2)
+            .run_semantic_search(mubase, query, limit * 2)
             .await
             .unwrap_or_default();
 
@@ -1375,7 +1474,7 @@ impl MuMcpServer {
             .collect();
 
         // Apply RRF merge with both activity boosts
-        self.rrf_merge(bm25_converted, semantic_results, limit, &recent_nodes, &git_boosts)
+        self.rrf_merge(mubase, bm25_converted, semantic_results, limit, &recent_nodes, &git_boosts)
     }
 
     /// Reciprocal Rank Fusion - merge two ranked lists into one.
@@ -1392,6 +1491,7 @@ impl MuMcpServer {
     /// 2. Git recency: files modified recently ("hot" codebase areas)
     fn rrf_merge(
         &self,
+        mubase: &mu_daemon::storage::MUbase,
         bm25_results: Vec<SearchResult>,
         semantic_results: Vec<SearchResult>,
         limit: usize,
@@ -1426,7 +1526,7 @@ impl MuMcpServer {
 
         // Activity-dependent boost: strengthen nodes connected to recent session activity
         if !recent_nodes.is_empty() {
-            let activity_boosts = self.compute_activity_boosts(&scores, recent_nodes);
+            let activity_boosts = self.compute_activity_boosts(mubase, &scores, recent_nodes);
             for (name, boost) in activity_boosts {
                 if let Some(score) = scores.get_mut(&name) {
                     *score += boost * ACTIVITY_WEIGHT;
@@ -1471,6 +1571,8 @@ impl MuMcpServer {
     /// Get supporting context nodes through graph traversal
     fn get_context_nodes(
         &self,
+        mubase: &mu_daemon::storage::MUbase,
+        project_root: &PathBuf,
         must_read_names: &[&str],
         keywords: &[String],
     ) -> Vec<(String, String, String, Option<String>)> {
@@ -1490,7 +1592,7 @@ impl MuMcpServer {
                 name.replace('\'', "''")
             );
 
-            if let Ok(result) = self.mubase.query(&sql) {
+            if let Ok(result) = mubase.query(&sql) {
                 for row in &result.rows {
                     let dep_name = row
                         .first()
@@ -1513,7 +1615,7 @@ impl MuMcpServer {
 
                         // Extract signature if it's a function
                         let signature = if node_type == "function" {
-                            self.get_function_signature(&file_path, line_start, line_end)
+                            self.get_function_signature(project_root, &file_path, line_start, line_end)
                         } else {
                             None
                         };
@@ -1533,7 +1635,7 @@ impl MuMcpServer {
                 keyword.to_lowercase().replace('\'', "''")
             );
 
-            if let Ok(result) = self.mubase.query(&sql) {
+            if let Ok(result) = mubase.query(&sql) {
                 for row in &result.rows {
                     let name = row
                         .first()
@@ -1555,7 +1657,7 @@ impl MuMcpServer {
                         let line_end = row.get(4).and_then(|v| v.as_i64());
 
                         let signature = if node_type == "function" {
-                            self.get_function_signature(&file_path, line_start, line_end)
+                            self.get_function_signature(project_root, &file_path, line_start, line_end)
                         } else {
                             None
                         };
@@ -1574,11 +1676,12 @@ impl MuMcpServer {
     /// Get function signature (first line of definition)
     fn get_function_signature(
         &self,
+        project_root: &PathBuf,
         file_path: &str,
         line_start: Option<i64>,
         _line_end: Option<i64>,
     ) -> Option<String> {
-        let full_path = self.project_root.join(file_path);
+        let full_path = project_root.join(file_path);
         let content = fs::read_to_string(&full_path).ok()?;
         let lines: Vec<&str> = content.lines().collect();
 
@@ -1597,7 +1700,7 @@ impl MuMcpServer {
     }
 
     /// Extract relevant patterns from the codebase
-    fn extract_patterns(&self, keywords: &[String], relevant_files: &[String]) -> Vec<String> {
+    fn extract_patterns(&self, mubase: &mu_daemon::storage::MUbase, keywords: &[String], relevant_files: &[String]) -> Vec<String> {
         let mut patterns = Vec::new();
 
         // Check for error handling patterns
@@ -1611,7 +1714,7 @@ impl MuMcpServer {
               AND type = 'class'
             LIMIT 5";
 
-        if let Ok(result) = self.mubase.query(error_sql) {
+        if let Ok(result) = mubase.query(error_sql) {
             let error_types: Vec<String> = result
                 .rows
                 .iter()
@@ -1640,7 +1743,7 @@ impl MuMcpServer {
                    OR LOWER(file_path) LIKE '%.json'
                 LIMIT 5";
 
-            if let Ok(result) = self.mubase.query(config_sql) {
+            if let Ok(result) = mubase.query(config_sql) {
                 let config_files: Vec<String> = result
                     .rows
                     .iter()
@@ -1682,7 +1785,7 @@ impl MuMcpServer {
                     test_paths.first().unwrap_or(&String::new())
                 );
 
-                if let Ok(result) = self.mubase.query(&test_sql) {
+                if let Ok(result) = mubase.query(&test_sql) {
                     let test_files: Vec<String> = result
                         .rows
                         .iter()
@@ -1710,6 +1813,7 @@ impl MuMcpServer {
     }
     async fn run_semantic_search(
         &self,
+        mubase: &mu_daemon::storage::MUbase,
         query: &str,
         limit: usize,
     ) -> anyhow::Result<Vec<SearchResult>> {
@@ -1718,7 +1822,7 @@ impl MuMcpServer {
             .get_or_try_init(|| async { mu_embeddings::MuSigmaModel::embedded() })
             .await?;
         let embedding = model.embed_one(query)?;
-        let results = self.mubase.vector_search(&embedding, limit, Some(0.3))?;
+        let results = mubase.vector_search(&embedding, limit, Some(0.3))?;
 
         Ok(results
             .into_iter()
@@ -1731,13 +1835,13 @@ impl MuMcpServer {
             .collect())
     }
 
-    fn run_keyword_search(&self, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
+    fn run_keyword_search(&self, mubase: &mu_daemon::storage::MUbase, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
         let sql = format!(
             "SELECT type, name, file_path FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
             query.to_lowercase().replace('\'', "''"),
             limit
         );
-        let result = self.mubase.query(&sql)?;
+        let result = mubase.query(&sql)?;
 
         Ok(result
             .rows
@@ -1826,6 +1930,7 @@ impl MuMcpServer {
     /// These are potential "escape routes" from rumination loops.
     fn find_unexplored_neighbors(
         &self,
+        mubase: &mu_daemon::storage::MUbase,
         repeated_nodes: &[String],
         session: &SessionState,
     ) -> Vec<(String, String, String)> {
@@ -1847,7 +1952,7 @@ impl MuMcpServer {
                 node_name.replace('\'', "''")
             );
 
-            if let Ok(result) = self.mubase.query(&sql) {
+            if let Ok(result) = mubase.query(&sql) {
                 for row in &result.rows {
                     let name = row
                         .first()
@@ -1887,6 +1992,7 @@ impl MuMcpServer {
     /// Returns: Vec of (node_name, boost_factor) for nodes that deserve a boost.
     fn compute_activity_boosts(
         &self,
+        mubase: &mu_daemon::storage::MUbase,
         candidates: &std::collections::HashMap<String, f32>,
         recent_nodes: &[String],
     ) -> Vec<(String, f32)> {
@@ -1933,7 +2039,7 @@ impl MuMcpServer {
                     .join(", ")
             );
 
-            if let Ok(result) = self.mubase.query(&sql) {
+            if let Ok(result) = mubase.query(&sql) {
                 if let Some(count) = result
                     .rows
                     .first()
@@ -1985,6 +2091,24 @@ impl ServerHandler for MuMcpServer {
                  • mu_sus: Find suspicious/complex code\n\
                  • mu_wtf: Git archaeology for a file".into()
             ),
+        }
+    }
+
+    /// Handle roots list changed notification from the client.
+    ///
+    /// When Claude Code changes directories or the client's workspace changes,
+    /// we receive this notification. We then fetch the new roots and store them
+    /// for use in lazy project initialization.
+    fn on_roots_list_changed(
+        &self,
+        context: rmcp::service::NotificationContext<rmcp::service::RoleServer>,
+    ) -> impl Future<Output = ()> + Send + '_ {
+        async move {
+            // Try to fetch the current roots from the client
+            if let Ok(roots_result) = context.peer.list_roots().await {
+                let mut client_roots = self.client_roots.write().await;
+                *client_roots = Some(roots_result.roots);
+            }
         }
     }
 }

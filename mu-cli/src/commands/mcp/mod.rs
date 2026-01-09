@@ -25,7 +25,7 @@ fn find_mubase_path(start_dir: &Path) -> Option<std::path::PathBuf> {
 }
 
 /// Find the project root (directory containing .mu)
-fn find_project_root(start_dir: &Path) -> Option<std::path::PathBuf> {
+pub(crate) fn find_project_root(start_dir: &Path) -> Option<std::path::PathBuf> {
     let mut current = start_dir.to_path_buf();
     loop {
         let mu_dir = current.join(".mu");
@@ -39,25 +39,26 @@ fn find_project_root(start_dir: &Path) -> Option<std::path::PathBuf> {
 }
 
 /// Run the MCP server
+///
+/// The server now supports dynamic project detection via MCP client roots.
+/// If the client provides roots during initialization, the server will use
+/// the first root as the project directory instead of relying on its CWD.
+///
+/// This means you can start the server from anywhere - as long as the client
+/// (e.g., Claude Code) tells it where to look, MU will find the right project.
 pub async fn run(path: &str) -> anyhow::Result<()> {
-    let start_dir = if path == "." {
+    // Use provided path or CWD as fallback
+    // Note: The actual project may be overridden by client roots during MCP init
+    let fallback_dir = if path == "." {
         std::env::current_dir()?
     } else {
         std::fs::canonicalize(path)?
     };
 
-    // Find project root and mubase
-    let project_root = find_project_root(&start_dir)
-        .ok_or_else(|| anyhow::anyhow!("No .mu directory found. Run 'mu bootstrap' first."))?;
-
-    let mubase_path = find_mubase_path(&start_dir)
-        .ok_or_else(|| anyhow::anyhow!("No .mu/mubase found. Run 'mu bootstrap' first."))?;
-
-    // Open database in read-only mode
-    let mubase = mu_daemon::storage::MUbase::open_read_only(&mubase_path)?;
-
-    // Create and run MCP server
-    let server = MuMcpServer::new(mubase, project_root);
+    // Create server with lazy initialization
+    // The mubase won't be opened until the first tool call, and will use
+    // client-provided roots if available
+    let server = MuMcpServer::new(fallback_dir);
 
     // Serve over stdio
     let running_server = server.serve(stdio()).await?;
