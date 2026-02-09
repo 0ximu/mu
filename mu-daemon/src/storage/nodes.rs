@@ -114,6 +114,21 @@ impl Node {
         }
     }
 
+    /// Create a documentation node from a markdown file.
+    pub fn doc(file_path: &str, title: &str, line_end: u32) -> Self {
+        Self {
+            id: format!("doc:{}", file_path),
+            node_type: NodeType::Doc,
+            name: title.to_string(),
+            qualified_name: Some(file_path.to_string()),
+            file_path: Some(file_path.to_string()),
+            line_start: Some(1),
+            line_end: Some(line_end),
+            complexity: 0,
+            properties: None,
+        }
+    }
+
     /// Set properties on the node.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);
@@ -154,5 +169,15 @@ mod tests {
         let node = Node::function("src/cli.py", "build", Some("MUbase"), 50, 80, 5);
         assert_eq!(node.id, "fn:src/cli.py:MUbase.build");
         assert_eq!(node.name, "build");
+    }
+
+    #[test]
+    fn test_doc_node() {
+        let node = Node::doc("docs/adr/0001-auth.md", "Auth Architecture", 42);
+        assert_eq!(node.id, "doc:docs/adr/0001-auth.md");
+        assert_eq!(node.node_type, NodeType::Doc);
+        assert_eq!(node.name, "Auth Architecture");
+        assert_eq!(node.line_start, Some(1));
+        assert_eq!(node.line_end, Some(42));
     }
 }

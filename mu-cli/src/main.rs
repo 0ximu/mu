@@ -349,6 +349,10 @@ enum Commands {
         /// Minimum warning level to show (1=info, 2=warn, 3=error)
         #[arg(short, long, default_value = "1")]
         threshold: u8,
+
+        /// Include generated files in scans (overrides config default)
+        #[arg(long)]
+        include_generated: bool,
     },
 
     /// Git archaeology - why does this code exist?
@@ -503,13 +507,16 @@ fn print_verbose_version() {
     use colored::Colorize;
 
     let cli_version = env!("CARGO_PKG_VERSION");
+    let core_version = mu_core::version();
+    let daemon_version = mu_daemon::version();
+    let embeddings_version = mu_embeddings::version();
     let platform = format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS);
 
     println!("mu {}", cli_version);
     println!("  {:<14} {}", "mu-cli:".cyan(), cli_version);
-    println!("  {:<14} {}", "mu-core:".cyan(), cli_version);
-    println!("  {:<14} {}", "mu-daemon:".cyan(), cli_version);
-    println!("  {:<14} {}", "mu-embeddings:".cyan(), cli_version);
+    println!("  {:<14} {}", "mu-core:".cyan(), core_version);
+    println!("  {:<14} {}", "mu-daemon:".cyan(), daemon_version);
+    println!("  {:<14} {}", "mu-embeddings:".cyan(), embeddings_version);
     println!("  {:<14} {}", "Platform:".cyan(), platform);
 }
 
@@ -645,7 +652,11 @@ async fn main() -> anyhow::Result<()> {
 
         // Vibe commands
         Commands::Yolo { path } => vibes::yolo::run(&path, format).await,
-        Commands::Sus { path, threshold } => vibes::sus::run(&path, threshold, format).await,
+        Commands::Sus {
+            path,
+            threshold,
+            include_generated,
+        } => vibes::sus::run(&path, threshold, include_generated, format).await,
         Commands::Wtf { target } => vibes::wtf::run(target.as_deref(), format).await,
         Commands::Omg {
             max_tokens,

@@ -1,0 +1,26 @@
+{
+  "schema_version": "trust_suite.v1",
+  "description": "MCP trust regression suite for phase-1 fixes",
+  "cases": [
+    {
+      "id": "impact_filters_artifacts",
+      "tool": "mu_impact",
+      "fixture": "impact_repo"
+    },
+    {
+      "id": "wtf_nested_git_root",
+      "tool": "mu_wtf",
+      "fixture": "nested_git_repo"
+    },
+    {
+      "id": "sus_generated_default_excluded",
+      "tool": "mu_sus",
+      "fixture": "sus_repo"
+    },
+    {
+      "id": "find_module_suppression_and_invalid_range",
+      "tool": "mu_find",
+      "fixture": "find_repo"
+    }
+  ]
+}

@@ -116,15 +116,20 @@ impl MUbase {
         // - Use open_read_only() for read-only connections
         // - No WAL mode pragma needed (DuckDB manages this internally)
 
-        // Check for v1 schema incompatibility (has model_name column instead of model)
-        // DuckDB doesn't have information_schema.columns, so we try a query that would fail
+        // Check for legacy embeddings schema by inspecting column names directly.
+        //
+        // Previous logic checked for rows via:
+        // `SELECT 1 FROM embeddings WHERE model_name IS NOT NULL LIMIT 1`
+        // which fails to detect legacy schemas when the table exists but is empty.
         let has_old_schema = conn
             .query_row(
-                "SELECT 1 FROM embeddings WHERE model_name IS NOT NULL LIMIT 1",
+                "SELECT COUNT(*) > 0
+                 FROM pragma_table_info('embeddings')
+                 WHERE name IN ('model_name', 'code_embedding')",
                 [],
-                |_| Ok(true),
+                |row| row.get::<_, bool>(0),
             )
-            .is_ok();
+            .unwrap_or(false);
 
         if has_old_schema {
             anyhow::bail!(
@@ -176,16 +181,6 @@ impl MUbase {
             )
             .unwrap_or_else(|_| "1.0.0".to_string());
         Ok(version)
-    }
-
-    /// Update the schema version in the database.
-    fn set_schema_version(&self, version: &str) -> Result<()> {
-        let conn = self.acquire_conn()?;
-        conn.execute(
-            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('schema_version', ?)",
-            params![version],
-        )?;
-        Ok(())
     }
 
     /// Run any pending schema migrations.
@@ -1330,6 +1325,7 @@ pub struct GraphStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use duckdb::Connection;
     use tempfile::tempdir;
 
     fn create_test_db() -> MUbase {
@@ -1359,6 +1355,40 @@ mod tests {
         let stats = db.stats().unwrap();
         assert_eq!(stats.node_count, 0);
         assert_eq!(stats.edge_count, 0);
+    }
+
+    #[test]
+    fn test_open_fails_for_legacy_embeddings_schema_even_when_empty() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("legacy.mubase");
+
+        // Create a legacy embeddings table with v1 column names but no rows.
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE embeddings (
+                node_id VARCHAR PRIMARY KEY,
+                code_embedding VARCHAR,
+                model_name VARCHAR,
+                model_version VARCHAR,
+                created_at TIMESTAMP
+            );
+            "#,
+        )
+        .unwrap();
+        drop(conn);
+
+        match MUbase::open(&db_path) {
+            Ok(_) => panic!("legacy schema should be rejected"),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("incompatible") || msg.contains("MU v1"),
+                    "unexpected error message: {}",
+                    msg
+                );
+            }
+        }
     }
 
     #[test]

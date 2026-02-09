@@ -62,6 +62,11 @@ pub const MAX_SEQUENCE_LENGTH: usize = 512;
 /// Model name for mu-sigma-v2.
 pub const MODEL_NAME: &str = "mu-sigma-v2";
 
+/// Get the version of mu-embeddings.
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

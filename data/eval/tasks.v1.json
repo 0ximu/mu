@@ -1,0 +1,1470 @@
+{
+  "schema_version": "tasks.v1",
+  "description": "MU eval dataset: 72 tasks across 9 repos (8 sigma + local mu)",
+  "categories": [
+    "exact_lookup",
+    "flow_understanding",
+    "impact_analysis",
+    "task_planning",
+    "git_archaeology",
+    "quality_security_scan_relevance"
+  ],
+  "task_count": 72,
+  "repos": [
+    "TanStack/query",
+    "fastapi/fastapi",
+    "mu",
+    "openai/whisper",
+    "pallets/flask",
+    "psf/requests",
+    "pydantic/pydantic",
+    "reduxjs/redux",
+    "vuejs/vue"
+  ],
+  "tasks": [
+    {
+      "id": "sigma-TanStack__query-01",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How are the dependencies between the various query-related classes managed?",
+      "expected_nodes": [
+        "CreateBaseQueryOptions",
+        "CreateQueryOptions",
+        "CreateInfiniteQueryOptions",
+        "CreateMutationOptions",
+        "DefaultOptions"
+      ],
+      "notes": "The answer correctly describes how the dependencies between query-related classes are managed through configuration options and base abstractions. The referenced nodes, including CreateBaseQueryOptions, CreateQueryOption",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-02",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the CancelOptions interface work in the context of cancelling operations?",
+      "expected_nodes": [
+        "CancelOptions",
+        "CancelledError"
+      ],
+      "notes": "The answer correctly describes the CancelOptions interface and its usage in conjunction with CancelledError to handle operation cancellation scenarios in TanStack Query. All the referenced nodes exist in the available no",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-03",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How does the DevtoolsComponent integrate with the overall application?",
+      "expected_nodes": [
+        "DevtoolsComponent",
+        "DevtoolsOptions",
+        "DevtoolsPanelComponent",
+        "App"
+      ],
+      "notes": "The answer correctly describes how the DevtoolsComponent integrates with the overall application through DevtoolsOptions configuration and the DevtoolsPanelComponent. All the referenced nodes are present in the available",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-04",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the TanStack/query library handle error cases and propagate errors?",
+      "expected_nodes": [
+        "CancelledError",
+        "CancelOptions",
+        "DevtoolsErrorType"
+      ],
+      "notes": "The answer correctly describes how the TanStack/query library handles error cases by using specialized error types and options objects for configuring error handling behavior. The referenced nodes exist in the available ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-05",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How is the AsyncStorage module structured to support different persistence mechanisms?",
+      "expected_nodes": [
+        "AsyncStorage",
+        "CreateAsyncStoragePersisterOptions",
+        "CreateSyncStoragePersisterOptions"
+      ],
+      "notes": "The answer accurately describes the structure of the AsyncStorage module, which provides separate creation options for asynchronous and synchronous storage persistence mechanisms. All the referenced nodes are present in ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-06",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "What is the function of the ContentViewProps interface?",
+      "expected_nodes": [
+        "ContentViewProps"
+      ],
+      "notes": "The answer correctly describes the function of the ContentViewProps interface, which is likely used to type the properties passed to components that display query-related content or UI elements in the TanStack Query code",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-07",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What is the purpose of the BroadcastQueryClientOptions interface?",
+      "expected_nodes": [
+        "BroadcastQueryClientOptions"
+      ],
+      "notes": "The answer correctly describes the purpose of the BroadcastQueryClientOptions interface, and the referenced node exists in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-TanStack__query-08",
+      "repo": "TanStack/query",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What is the purpose of the CommonOptions interface?",
+      "expected_nodes": [
+        "CommonOptions",
+        "CreateQueryOptions",
+        "CreateInfiniteQueryOptions",
+        "CreateMutationOptions"
+      ],
+      "notes": "The answer correctly describes the purpose of the CommonOptions interface as a base interface for shared configuration options used across different query and mutation creation functions in TanStack Query.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-01",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "Can you describe the high-level organization of the various modules in the Whisper codebase?",
+      "expected_nodes": [
+        "Whisper",
+        "AudioEncoder",
+        "TextDecoder",
+        "GreedyDecoder",
+        "BeamSearchDecoder",
+        "BasicTextNormalizer",
+        "EnglishTextNormalizer",
+        "Tokenizer"
+      ],
+      "notes": "The answer accurately describes the high-level organization of the Whisper codebase, including the key modules and their responsibilities. All the referenced nodes are present in the list of available nodes, and they are",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-02",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "Can you describe the purpose of the EnglishNumberNormalizer and EnglishSpellingNormalizer classes?",
+      "expected_nodes": [
+        "EnglishNumberNormalizer",
+        "EnglishSpellingNormalizer"
+      ],
+      "notes": "The answer correctly describes the purpose of the EnglishNumberNormalizer and EnglishSpellingNormalizer classes, and both referenced nodes exist in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-03",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "Can you explain the role of the SequenceRanker in the Whisper transcription process?",
+      "expected_nodes": [
+        "SequenceRanker",
+        "BeamSearchDecoder",
+        "DecodingTask"
+      ],
+      "notes": "The answer accurately describes the role of the SequenceRanker in the Whisper transcription process, and all the referenced nodes are present in the available nodes list and are relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-04",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the Tokenizer class interact with other components in the Whisper system?",
+      "expected_nodes": [
+        "Tokenizer",
+        "DecodingTask",
+        "DecodingOptions",
+        "TextDecoder",
+        "all_language_tokens",
+        "all_language_codes",
+        "decode"
+      ],
+      "notes": "The answer accurately describes how the Tokenizer class interacts with other components in the Whisper system, including DecodingTask, DecodingOptions, TextDecoder, and the relevant token-related functionalities. All the",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-05",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Whisper model handle audio feature extraction?",
+      "expected_nodes": [
+        "AudioEncoder",
+        "_get_audio_features"
+      ],
+      "notes": "The answer correctly describes how the Whisper model handles audio feature extraction, referencing the relevant nodes AudioEncoder and _get_audio_features.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-06",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the Whisper model handle the suppression of blank tokens and specific tokens during decoding?",
+      "expected_nodes": [
+        "SuppressBlank",
+        "SuppressTokens",
+        "LogitFilter"
+      ],
+      "notes": "The answer correctly describes how the Whisper model handles token suppression during decoding using the SuppressBlank and SuppressTokens LogitFilter classes. All referenced nodes are present in the available nodes list ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-07",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How does the Whisper model leverage the MultiHeadAttention mechanism for transcription?",
+      "expected_nodes": [
+        "MultiHeadAttention",
+        "ResidualAttentionBlock",
+        "AudioEncoder",
+        "TextDecoder",
+        "Whisper"
+      ],
+      "notes": "The answer correctly describes how the Whisper model leverages the MultiHeadAttention mechanism within its ResidualAttentionBlock structures in the AudioEncoder and TextDecoder components. All the referenced nodes exist ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-openai__whisper-08",
+      "repo": "openai/whisper",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the Whisper model perform language detection on the input audio?",
+      "expected_nodes": [
+        "_detect_language",
+        "AudioEncoder",
+        "TextDecoder"
+      ],
+      "notes": "The answer correctly describes how the Whisper model performs language detection on the input audio, referencing the relevant nodes _detect_language, AudioEncoder, and TextDecoder.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-01",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Flask application handle different environments (e.g., development, production)?",
+      "expected_nodes": [
+        "Flask",
+        "Config",
+        "Environment"
+      ],
+      "notes": "The answer correctly explains how Flask handles different environments using the Config class and Environment entity, and the referenced nodes are relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-02",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the Flask application handle error handling and exceptions?",
+      "expected_nodes": [
+        "Flask",
+        "AppError",
+        "BlueprintError"
+      ],
+      "notes": "The answer correctly describes how Flask handles error handling and exceptions, referencing the relevant classes and mechanisms provided by the framework.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-03",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How does the Flask application handle request processing?",
+      "expected_nodes": [
+        "Flask",
+        "Request",
+        "Response",
+        "AppContext"
+      ],
+      "notes": "The answer accurately describes how Flask handles request processing, and all the referenced nodes exist in the available nodes list and are relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-04",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the Flask application interact with the Jinja2 templating engine?",
+      "expected_nodes": [
+        "Flask",
+        "DispatchingJinjaLoader",
+        "Environment"
+      ],
+      "notes": "The answer correctly explains how Flask integrates with the Jinja2 templating engine through the DispatchingJinjaLoader and Environment classes. All referenced nodes are present in the available nodes list and are releva",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-05",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Flask application manage the application lifecycle?",
+      "expected_nodes": [
+        "Flask",
+        "App",
+        "AppContext",
+        "__enter__",
+        "__exit__"
+      ],
+      "notes": "The answer correctly describes how Flask manages the application lifecycle using the Flask class, AppContext, and context manager methods like __enter__ and __exit__. All the referenced nodes are present in the available",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-06",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "In which module is the configuration management functionality of Flask implemented?",
+      "expected_nodes": [
+        "Config",
+        "ConfigAttribute"
+      ],
+      "notes": "The answer correctly states that the configuration management functionality of Flask is implemented through the Config and ConfigAttribute classes, which are both present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-07",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What architectural pattern does the Flask application use?",
+      "expected_nodes": [
+        "Flask",
+        "Blueprint",
+        "Scaffold"
+      ],
+      "notes": "The answer correctly describes the architectural pattern used in the Flask application, which is a modular web application architecture based on the WSGI specification. The referenced nodes (Flask, Blueprint, and Scaffol",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pallets__flask-08",
+      "repo": "pallets/flask",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What are the key dependencies between the different Flask modules?",
+      "expected_nodes": [
+        "Flask",
+        "Blueprint",
+        "Request",
+        "Response",
+        "SessionInterface",
+        "SecureCookieSessionInterface",
+        "cli",
+        "config"
+      ],
+      "notes": "The answer correctly describes the key dependencies between different Flask modules, including the Flask app class, Blueprint for modular organization, Request/Response for HTTP handling, SessionInterface/SecureCookieSes",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-01",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Requests library handle HTTP proxies?",
+      "expected_nodes": [
+        "HTTPProxyAuth",
+        "HTTPAdapter",
+        "ProxyError",
+        "InvalidProxyURL"
+      ],
+      "notes": "The answer correctly describes how the Requests library handles HTTP proxies, and all the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-02",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How is the request processing pipeline structured?",
+      "expected_nodes": [
+        "Session",
+        "PreparedRequest",
+        "Request",
+        "BaseAdapter",
+        "HTTPAdapter",
+        "Response"
+      ],
+      "notes": "The answer accurately describes the structure of the request processing pipeline in the requests library, and all the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-03",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "In which module is the FlaskyStyle class defined?",
+      "expected_nodes": [
+        "FlaskyStyle",
+        "flask_theme_support"
+      ],
+      "notes": "The answer correctly states that the FlaskyStyle class is defined in the flask_theme_support module, and both referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-04",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What are the dependencies of the PreparedRequest class?",
+      "expected_nodes": [
+        "PreparedRequest",
+        "models",
+        "CaseInsensitiveDict",
+        "RequestEncodingMixin"
+      ],
+      "notes": "The answer correctly identifies the dependencies of the PreparedRequest class, which are located in the models module and include CaseInsensitiveDict and RequestEncodingMixin.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-05",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "What file contains the implementation of the HTTPDigestAuth class?",
+      "expected_nodes": [
+        "HTTPDigestAuth",
+        "auth"
+      ],
+      "notes": "The answer correctly states that the HTTPDigestAuth class is implemented in the auth module, and the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-06",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "What is the design pattern used for the Requests library's adapter system?",
+      "expected_nodes": [
+        "BaseAdapter",
+        "HTTPAdapter",
+        "Session"
+      ],
+      "notes": "The answer correctly describes the Adapter pattern used in the Requests library's adapter system. The referenced nodes (BaseAdapter, HTTPAdapter, Session) are all relevant to this design pattern.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-07",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What is the overall architecture of the Requests library?",
+      "expected_nodes": [
+        "Session",
+        "HTTPAdapter",
+        "BaseAdapter",
+        "Request",
+        "PreparedRequest",
+        "Response",
+        "SessionRedirectMixin",
+        "RequestHooksMixin"
+      ],
+      "notes": "The answer accurately describes the overall architecture of the Requests library, including the key components like Session, Adapters, Request/Response objects, and authentication handlers. All the referenced nodes are r",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-psf__requests-08",
+      "repo": "psf/requests",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What is the purpose of the ChunkedEncodingError exception?",
+      "expected_nodes": [
+        "ChunkedEncodingError",
+        "RequestException",
+        "exceptions"
+      ],
+      "notes": "The answer correctly describes the purpose of the ChunkedEncodingError exception, and all the referenced nodes exist in the available nodes list and are relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-01",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How are the various API routes and handlers organized in the FastAPI codebase?",
+      "expected_nodes": [
+        "APIRoute",
+        "APIRouter",
+        "APIWebSocketRoute"
+      ],
+      "notes": "The answer correctly describes how API routes and handlers are organized in FastAPI, using the referenced nodes of APIRoute, APIRouter, and APIWebSocketRoute.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-02",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How are the various APIKey subclasses used to authenticate API requests?",
+      "expected_nodes": [
+        "APIKey",
+        "APIKeyBase",
+        "APIKeyCookie",
+        "APIKeyHeader",
+        "APIKeyQuery",
+        "APIKeyIn",
+        "Security"
+      ],
+      "notes": "The answer correctly describes the purpose and usage of the various APIKey subclasses for API authentication, and all the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-03",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How does the FastAPI framework handle asynchronous operations?",
+      "expected_nodes": [
+        "AsyncCallableDependency",
+        "AsyncCallableGenDependency",
+        "AsyncExitStackMiddleware",
+        "AsyncDependencyError"
+      ],
+      "notes": "The answer accurately describes how FastAPI handles asynchronous operations using the referenced nodes, which are all relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-04",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the FastAPI framework handle security and authentication?",
+      "expected_nodes": [
+        "Security",
+        "APIKey",
+        "APIKeyBase",
+        "APIKeyHeader",
+        "APIKeyCookie",
+        "APIKeyQuery",
+        "APIKeyIn"
+      ],
+      "notes": "The answer correctly describes how FastAPI handles security and authentication through its Security dependency system and various APIKey authentication schemes. All the referenced nodes are relevant and exist in the avai",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-05",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the FastAPI framework manage dependency injection?",
+      "expected_nodes": [
+        "Depends",
+        "CallableDependency",
+        "AsyncCallableDependency",
+        "CallableGenDependency",
+        "AsyncCallableGenDependency"
+      ],
+      "notes": "The answer correctly describes how FastAPI manages dependency injection using the Depends class and various dependency callable types. The referenced nodes are all relevant to this explanation.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-06",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How is the FastAPI codebase structured to support modular and extensible development?",
+      "expected_nodes": [
+        "APIRouter",
+        "APIRoute",
+        "Depends",
+        "Security"
+      ],
+      "notes": "The answer accurately describes how FastAPI supports modular and extensible development through the use of APIRouter, APIRoute, Depends, and Security. All the referenced nodes exist in the available nodes list and are re",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-07",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What design pattern is used in the implementation of the APIRouter class?",
+      "expected_nodes": [
+        "APIRouter",
+        "APIRoute",
+        "APIRouteA",
+        "APIRouteB",
+        "APIRouteC",
+        "APIWebSocketRoute"
+      ],
+      "notes": "The answer correctly identifies that the APIRouter class implements the Router pattern, which is evident from the related entities listed in the answer.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-fastapi__fastapi-08",
+      "repo": "fastapi/fastapi",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What is the purpose of the AddCommentData class?",
+      "expected_nodes": [
+        "AddCommentData"
+      ],
+      "notes": "The answer correctly describes the purpose of the AddCommentData class as a data model used for handling comment addition operations in the FastAPI application.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-01",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Vue.js codebase handle reactive data changes?",
+      "expected_nodes": [
+        "Dep",
+        "DepTarget",
+        "addDep",
+        "addSub",
+        "_update",
+        "_flush"
+      ],
+      "notes": "The answer accurately describes how Vue.js handles reactive data changes using a dependency tracking system with the Dep and DepTarget classes, and the referenced nodes are all relevant to this functionality.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-02",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "What are the dependencies of the CSSProperties class?",
+      "expected_nodes": [
+        "CSSProperties"
+      ],
+      "notes": "The answer correctly identifies CSSProperties as a standalone type definition with no visible dependencies on other entities from the codebase. The referenced node CSSProperties is present in the available nodes list, an",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-03",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What is the purpose of the ASTElementHandler class?",
+      "expected_nodes": [
+        "ASTElementHandler",
+        "ASTElementHandlers"
+      ],
+      "notes": "The answer accurately describes the purpose of the ASTElementHandler class and the relevant nodes are present in the available list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-04",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What is the purpose of the ASTIfCondition class?",
+      "expected_nodes": [
+        "ASTIfCondition",
+        "ASTElement",
+        "ASTExpression"
+      ],
+      "notes": "The answer accurately describes the purpose of the ASTIfCondition class in Vue's template compilation process, and all the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-05",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "What is the purpose of the FunctionalRenderContext class?",
+      "expected_nodes": [
+        "FunctionalRenderContext"
+      ],
+      "notes": "The answer correctly explains the purpose of the FunctionalRenderContext class, which provides the context object passed to functional components in Vue.js. All the referenced nodes are valid and relevant to the question",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-06",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "Where can I find the implementation of the $mount function?",
+      "expected_nodes": [
+        "$mount"
+      ],
+      "notes": "The answer correctly states that the $mount function implementation can be found in the $mount entity, which is one of the Vue instance lifecycle methods responsible for mounting a Vue component to a DOM element. All ref",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-07",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "Where is the ASTDirective class implemented?",
+      "expected_nodes": [
+        "ASTDirective"
+      ],
+      "notes": "The ASTDirective class is listed as an available entity in the provided list of nodes, indicating that it is part of the Vue.js codebase and is relevant to the question about where the ASTDirective class is implemented.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-vuejs__vue-08",
+      "repo": "vuejs/vue",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "Where is the implementation of the _enter function?",
+      "expected_nodes": [
+        "_enter"
+      ],
+      "notes": "The answer correctly identifies that the '_enter' function is likely related to transition enter animations or component lifecycle management, and this node is present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-01",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the Redux application handle asynchronous actions?",
+      "expected_nodes": [
+        "Thunk",
+        "ThunkDispatch",
+        "addTodoAsync",
+        "Middleware",
+        "MiddlewareAPI"
+      ],
+      "notes": "The answer correctly explains how Redux handles asynchronous actions using middleware like Thunk, which allows action creators to return functions. The referenced nodes are all relevant to the question and exist in the a",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-02",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the Redux store dispatch actions to update the application state?",
+      "expected_nodes": [
+        "Store",
+        "Dispatch",
+        "AddTodoAction",
+        "AnyAction"
+      ],
+      "notes": "The answer correctly describes how the Redux store uses the Dispatch function to send actions that update the application state. All the referenced nodes are present in the available nodes list and are relevant to the qu",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-03",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How does the TodoItem component handle user interactions?",
+      "expected_nodes": [
+        "TodoItem",
+        "Todo",
+        "Store"
+      ],
+      "notes": "The answer correctly describes how the TodoItem component handles user interactions, such as editing, completing, and deleting todo items, by managing these interactions and dispatching actions to update the todo state t",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-04",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "How does the TodoItem component interact with other parts of the application?",
+      "expected_nodes": [
+        "TodoItem",
+        "TodoList",
+        "addTodo",
+        "Store",
+        "Todo"
+      ],
+      "notes": "The answer accurately describes how the TodoItem component interacts with other parts of the application, specifically by receiving todo data as props from its parent TodoList component and potentially dispatching action",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-05",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the TodoItem component manage the state of a todo item?",
+      "expected_nodes": [
+        "TodoItem",
+        "Todo",
+        "Dispatch"
+      ],
+      "notes": "The answer correctly describes how the TodoItem component manages the state of a todo item by receiving Todo data as props and dispatching actions through callbacks. The referenced nodes TodoItem, Todo, and Dispatch are ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-06",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the TodoTextInput component interact with the Todo state?",
+      "expected_nodes": [
+        "TodoTextInput",
+        "Todo",
+        "addTodo"
+      ],
+      "notes": "The answer correctly describes how the TodoTextInput component interacts with the Todo state by dispatching actions like addTodo to create new Todo items. The referenced nodes are all relevant to this functionality.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-07",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "In which module is the Middleware interface defined?",
+      "expected_nodes": [
+        "Middleware"
+      ],
+      "notes": "The answer correctly states that the Middleware interface is defined in the Redux core module, and the referenced node 'Middleware' is present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-reduxjs__redux-08",
+      "repo": "reduxjs/redux",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What are the dependencies of the Counter component?",
+      "expected_nodes": [
+        "Counter",
+        "CounterState",
+        "Dispatch"
+      ],
+      "notes": "The answer correctly identifies the dependencies of the Counter component as the CounterState type for state management and Dispatch for handling actions. All referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-01",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does the pydantic library handle field validation?",
+      "expected_nodes": [
+        "AfterFieldValidator",
+        "AfterModelValidator",
+        "AfterValidator",
+        "Field",
+        "_fields",
+        "_decorators"
+      ],
+      "notes": "The answer correctly describes how the pydantic library handles field validation through a system of validators and Field definitions. All the referenced nodes exist in the available nodes list and are relevant to the qu",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-02",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "How does the pydantic library handle forward references in the code?",
+      "expected_nodes": [
+        "_forward_ref",
+        "_generate_schema"
+      ],
+      "notes": "The answer accurately describes how the Pydantic library handles forward references in the code, and the referenced nodes '_forward_ref' and '_generate_schema' are present in the available nodes list and are relevant to ",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-03",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "How is the PrivateAttr function structured?",
+      "expected_nodes": [
+        "PrivateAttr",
+        "__init__"
+      ],
+      "notes": "The answer accurately describes the structure of the PrivateAttr function, indicating that it is a callable entity that defines private attributes in Pydantic models, with an __init__ method for initialization, suggestin",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-04",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What design pattern is used in the implementation of the AliasGenerator class?",
+      "expected_nodes": [
+        "AliasGenerator",
+        "AliasGeneratorModel",
+        "AliasGeneratorModel2"
+      ],
+      "notes": "The answer correctly identifies the use of the Strategy pattern in the implementation of the AliasGenerator class, with different AliasGeneratorModel variants providing different alias generation strategies. All the refe",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-05",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "What is the overall structure of the pydantic module hierarchy?",
+      "expected_nodes": [
+        "_config",
+        "Field",
+        "PrivateAttr",
+        "NoInitField",
+        "_decorators",
+        "AfterValidator",
+        "AfterFieldValidator",
+        "AfterModelValidator"
+      ],
+      "notes": "The answer accurately describes the overall structure of the pydantic module hierarchy, and all the referenced nodes are present in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-06",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "flow_understanding",
+      "tool": "muql",
+      "query": "What is the purpose of the _generics module in the pydantic library?",
+      "expected_nodes": [
+        "_generics"
+      ],
+      "notes": "The answer provided is correct. The _generics module in pydantic handles generic type support and type parameterization for Pydantic models and fields, which is relevant to the question.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-07",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "impact_analysis",
+      "tool": "muql",
+      "query": "What is the purpose of the AfterModelValidator class?",
+      "expected_nodes": [
+        "AfterModelValidator"
+      ],
+      "notes": "The answer accurately describes the purpose of the AfterModelValidator class, and the referenced node exists in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "sigma-pydantic__pydantic-08",
+      "repo": "pydantic/pydantic",
+      "repo_source": "sigma_mubase",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "What is the role of the _discriminated_union module in the pydantic library?",
+      "expected_nodes": [
+        "_discriminated_union"
+      ],
+      "notes": "The answer correctly explains the role of the _discriminated_union module in the pydantic library, and the referenced node '_discriminated_union' exists in the available nodes list.",
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1,
+        "depth": 2
+      }
+    },
+    {
+      "id": "mu-local-01",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "exact_lookup",
+      "tool": "search",
+      "query": "MuConfig",
+      "expected_nodes": [
+        "MuConfig"
+      ],
+      "timeout_s": 20,
+      "params": {
+        "limit": 10,
+        "threshold": 0.1
+      }
+    },
+    {
+      "id": "mu-local-02",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "flow_understanding",
+      "tool": "grok",
+      "query": "How is MU configuration loaded and merged",
+      "expected_nodes": [
+        "MuConfig",
+        "load",
+        "load_strict"
+      ],
+      "timeout_s": 20,
+      "params": {
+        "depth": 2
+      }
+    },
+    {
+      "id": "mu-local-03",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "impact_analysis",
+      "tool": "impact",
+      "symbol": "MuConfig",
+      "expected_nodes": [
+        "load",
+        "load_strict",
+        "ignore_patterns"
+      ],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-local-04",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "task_planning",
+      "tool": "grok",
+      "query": "What code paths should be changed to add a new MCP tool parameter",
+      "expected_nodes": [
+        "MuMcpServer",
+        "GrokParams",
+        "MuConfig"
+      ],
+      "timeout_s": 20,
+      "params": {
+        "depth": 2
+      }
+    },
+    {
+      "id": "mu-local-05",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "git_archaeology",
+      "tool": "wtf",
+      "target": "mu-cli/src/config.rs",
+      "expected_fields": [
+        "origin_commit",
+        "contributors",
+        "evolution_summary"
+      ],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-local-06",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "git_archaeology",
+      "tool": "wtf",
+      "target": "mu-cli/src/commands/mcp/server.rs",
+      "expected_fields": [
+        "origin_commit",
+        "contributors",
+        "evolution_summary"
+      ],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-local-07",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "quality_security_scan_relevance",
+      "tool": "sus",
+      "path": ".",
+      "threshold": 1,
+      "expected_fields": [
+        "results",
+        "suspicious_count"
+      ],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-local-08",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "quality_security_scan_relevance",
+      "tool": "sus",
+      "path": ".",
+      "threshold": 2,
+      "expected_fields": [
+        "results",
+        "suspicious_count"
+      ],
+      "timeout_s": 20,
+      "params": {}
+    }
+  ]
+}

@@ -4,58 +4,46 @@ High-performance Rust core for MU (Machine Understanding).
 
 ## Overview
 
-`mu-core` provides native Rust implementations of CPU-bound operations for MU:
+`mu-core` is the parsing and analysis engine used by the MU CLI and storage layer.
 
-- **Multi-language parsing** using tree-sitter (Python, TypeScript, JavaScript, Go, Java, Rust, C#)
-- **Parallel file processing** with rayon
-- **Cyclomatic complexity calculation**
-- **Secret detection and redaction**
-- **MU/JSON/Markdown export**
+It provides:
 
-## Performance
+- Multi-language parsing via tree-sitter (Python, TypeScript/JavaScript, Go, Java, Rust, C#)
+- Common AST/types for downstream graph construction
+- Cyclomatic complexity calculation
+- Secret detection and redaction
+- Exporters for MU/JSON/Markdown
+- Parallel parsing for large codebases
 
-- 4x faster than Python implementation
-- 70% memory reduction
-- Parallel parsing with GIL release
+## Build
 
-## Installation
-
-```bash
-pip install mu-core
-```
-
-Or build from source:
+From the repository root:
 
 ```bash
-maturin develop --release
+cargo build --package mu-core
 ```
 
-## Usage
-
-```python
-from mu._core import parse_file, parse_files, FileInfo
-
-# Parse single file
-result = parse_file(source, "main.py", "python")
-if result.module:
-    print(result.module.name)
-
-# Parse multiple files in parallel
-files = [
-    FileInfo(path="a.py", source="...", language="python"),
-    FileInfo(path="b.ts", source="...", language="typescript"),
-]
-results = parse_files(files)
-```
-
-## Feature Flag
-
-Set `MU_USE_RUST=0` to fall back to Python implementation:
+Run tests:
 
 ```bash
-MU_USE_RUST=0 mu compress .
+cargo test --package mu-core
+```
+
+## API Example
+
+```rust
+use mu_core::{parse_file, FileInfo};
+
+let result = parse_file("fn main() {}", "src/main.rs", "rust");
+assert!(result.success);
+
+let _info = FileInfo {
+    path: "src/lib.rs".to_string(),
+    source: "pub fn add(a: i32, b: i32) -> i32 { a + b }".to_string(),
+    language: "rust".to_string(),
+};
 ```
 
 ## License
 
-MIT
+Apache License 2.0

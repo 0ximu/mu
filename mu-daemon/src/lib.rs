@@ -6,3 +6,8 @@
 
 pub mod embeddings;
 pub mod storage;
+
+/// Get the version of mu-daemon.
+pub fn version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}

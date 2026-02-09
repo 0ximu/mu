@@ -1,0 +1,83 @@
+name: Eval Regression (Non-Blocking)
+
+on:
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eval-regression:
+    name: Eval Regression
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build MU CLI
+        run: cargo build -p mu-cli
+
+      - name: Bootstrap (no embeddings)
+        run: target/debug/mu bootstrap . --force --no-embed --no-hnsw --strict --format json
+
+      - name: Run MCP trust suite
+        run: |
+          python3 tools/eval/run_trust_suite.py --mu-bin target/debug/mu --name trust_suite_ci || true
+
+      - name: Run CI eval slice
+        run: |
+          python3 tools/eval/run_mu.py \
+            --tasks data/eval/tasks.ci.v1.json \
+            --mu-bin target/debug/mu \
+            --runs 1 \
+            --retries 0 \
+            --timeout-s 25 \
+            --name ci_eval || true
+
+      - name: Emit regression warnings
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          from pathlib import Path
+
+          summary_paths = sorted(glob.glob('data/eval/results/*/ci_eval.json'))
+          if not summary_paths:
+              print('::warning::ci_eval summary not found')
+          else:
+              summary = json.loads(Path(summary_paths[-1]).read_text())
+              m = summary.get('metrics', {})
+              if (m.get('artifact_noise_ratio') or 0.0) > 0.05:
+                  print(f"::warning::artifact_noise_ratio regression: {m.get('artifact_noise_ratio')}")
+              if (m.get('recall_at_5') or 0.0) < 0.60:
+                  print(f"::warning::recall_at_5 regression: {m.get('recall_at_5')}")
+              if (m.get('p95_latency_ms') or 0.0) > 300:
+                  print(f"::warning::p95_latency_ms regression: {m.get('p95_latency_ms')}")
+
+          trust_paths = sorted(glob.glob('data/eval/results/*/trust_suite_ci.json'))
+          if not trust_paths:
+              print('::warning::trust_suite_ci result not found')
+          else:
+              trust = json.loads(Path(trust_paths[-1]).read_text())
+              failed = [r['id'] for r in trust.get('results', []) if not r.get('passed')]
+              if failed:
+                  print(f"::warning::trust suite failures: {', '.join(failed)}")
+          PY
+
+      - name: Upload eval artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-regression-${{ github.sha }}
+          path: data/eval/results/
+          retention-days: 14

@@ -10,16 +10,18 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, IsTerminal};
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Instant;
 
 use colored::Colorize;
 use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 
 use crate::cache::{CacheStats, ParseCache};
-use crate::config::MuConfig;
+use crate::config::{DocsConfig, MuConfig};
 use crate::output::{Output, OutputFormat, TableDisplay};
 use crate::tsconfig::PathAliasResolver;
 
@@ -182,6 +184,11 @@ max_file_size_kb = 1000
 
 [parser]
 # languages = ["python", "typescript", "rust"]  # Uncomment to limit parsing
+
+[docs]
+enabled = true
+dirs = ["docs", "adr", "architecture"]
+include_root_readme = true
 
 [output]
 format = "table"
@@ -364,6 +371,7 @@ async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow
                             mu_daemon::storage::NodeType::Class => "class",
                             mu_daemon::storage::NodeType::Function => "function",
                             mu_daemon::storage::NodeType::External => "external",
+                            mu_daemon::storage::NodeType::Doc => "doc",
                         };
                         format!(
                             "{} {} {}",
@@ -462,9 +470,16 @@ async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow
 /// Result of scanning and parsing the codebase.
 struct ParsedCodebase {
     parse_results: Vec<mu_core::types::ParseResult>,
+    doc_files: Vec<DocFile>,
     files_scanned: usize,
     files_parsed: usize,
     files_cached: usize,
+}
+
+#[derive(Debug, Clone)]
+struct DocFile {
+    path: String,
+    content: String,
 }
 
 /// Scan the codebase and parse all source files, using cache when available.
@@ -501,6 +516,7 @@ fn scan_and_parse(
     if files_scanned == 0 {
         return Ok(ParsedCodebase {
             parse_results: Vec::new(),
+            doc_files: Vec::new(),
             files_scanned: 0,
             files_parsed: 0,
             files_cached: 0,
@@ -528,6 +544,7 @@ fn scan_and_parse(
     spinner.set_message("Checking cache...");
     let mut cached_modules: Vec<mu_core::types::ParseResult> = Vec::new();
     let mut files_to_parse: Vec<(mu_core::scanner::ScannedFile, String)> = Vec::new();
+    let mut doc_files: Vec<DocFile> = Vec::new();
 
     for scanned_file in &scan_result.files {
         let full_path = root.join(&scanned_file.path);
@@ -535,6 +552,16 @@ fn scan_and_parse(
             Ok(c) => c,
             Err(_) => continue,
         };
+
+        if scanned_file.language == "markdown" {
+            if config.docs.enabled && should_index_doc_path(&scanned_file.path, &config.docs) {
+                doc_files.push(DocFile {
+                    path: scanned_file.path.clone(),
+                    content,
+                });
+            }
+            continue;
+        }
 
         if cache_enabled {
             if let Some(hash) = &scanned_file.hash {
@@ -592,6 +619,7 @@ fn scan_and_parse(
 
     Ok(ParsedCodebase {
         parse_results,
+        doc_files,
         files_scanned,
         files_parsed: cache_stats.misses,
         files_cached: cache_stats.hits,
@@ -902,6 +930,223 @@ fn resolve_all_call_sites(
     (total, resolved)
 }
 
+fn should_index_doc_path(path: &str, docs_config: &DocsConfig) -> bool {
+    let normalized = path.replace('\\', "/");
+    let lower = normalized.to_lowercase();
+
+    if !lower.ends_with(".md") {
+        return false;
+    }
+
+    if docs_config.include_root_readme && lower == "readme.md" {
+        return true;
+    }
+
+    for dir in &docs_config.dirs {
+        let prefix = dir
+            .trim()
+            .trim_matches('/')
+            .trim_matches('\\')
+            .to_lowercase();
+        if prefix.is_empty() {
+            continue;
+        }
+        if lower == format!("{}.md", prefix) || lower.starts_with(&format!("{}/", prefix)) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn extract_doc_title(path: &str, content: &str) -> String {
+    for line in content.lines().take(60) {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("# ") {
+            let title = rest.trim();
+            if !title.is_empty() {
+                return title.to_string();
+            }
+        }
+    }
+
+    Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn is_common_doc_word(token: &str) -> bool {
+    matches!(
+        token,
+        "architecture"
+            | "design"
+            | "overview"
+            | "system"
+            | "module"
+            | "class"
+            | "function"
+            | "method"
+            | "component"
+            | "database"
+            | "request"
+            | "response"
+            | "implementation"
+            | "interface"
+            | "details"
+            | "flow"
+            | "docs"
+            | "readme"
+            | "adr"
+            | "guide"
+            | "example"
+    )
+}
+
+fn normalize_symbol_token(raw: &str) -> Option<String> {
+    let mut token = raw
+        .trim()
+        .trim_matches('`')
+        .trim_matches(|c: char| "()[]{}<>,.;:\"'".contains(c))
+        .to_string();
+
+    if token.ends_with("()") {
+        token.truncate(token.len().saturating_sub(2));
+    }
+
+    if let Some(last) = token.rsplit("::").next() {
+        token = last.to_string();
+    }
+    if let Some(last) = token.rsplit('.').next() {
+        token = last.to_string();
+    }
+    if let Some(last) = token.rsplit('/').next() {
+        token = last.to_string();
+    }
+
+    if token.len() < 3 {
+        return None;
+    }
+    if !token.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return None;
+    }
+
+    let lowered = token.to_lowercase();
+    if is_common_doc_word(&lowered) {
+        return None;
+    }
+    Some(lowered)
+}
+
+fn extract_doc_reference_tokens(content: &str) -> Vec<String> {
+    static BACKTICK_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"`([A-Za-z_][A-Za-z0-9_:\.\-]{1,120}\(?\)?)`").expect("valid regex")
+    });
+    static CAMEL_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\b[A-Z][A-Za-z0-9_]{2,}\b").expect("valid regex"));
+    static SNAKE_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\b[a-z][a-z0-9]*_[a-z0-9_]{2,}\b").expect("valid regex"));
+
+    let mut tokens = Vec::new();
+    let mut seen = HashSet::new();
+
+    for caps in BACKTICK_RE.captures_iter(content) {
+        if let Some(mat) = caps.get(1) {
+            let candidate = mat.as_str().to_string();
+            if seen.insert(candidate.clone()) {
+                tokens.push(candidate);
+            }
+        }
+    }
+
+    for mat in CAMEL_RE.find_iter(content) {
+        let candidate = mat.as_str().to_string();
+        if seen.insert(candidate.clone()) {
+            tokens.push(candidate);
+        }
+    }
+
+    for mat in SNAKE_RE.find_iter(content) {
+        let candidate = mat.as_str().to_string();
+        if seen.insert(candidate.clone()) {
+            tokens.push(candidate);
+        }
+    }
+
+    tokens
+}
+
+fn enrich_with_docs(
+    doc_files: &[DocFile],
+    nodes: &mut Vec<mu_daemon::storage::Node>,
+    edges: &mut Vec<mu_daemon::storage::Edge>,
+) {
+    if doc_files.is_empty() {
+        return;
+    }
+
+    const MAX_REFERENCES_PER_DOC: usize = 64;
+    const MAX_TARGETS_PER_SYMBOL: usize = 3;
+
+    let mut symbol_index: HashMap<String, Vec<String>> = HashMap::new();
+    for node in nodes.iter() {
+        if matches!(
+            node.node_type,
+            mu_daemon::storage::NodeType::External | mu_daemon::storage::NodeType::Doc
+        ) {
+            continue;
+        }
+        if let Some(key) = normalize_symbol_token(&node.name) {
+            symbol_index.entry(key).or_default().push(node.id.clone());
+        }
+    }
+
+    for doc in doc_files {
+        let title = extract_doc_title(&doc.path, &doc.content);
+        let line_end = doc.content.lines().count().max(1) as u32;
+
+        let mut doc_node = mu_daemon::storage::Node::doc(&doc.path, &title, line_end);
+        let mut props = serde_json::Map::new();
+        props.insert("kind".to_string(), json!("markdown"));
+        if let Some(snippet) = doc
+            .content
+            .lines()
+            .find(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        {
+            props.insert(
+                "excerpt".to_string(),
+                json!(snippet.trim().chars().take(240).collect::<String>()),
+            );
+        }
+        doc_node = doc_node.with_properties(serde_json::Value::Object(props));
+        let doc_id = doc_node.id.clone();
+        nodes.push(doc_node);
+
+        let mut referenced_targets: HashSet<String> = HashSet::new();
+        for token in extract_doc_reference_tokens(&doc.content)
+            .into_iter()
+            .take(MAX_REFERENCES_PER_DOC)
+        {
+            let Some(normalized) = normalize_symbol_token(&token) else {
+                continue;
+            };
+            let Some(target_ids) = symbol_index.get(&normalized) else {
+                continue;
+            };
+
+            for target_id in target_ids.iter().take(MAX_TARGETS_PER_SYMBOL) {
+                if !referenced_targets.insert(target_id.clone()) {
+                    continue;
+                }
+                let edge = mu_daemon::storage::Edge::references(&doc_id, target_id)
+                    .with_properties(json!({ "symbol": token }));
+                edges.push(edge);
+            }
+        }
+    }
+}
+
 // ============================================================================
 // Embeddings
 // ============================================================================
@@ -949,6 +1194,7 @@ fn generate_embeddings(
                     mu_daemon::storage::NodeType::Class => "class",
                     mu_daemon::storage::NodeType::Function => "function",
                     mu_daemon::storage::NodeType::External => "external",
+                    mu_daemon::storage::NodeType::Doc => "doc",
                 };
                 format!(
                     "{} {} {}",
@@ -1082,7 +1328,15 @@ pub async fn run(
     }
 
     // Step 2: Build graph
-    let (nodes, edges) = build_graph(&parsed.parse_results, &root, &spinner);
+    let (mut nodes, mut edges) = build_graph(&parsed.parse_results, &root, &spinner);
+
+    if config.docs.enabled && !parsed.doc_files.is_empty() {
+        spinner.set_message(format!(
+            "Indexing {} documentation files...",
+            parsed.doc_files.len()
+        ));
+        enrich_with_docs(&parsed.doc_files, &mut nodes, &mut edges);
+    }
 
     // Step 3: Write to database
     spinner.set_message("Writing database...");
@@ -1723,5 +1977,36 @@ mod tests {
     fn test_default_config_is_valid_toml() {
         let config = get_default_config();
         toml::from_str::<toml::Value>(config).expect("Default config should be valid TOML");
+    }
+
+    #[test]
+    fn test_should_index_doc_path_respects_config() {
+        let cfg = DocsConfig {
+            enabled: true,
+            dirs: vec!["docs".to_string(), "adr".to_string()],
+            include_root_readme: true,
+        };
+
+        assert!(should_index_doc_path("README.md", &cfg));
+        assert!(should_index_doc_path("docs/architecture/auth.md", &cfg));
+        assert!(should_index_doc_path("adr/0001-payment.md", &cfg));
+        assert!(!should_index_doc_path("notes/design.md", &cfg));
+        assert!(!should_index_doc_path("docs/architecture/auth.txt", &cfg));
+    }
+
+    #[test]
+    fn test_extract_doc_reference_tokens() {
+        let content = r#"
+# Payment Flow
+
+`PaymentService` receives request and calls `create_payment_intent()`.
+Then PaymentGateway dispatches to `StripeClient`.
+"#;
+
+        let tokens = extract_doc_reference_tokens(content);
+        assert!(tokens.iter().any(|t| t == "PaymentService"));
+        assert!(tokens.iter().any(|t| t == "create_payment_intent()"));
+        assert!(tokens.iter().any(|t| t == "PaymentGateway"));
+        assert!(tokens.iter().any(|t| t == "StripeClient"));
     }
 }

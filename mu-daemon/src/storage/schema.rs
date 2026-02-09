@@ -17,6 +17,8 @@ pub enum NodeType {
     Function,
     /// External dependency (package)
     External,
+    /// Documentation node (Markdown/ADR/design docs)
+    Doc,
 }
 
 impl NodeType {
@@ -26,6 +28,7 @@ impl NodeType {
             NodeType::Class => "class",
             NodeType::Function => "function",
             NodeType::External => "external",
+            NodeType::Doc => "doc",
         }
     }
 
@@ -35,6 +38,7 @@ impl NodeType {
             "class" => Some(NodeType::Class),
             "function" => Some(NodeType::Function),
             "external" => Some(NodeType::External),
+            "doc" => Some(NodeType::Doc),
             _ => None,
         }
     }
@@ -60,6 +64,8 @@ pub enum EdgeType {
     Calls,
     /// Function→Variable (usage)
     Uses,
+    /// Documentation→Code symbol references
+    References,
 }
 
 impl EdgeType {
@@ -70,6 +76,7 @@ impl EdgeType {
             EdgeType::Inherits => "inherits",
             EdgeType::Calls => "calls",
             EdgeType::Uses => "uses",
+            EdgeType::References => "references",
         }
     }
 
@@ -80,6 +87,7 @@ impl EdgeType {
             "inherits" => Some(EdgeType::Inherits),
             "calls" => Some(EdgeType::Calls),
             "uses" => Some(EdgeType::Uses),
+            "references" => Some(EdgeType::References),
             _ => None,
         }
     }
@@ -165,6 +173,7 @@ mod tests {
             NodeType::Class,
             NodeType::Function,
             NodeType::External,
+            NodeType::Doc,
         ] {
             let s = nt.as_str();
             let parsed = NodeType::parse(s);
@@ -180,6 +189,7 @@ mod tests {
             EdgeType::Inherits,
             EdgeType::Calls,
             EdgeType::Uses,
+            EdgeType::References,
         ] {
             let s = et.as_str();
             let parsed = EdgeType::parse(s);

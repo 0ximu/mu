@@ -94,3 +94,21 @@ Thumbs.db
 tools/vscode-mu/node_modules/
 *.vsix
 *.tasks.md
+
+# Eval harness (tracked)
+!tools/
+tools/*
+!tools/eval/
+!tools/eval/README.md
+!tools/eval/*.py
+
+!data/
+data/*
+!data/eval/
+!data/eval/tasks.v1.json
+!data/eval/tasks.ci.v1.json
+!data/eval/tasks.sigma.v1.json
+!data/eval/trust_suite.v1.json
+
+# Eval run artifacts (not tracked)
+data/eval/results/

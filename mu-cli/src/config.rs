@@ -92,6 +92,18 @@ pub struct MuConfig {
     /// Cache configuration for incremental builds.
     #[serde(default)]
     pub cache: CacheConfig,
+
+    /// Impact analysis behavior (MCP `mu_impact` fallback search).
+    #[serde(default)]
+    pub impact: ImpactConfig,
+
+    /// Suspicious-code scan behavior (MCP/CLI `sus` filtering).
+    #[serde(default)]
+    pub sus: SusConfig,
+
+    /// Documentation indexing behavior (bootstrap + retrieval context).
+    #[serde(default)]
+    pub docs: DocsConfig,
 }
 
 /// General MU configuration section.
@@ -220,6 +232,75 @@ impl Default for CacheConfig {
     }
 }
 
+/// Impact command configuration.
+#[derive(Debug, Deserialize)]
+pub struct ImpactConfig {
+    /// Additional glob patterns to exclude from fallback text search.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+
+    /// Respect .gitignore/.ignore files in fallback search.
+    ///
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub respect_gitignore: bool,
+}
+
+impl Default for ImpactConfig {
+    fn default() -> Self {
+        Self {
+            exclude: Vec::new(),
+            respect_gitignore: true,
+        }
+    }
+}
+
+/// Sus command configuration.
+#[derive(Debug, Deserialize, Default)]
+pub struct SusConfig {
+    /// Additional glob patterns to exclude from default scans.
+    #[serde(default)]
+    pub exclude: Vec<String>,
+
+    /// Include generated files by default.
+    ///
+    /// Default: false
+    #[serde(default)]
+    pub include_generated: bool,
+}
+
+/// Documentation indexing configuration.
+#[derive(Debug, Deserialize)]
+pub struct DocsConfig {
+    /// Enable markdown documentation indexing.
+    ///
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Directory prefixes (relative to repo root) to scan for markdown docs.
+    ///
+    /// Example: ["docs", "adr", "architecture"]
+    #[serde(default = "default_doc_dirs")]
+    pub dirs: Vec<String>,
+
+    /// Include root-level README.md as documentation context.
+    ///
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub include_root_readme: bool,
+}
+
+impl Default for DocsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            dirs: default_doc_dirs(),
+            include_root_readme: true,
+        }
+    }
+}
+
 /// Default ignore patterns that are always included.
 const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     ".git/",
@@ -232,6 +313,42 @@ const DEFAULT_IGNORE_PATTERNS: &[&str] = &[
     "target/",  // Rust build output
     "archive/", // MU archive folder
 ];
+
+/// Default excluded globs for `mu_impact` text fallback.
+const DEFAULT_IMPACT_EXCLUDE_PATTERNS: &[&str] = &[
+    "coverage/**",
+    "dist/**",
+    "build/**",
+    "node_modules/**",
+    "**/bin/**",
+    "**/obj/**",
+    "*.min.js",
+    "*.Designer.cs",
+    "*.generated.*",
+];
+
+/// Default excluded globs for `mu_sus` generated/artifact filtering.
+const DEFAULT_SUS_EXCLUDE_PATTERNS: &[&str] = &[
+    "**/Migrations/*.Designer.cs",
+    "**/Migrations/*Snapshot.cs",
+    "**/*.generated.*",
+    "**/*.g.cs",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+];
+
+fn default_doc_dirs() -> Vec<String> {
+    vec![
+        "docs".to_string(),
+        "adr".to_string(),
+        "architecture".to_string(),
+    ]
+}
+
+fn default_true() -> bool {
+    true
+}
 
 impl MuConfig {
     /// Load configuration from `.murc.toml` in the given directory.
@@ -377,6 +494,44 @@ impl MuConfig {
     pub fn cache_directory(&self) -> Option<&str> {
         self.cache.directory.as_deref()
     }
+
+    /// Get impact fallback exclude patterns with defaults included.
+    pub fn impact_exclude_patterns(&self) -> Vec<String> {
+        let mut patterns = self.impact.exclude.clone();
+
+        for default in DEFAULT_IMPACT_EXCLUDE_PATTERNS {
+            let default_str = default.to_string();
+            if !patterns.iter().any(|p| p == &default_str) {
+                patterns.push(default_str);
+            }
+        }
+
+        patterns
+    }
+
+    /// Check whether impact fallback search should respect ignore files.
+    pub fn impact_respect_gitignore(&self) -> bool {
+        self.impact.respect_gitignore
+    }
+
+    /// Get sus scan exclude patterns with defaults included.
+    pub fn sus_exclude_patterns(&self) -> Vec<String> {
+        let mut patterns = self.sus.exclude.clone();
+
+        for default in DEFAULT_SUS_EXCLUDE_PATTERNS {
+            let default_str = default.to_string();
+            if !patterns.iter().any(|p| p == &default_str) {
+                patterns.push(default_str);
+            }
+        }
+
+        patterns
+    }
+
+    /// Check whether generated files should be included in sus scans by default.
+    pub fn sus_include_generated(&self) -> bool {
+        self.sus.include_generated
+    }
 }
 
 #[cfg(test)]
@@ -390,6 +545,18 @@ mod tests {
         assert!(config.cache.enabled);
         assert!(config.parser.languages.is_none());
         assert!(config.output.format.is_none());
+        assert!(config.impact.respect_gitignore);
+        assert!(!config.sus.include_generated);
+        assert!(config.docs.enabled);
+        assert!(config.docs.include_root_readme);
+        assert_eq!(
+            config.docs.dirs,
+            vec![
+                "docs".to_string(),
+                "adr".to_string(),
+                "architecture".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -413,6 +580,19 @@ color = false
 [cache]
 enabled = false
 directory = "/tmp/mu-cache"
+
+[impact]
+exclude = ["tmp/**"]
+respect_gitignore = false
+
+[sus]
+exclude = ["**/generated/**"]
+include_generated = true
+
+[docs]
+enabled = false
+dirs = ["guides", "decisions"]
+include_root_readme = false
 "#;
         let config: MuConfig = toml::from_str(toml_content).unwrap();
 
@@ -439,6 +619,22 @@ directory = "/tmp/mu-cache"
         // Cache section
         assert!(!config.cache.enabled);
         assert_eq!(config.cache.directory, Some("/tmp/mu-cache".to_string()));
+
+        // Impact section
+        assert_eq!(config.impact.exclude, vec!["tmp/**"]);
+        assert!(!config.impact.respect_gitignore);
+
+        // Sus section
+        assert_eq!(config.sus.exclude, vec!["**/generated/**"]);
+        assert!(config.sus.include_generated);
+
+        // Docs section
+        assert!(!config.docs.enabled);
+        assert_eq!(
+            config.docs.dirs,
+            vec!["guides".to_string(), "decisions".to_string()]
+        );
+        assert!(!config.docs.include_root_readme);
     }
 
     #[test]
@@ -469,6 +665,34 @@ ignore = ["custom/", ".git/"]
         assert_eq!(patterns[0], "custom/");
         // .git/ was already specified, shouldn't be duplicated
         assert_eq!(patterns.iter().filter(|p| *p == ".git/").count(), 1);
+    }
+
+    #[test]
+    fn test_impact_exclude_patterns_with_defaults() {
+        let config = MuConfig::default();
+        let patterns = config.impact_exclude_patterns();
+
+        for default in DEFAULT_IMPACT_EXCLUDE_PATTERNS {
+            assert!(
+                patterns.contains(&default.to_string()),
+                "Missing default impact exclude pattern: {}",
+                default
+            );
+        }
+    }
+
+    #[test]
+    fn test_sus_exclude_patterns_with_defaults() {
+        let config = MuConfig::default();
+        let patterns = config.sus_exclude_patterns();
+
+        for default in DEFAULT_SUS_EXCLUDE_PATTERNS {
+            assert!(
+                patterns.contains(&default.to_string()),
+                "Missing default sus exclude pattern: {}",
+                default
+            );
+        }
     }
 
     #[test]

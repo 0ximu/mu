@@ -56,6 +56,11 @@ impl Edge {
         Self::new(from, type_ref, EdgeType::Uses)
     }
 
+    /// Create a REFERENCES edge (documentation references code symbol).
+    pub fn references(from_doc: &str, to_symbol: &str) -> Self {
+        Self::new(from_doc, to_symbol, EdgeType::References)
+    }
+
     /// Set properties on the edge.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);
@@ -104,5 +109,14 @@ mod tests {
         let edge = Edge::uses("cls:service.cs:AuthService", "ext:HttpClient");
         assert_eq!(edge.edge_type, EdgeType::Uses);
         assert_eq!(edge.target_id, "ext:HttpClient");
+    }
+
+    #[test]
+    fn test_references_edge() {
+        let edge = Edge::references("doc:docs/adr/0001-auth.md", "fn:src/auth.rs:verify_token");
+        assert_eq!(edge.edge_type, EdgeType::References);
+        assert_eq!(edge.source_id, "doc:docs/adr/0001-auth.md");
+        assert_eq!(edge.target_id, "fn:src/auth.rs:verify_token");
+        assert!(edge.id.contains("references"));
     }
 }

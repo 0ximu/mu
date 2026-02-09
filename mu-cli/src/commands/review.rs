@@ -584,6 +584,25 @@ struct RawChange {
     entity_type: String,
     file_path: String,
     change_type: String,
+    complexity: Option<u32>,
+    complexity_delta: Option<i32>,
+}
+
+/// Parsed entity with line range and complexity for diff-aware analysis.
+#[derive(Debug, Clone)]
+struct EntityInfo {
+    name: String,
+    entity_type: String,
+    start_line: u32,
+    end_line: u32,
+    complexity: u32,
+}
+
+/// A unified diff hunk range for old/new file revisions.
+#[derive(Debug, Clone, Copy)]
+struct DiffHunk {
+    old_range: Option<(u32, u32)>,
+    new_range: Option<(u32, u32)>,
 }
 
 /// Get semantic changes from git diff
@@ -618,13 +637,15 @@ fn get_semantic_changes(
             (None, Some(head)) => {
                 // New file
                 let entities = extract_entities(head, file_path, language);
-                for (name, entity_type) in entities {
-                    if entity_type == "function" || entity_type == "method" {
+                for entity in entities {
+                    if entity.entity_type == "function" || entity.entity_type == "method" {
                         changes.push(RawChange {
-                            name,
-                            entity_type,
+                            name: entity.name,
+                            entity_type: entity.entity_type,
                             file_path: file_path.clone(),
                             change_type: "added".to_string(),
+                            complexity: Some(entity.complexity),
+                            complexity_delta: None,
                         });
                     }
                 }
@@ -632,66 +653,94 @@ fn get_semantic_changes(
             (Some(base), None) => {
                 // Deleted file
                 let entities = extract_entities(base, file_path, language);
-                for (name, entity_type) in entities {
-                    if entity_type == "function" || entity_type == "method" {
+                for entity in entities {
+                    if entity.entity_type == "function" || entity.entity_type == "method" {
                         changes.push(RawChange {
-                            name,
-                            entity_type,
+                            name: entity.name,
+                            entity_type: entity.entity_type,
                             file_path: file_path.clone(),
                             change_type: "removed".to_string(),
+                            complexity: Some(entity.complexity),
+                            complexity_delta: None,
                         });
                     }
                 }
             }
             (Some(base), Some(head)) => {
-                // Modified file - compare entities
+                // Modified file - compare entities and map to changed hunks
                 let base_entities = extract_entities(base, file_path, language);
                 let head_entities = extract_entities(head, file_path, language);
+                let hunks = get_changed_hunks(file_path, base_ref, head_ref)?;
 
-                let base_set: HashSet<_> = base_entities.iter().map(|(n, _)| n).collect();
-                let head_set: HashSet<_> = head_entities.iter().map(|(n, _)| n).collect();
+                let base_names: HashSet<&str> =
+                    base_entities.iter().map(|e| e.name.as_str()).collect();
+                let head_names: HashSet<&str> =
+                    head_entities.iter().map(|e| e.name.as_str()).collect();
+
+                let base_by_name: HashMap<&str, &EntityInfo> = base_entities
+                    .iter()
+                    .map(|entity| (entity.name.as_str(), entity))
+                    .collect();
 
                 // Added
-                for (name, entity_type) in &head_entities {
-                    if !base_set.contains(name)
-                        && (entity_type == "function" || entity_type == "method")
+                for entity in &head_entities {
+                    if !base_names.contains(entity.name.as_str())
+                        && (entity.entity_type == "function" || entity.entity_type == "method")
                     {
                         changes.push(RawChange {
-                            name: name.clone(),
-                            entity_type: entity_type.clone(),
+                            name: entity.name.clone(),
+                            entity_type: entity.entity_type.clone(),
                             file_path: file_path.clone(),
                             change_type: "added".to_string(),
+                            complexity: Some(entity.complexity),
+                            complexity_delta: None,
                         });
                     }
                 }
 
                 // Removed
-                for (name, entity_type) in &base_entities {
-                    if !head_set.contains(name)
-                        && (entity_type == "function" || entity_type == "method")
+                for entity in &base_entities {
+                    if !head_names.contains(entity.name.as_str())
+                        && (entity.entity_type == "function" || entity.entity_type == "method")
                     {
                         changes.push(RawChange {
-                            name: name.clone(),
-                            entity_type: entity_type.clone(),
+                            name: entity.name.clone(),
+                            entity_type: entity.entity_type.clone(),
                             file_path: file_path.clone(),
                             change_type: "removed".to_string(),
+                            complexity: Some(entity.complexity),
+                            complexity_delta: None,
                         });
                     }
                 }
 
-                // Modified (entities that exist in both but file changed)
-                // For simplicity, mark all existing functions as modified if file changed
-                for (name, entity_type) in &head_entities {
-                    if base_set.contains(name)
-                        && (entity_type == "function" || entity_type == "method")
+                // Modified (entities in both revisions that overlap diff hunks)
+                for head_entity in &head_entities {
+                    if !base_names.contains(head_entity.name.as_str())
+                        || !(head_entity.entity_type == "function"
+                            || head_entity.entity_type == "method")
                     {
-                        changes.push(RawChange {
-                            name: name.clone(),
-                            entity_type: entity_type.clone(),
-                            file_path: file_path.clone(),
-                            change_type: "modified".to_string(),
-                        });
+                        continue;
                     }
+
+                    let Some(base_entity) = base_by_name.get(head_entity.name.as_str()) else {
+                        continue;
+                    };
+
+                    if !entity_touched_by_hunks(base_entity, head_entity, &hunks) {
+                        continue;
+                    }
+
+                    changes.push(RawChange {
+                        name: head_entity.name.clone(),
+                        entity_type: head_entity.entity_type.clone(),
+                        file_path: file_path.clone(),
+                        change_type: "modified".to_string(),
+                        complexity: Some(head_entity.complexity),
+                        complexity_delta: Some(
+                            head_entity.complexity as i32 - base_entity.complexity as i32,
+                        ),
+                    });
                 }
             }
             (None, None) => {}
@@ -699,6 +748,96 @@ fn get_semantic_changes(
     }
 
     Ok(changes)
+}
+
+/// Get changed hunks for a file between base and head refs.
+fn get_changed_hunks(file_path: &str, base_ref: &str, head_ref: &str) -> Result<Vec<DiffHunk>> {
+    let output = if head_ref.is_empty() {
+        Command::new("git")
+            .args(["diff", "-U0", "HEAD", "--", file_path])
+            .output()?
+    } else {
+        Command::new("git")
+            .args([
+                "diff",
+                "-U0",
+                &format!("{}...{}", base_ref, head_ref),
+                "--",
+                file_path,
+            ])
+            .output()?
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("git diff failed for {}: {}", file_path, stderr);
+    }
+
+    let mut hunks = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if let Some(hunk) = parse_hunk_header(line) {
+            hunks.push(hunk);
+        }
+    }
+
+    Ok(hunks)
+}
+
+/// Parse unified diff hunk header (e.g. "@@ -10,2 +12,3 @@").
+fn parse_hunk_header(line: &str) -> Option<DiffHunk> {
+    if !line.starts_with("@@") {
+        return None;
+    }
+
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.len() < 3 {
+        return None;
+    }
+
+    let old_range = parse_hunk_range(tokens[1], '-')?;
+    let new_range = parse_hunk_range(tokens[2], '+')?;
+    Some(DiffHunk {
+        old_range,
+        new_range,
+    })
+}
+
+/// Parse a single hunk range token (e.g. "-10,2", "+12,3").
+///
+/// Returns:
+/// - `Some(Some((start, end)))` for non-empty ranges
+/// - `Some(None)` for zero-length ranges (e.g. +12,0)
+/// - `None` if parsing fails
+fn parse_hunk_range(token: &str, prefix: char) -> Option<Option<(u32, u32)>> {
+    let value = token.strip_prefix(prefix)?;
+    let mut parts = value.split(',');
+    let start: u32 = parts.next()?.parse().ok()?;
+    let count: u32 = parts.next().and_then(|p| p.parse().ok()).unwrap_or(1);
+
+    if count == 0 {
+        return Some(None);
+    }
+
+    Some(Some((start, start + count - 1)))
+}
+
+/// Return true if an entity overlaps at least one changed hunk.
+fn entity_touched_by_hunks(base: &EntityInfo, head: &EntityInfo, hunks: &[DiffHunk]) -> bool {
+    let base_range = (base.start_line, base.end_line.max(base.start_line));
+    let head_range = (head.start_line, head.end_line.max(head.start_line));
+
+    hunks.iter().any(|hunk| {
+        hunk.old_range
+            .is_some_and(|range| ranges_overlap(range, base_range))
+            || hunk
+                .new_range
+                .is_some_and(|range| ranges_overlap(range, head_range))
+    })
+}
+
+/// Inclusive range overlap check.
+fn ranges_overlap(a: (u32, u32), b: (u32, u32)) -> bool {
+    a.0 <= b.1 && b.0 <= a.1
 }
 
 /// Analyze a change and calculate risk score
@@ -729,20 +868,14 @@ fn analyze_change(
         0
     };
 
-    // Get complexity
+    // Prefer current parse-derived complexity; fall back to graph value.
     let complexity = if let Some(ref id) = node_id {
-        get_complexity(conn, id)?
+        get_complexity(conn, id)?.or(change.complexity)
     } else {
-        None
+        change.complexity
     };
 
-    // Calculate complexity delta (compare to base)
-    let complexity_delta = if change.change_type == "modified" {
-        // For now, assume small delta if we can't calculate it
-        complexity.map(|_| 0)
-    } else {
-        None
-    };
+    let complexity_delta = change.complexity_delta;
 
     // Get last modified info
     let (last_modified, last_author) = get_last_modified(&change.file_path)?;
@@ -898,6 +1031,32 @@ fn detect_test_gaps(
     gaps
 }
 
+/// Parse `git shortlog -sn` line and extract the author name.
+fn parse_shortlog_author(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Common format: "<count><tab><author>"
+    if let Some((_, author)) = trimmed.split_once('\t') {
+        let name = author.trim();
+        if !name.is_empty() {
+            return Some(name.to_string());
+        }
+    }
+
+    // Fallback: "<count> <author with spaces>"
+    let mut parts = trimmed.split_whitespace();
+    let _count = parts.next()?;
+    let name = parts.collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 /// Get suggested reviewers based on code ownership
 fn get_suggested_reviewers(changed_files: &[String]) -> Result<Vec<SuggestedReviewer>> {
     let mut author_files: HashMap<String, Vec<String>> = HashMap::new();
@@ -906,16 +1065,13 @@ fn get_suggested_reviewers(changed_files: &[String]) -> Result<Vec<SuggestedRevi
     for file_path in changed_files {
         // Get primary author for this file
         let output = Command::new("git")
-            .args(["shortlog", "-sn", "--", file_path])
+            .args(["shortlog", "-sn", "HEAD", "--", file_path])
             .output()?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            // Parse "  42  Author Name" format
             if let Some(line) = stdout.lines().next() {
-                let parts: Vec<&str> = line.trim().splitn(2, '\t').collect();
-                if parts.len() == 2 {
-                    let author = parts[1].trim().to_string();
+                if let Some(author) = parse_shortlog_author(line) {
                     author_files
                         .entry(author)
                         .or_default()
@@ -1048,8 +1204,8 @@ fn get_file_at_ref(file_path: &str, git_ref: &str) -> Result<Option<String>> {
     Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
 }
 
-/// Parse file and extract entity names
-fn extract_entities(content: &str, file_path: &str, language: &str) -> Vec<(String, String)> {
+/// Parse file and extract function/method entities with line ranges.
+fn extract_entities(content: &str, file_path: &str, language: &str) -> Vec<EntityInfo> {
     let result = mu_core::parser::parse_source(content, file_path, language);
 
     if !result.success {
@@ -1063,18 +1219,102 @@ fn extract_entities(content: &str, file_path: &str, language: &str) -> Vec<(Stri
     let mut entities = Vec::new();
 
     for func in &module.functions {
-        entities.push((func.name.clone(), "function".to_string()));
+        entities.push(EntityInfo {
+            name: func.name.clone(),
+            entity_type: "function".to_string(),
+            start_line: func.start_line,
+            end_line: func.end_line,
+            complexity: func.body_complexity,
+        });
     }
 
     for class in &module.classes {
-        entities.push((class.name.clone(), "class".to_string()));
         for method in &class.methods {
-            entities.push((
-                format!("{}.{}", class.name, method.name),
-                "method".to_string(),
-            ));
+            entities.push(EntityInfo {
+                name: format!("{}.{}", class.name, method.name),
+                entity_type: "method".to_string(),
+                start_line: method.start_line,
+                end_line: method.end_line,
+                complexity: method.body_complexity,
+            });
         }
     }
 
     entities
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_hunk_header_with_counts() {
+        let hunk = parse_hunk_header("@@ -10,2 +12,3 @@").expect("hunk should parse");
+        assert_eq!(hunk.old_range, Some((10, 11)));
+        assert_eq!(hunk.new_range, Some((12, 14)));
+    }
+
+    #[test]
+    fn test_parse_hunk_header_zero_length_range() {
+        let hunk = parse_hunk_header("@@ -15,4 +20,0 @@").expect("hunk should parse");
+        assert_eq!(hunk.old_range, Some((15, 18)));
+        assert_eq!(hunk.new_range, None);
+    }
+
+    #[test]
+    fn test_ranges_overlap_inclusive() {
+        assert!(ranges_overlap((10, 20), (20, 30)));
+        assert!(!ranges_overlap((1, 5), (6, 10)));
+    }
+
+    #[test]
+    fn test_entity_touched_by_hunks() {
+        let base = EntityInfo {
+            name: "foo".to_string(),
+            entity_type: "function".to_string(),
+            start_line: 10,
+            end_line: 20,
+            complexity: 3,
+        };
+        let head = EntityInfo {
+            name: "foo".to_string(),
+            entity_type: "function".to_string(),
+            start_line: 11,
+            end_line: 21,
+            complexity: 4,
+        };
+
+        let touched = entity_touched_by_hunks(
+            &base,
+            &head,
+            &[DiffHunk {
+                old_range: Some((18, 18)),
+                new_range: Some((19, 19)),
+            }],
+        );
+
+        let untouched = entity_touched_by_hunks(
+            &base,
+            &head,
+            &[DiffHunk {
+                old_range: Some((30, 30)),
+                new_range: Some((31, 31)),
+            }],
+        );
+
+        assert!(touched);
+        assert!(!untouched);
+    }
+
+    #[test]
+    fn test_parse_shortlog_author_tab_format() {
+        let author = parse_shortlog_author("42\tJane Doe");
+        assert_eq!(author.as_deref(), Some("Jane Doe"));
+    }
+
+    #[test]
+    fn test_parse_shortlog_author_space_format() {
+        let author = parse_shortlog_author("  7  John Smith");
+        assert_eq!(author.as_deref(), Some("John Smith"));
+    }
 }

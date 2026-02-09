@@ -12,8 +12,10 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use duckdb::{params, Connection};
+use regex::Regex;
 use std::path::PathBuf;
 
+use crate::config::MuConfig;
 use crate::output::OutputFormat;
 
 /// Warning level for sus checks
@@ -61,7 +63,12 @@ pub struct ScanResult {
 }
 
 /// Run the sus command - risk assessment with personality
-pub async fn run(path: &str, threshold: u8, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    path: &str,
+    threshold: u8,
+    include_generated: bool,
+    format: OutputFormat,
+) -> Result<()> {
     // Find the MUbase database
     let db_path = match find_mubase(".") {
         Ok(path) => path,
@@ -93,9 +100,22 @@ pub async fn run(path: &str, threshold: u8, format: OutputFormat) -> Result<()> 
     )
     .with_context(|| format!("Failed to open database: {:?}", db_path))?;
 
+    // Load config from project root and resolve generated-file filtering policy
+    let project_root = db_path
+        .parent()
+        .and_then(|p| p.parent())
+        .unwrap_or(std::path::Path::new("."));
+    let config = MuConfig::load(project_root);
+    let include_generated = include_generated || config.sus_include_generated();
+    let exclude_regexes = if include_generated {
+        Vec::new()
+    } else {
+        compile_glob_patterns(&config.sus_exclude_patterns())
+    };
+
     // If path is "." or empty, scan the entire codebase
     if path == "." || path.is_empty() {
-        let scan_result = scan_all_nodes(&conn, threshold)?;
+        let scan_result = scan_all_nodes(&conn, threshold, &exclude_regexes)?;
         match format {
             OutputFormat::Json => {
                 println!("{}", serde_json::to_string_pretty(&scan_result)?);
@@ -152,7 +172,11 @@ pub async fn run(path: &str, threshold: u8, format: OutputFormat) -> Result<()> 
 }
 
 /// Scan all nodes in the codebase for suspicious patterns
-fn scan_all_nodes(conn: &Connection, threshold: u8) -> Result<ScanResult> {
+fn scan_all_nodes(
+    conn: &Connection,
+    threshold: u8,
+    exclude_regexes: &[Regex],
+) -> Result<ScanResult> {
     // Query all module-type nodes (files)
     let mut stmt = conn.prepare(
         "SELECT id, file_path FROM nodes
@@ -171,6 +195,12 @@ fn scan_all_nodes(conn: &Connection, threshold: u8) -> Result<ScanResult> {
 
     while let Some(row) = rows.next()? {
         let node_id: String = row.get(0)?;
+        let file_path: String = row.get(1)?;
+
+        if should_exclude_path(&file_path, exclude_regexes) {
+            continue;
+        }
+
         total_scanned += 1;
 
         // Analyze each node
@@ -195,6 +225,70 @@ fn scan_all_nodes(conn: &Connection, threshold: u8) -> Result<ScanResult> {
         suspicious_count,
         results: all_results,
     })
+}
+
+fn should_exclude_path(path: &str, exclude_regexes: &[Regex]) -> bool {
+    if exclude_regexes.is_empty() {
+        return false;
+    }
+
+    let normalized = path.replace('\\', "/");
+    exclude_regexes.iter().any(|re| re.is_match(&normalized))
+}
+
+fn compile_glob_patterns(patterns: &[String]) -> Vec<Regex> {
+    let mut compiled = Vec::new();
+
+    for pattern in patterns {
+        for variant in expand_glob_variants(pattern) {
+            match Regex::new(&glob_to_regex(&variant)) {
+                Ok(re) => compiled.push(re),
+                Err(err) => tracing::warn!("Invalid sus exclude pattern '{}': {}", pattern, err),
+            }
+        }
+    }
+
+    compiled
+}
+
+fn expand_glob_variants(pattern: &str) -> Vec<String> {
+    if let Some(stripped) = pattern.strip_prefix("**/") {
+        if stripped.is_empty() {
+            vec![pattern.to_string()]
+        } else {
+            vec![pattern.to_string(), stripped.to_string()]
+        }
+    } else {
+        vec![pattern.to_string()]
+    }
+}
+
+fn glob_to_regex(pattern: &str) -> String {
+    let mut out = String::from("^");
+    let normalized = pattern.replace('\\', "/");
+    let mut chars = normalized.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '*' => {
+                if chars.peek() == Some(&'*') {
+                    chars.next();
+                    out.push_str(".*");
+                } else {
+                    out.push_str("[^/]*");
+                }
+            }
+            '?' => out.push_str("[^/]"),
+            '.' | '+' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' | '|' => {
+                out.push('\\');
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+
+    out.push('$');
+    out
 }
 
 /// Print output for codebase-wide scan

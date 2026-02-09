@@ -265,6 +265,44 @@ mu export -F d2                   # D2 diagram
 mu export -F json -l 100          # Limit to 100 nodes
 ```
 
+### AI Integration (MCP)
+
+MU includes a built-in MCP server for assistants that support the Model Context Protocol:
+
+```bash
+mu mcp                            # Start MCP server over stdio
+mu mcp /path/to/project           # Start with explicit project root
+```
+
+Prerequisite: run `mu bootstrap` first so `.mu/mubase` exists.
+
+MCP now includes an agent-collaboration mailbox so Codex and Claude Code can coordinate work in shared sessions (`planning`, `implementation`, `audit`) using:
+
+- `mu_collab_protocol`
+- `mu_collab_open`
+- `mu_collab_send`
+- `mu_collab_ask`
+- `mu_collab_ask_async`
+- `mu_collab_job_status`
+- `mu_collab_inbox`
+
+`mu_collab_send` now validates protocol sections per phase, so handoff messages stay structured and auditable.
+`mu_collab_ask` can automate request/reply by invoking a target CLI command and persisting the response as a collab message.
+`mu_collab_ask_async` runs long CLI exchanges in background and `mu_collab_job_status` lets you poll progress/results.
+`mu_collab_job_status` also supports blocking wait (`wait=true`) to avoid manual polling loops.
+`mu_collab_ask`/`mu_collab_ask_async` support `agent_preset` (`codex_exec`, `claude_print`), `working_dir`, and optional request protocol enforcement for lower-friction automation.
+`mu_collab_ask`/`mu_collab_ask_async` also support `auto_wrap_request_protocol=true` to normalize freeform requests into phase templates.
+
+Example `mu_collab_ask` target args placeholders:
+- `{{session_id}}`, `{{from}}`, `{{to}}`, `{{phase}}`, `{{message}}`
+
+MU also supports local HTTP mode for editor/workflow integration:
+
+```bash
+mu serve                          # Start local HTTP server (default port 1337)
+mu serve --port 8080              # Custom port
+```
+
 ### Vibes
 
 Fun aliases that do real work:

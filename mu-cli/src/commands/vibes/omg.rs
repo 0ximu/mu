@@ -123,6 +123,7 @@ fn score_node(node: &Node, edge_count: usize) -> f32 {
         NodeType::Class => 2.0,
         NodeType::Function => 1.0,
         NodeType::Module => 0.5,
+        NodeType::Doc => 0.25,
         NodeType::External => 0.0,
     };
 
@@ -350,7 +351,8 @@ fn generate_compressed_body(nodes: &[Node], edges: &[(String, String, String)]) 
                 NodeType::Class => 0,
                 NodeType::Function => 1,
                 NodeType::Module => 2,
-                NodeType::External => 3,
+                NodeType::Doc => 3,
+                NodeType::External => 4,
             };
             let ord = type_order(a).cmp(&type_order(b));
             if ord == std::cmp::Ordering::Equal {

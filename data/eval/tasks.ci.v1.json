@@ -1,0 +1,115 @@
+{
+  "schema_version": "tasks.v1",
+  "description": "MU CI eval slice (local, no embeddings required)",
+  "categories": [
+    "exact_lookup",
+    "impact_analysis",
+    "git_archaeology",
+    "quality_security_scan_relevance",
+    "task_planning"
+  ],
+  "task_count": 8,
+  "repos": [
+    "mu"
+  ],
+  "tasks": [
+    {
+      "id": "mu-ci-01",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How is MuConfig loaded",
+      "expected_nodes": ["MuConfig", "load", "load_strict"],
+      "timeout_s": 20,
+      "params": {"limit": 10}
+    },
+    {
+      "id": "mu-ci-02",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does impact_respect_gitignore work",
+      "expected_nodes": ["impact_respect_gitignore", "ImpactConfig"],
+      "timeout_s": 20,
+      "params": {"limit": 10}
+    },
+    {
+      "id": "mu-ci-03",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "task_planning",
+      "tool": "muql",
+      "query": "Where is mu_impact implemented",
+      "expected_nodes": ["mu_impact", "MuMcpServer"],
+      "timeout_s": 20,
+      "params": {"limit": 10}
+    },
+    {
+      "id": "mu-ci-04",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "exact_lookup",
+      "tool": "muql",
+      "query": "How does sus_exclude_patterns work",
+      "expected_nodes": ["sus_exclude_patterns", "SusConfig"],
+      "timeout_s": 20,
+      "params": {"limit": 10}
+    },
+    {
+      "id": "mu-ci-05",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "impact_analysis",
+      "tool": "impact",
+      "symbol": "MuConfig",
+      "expected_nodes": ["load", "load_strict", "ignore_patterns"],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-ci-06",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "git_archaeology",
+      "tool": "wtf",
+      "target": "mu-cli/src/config.rs",
+      "expected_fields": ["origin_commit", "contributors", "evolution_summary"],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-ci-07",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "quality_security_scan_relevance",
+      "tool": "sus",
+      "path": ".",
+      "threshold": 1,
+      "expected_fields": ["results", "suspicious_count"],
+      "timeout_s": 20,
+      "params": {}
+    },
+    {
+      "id": "mu-ci-08",
+      "repo": "mu",
+      "repo_source": "local",
+      "project_root": ".",
+      "category": "quality_security_scan_relevance",
+      "tool": "sus",
+      "path": ".",
+      "threshold": 2,
+      "expected_fields": ["results", "suspicious_count"],
+      "timeout_s": 20,
+      "params": {}
+    }
+  ]
+}
