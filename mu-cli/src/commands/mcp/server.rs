@@ -111,6 +111,7 @@ pub struct OracleParams {
 
 /// A node that was accessed during this session
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AccessedNode {
     pub name: String,
     pub node_type: String,
@@ -121,6 +122,7 @@ pub struct AccessedNode {
 
 /// Session state tracking - gives MU memory across MCP calls
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct SessionState {
     /// Recently accessed nodes (most recent first)
     accessed_nodes: VecDeque<AccessedNode>,
@@ -262,6 +264,7 @@ impl SessionState {
 
     /// Get the git recency boost for a file path.
     /// Returns 0.0-1.0 based on how "hot" (recently modified) the file is.
+    #[allow(dead_code)]
     pub fn git_recency_boost(&self, file_path: &str) -> f32 {
         if let Some(ref recency) = self.git_recency {
             if let Some(&commit_count) = recency.get(file_path) {
@@ -274,6 +277,7 @@ impl SessionState {
     }
 
     /// Get all hot files (for debugging/display)
+    #[allow(dead_code)]
     pub fn hot_files(&self) -> Vec<(&str, u32)> {
         if let Some(ref recency) = self.git_recency {
             let mut files: Vec<_> = recency.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -358,11 +362,13 @@ impl MuMcpServer {
     }
 
     /// Get the mubase, ensuring lazy initialization
+    #[allow(dead_code)]
     async fn mubase(&self) -> Result<&mu_daemon::storage::MUbase, McpError> {
         Ok(&self.ensure_state().await?.mubase)
     }
 
     /// Get the project root, ensuring lazy initialization
+    #[allow(dead_code)]
     async fn project_root(&self) -> Result<&PathBuf, McpError> {
         Ok(&self.ensure_state().await?.project_root)
     }
@@ -1592,6 +1598,7 @@ impl MuMcpServer {
     }
 
     /// Get supporting context nodes through graph traversal
+    #[allow(clippy::ptr_arg)]
     fn get_context_nodes(
         &self,
         mubase: &mu_daemon::storage::MUbase,
@@ -1707,6 +1714,7 @@ impl MuMcpServer {
     }
 
     /// Get function signature (first line of definition)
+    #[allow(clippy::ptr_arg)]
     fn get_function_signature(
         &self,
         project_root: &PathBuf,
@@ -2142,6 +2150,7 @@ impl ServerHandler for MuMcpServer {
     /// When Claude Code changes directories or the client's workspace changes,
     /// we receive this notification. We then fetch the new roots and store them
     /// for use in lazy project initialization.
+    #[allow(clippy::manual_async_fn)]
     fn on_roots_list_changed(
         &self,
         context: rmcp::service::NotificationContext<rmcp::service::RoleServer>,

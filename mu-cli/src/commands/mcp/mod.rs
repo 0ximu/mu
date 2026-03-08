@@ -11,6 +11,7 @@ use std::path::Path;
 pub use server::MuMcpServer;
 
 /// Find the mubase path starting from the given directory
+#[allow(dead_code)]
 fn find_mubase_path(start_dir: &Path) -> Option<std::path::PathBuf> {
     let mut current = start_dir.to_path_buf();
     loop {

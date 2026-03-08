@@ -165,6 +165,10 @@ enum Commands {
         /// Disable graph-aware reranking
         #[arg(long = "no-rerank")]
         no_rerank: bool,
+
+        /// Expand query using graph neighbors for better recall
+        #[arg(long)]
+        expand: bool,
     },
 
     /// Find relevant code context for a question (semantic search)
@@ -589,7 +593,8 @@ async fn main() -> anyhow::Result<()> {
             limit,
             threshold,
             no_rerank,
-        } => search::run(&query, limit, threshold, !no_rerank, format).await,
+            expand,
+        } => search::run(&query, limit, threshold, !no_rerank, expand, format).await,
         Commands::Grok { question, depth } => grok::run(&question, depth, format).await,
         Commands::Query {
             query,
