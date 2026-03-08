@@ -5,8 +5,9 @@
 use super::find_project_root;
 use std::collections::VecDeque;
 use std::fs;
+#[allow(unused_imports)]
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
@@ -129,6 +130,7 @@ pub struct SessionState {
     /// Query history for pattern detection
     query_history: VecDeque<String>,
     /// Session start time
+    #[allow(dead_code)]
     started_at: Option<Instant>,
     /// Git recency cache: file_path -> commit count in last 30 days
     /// Lazy-loaded on first access, represents "hot" files in the codebase
@@ -1602,7 +1604,7 @@ impl MuMcpServer {
     fn get_context_nodes(
         &self,
         mubase: &mu_daemon::storage::MUbase,
-        project_root: &PathBuf,
+        project_root: &Path,
         must_read_names: &[&str],
         keywords: &[String],
     ) -> Vec<(String, String, String, Option<String>)> {
@@ -1717,7 +1719,7 @@ impl MuMcpServer {
     #[allow(clippy::ptr_arg)]
     fn get_function_signature(
         &self,
-        project_root: &PathBuf,
+        project_root: &Path,
         file_path: &str,
         line_start: Option<i64>,
         _line_end: Option<i64>,
@@ -2150,17 +2152,14 @@ impl ServerHandler for MuMcpServer {
     /// When Claude Code changes directories or the client's workspace changes,
     /// we receive this notification. We then fetch the new roots and store them
     /// for use in lazy project initialization.
-    #[allow(clippy::manual_async_fn)]
-    fn on_roots_list_changed(
+    async fn on_roots_list_changed(
         &self,
         context: rmcp::service::NotificationContext<rmcp::service::RoleServer>,
-    ) -> impl Future<Output = ()> + Send + '_ {
-        async move {
-            // Try to fetch the current roots from the client
-            if let Ok(roots_result) = context.peer.list_roots().await {
-                let mut client_roots = self.client_roots.write().await;
-                *client_roots = Some(roots_result.roots);
-            }
+    ) {
+        // Try to fetch the current roots from the client
+        if let Ok(roots_result) = context.peer.list_roots().await {
+            let mut client_roots = self.client_roots.write().await;
+            *client_roots = Some(roots_result.roots);
         }
     }
 }

@@ -102,6 +102,8 @@ pub struct SearchParams {
 pub struct CompressParams {
     #[serde(default = "default_detail")]
     pub detail: String,
+    #[allow(dead_code)]
+    pub max_tokens: Option<usize>,
 }
 
 #[derive(Deserialize)]
