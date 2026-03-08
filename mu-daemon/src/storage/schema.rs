@@ -103,7 +103,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     line_start INTEGER,
     line_end INTEGER,
     properties JSON,
-    complexity INTEGER DEFAULT 0
+    complexity INTEGER DEFAULT 0,
+    source_text TEXT
 );
 
 -- Edges table: relationships between nodes
@@ -152,7 +153,8 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 /// Schema version for migrations
 /// - 1.0.0: Initial schema with VARCHAR JSON embeddings
 /// - 1.1.0: Native FLOAT[384] embeddings with in-SQL cosine similarity
-pub const SCHEMA_VERSION: &str = "1.1.0";
+/// - 1.2.0: Added source_text column to nodes for rich text search
+pub const SCHEMA_VERSION: &str = "1.2.0";
 
 #[cfg(test)]
 mod tests {

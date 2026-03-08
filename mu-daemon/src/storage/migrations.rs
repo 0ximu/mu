@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use duckdb::Connection;
 
 /// Target schema version for migrations.
-pub const TARGET_VERSION: &str = "1.1.0";
+pub const TARGET_VERSION: &str = "1.2.0";
 
 /// Check if migration is needed from current version to target.
 pub fn needs_migration(current: &str, target: &str) -> bool {
@@ -115,6 +115,44 @@ pub fn migrate_embeddings_to_native(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migrate v1.1.0 → v1.2.0: Add source_text column to nodes table.
+///
+/// This migration adds a TEXT column for storing searchable source text
+/// (docstrings, signatures, body previews) alongside each node.
+pub fn migrate_add_source_text(conn: &Connection) -> Result<()> {
+    tracing::info!("Starting migration: v1.1.0 → v1.2.0 (add source_text column)");
+
+    // Verify we're at the expected version
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM metadata WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    if version != "1.1.0" {
+        anyhow::bail!(
+            "Cannot migrate: expected schema version 1.1.0, found {}",
+            version
+        );
+    }
+
+    // Add the column
+    conn.execute("ALTER TABLE nodes ADD COLUMN source_text TEXT", [])
+        .context("Failed to add source_text column")?;
+
+    // Update schema version
+    conn.execute(
+        "UPDATE metadata SET value = '1.2.0' WHERE key = 'schema_version'",
+        [],
+    )
+    .context("Failed to update schema version")?;
+
+    tracing::info!("Migration complete: v1.1.0 → v1.2.0");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,9 +195,9 @@ mod tests {
 
     #[test]
     fn test_needs_migration() {
-        assert!(needs_migration("1.0.0", "1.1.0"));
-        assert!(!needs_migration("1.1.0", "1.1.0"));
-        assert!(!needs_migration("1.2.0", "1.1.0"));
+        assert!(needs_migration("1.0.0", "1.2.0"));
+        assert!(needs_migration("1.1.0", "1.2.0"));
+        assert!(!needs_migration("1.2.0", "1.2.0"));
     }
 
     #[test]
@@ -264,5 +302,87 @@ mod tests {
         );
         let similarity: f64 = conn.query_row(&sql, [], |row| row.get(0)).unwrap();
         assert!((similarity - 1.0).abs() < 0.0001); // Should be ~1.0 for identical vectors
+    }
+
+    #[test]
+    fn test_migrate_add_source_text() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        // Create v1.1.0 schema (nodes table without source_text)
+        conn.execute_batch(
+            r#"
+            CREATE TABLE nodes (
+                id VARCHAR PRIMARY KEY,
+                type VARCHAR NOT NULL,
+                name VARCHAR NOT NULL,
+                qualified_name VARCHAR,
+                file_path VARCHAR,
+                line_start INTEGER,
+                line_end INTEGER,
+                properties JSON,
+                complexity INTEGER DEFAULT 0
+            );
+            CREATE TABLE metadata (key VARCHAR PRIMARY KEY, value VARCHAR);
+            INSERT INTO metadata VALUES ('schema_version', '1.1.0');
+            INSERT INTO nodes VALUES ('fn:test.py:main', 'function', 'main', 'test.py:main', 'test.py', 1, 10, NULL, 3);
+            "#,
+        )
+        .unwrap();
+
+        // Run migration
+        migrate_add_source_text(&conn).unwrap();
+
+        // Verify version updated
+        let version: String = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(version, "1.2.0");
+
+        // Verify source_text column exists and is NULL for existing rows
+        let source_text: Option<String> = conn
+            .query_row(
+                "SELECT source_text FROM nodes WHERE id = 'fn:test.py:main'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source_text, None);
+
+        // Verify we can write to the new column
+        conn.execute(
+            "UPDATE nodes SET source_text = 'fn main() -> Result<()>' WHERE id = 'fn:test.py:main'",
+            [],
+        )
+        .unwrap();
+
+        let source_text: Option<String> = conn
+            .query_row(
+                "SELECT source_text FROM nodes WHERE id = 'fn:test.py:main'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source_text, Some("fn main() -> Result<()>".to_string()));
+    }
+
+    #[test]
+    fn test_migrate_add_source_text_wrong_version() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE metadata (key VARCHAR PRIMARY KEY, value VARCHAR);
+            INSERT INTO metadata VALUES ('schema_version', '1.0.0');
+            "#,
+        )
+        .unwrap();
+
+        // Should fail because version is 1.0.0, not 1.1.0
+        let result = migrate_add_source_text(&conn);
+        assert!(result.is_err());
     }
 }
