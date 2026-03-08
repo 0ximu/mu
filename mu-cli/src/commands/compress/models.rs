@@ -12,6 +12,8 @@ pub enum DetailLevel {
     Medium,
     /// Full output with relationship clusters
     High,
+    /// Automatically selected based on codebase size
+    Auto,
 }
 
 impl DetailLevel {
@@ -20,6 +22,7 @@ impl DetailLevel {
             "low" | "l" => Some(Self::Low),
             "medium" | "med" | "m" => Some(Self::Medium),
             "high" | "h" => Some(Self::High),
+            "auto" | "a" => Some(Self::Auto),
             _ => None,
         }
     }
@@ -166,4 +169,5 @@ pub struct CompressResult {
     pub stats: CodebaseStats,
     pub content: String,
     pub detail_level: String,
+    pub estimated_tokens: Option<usize>,
 }

@@ -591,6 +591,7 @@ impl GraphData {
     }
 
     /// DFS helper for finding all paths.
+    #[allow(clippy::too_many_arguments)]
     fn dfs_all_paths(
         &self,
         current: NodeIndex,

@@ -39,7 +39,7 @@ fn test_concurrent_readers() {
 
                 // Open database in read-only mode and perform read query
                 let db = MUbase::open_read_only(&*path)
-                    .expect(&format!("Reader {} failed to open DB", i));
+                    .unwrap_or_else(|_| panic!("Reader {} failed to open DB", i));
                 let result = db.query("SELECT COUNT(*) as cnt FROM nodes");
 
                 match result {
@@ -59,7 +59,7 @@ fn test_concurrent_readers() {
     for (i, handle) in handles.into_iter().enumerate() {
         let result = handle
             .join()
-            .expect(&format!("Reader thread {} panicked", i));
+            .unwrap_or_else(|_| panic!("Reader thread {} panicked", i));
         assert!(result, "Reader {} should succeed", i);
     }
 }
@@ -118,7 +118,7 @@ fn test_daemon_write_cli_read_concurrent() {
 
                 // Open in read-only mode (CLI mode)
                 let db = MUbase::open_read_only(&*path)
-                    .expect(&format!("Reader {} (CLI) failed to open DB", i));
+                    .unwrap_or_else(|_| panic!("Reader {} (CLI) failed to open DB", i));
 
                 // Perform multiple reads while writer is active
                 for j in 0..5 {
@@ -148,7 +148,7 @@ fn test_daemon_write_cli_read_concurrent() {
     for (i, handle) in reader_handles.into_iter().enumerate() {
         let result = handle
             .join()
-            .expect(&format!("Reader thread {} panicked", i));
+            .unwrap_or_else(|_| panic!("Reader thread {} panicked", i));
         assert!(result, "Reader {} should succeed", i);
     }
 }
