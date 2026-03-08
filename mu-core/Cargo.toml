@@ -33,6 +33,12 @@ tree-sitter-go = "0.23"
 tree-sitter-java = "0.23"
 tree-sitter-rust = "0.23"
 tree-sitter-c-sharp = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23.4"
+tree-sitter-ruby = "0.23.1"
+tree-sitter-kotlin-ng = "1.1.0"
+tree-sitter-swift = "0.6"
+tree-sitter-php = "0.23"
 
 [dev-dependencies]
 tempfile = "3.10"       # Temporary directories for testing
