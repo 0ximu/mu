@@ -24,6 +24,8 @@ pub struct Node {
     pub complexity: u32,
     /// Additional properties (JSON)
     pub properties: Option<serde_json::Value>,
+    /// Source text for search (docstring + signature + body preview)
+    pub source_text: Option<String>,
 }
 
 impl Node {
@@ -49,11 +51,18 @@ impl Node {
             line_end: None,
             complexity: 0,
             properties: None,
+            source_text: None,
         }
     }
 
     /// Create a new class node.
-    pub fn class(file_path: &str, name: &str, line_start: u32, line_end: u32) -> Self {
+    pub fn class(
+        file_path: &str,
+        name: &str,
+        line_start: u32,
+        line_end: u32,
+        source_text: Option<String>,
+    ) -> Self {
         Self {
             id: format!("cls:{}:{}", file_path, name),
             node_type: NodeType::Class,
@@ -64,6 +73,7 @@ impl Node {
             line_end: Some(line_end),
             complexity: 0,
             properties: None,
+            source_text,
         }
     }
 
@@ -75,6 +85,7 @@ impl Node {
         line_start: u32,
         line_end: u32,
         complexity: u32,
+        source_text: Option<String>,
     ) -> Self {
         let id = match class_name {
             Some(cls) => format!("fn:{}:{}.{}", file_path, cls, name),
@@ -96,6 +107,7 @@ impl Node {
             line_end: Some(line_end),
             complexity,
             properties: None,
+            source_text,
         }
     }
 
@@ -111,6 +123,7 @@ impl Node {
             line_end: None,
             complexity: 0,
             properties: None,
+            source_text: None,
         }
     }
 
@@ -135,24 +148,40 @@ mod tests {
 
     #[test]
     fn test_class_node() {
-        let node = Node::class("src/cli.py", "MUbase", 10, 100);
+        let node = Node::class("src/cli.py", "MUbase", 10, 100, None);
         assert_eq!(node.id, "cls:src/cli.py:MUbase");
         assert_eq!(node.name, "MUbase");
         assert_eq!(node.node_type, NodeType::Class);
+        assert_eq!(node.source_text, None);
     }
 
     #[test]
     fn test_function_node_standalone() {
-        let node = Node::function("src/cli.py", "main", None, 5, 20, 3);
+        let node = Node::function("src/cli.py", "main", None, 5, 20, 3, None);
         assert_eq!(node.id, "fn:src/cli.py:main");
         assert_eq!(node.name, "main");
         assert_eq!(node.complexity, 3);
+        assert_eq!(node.source_text, None);
     }
 
     #[test]
     fn test_function_node_method() {
-        let node = Node::function("src/cli.py", "build", Some("MUbase"), 50, 80, 5);
+        let node = Node::function("src/cli.py", "build", Some("MUbase"), 50, 80, 5, None);
         assert_eq!(node.id, "fn:src/cli.py:MUbase.build");
         assert_eq!(node.name, "build");
+    }
+
+    #[test]
+    fn test_function_node_with_source_text() {
+        let src = Some("/// Does stuff\nfn main() -> Result<()>".to_string());
+        let node = Node::function("src/cli.py", "main", None, 5, 20, 3, src.clone());
+        assert_eq!(node.source_text, src);
+    }
+
+    #[test]
+    fn test_class_node_with_source_text() {
+        let src = Some("class MUbase(Base)\n  attributes: conn\n  methods: open, close".to_string());
+        let node = Node::class("src/cli.py", "MUbase", 10, 100, src.clone());
+        assert_eq!(node.source_text, src);
     }
 }
