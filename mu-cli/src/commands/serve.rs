@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 
+use crate::citations::CitationIndex;
 use crate::output::OutputFormat;
 
 /// Default port for the serve command
@@ -313,7 +314,7 @@ async fn search(
 
     // Check if we have embeddings
     if !mubase.has_embeddings().unwrap_or(false) {
-        return Json(ApiResponse::<Vec<SearchResult>>::err(
+        return Json(ApiResponse::<serde_json::Value>::err(
             "No embeddings available. Run `mu embed` first.".to_string(),
         ));
     }
@@ -322,7 +323,7 @@ async fn search(
     let model = match mu_embeddings::MuSigmaModel::embedded() {
         Ok(m) => m,
         Err(e) => {
-            return Json(ApiResponse::<Vec<SearchResult>>::err(format!(
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
                 "Failed to load embedding model: {}",
                 e
             )));
@@ -334,7 +335,7 @@ async fn search(
     let embeddings = match model.embed(&texts) {
         Ok(e) => e,
         Err(e) => {
-            return Json(ApiResponse::<Vec<SearchResult>>::err(format!(
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
                 "Failed to embed query: {}",
                 e
             )));
@@ -344,7 +345,7 @@ async fn search(
     let query_embedding = match embeddings.first() {
         Some(e) => e,
         None => {
-            return Json(ApiResponse::<Vec<SearchResult>>::err(
+            return Json(ApiResponse::<serde_json::Value>::err(
                 "Empty embedding result".to_string(),
             ));
         }
@@ -360,30 +361,46 @@ async fn search(
     let results = match mubase.vector_search(query_embedding, fetch_limit, Some(params.threshold)) {
         Ok(r) => r,
         Err(e) => {
-            return Json(ApiResponse::<Vec<SearchResult>>::err(format!(
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
                 "Search failed: {}",
                 e
             )));
         }
     };
 
-    let search_results: Vec<SearchResult> = if params.rerank && results.len() > 1 {
+    let raw_results: Vec<SearchResult> = if params.rerank && results.len() > 1 {
         let graph = match mubase.load_graph() {
             Ok(g) => g,
             Err(_) => {
                 // If graph loading fails, fall back to raw results
+                let raw: Vec<SearchResult> = results
+                    .into_iter()
+                    .take(params.limit)
+                    .map(|r| SearchResult {
+                        node_id: r.node_id,
+                        name: r.name,
+                        node_type: r.node_type,
+                        file_path: r.file_path,
+                        similarity: r.similarity,
+                    })
+                    .collect();
+                let mut citations = CitationIndex::new();
+                let cited: Vec<SearchResult> = raw
+                    .into_iter()
+                    .map(|mut r| {
+                        if let Some(ref path) = r.file_path {
+                            let tag = citations.cite(path, None);
+                            r.file_path = Some(tag);
+                        }
+                        r
+                    })
+                    .collect();
+                let response = serde_json::json!({
+                    "results": cited,
+                    "references": citations.render(),
+                });
                 return Json(ApiResponse::ok(
-                    results
-                        .into_iter()
-                        .take(params.limit)
-                        .map(|r| SearchResult {
-                            node_id: r.node_id,
-                            name: r.name,
-                            node_type: r.node_type,
-                            file_path: r.file_path,
-                            similarity: r.similarity,
-                        })
-                        .collect::<Vec<_>>(),
+                    response,
                     start.elapsed().as_millis() as u64,
                 ));
             }
@@ -417,8 +434,26 @@ async fn search(
             .collect()
     };
 
+    // Apply citations
+    let mut citations = CitationIndex::new();
+    let cited_results: Vec<SearchResult> = raw_results
+        .into_iter()
+        .map(|mut r| {
+            if let Some(ref path) = r.file_path {
+                let tag = citations.cite(path, None);
+                r.file_path = Some(tag);
+            }
+            r
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "results": cited_results,
+        "references": citations.render(),
+    });
+
     Json(ApiResponse::ok(
-        search_results,
+        response,
         start.elapsed().as_millis() as u64,
     ))
 }
@@ -441,7 +476,7 @@ async fn find(
     let result = match mubase.query(&sql) {
         Ok(r) => r,
         Err(e) => {
-            return Json(ApiResponse::<Vec<FindResult>>::err(format!(
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
                 "Query failed: {}",
                 e
             )));
@@ -494,7 +529,29 @@ async fn find(
         });
     }
 
-    Json(ApiResponse::ok(results, start.elapsed().as_millis() as u64))
+    // Apply citations
+    let mut citations = CitationIndex::new();
+    let cited_results: Vec<FindResult> = results
+        .into_iter()
+        .map(|mut r| {
+            if let Some(ref path) = r.file_path {
+                let line = r.line_start.map(|l| l as usize);
+                let tag = citations.cite(path, line);
+                r.file_path = Some(tag);
+            }
+            r
+        })
+        .collect();
+
+    let response = serde_json::json!({
+        "results": cited_results,
+        "references": citations.render(),
+    });
+
+    Json(ApiResponse::ok(
+        response,
+        start.elapsed().as_millis() as u64,
+    ))
 }
 
 async fn impact(
@@ -558,13 +615,16 @@ async fn impact(
         }
     };
 
+    let mut citations = CitationIndex::new();
     let mut impacted: Vec<serde_json::Value> = Vec::new();
     for row in &impact_result.rows {
+        let file_path = row.get(3).and_then(|v| v.as_str());
+        let cited_path = file_path.map(|p| citations.cite(p, None));
         impacted.push(serde_json::json!({
             "id": row.first().and_then(|v| v.as_str()).unwrap_or(""),
             "name": row.get(1).and_then(|v| v.as_str()).unwrap_or(""),
             "type": row.get(2).and_then(|v| v.as_str()).unwrap_or(""),
-            "file_path": row.get(3).and_then(|v| v.as_str()),
+            "file_path": cited_path,
             "edge_type": row.get(4).and_then(|v| v.as_str()).unwrap_or(""),
         }));
     }
@@ -574,6 +634,7 @@ async fn impact(
         "node_id": node_id,
         "impacted_count": impacted.len(),
         "impacted": impacted,
+        "references": citations.render(),
     });
 
     Json(ApiResponse::ok(
@@ -721,8 +782,9 @@ async fn research(
         }
     }
 
-    // Collect node details
+    // Collect node details with citations
     let seed_set: HashSet<&String> = seed_ids.iter().collect();
+    let mut citations = CitationIndex::new();
     let mut nodes_json: Vec<serde_json::Value> = Vec::new();
 
     // Query node details from DB
@@ -733,11 +795,13 @@ async fn research(
         );
         if let Ok(result) = mubase.query(&sql) {
             if let Some(row) = result.rows.first() {
+                let file_path = row.get(3).and_then(|v| v.as_str());
+                let cited_path = file_path.map(|p| citations.cite(p, None));
                 nodes_json.push(serde_json::json!({
                     "id": row.first().and_then(|v| v.as_str()).unwrap_or(""),
                     "type": row.get(1).and_then(|v| v.as_str()).unwrap_or(""),
                     "name": row.get(2).and_then(|v| v.as_str()).unwrap_or(""),
-                    "file_path": row.get(3).and_then(|v| v.as_str()),
+                    "file_path": cited_path,
                     "complexity": row.get(4).and_then(|v| v.as_i64()),
                     "is_seed": seed_set.contains(node_id),
                 }));
@@ -764,6 +828,7 @@ async fn research(
         "max_hops": params.max_hops,
         "nodes": nodes_json,
         "connections": connections,
+        "references": citations.render(),
     });
 
     Json(ApiResponse::ok(
