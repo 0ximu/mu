@@ -100,6 +100,8 @@ pub struct SearchParams {
 pub struct CompressParams {
     #[serde(default = "default_detail")]
     pub detail: String,
+    #[allow(dead_code)]
+    pub max_tokens: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -235,7 +237,7 @@ async fn compress(
     };
 
     let mut output = String::new();
-    output.push_str(&format!("# MU Codebase Overview\n\n"));
+    output.push_str("# MU Codebase Overview\n\n");
     output.push_str(&format!(
         "Files: {} | Symbols: {} | Edges: {}\n\n",
         stats.type_counts.get("module").unwrap_or(&0),

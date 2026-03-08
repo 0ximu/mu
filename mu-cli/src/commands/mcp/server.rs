@@ -5,8 +5,9 @@
 use super::find_project_root;
 use std::collections::VecDeque;
 use std::fs;
+#[allow(unused_imports)]
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
@@ -111,6 +112,7 @@ pub struct OracleParams {
 
 /// A node that was accessed during this session
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct AccessedNode {
     pub name: String,
     pub node_type: String,
@@ -127,6 +129,7 @@ pub struct SessionState {
     /// Query history for pattern detection
     query_history: VecDeque<String>,
     /// Session start time
+    #[allow(dead_code)]
     started_at: Option<Instant>,
     /// Git recency cache: file_path -> commit count in last 30 days
     /// Lazy-loaded on first access, represents "hot" files in the codebase
@@ -183,7 +186,10 @@ impl SessionState {
 
     /// Count how many times a node has been accessed
     pub fn access_count(&self, name: &str) -> usize {
-        self.accessed_nodes.iter().filter(|n| n.name == name).count()
+        self.accessed_nodes
+            .iter()
+            .filter(|n| n.name == name)
+            .count()
     }
 
     /// Detect if we're stuck in a cluster (same nodes accessed repeatedly)
@@ -259,6 +265,7 @@ impl SessionState {
 
     /// Get the git recency boost for a file path.
     /// Returns 0.0-1.0 based on how "hot" (recently modified) the file is.
+    #[allow(dead_code)]
     pub fn git_recency_boost(&self, file_path: &str) -> f32 {
         if let Some(ref recency) = self.git_recency {
             if let Some(&commit_count) = recency.get(file_path) {
@@ -271,6 +278,7 @@ impl SessionState {
     }
 
     /// Get all hot files (for debugging/display)
+    #[allow(dead_code)]
     pub fn hot_files(&self) -> Vec<(&str, u32)> {
         if let Some(ref recency) = self.git_recency {
             let mut files: Vec<_> = recency.iter().map(|(k, v)| (k.as_str(), *v)).collect();
@@ -355,11 +363,13 @@ impl MuMcpServer {
     }
 
     /// Get the mubase, ensuring lazy initialization
+    #[allow(dead_code)]
     async fn mubase(&self) -> Result<&mu_daemon::storage::MUbase, McpError> {
         Ok(&self.ensure_state().await?.mubase)
     }
 
     /// Get the project root, ensuring lazy initialization
+    #[allow(dead_code)]
     async fn project_root(&self) -> Result<&PathBuf, McpError> {
         Ok(&self.ensure_state().await?.project_root)
     }
@@ -1138,7 +1148,12 @@ impl MuMcpServer {
 
         // Get supporting context via graph expansion
         let must_read_ids: Vec<&str> = must_read.iter().map(|r| r.name.as_str()).collect();
-        let context_nodes = self.get_context_nodes(&state.mubase, &state.project_root, &must_read_ids, &keywords);
+        let context_nodes = self.get_context_nodes(
+            &state.mubase,
+            &state.project_root,
+            &must_read_ids,
+            &keywords,
+        );
 
         // Extract patterns from the codebase relevant to this task
         let patterns = self.extract_patterns(&state.mubase, &keywords, &must_read_files);
@@ -1280,11 +1295,16 @@ impl MuMcpServer {
         if let Some(repeated_nodes) = session.detect_rumination() {
             output.push_str("**⚠️ Pattern Alert**: You've been revisiting the same nodes:\n");
             for node in &repeated_nodes {
-                output.push_str(&format!("- {} ({}× accessed)\n", node, session.access_count(node)));
+                output.push_str(&format!(
+                    "- {} ({}× accessed)\n",
+                    node,
+                    session.access_count(node)
+                ));
             }
 
             // Find unexplored neighbors as escape routes
-            let escape_routes = self.find_unexplored_neighbors(&state.mubase, &repeated_nodes, &session);
+            let escape_routes =
+                self.find_unexplored_neighbors(&state.mubase, &repeated_nodes, &session);
             if !escape_routes.is_empty() {
                 output.push_str("\n**Suggested escape routes** (unexplored neighbors):\n");
                 for (name, file_path, relationship) in escape_routes.iter().take(3) {
@@ -1432,7 +1452,12 @@ impl MuMcpServer {
     /// Two types of activity-dependent boost:
     /// 1. Session activity: nodes connected to recently accessed symbols
     /// 2. Git recency: files modified recently in git ("hot" codebase areas)
-    async fn hybrid_search(&self, mubase: &mu_daemon::storage::MUbase, query: &str, limit: usize) -> Vec<SearchResult> {
+    async fn hybrid_search(
+        &self,
+        mubase: &mu_daemon::storage::MUbase,
+        query: &str,
+        limit: usize,
+    ) -> Vec<SearchResult> {
         // Get session context for activity-dependent boosting
         let (recent_nodes, git_boosts) = {
             let mut session = self.session.lock().await;
@@ -1454,9 +1479,7 @@ impl MuMcpServer {
         };
 
         // Get results from both systems
-        let bm25_results = mubase
-            .bm25_search(query, limit * 2)
-            .unwrap_or_default();
+        let bm25_results = mubase.bm25_search(query, limit * 2).unwrap_or_default();
         let semantic_results = self
             .run_semantic_search(mubase, query, limit * 2)
             .await
@@ -1474,7 +1497,14 @@ impl MuMcpServer {
             .collect();
 
         // Apply RRF merge with both activity boosts
-        self.rrf_merge(mubase, bm25_converted, semantic_results, limit, &recent_nodes, &git_boosts)
+        self.rrf_merge(
+            mubase,
+            bm25_converted,
+            semantic_results,
+            limit,
+            &recent_nodes,
+            &git_boosts,
+        )
     }
 
     /// Reciprocal Rank Fusion - merge two ranked lists into one.
@@ -1572,7 +1602,7 @@ impl MuMcpServer {
     fn get_context_nodes(
         &self,
         mubase: &mu_daemon::storage::MUbase,
-        project_root: &PathBuf,
+        project_root: &Path,
         must_read_names: &[&str],
         keywords: &[String],
     ) -> Vec<(String, String, String, Option<String>)> {
@@ -1615,7 +1645,12 @@ impl MuMcpServer {
 
                         // Extract signature if it's a function
                         let signature = if node_type == "function" {
-                            self.get_function_signature(project_root, &file_path, line_start, line_end)
+                            self.get_function_signature(
+                                project_root,
+                                &file_path,
+                                line_start,
+                                line_end,
+                            )
                         } else {
                             None
                         };
@@ -1657,7 +1692,12 @@ impl MuMcpServer {
                         let line_end = row.get(4).and_then(|v| v.as_i64());
 
                         let signature = if node_type == "function" {
-                            self.get_function_signature(project_root, &file_path, line_start, line_end)
+                            self.get_function_signature(
+                                project_root,
+                                &file_path,
+                                line_start,
+                                line_end,
+                            )
                         } else {
                             None
                         };
@@ -1676,7 +1716,7 @@ impl MuMcpServer {
     /// Get function signature (first line of definition)
     fn get_function_signature(
         &self,
-        project_root: &PathBuf,
+        project_root: &Path,
         file_path: &str,
         line_start: Option<i64>,
         _line_end: Option<i64>,
@@ -1700,7 +1740,12 @@ impl MuMcpServer {
     }
 
     /// Extract relevant patterns from the codebase
-    fn extract_patterns(&self, mubase: &mu_daemon::storage::MUbase, keywords: &[String], relevant_files: &[String]) -> Vec<String> {
+    fn extract_patterns(
+        &self,
+        mubase: &mu_daemon::storage::MUbase,
+        keywords: &[String],
+        relevant_files: &[String],
+    ) -> Vec<String> {
         let mut patterns = Vec::new();
 
         // Check for error handling patterns
@@ -1835,7 +1880,12 @@ impl MuMcpServer {
             .collect())
     }
 
-    fn run_keyword_search(&self, mubase: &mu_daemon::storage::MUbase, query: &str, limit: usize) -> anyhow::Result<Vec<SearchResult>> {
+    fn run_keyword_search(
+        &self,
+        mubase: &mu_daemon::storage::MUbase,
+        query: &str,
+        limit: usize,
+    ) -> anyhow::Result<Vec<SearchResult>> {
         let sql = format!(
             "SELECT type, name, file_path FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
             query.to_lowercase().replace('\'', "''"),
@@ -2099,16 +2149,14 @@ impl ServerHandler for MuMcpServer {
     /// When Claude Code changes directories or the client's workspace changes,
     /// we receive this notification. We then fetch the new roots and store them
     /// for use in lazy project initialization.
-    fn on_roots_list_changed(
+    async fn on_roots_list_changed(
         &self,
         context: rmcp::service::NotificationContext<rmcp::service::RoleServer>,
-    ) -> impl Future<Output = ()> + Send + '_ {
-        async move {
-            // Try to fetch the current roots from the client
-            if let Ok(roots_result) = context.peer.list_roots().await {
-                let mut client_roots = self.client_roots.write().await;
-                *client_roots = Some(roots_result.roots);
-            }
+    ) {
+        // Try to fetch the current roots from the client
+        if let Ok(roots_result) = context.peer.list_roots().await {
+            let mut client_roots = self.client_roots.write().await;
+            *client_roots = Some(roots_result.roots);
         }
     }
 }
