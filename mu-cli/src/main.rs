@@ -121,9 +121,13 @@ enum Commands {
         #[arg(short, long)]
         output: Option<String>,
 
-        /// Detail level: low, medium, high
+        /// Detail level: low, medium, high, auto
         #[arg(short, long, default_value = "medium")]
         detail: String,
+
+        /// Maximum token budget for output (prioritizes important modules)
+        #[arg(long)]
+        max_tokens: Option<usize>,
     },
 
     /// Show project status and recommended next steps
@@ -575,7 +579,8 @@ async fn main() -> anyhow::Result<()> {
             path,
             output,
             detail,
-        } => compress::run(&path, output.as_deref(), &detail, format).await,
+            max_tokens,
+        } => compress::run(&path, output.as_deref(), &detail, max_tokens, format).await,
         Commands::Status { path } => status::run(&path, format).await,
         Commands::Embed {
             path,
