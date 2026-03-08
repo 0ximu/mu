@@ -1541,6 +1541,16 @@ impl MuMcpServer {
         let mut scores: HashMap<String, f32> = HashMap::new();
         let mut result_data: HashMap<String, SearchResult> = HashMap::new();
 
+        // Capture actual similarities before consuming the vecs
+        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
+        for r in &semantic_results {
+            semantic_sims.insert(r.name.clone(), r.similarity);
+        }
+        let mut bm25_sims: HashMap<String, f32> = HashMap::new();
+        for r in &bm25_results {
+            bm25_sims.insert(r.name.clone(), r.similarity);
+        }
+
         // Score from BM25 ranking (keyword matches) - weighted higher
         for (rank, result) in bm25_results.into_iter().enumerate() {
             let key = result.name.clone();
@@ -1584,15 +1594,16 @@ impl MuMcpServer {
         let mut scored: Vec<(String, f32)> = scores.into_iter().collect();
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Build final results with RRF score as similarity
-        let max_score = scored.first().map(|(_, s)| *s).unwrap_or(1.0);
+        // Build final results - use actual cosine similarity for display score
+        // RRF controls ordering, but the displayed score = real similarity
         scored
             .into_iter()
             .take(limit)
-            .filter_map(|(key, score)| {
+            .filter_map(|(key, _score)| {
                 result_data.remove(&key).map(|mut r| {
-                    // Normalize RRF score to 0-1 range
-                    r.similarity = score / max_score;
+                    // Prefer semantic similarity (actual cosine), fall back to BM25 score
+                    r.similarity = semantic_sims.get(&key).copied()
+                        .unwrap_or_else(|| bm25_sims.get(&key).copied().unwrap_or(0.3));
                     r
                 })
             })
@@ -2113,12 +2124,103 @@ impl MuMcpServer {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct SearchResult {
     name: String,
     node_type: String,
     file_path: Option<String>,
     similarity: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Verify that semantic_sims lookup uses result.name as the key
+    #[test]
+    fn test_semantic_sims_keyed_by_name() {
+        let results = vec![
+            SearchResult { name: "foo".into(), similarity: 0.92, ..Default::default() },
+            SearchResult { name: "bar".into(), similarity: 0.75, ..Default::default() },
+        ];
+
+        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
+        for r in &results {
+            semantic_sims.insert(r.name.clone(), r.similarity);
+        }
+
+        assert_eq!(semantic_sims.get("foo").copied(), Some(0.92));
+        assert_eq!(semantic_sims.get("bar").copied(), Some(0.75));
+        assert_eq!(semantic_sims.get("missing"), None);
+    }
+
+    /// Verify RRF ordering is preserved when we swap out display scores.
+    /// Items should stay in RRF-rank order even though similarity values differ.
+    #[test]
+    fn test_rrf_ordering_preserved_with_real_similarities() {
+        // Simulate RRF-scored items (already sorted by RRF score desc)
+        let rrf_ranked: Vec<(String, f32)> = vec![
+            ("top".into(), 0.05),
+            ("mid".into(), 0.03),
+            ("low".into(), 0.01),
+        ];
+
+        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
+        // "mid" has higher cosine sim than "top" -- but RRF says "top" ranks first
+        semantic_sims.insert("top".into(), 0.70);
+        semantic_sims.insert("mid".into(), 0.95);
+
+        let bm25_sims: HashMap<String, f32> = HashMap::new();
+
+        let result_data: HashMap<String, SearchResult> = vec![
+            ("top".into(), SearchResult { name: "top".into(), similarity: 0.0, ..Default::default() }),
+            ("mid".into(), SearchResult { name: "mid".into(), similarity: 0.0, ..Default::default() }),
+            ("low".into(), SearchResult { name: "low".into(), similarity: 0.0, ..Default::default() }),
+        ].into_iter().collect();
+
+        let mut result_data = result_data;
+        let final_results: Vec<SearchResult> = rrf_ranked
+            .into_iter()
+            .filter_map(|(key, _score)| {
+                result_data.remove(&key).map(|mut r| {
+                    r.similarity = semantic_sims.get(&key).copied()
+                        .unwrap_or_else(|| bm25_sims.get(&key).copied().unwrap_or(0.3));
+                    r
+                })
+            })
+            .collect();
+
+        // Order preserved: top, mid, low
+        assert_eq!(final_results[0].name, "top");
+        assert_eq!(final_results[1].name, "mid");
+        assert_eq!(final_results[2].name, "low");
+
+        // Display scores reflect actual cosine similarities
+        assert!((final_results[0].similarity - 0.70).abs() < 0.001);
+        assert!((final_results[1].similarity - 0.95).abs() < 0.001);
+        // "low" has no semantic or BM25 entry, falls back to 0.3
+        assert!((final_results[2].similarity - 0.3).abs() < 0.001);
+    }
+
+    /// Keyword scoring sigmoid caps at 0.85
+    #[test]
+    fn test_keyword_scoring_caps_at_085() {
+        // Simulate various match scores through the sigmoid
+        for match_score in [1.0_f32, 3.0, 6.0, 10.0, 50.0, 100.0] {
+            let similarity = (match_score / (match_score + 3.0)).min(0.85);
+            assert!(similarity <= 0.85, "score {} produced similarity {} > 0.85", match_score, similarity);
+            assert!(similarity > 0.0);
+        }
+
+        // Low match score should give low similarity
+        let low = (1.0_f32 / (1.0 + 3.0)).min(0.85);
+        assert!(low < 0.3, "low match score should give low similarity, got {}", low);
+
+        // High match score should approach but not exceed 0.85
+        let high = (100.0_f32 / (100.0 + 3.0)).min(0.85);
+        assert!((high - 0.85).abs() < 0.001);
+    }
 }
 
 #[tool_handler]

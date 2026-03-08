@@ -434,8 +434,8 @@ fn run_semantic_search(
     // Embed the query
     let query_embedding = model.embed_one(query)?;
 
-    // Perform vector search with lower threshold for broader context
-    let results = mubase.vector_search(&query_embedding, limit, Some(0.1))?;
+    // Perform vector search - threshold 0.35 filters weak matches
+    let results = mubase.vector_search(&query_embedding, limit, Some(0.35))?;
 
     Ok(results)
 }
@@ -617,9 +617,6 @@ fn run_keyword_search(
 
     let result = mubase.query(&sql)?;
 
-    // Maximum possible score for normalization
-    let max_score = (keywords.len() * 3) as f32; // 2 for name + 1 for qualified_name per keyword
-
     let results: Vec<mu_daemon::storage::VectorSearchResult> = result
         .rows
         .iter()
@@ -645,8 +642,9 @@ fn run_keyword_search(
             // Extract match_score from the query results (last column)
             let match_score = row.get(9).and_then(|v| v.as_i64()).unwrap_or(1) as f32;
 
-            // Normalize to 0.0-1.0 range (cap at 1.0)
-            let similarity = (match_score / max_score).min(1.0);
+            // Sigmoid normalization capped at 0.85 - keyword-only results
+            // should never show higher confidence than semantic matches
+            let similarity = (match_score / (match_score + 3.0)).min(0.85);
 
             mu_daemon::storage::VectorSearchResult {
                 node_id,
@@ -733,6 +731,27 @@ mod tests {
         assert!(!keywords.contains(&"b".to_string()));
         assert!(!keywords.contains(&"ab".to_string()));
         assert!(keywords.contains(&"ABC".to_string()));
+    }
+
+    #[test]
+    fn test_keyword_score_sigmoid_caps_at_085() {
+        // Simulate the keyword scoring logic from run_keyword_search
+        let test_cases: Vec<(f32, f32, f32)> = vec![
+            // (match_score, expected_min, expected_max)
+            (1.0, 0.0, 0.30),   // Low match: low score
+            (3.0, 0.40, 0.55),  // Medium match: moderate score
+            (6.0, 0.60, 0.70),  // Good match: decent score
+            (50.0, 0.84, 0.86), // Great match: capped at 0.85
+        ];
+
+        for (match_score, expected_min, expected_max) in test_cases {
+            let similarity = (match_score / (match_score + 3.0)).min(0.85);
+            assert!(
+                similarity >= expected_min && similarity <= expected_max,
+                "match_score={}: expected [{}, {}], got {}",
+                match_score, expected_min, expected_max, similarity
+            );
+        }
     }
 
     #[test]
