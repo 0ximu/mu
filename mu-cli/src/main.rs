@@ -175,6 +175,29 @@ enum Commands {
         expand: bool,
     },
 
+    /// Deep code exploration: search + graph walk + compress
+    #[command(visible_alias = "r")]
+    Research {
+        /// Natural language question or topic
+        query: String,
+
+        /// Maximum BFS hops from seed results
+        #[arg(long, default_value = "2")]
+        max_hops: usize,
+
+        /// Maximum token budget for output
+        #[arg(long)]
+        max_tokens: Option<usize>,
+
+        /// Expand query using graph neighbors for better recall
+        #[arg(long)]
+        expand: bool,
+
+        /// Disable graph-aware reranking
+        #[arg(long = "no-rerank")]
+        no_rerank: bool,
+    },
+
     /// Find relevant code context for a question (semantic search)
     Grok {
         /// Question or topic to find context for
@@ -593,6 +616,13 @@ async fn main() -> anyhow::Result<()> {
                 embed::run_incremental(&path, force, format).await
             }
         }
+        Commands::Research {
+            query,
+            max_hops,
+            max_tokens,
+            expand,
+            no_rerank,
+        } => research::run(&query, max_hops, max_tokens, expand, !no_rerank, format).await,
         Commands::Search {
             query,
             limit,
