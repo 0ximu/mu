@@ -79,18 +79,21 @@ pub fn find_mubase_in(root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Get the MU directory path for a project root.
+/// Find the project root (directory containing `.mu/`) by walking up from `start`.
 ///
-/// Returns `.mu` path without checking if it exists.
-pub fn mu_dir(root: &Path) -> PathBuf {
-    root.join(MU_DIR)
-}
-
-/// Get the MU database path for a project root.
-///
-/// Returns `.mu/mubase` path without checking if it exists.
-pub fn mubase_path(root: &Path) -> PathBuf {
-    mu_dir(root).join(MUBASE_FILE)
+/// Returns `None` if no `.mu` directory is found.
+pub fn find_project_root(start: &Path) -> Option<PathBuf> {
+    let start = start.canonicalize().ok()?;
+    let mut current = start.as_path();
+    loop {
+        if current.join(MU_DIR).exists() {
+            return Some(current.to_path_buf());
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return None,
+        }
+    }
 }
 
 #[cfg(test)]

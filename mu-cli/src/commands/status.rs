@@ -3,35 +3,14 @@
 //! Checks configuration, graph database, and provides actionable guidance
 //! for what to do next.
 
+use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 use anyhow::Result;
 use colored::Colorize;
 use duckdb::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::time::Instant;
-
-/// Find the mubase database path.
-///
-/// Checks in order:
-/// 1. `.mu/mubase` (new standard path)
-/// 2. `.mubase` (legacy path for backward compatibility)
-fn find_mubase_path(root: &Path) -> Option<PathBuf> {
-    // New standard path: .mu/mubase
-    let new_path = root.join(".mu").join("mubase");
-    if new_path.exists() {
-        return Some(new_path);
-    }
-
-    // Legacy path: .mubase
-    let legacy_path = root.join(".mubase");
-    if legacy_path.exists() {
-        return Some(legacy_path);
-    }
-
-    None
-}
 
 /// Statistics about the code graph.
 #[derive(Debug, Clone, Serialize)]
@@ -142,26 +121,6 @@ impl TableDisplay for StatusInfo {
         lines.join("\n")
     }
 
-    fn to_mu(&self) -> String {
-        let mut lines = Vec::new();
-        lines.push(":: status".to_string());
-
-        if self.mubase_exists {
-            lines.push("# MU: Ready".to_string());
-            if let Some(stats) = &self.stats {
-                lines.push(format!("  nodes: {}", stats.node_count));
-                lines.push(format!("  edges: {}", stats.edge_count));
-            }
-        } else {
-            lines.push("# MU: Not initialized".to_string());
-        }
-
-        if let Some(action) = &self.next_action {
-            lines.push(format!("  -> {}", action));
-        }
-
-        lines.join("\n")
-    }
 }
 
 /// Run the status command.
@@ -182,7 +141,7 @@ pub async fn run(path: &str, format: OutputFormat) -> Result<()> {
     let config_exists = root.join(".murc.toml").exists();
 
     // Find mubase
-    let mubase_path = find_mubase_path(&root);
+    let mubase_path = mubase::find_mubase_in(&root);
     let mubase_exists = mubase_path.is_some();
 
     let mut stats = None;

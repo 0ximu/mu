@@ -3,6 +3,7 @@
 //! Provides graph-based analysis commands:
 //! - `mu impact <node>` - Find downstream impact (what might break if this changes)
 
+use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -12,42 +13,10 @@ use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
-
-/// Find the MUbase database in the given directory or its parents.
-fn find_mubase(start_path: &str) -> Result<PathBuf> {
-    let start = std::path::Path::new(start_path).canonicalize()?;
-    let mut current = start.as_path();
-
-    loop {
-        // New standard path: .mu/mubase
-        let mu_dir = current.join(".mu");
-        let db_path = mu_dir.join("mubase");
-        if db_path.exists() {
-            return Ok(db_path);
-        }
-
-        // Legacy path: .mubase
-        let legacy_path = current.join(".mubase");
-        if legacy_path.exists() {
-            return Ok(legacy_path);
-        }
-
-        // Move up to parent
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => {
-                return Err(anyhow::anyhow!(
-                    "No MUbase found. Run 'mu bootstrap' first to create the database."
-                ))
-            }
-        }
-    }
-}
 
 /// Open database connection in read-only mode.
 pub fn open_db() -> Result<Connection> {
-    let db_path = find_mubase(".")?;
+    let db_path = mubase::find_mubase(".")?;
     Connection::open_with_flags(
         &db_path,
         duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?,
@@ -270,25 +239,6 @@ impl TableDisplay for ImpactResult {
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut output = String::new();
-        output.push_str(&format!(
-            ":: {} {}\n",
-            if self.direction == "downstream" {
-                "impact"
-            } else {
-                "ancestors"
-            },
-            self.node_id
-        ));
-
-        for node in &self.affected_nodes {
-            output.push_str(&format!("- {} [{}]\n", node.id, node.node_type));
-        }
-
-        output.push_str(&format!("# total: {}\n", self.total_count));
-        output
-    }
 }
 
 // ============== Command Runners ==============
@@ -337,7 +287,7 @@ pub async fn run_impact(
 }
 
 /// Try to resolve a partial node ID to a full node ID using fuzzy matching
-fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
+pub fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
     // 1. Try exact match on id or name first
     let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id = ?1 OR name = ?1")?;
     let mut rows = stmt.query(params![query])?;

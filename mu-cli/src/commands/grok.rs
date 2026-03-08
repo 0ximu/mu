@@ -11,6 +11,7 @@ use std::time::Instant;
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 
 /// Context item containing code snippet
@@ -151,105 +152,12 @@ impl TableDisplay for GrokResult {
 
         output.push_str(&format!(
             "{}\n",
-            "Tip: Use '--format mu' for LLM-optimized output".dimmed()
+            "Tip: Use '--format json' for machine-readable output".dimmed()
         ));
 
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut output = String::new();
-
-        // Header
-        output.push_str(&format!(":: grok \"{}\"\n", self.question));
-        output.push_str(&format!("# contexts: {}\n", self.total_nodes));
-        output.push_str(&format!("# depth: {}\n", self.depth));
-        output.push_str(&format!("# lines: {}\n", self.total_lines));
-        let method_str = match self.search_method {
-            SearchMethod::Semantic => "semantic",
-            SearchMethod::Keyword => "keyword",
-        };
-        output.push_str(&format!("# search: {}\n", method_str));
-        output.push_str(&format!("# duration: {}ms\n\n", self.duration_ms));
-
-        // Context sections
-        for ctx in &self.contexts {
-            let sigil = match ctx.node_type.as_str() {
-                "module" => "!",
-                "class" => "@",
-                "function" => "$",
-                _ => "#",
-            };
-
-            // Node header with metadata
-            output.push_str(&format!(
-                "{}{} [{}] score={:.2}\n",
-                sigil, ctx.name, ctx.node_type, ctx.similarity
-            ));
-
-            if let Some(ref path) = ctx.file_path {
-                let location = if let (Some(start), Some(end)) = (ctx.line_start, ctx.line_end) {
-                    format!("{}:{}-{}", path, start, end)
-                } else if let Some(start) = ctx.line_start {
-                    format!("{}:{}", path, start)
-                } else {
-                    path.clone()
-                };
-                output.push_str(&format!("  | {}\n", location));
-            }
-
-            // Dependencies
-            if !ctx.dependencies.is_empty() {
-                output.push_str("  | deps:\n");
-                for dep in &ctx.dependencies {
-                    output.push_str(&format!("  |   & {}\n", dep));
-                }
-            }
-
-            // Source code (token-efficient, no line numbers)
-            if let Some(ref code) = ctx.source_code {
-                output.push_str("  |\n");
-                for line in code.lines() {
-                    // Skip empty lines to save tokens
-                    if !line.trim().is_empty() {
-                        output.push_str(&format!("  | {}\n", line));
-                    }
-                }
-            }
-
-            output.push('\n');
-        }
-
-        output
-    }
-}
-
-/// Find the mubase path starting from the given directory
-fn find_mubase_path(start_dir: &Path) -> Option<std::path::PathBuf> {
-    let mut current = start_dir.to_path_buf();
-    loop {
-        let mubase_path = current.join(".mu").join("mubase");
-        if mubase_path.exists() {
-            return Some(mubase_path);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
-}
-
-/// Find the project root (where .mu directory is located)
-fn find_project_root(start_dir: &Path) -> Option<std::path::PathBuf> {
-    let mut current = start_dir.to_path_buf();
-    loop {
-        let mu_dir = current.join(".mu");
-        if mu_dir.exists() {
-            return Some(current);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }
 
 /// Extract source code from file given line range
@@ -388,21 +296,11 @@ pub async fn run(question: &str, depth: u8, format: OutputFormat) -> anyhow::Res
 
     // Find mubase
     let cwd = std::env::current_dir()?;
-    let mubase_path = match find_mubase_path(&cwd) {
-        Some(path) => path,
-        None => {
-            anyhow::bail!(
-                "No .mu/mubase found. Run 'mu bootstrap' first to initialize MU for this project."
-            );
-        }
-    };
+    let mubase_path = mubase::find_mubase_optional(".")
+        .ok_or_else(|| anyhow::anyhow!("No .mu/mubase found. Run 'mu bootstrap' first."))?;
 
-    let project_root = match find_project_root(&cwd) {
-        Some(path) => path,
-        None => {
-            anyhow::bail!("Could not determine project root. Ensure .mu directory exists.");
-        }
-    };
+    let project_root = mubase::find_project_root(&cwd)
+        .ok_or_else(|| anyhow::anyhow!("Could not determine project root."))?;
 
     // Open database in read-only mode (grok only reads, doesn't write)
     let mubase = mu_daemon::storage::MUbase::open_read_only(&mubase_path)?;

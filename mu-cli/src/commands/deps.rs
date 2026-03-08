@@ -3,44 +3,14 @@
 //! Analyzes the dependency graph to show what a node depends on (ancestors)
 //! or what depends on it (dependents/reverse).
 
+use crate::commands::graph;
+use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 use anyhow::{Context, Result};
 use colored::Colorize;
 use duckdb::{params, Connection};
 use serde::Serialize;
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
-
-/// Find the MUbase database in the given directory or its parents.
-fn find_mubase(start_path: &str) -> Result<PathBuf> {
-    let start = std::path::Path::new(start_path).canonicalize()?;
-    let mut current = start.as_path();
-
-    loop {
-        // New standard path: .mu/mubase
-        let mu_dir = current.join(".mu");
-        let db_path = mu_dir.join("mubase");
-        if db_path.exists() {
-            return Ok(db_path);
-        }
-
-        // Legacy path: .mubase
-        let legacy_path = current.join(".mubase");
-        if legacy_path.exists() {
-            return Ok(legacy_path);
-        }
-
-        // Move up to parent
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => {
-                return Err(anyhow::anyhow!(
-                    "No MUbase found. Run 'mu bootstrap' first to create the database."
-                ))
-            }
-        }
-    }
-}
 
 /// Dependency information for a node
 #[derive(Debug, Serialize)]
@@ -132,29 +102,6 @@ impl TableDisplay for DependencyInfo {
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut output = String::new();
-        let sigil = if self.direction == "outgoing" {
-            "deps"
-        } else {
-            "dependents"
-        };
-        output.push_str(&format!(
-            ":: {} {} depth={}\n",
-            sigil, self.node_id, self.depth
-        ));
-
-        for dep in &self.dependencies {
-            let prefix = "  ".repeat(dep.depth as usize);
-            output.push_str(&format!(
-                "{}- {} [{}] via:{}\n",
-                prefix, dep.id, dep.node_type, dep.edge_type
-            ));
-        }
-
-        output.push_str(&format!("# total: {}\n", self.total_count));
-        output
-    }
 }
 
 /// Find the parent module for a class or function node.
@@ -320,10 +267,8 @@ async fn run_direct(
     include_contains: bool,
     format: OutputFormat,
 ) -> Result<()> {
-    // Find the MUbase database
-    let db_path = find_mubase(".")?;
-
     // Open the database in read-only mode
+    let db_path = mubase::find_mubase(".")?;
     let conn = Connection::open_with_flags(
         &db_path,
         duckdb::Config::default().access_mode(duckdb::AccessMode::ReadOnly)?,
@@ -331,7 +276,7 @@ async fn run_direct(
     .with_context(|| format!("Failed to open database: {:?}", db_path))?;
 
     // Try to resolve the node ID if it's a partial match
-    let node_id = resolve_node_id(&conn, node)?;
+    let node_id = graph::resolve_node_id(&conn, node)?;
 
     // Get node info for display
     let node_info = get_node_info(&conn, &node_id)?;
@@ -351,62 +296,6 @@ async fn run_direct(
     Output::new(info, format).render()
 }
 
-/// Try to resolve a partial node ID to a full node ID using fuzzy matching
-fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
-    // 1. Try exact match on id or name first
-    let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id = ?1 OR name = ?1")?;
-    let mut rows = stmt.query(params![query])?;
-    if let Some(row) = rows.next()? {
-        return Ok(row.get(0)?);
-    }
-
-    // 2. Try fuzzy match on both name and id (case-insensitive)
-    let pattern = format!("%{}%", query.to_lowercase());
-    let mut stmt = conn.prepare(
-        "SELECT id, name, type FROM nodes WHERE LOWER(name) LIKE ?1 OR LOWER(id) LIKE ?1 LIMIT 10",
-    )?;
-    let mut rows = stmt.query(params![pattern])?;
-
-    let mut matches: Vec<(String, String, String)> = Vec::new();
-    while let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let name: String = row.get(1)?;
-        let node_type: String = row.get(2)?;
-        matches.push((id, name, node_type));
-    }
-
-    match matches.len() {
-        0 => Err(anyhow::anyhow!("Node not found: {}", query)),
-        // Safe: len() == 1 guarantees next() returns Some
-        1 => Ok(matches.into_iter().next().expect("len is 1").0),
-        _ => {
-            // Sort matches by type priority (class > module > function) then by name
-            let mut matches = matches;
-            matches.sort_by(|a, b| {
-                let type_priority = |t: &str| match t {
-                    "class" => 0,
-                    "module" => 1,
-                    "function" => 2,
-                    _ => 3,
-                };
-                type_priority(&a.2)
-                    .cmp(&type_priority(&b.2))
-                    .then_with(|| a.1.cmp(&b.1))
-            });
-
-            // Multiple matches - show sorted suggestions
-            let suggestions: Vec<String> = matches
-                .iter()
-                .map(|(id, name, typ)| format!("  {} [{}] {}", name, typ, id))
-                .collect();
-            Err(anyhow::anyhow!(
-                "Multiple nodes match '{}'. Be more specific:\n{}",
-                query,
-                suggestions.join("\n")
-            ))
-        }
-    }
-}
 
 /// Get node name and type for display
 fn get_node_info(conn: &Connection, node_id: &str) -> Result<(String, String)> {
@@ -425,6 +314,8 @@ fn get_node_info(conn: &Connection, node_id: &str) -> Result<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::graph::resolve_node_id;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     fn create_test_db() -> (Connection, PathBuf) {

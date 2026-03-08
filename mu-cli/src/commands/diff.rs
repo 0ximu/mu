@@ -166,49 +166,6 @@ impl TableDisplay for DiffResult {
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut output = String::new();
-
-        output.push_str(&format!(":: diff {}..{}\n", self.base_ref, self.head_ref));
-        output.push_str(&format!("# changes: {}\n", self.changes.len()));
-        output.push_str(&format!("# breaking: {}\n", self.breaking_changes.len()));
-        output.push_str(&format!("# files: {}\n", self.files_changed));
-        output.push_str(&format!("# duration: {}ms\n\n", self.duration_ms));
-
-        // Breaking changes
-        if !self.breaking_changes.is_empty() {
-            output.push_str("## BREAKING\n");
-            for change in &self.breaking_changes {
-                output.push_str(&format!(
-                    "! {} [{}] {}\n",
-                    change.entity_name, change.entity_type, change.change_type
-                ));
-                if let Some(ref path) = change.file_path {
-                    output.push_str(&format!("  | {}\n", path));
-                }
-            }
-            output.push('\n');
-        }
-
-        // All changes
-        output.push_str("## CHANGES\n");
-        for change in &self.changes {
-            let sigil = match change.change_type.as_str() {
-                "added" => "+",
-                "removed" => "-",
-                _ => "~",
-            };
-            output.push_str(&format!(
-                "{} {} [{}]\n",
-                sigil, change.entity_name, change.entity_type
-            ));
-            if let Some(ref path) = change.file_path {
-                output.push_str(&format!("  | {}\n", path));
-            }
-        }
-
-        output
-    }
 }
 
 /// Get the list of changed files between two git refs

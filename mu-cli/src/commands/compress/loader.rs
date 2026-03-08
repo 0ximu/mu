@@ -11,26 +11,7 @@ type RelationshipMap = HashMap<String, Vec<(String, String)>>;
 
 /// Find the MUbase database in the given directory or its parents
 pub fn find_mubase(start_path: &str) -> Option<PathBuf> {
-    let start = std::path::Path::new(start_path).canonicalize().ok()?;
-    let mut current = start.as_path();
-
-    loop {
-        let mu_dir = current.join(".mu");
-        let db_path = mu_dir.join("mubase");
-        if db_path.exists() {
-            return Some(db_path);
-        }
-
-        let legacy_path = current.join(".mubase");
-        if legacy_path.exists() {
-            return Some(legacy_path);
-        }
-
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return None,
-        }
-    }
+    crate::mubase::find_mubase_optional(start_path)
 }
 
 /// Raw node from the database
