@@ -149,6 +149,7 @@ pub async fn run(
     query: &str,
     limit: usize,
     threshold: f32,
+    expand: bool,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Validate query is not empty
@@ -157,7 +158,7 @@ pub async fn run(
     }
 
     let start = Instant::now();
-    run_direct(query, limit, threshold, format, start).await
+    run_direct(query, limit, threshold, expand, format, start).await
 }
 
 /// Run search directly against the database
@@ -165,6 +166,7 @@ async fn run_direct(
     query: &str,
     limit: usize,
     threshold: f32,
+    expand: bool,
     format: OutputFormat,
     start: Instant,
 ) -> anyhow::Result<()> {
@@ -186,10 +188,13 @@ async fn run_direct(
     let has_embeddings = mubase.has_embeddings()?;
 
     let results = if has_embeddings {
-        // Semantic search path
-        run_semantic_search(&mubase, query, limit, threshold)?
+        if expand {
+            run_expanded_search(&mubase, query, limit, threshold)?
+        } else {
+            run_semantic_search(&mubase, query, limit, threshold)?
+        }
     } else {
-        // Fallback to keyword search
+        // Fallback to keyword search (expansion not applicable)
         run_keyword_search(&mubase, query, limit)?
     };
 
@@ -232,6 +237,75 @@ fn run_semantic_search(
             file_path: result.file_path,
             line_start: None, // VectorSearchResult doesn't include line info
             similarity: result.similarity,
+        })
+        .collect();
+
+    Ok(search_results)
+}
+
+/// Run expanded semantic search using graph neighbors for query expansion.
+///
+/// 1. Run initial search to get top 10 results
+/// 2. Load graph, get 1-hop neighbors for each result
+/// 3. Expand query using neighbor names
+/// 4. Run searches for each expanded term
+/// 5. Merge and deduplicate results
+fn run_expanded_search(
+    mubase: &mu_daemon::storage::MUbase,
+    query: &str,
+    limit: usize,
+    threshold: f32,
+) -> anyhow::Result<Vec<SearchResult>> {
+    use mu_daemon::query_expansion::{expand_query, merge_search_results};
+
+    let model = mu_embeddings::MuSigmaModel::embedded()?;
+
+    // Step 1: Initial search to find seed results
+    let query_embedding = model.embed_one(query)?;
+    let initial_results = mubase.vector_search(&query_embedding, 10, Some(threshold))?;
+
+    if initial_results.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Step 2: Load graph and collect neighbor names
+    let conn = crate::commands::graph::open_db()?;
+    let graph = crate::commands::graph::GraphData::from_db(&conn)?;
+
+    let mut neighbor_names = Vec::new();
+    for result in &initial_results {
+        // Get 1-hop neighbors (outgoing edges)
+        let neighbor_ids = graph.impact(&result.node_id, None, Some(1));
+        for nid in &neighbor_ids {
+            if let Some(info) = graph.get_info(nid) {
+                neighbor_names.push(info.name.clone());
+            }
+        }
+    }
+
+    // Step 3: Expand query (original + up to 4 derived terms)
+    let queries = expand_query(query, &neighbor_names, 5);
+
+    // Step 4: Run search for each expanded query
+    let mut all_results = Vec::new();
+    for q in &queries {
+        let emb = model.embed_one(q)?;
+        let results = mubase.vector_search(&emb, limit, Some(threshold))?;
+        all_results.push(results);
+    }
+
+    // Step 5: Merge, dedup, boost, and truncate
+    let merged = merge_search_results(all_results);
+    let search_results: Vec<SearchResult> = merged
+        .into_iter()
+        .take(limit)
+        .map(|r| SearchResult {
+            node_id: r.node_id,
+            name: r.name,
+            node_type: r.node_type,
+            file_path: r.file_path,
+            line_start: None,
+            similarity: r.similarity,
         })
         .collect();
 

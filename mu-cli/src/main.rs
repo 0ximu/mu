@@ -161,6 +161,10 @@ enum Commands {
         /// Minimum similarity threshold (0.0-1.0)
         #[arg(short, long, default_value = "0.1", value_parser = parse_threshold)]
         threshold: f32,
+
+        /// Expand query using graph neighbors for better recall
+        #[arg(long)]
+        expand: bool,
     },
 
     /// Find relevant code context for a question (semantic search)
@@ -584,7 +588,8 @@ async fn main() -> anyhow::Result<()> {
             query,
             limit,
             threshold,
-        } => search::run(&query, limit, threshold, format).await,
+            expand,
+        } => search::run(&query, limit, threshold, expand, format).await,
         Commands::Grok { question, depth } => grok::run(&question, depth, format).await,
         Commands::Query {
             query,

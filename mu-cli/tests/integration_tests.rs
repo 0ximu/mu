@@ -198,7 +198,7 @@ fn test_status_json_format_after_bootstrap() {
 
     let stdout_str = stdout(&output);
     let json: serde_json::Value = serde_json::from_str(&stdout_str)
-        .expect(&format!("Output should be valid JSON: {}", stdout_str));
+        .unwrap_or_else(|_| panic!("Output should be valid JSON: {}", stdout_str));
 
     // Check expected fields
     assert_eq!(
@@ -360,7 +360,7 @@ fn test_bootstrap_json_format() {
 
     let stdout_str = stdout(&output);
     let json: serde_json::Value = serde_json::from_str(&stdout_str)
-        .expect(&format!("Output should be valid JSON: {}", stdout_str));
+        .unwrap_or_else(|_| panic!("Output should be valid JSON: {}", stdout_str));
 
     // Check expected fields
     assert!(json.get("success").is_some(), "Should have success field");

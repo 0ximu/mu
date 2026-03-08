@@ -5,4 +5,5 @@
 //! - Embedding model trait for semantic search
 
 pub mod embeddings;
+pub mod query_expansion;
 pub mod storage;
