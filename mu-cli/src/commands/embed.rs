@@ -167,6 +167,105 @@ pub fn compute_all_hashes(
     hashes
 }
 
+/// Max characters for embedding text input.
+const EMBED_TEXT_MAX_CHARS: usize = 400;
+
+/// Extract source code lines from a file on disk.
+fn extract_source(
+    project_root: &Path,
+    file_path: &str,
+    line_start: Option<u32>,
+    line_end: Option<u32>,
+) -> Option<String> {
+    let full_path = project_root.join(file_path);
+    let content = fs::read_to_string(&full_path).ok()?;
+
+    match (line_start, line_end) {
+        (Some(start), Some(end)) => {
+            let lines: Vec<&str> = content.lines().collect();
+            let start_idx = (start.saturating_sub(1) as usize).min(lines.len());
+            let end_idx = (end as usize).min(lines.len());
+            if start_idx < end_idx {
+                Some(lines[start_idx..end_idx].join("\n"))
+            } else {
+                None
+            }
+        }
+        (Some(start), None) => {
+            let lines: Vec<&str> = content.lines().collect();
+            let start_idx = (start.saturating_sub(1) as usize).min(lines.len());
+            if start_idx < lines.len() {
+                Some(lines[start_idx..].join("\n"))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Build rich text for embedding a node.
+///
+/// Priority: docstring (up to 100 chars) + source (remainder), capped at EMBED_TEXT_MAX_CHARS.
+/// Falls back to "{type} {name} {qualified_name}" when source is unavailable.
+fn build_embedding_text(
+    project_root: &Path,
+    type_str: &str,
+    name: &str,
+    qualified_name: &str,
+    file_path: Option<&str>,
+    line_start: Option<u32>,
+    line_end: Option<u32>,
+    properties_json: Option<&str>,
+) -> String {
+    // Try to extract docstring from properties
+    let docstring = properties_json.and_then(|p| {
+        serde_json::from_str::<serde_json::Value>(p)
+            .ok()
+            .and_then(|v| v.get("docstring")?.as_str().map(|s| s.to_string()))
+    });
+
+    // Try to extract source from file
+    let source = file_path.and_then(|fp| extract_source(project_root, fp, line_start, line_end));
+
+    let header = format!("{} {}\n", type_str, name);
+
+    match (docstring, source) {
+        (Some(doc), Some(src)) => {
+            let doc_budget = 100usize.min(EMBED_TEXT_MAX_CHARS.saturating_sub(header.len()));
+            let doc_truncated: String = doc.chars().take(doc_budget).collect();
+            let remaining = EMBED_TEXT_MAX_CHARS
+                .saturating_sub(header.len())
+                .saturating_sub(doc_truncated.len())
+                .saturating_sub(1); // newline between doc and src
+            let src_truncated: String = src.chars().take(remaining).collect();
+            let mut text = header;
+            text.push_str(&doc_truncated);
+            text.push('\n');
+            text.push_str(&src_truncated);
+            text
+        }
+        (None, Some(src)) => {
+            let src_budget = EMBED_TEXT_MAX_CHARS.saturating_sub(header.len());
+            let src_truncated: String = src.chars().take(src_budget).collect();
+            let mut text = header;
+            text.push_str(&src_truncated);
+            text
+        }
+        (Some(doc), None) => {
+            let doc_budget = EMBED_TEXT_MAX_CHARS.saturating_sub(header.len());
+            let doc_truncated: String = doc.chars().take(doc_budget).collect();
+            let mut text = header;
+            text.push_str(&doc_truncated);
+            text
+        }
+        (None, None) => {
+            // Fallback: metadata only
+            format!("{} {} {}", type_str, name, qualified_name)
+        }
+    }
+}
+
 /// Run incremental embedding update
 pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> anyhow::Result<()> {
     let start = Instant::now();
@@ -276,7 +375,7 @@ pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> a
 
     // Get all nodes and filter by file path
     let all_nodes_result = mubase.query(
-        "SELECT id, type, name, qualified_name, file_path FROM nodes WHERE type != 'external'",
+        "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties FROM nodes WHERE type != 'external'",
     )?;
 
     let stale_set: std::collections::HashSet<_> = stale_files.iter().cloned().collect();
@@ -303,7 +402,7 @@ pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> a
             total_to_embed
         ));
 
-        // Create text content for each node
+        // Create text content for each node using source code
         let mut node_ids: Vec<String> = Vec::new();
         let texts: Vec<String> = batch
             .iter()
@@ -317,16 +416,41 @@ pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> a
                     _ => "node",
                 };
                 let name = match row.get(2) {
-                    Some(serde_json::Value::String(s)) => s.clone(),
-                    _ => String::new(),
+                    Some(serde_json::Value::String(s)) => s.as_str(),
+                    _ => "",
                 };
                 let qualified_name = match row.get(3) {
-                    Some(serde_json::Value::String(s)) => s.clone(),
-                    _ => String::new(),
+                    Some(serde_json::Value::String(s)) => s.as_str(),
+                    _ => "",
+                };
+                let file_path = match row.get(4) {
+                    Some(serde_json::Value::String(s)) => Some(s.as_str()),
+                    _ => None,
+                };
+                let line_start = match row.get(5) {
+                    Some(serde_json::Value::Number(n)) => n.as_u64().map(|v| v as u32),
+                    _ => None,
+                };
+                let line_end = match row.get(6) {
+                    Some(serde_json::Value::Number(n)) => n.as_u64().map(|v| v as u32),
+                    _ => None,
+                };
+                let properties = match row.get(7) {
+                    Some(serde_json::Value::String(s)) => Some(s.as_str()),
+                    _ => None,
                 };
 
                 node_ids.push(id);
-                format!("{} {} {}", type_str, name, qualified_name)
+                build_embedding_text(
+                    &root,
+                    type_str,
+                    name,
+                    qualified_name,
+                    file_path,
+                    line_start,
+                    line_end,
+                    properties,
+                )
             })
             .collect();
 
@@ -511,5 +635,128 @@ mod tests {
         let hash2 = compute_file_hash(&file2).unwrap();
 
         assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_extract_source_missing_file() {
+        let dir = tempdir().unwrap();
+        let result = extract_source(dir.path(), "nonexistent.rs", Some(1), Some(5));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_source_line_range() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let result = extract_source(dir.path(), "test.rs", Some(2), Some(4));
+        assert_eq!(result, Some("line2\nline3\nline4".to_string()));
+    }
+
+    #[test]
+    fn test_extract_source_out_of_range() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\n").unwrap();
+
+        // start beyond file length
+        let result = extract_source(dir.path(), "test.rs", Some(100), Some(200));
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_source_no_lines_returns_none() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "line1\nline2\n").unwrap();
+
+        // No line range and no start = None (we don't return entire file for embedding)
+        let result = extract_source(dir.path(), "test.rs", None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_build_embedding_text_with_source() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "fn hello() {\n    println!(\"hi\");\n}\n").unwrap();
+
+        let text = build_embedding_text(
+            dir.path(),
+            "function",
+            "hello",
+            "mod::hello",
+            Some("test.rs"),
+            Some(1),
+            Some(3),
+            None,
+        );
+
+        assert!(text.starts_with("function hello\n"));
+        assert!(text.contains("fn hello()"));
+    }
+
+    #[test]
+    fn test_build_embedding_text_truncated_to_max() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("big.rs");
+        let big_content = "x".repeat(1000);
+        fs::write(&file_path, &big_content).unwrap();
+
+        let text = build_embedding_text(
+            dir.path(),
+            "function",
+            "big_fn",
+            "mod::big_fn",
+            Some("big.rs"),
+            Some(1),
+            Some(1),
+            None,
+        );
+
+        assert!(text.len() <= EMBED_TEXT_MAX_CHARS);
+    }
+
+    #[test]
+    fn test_build_embedding_text_fallback_no_source() {
+        let dir = tempdir().unwrap();
+        // No file on disk
+        let text = build_embedding_text(
+            dir.path(),
+            "function",
+            "orphan",
+            "mod::orphan",
+            Some("missing.rs"),
+            Some(1),
+            Some(5),
+            None,
+        );
+
+        assert_eq!(text, "function orphan mod::orphan");
+    }
+
+    #[test]
+    fn test_build_embedding_text_with_docstring_and_source() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.rs");
+        fs::write(&file_path, "fn greet() {\n    println!(\"hi\");\n}\n").unwrap();
+
+        let props = r#"{"docstring": "Greets the user politely"}"#;
+        let text = build_embedding_text(
+            dir.path(),
+            "function",
+            "greet",
+            "mod::greet",
+            Some("test.rs"),
+            Some(1),
+            Some(3),
+            Some(props),
+        );
+
+        assert!(text.starts_with("function greet\n"));
+        assert!(text.contains("Greets the user politely"));
+        assert!(text.contains("fn greet()"));
+        assert!(text.len() <= EMBED_TEXT_MAX_CHARS);
     }
 }
