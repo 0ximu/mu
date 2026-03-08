@@ -369,12 +369,12 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
                                     format!("{} ({}%)", embedding_count, percentage),
                                 ));
                                 recommendations.push(
-                                    "Generate missing embeddings: mu bootstrap --embed".to_string(),
+                                    "Generate missing embeddings: mu bootstrap --force".to_string(),
                                 );
                             } else {
                                 checks.push(CheckItem::warning("Embeddings", "0 (not generated)"));
                                 recommendations.push(
-                                    "Enable semantic search: mu bootstrap --embed".to_string(),
+                                    "Enable semantic search: mu bootstrap --force".to_string(),
                                 );
                             }
                         } else {
@@ -384,7 +384,7 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
                     None => {
                         checks.push(CheckItem::warning("Embeddings", "not configured"));
                         recommendations
-                            .push("Enable semantic search: mu bootstrap --embed".to_string());
+                            .push("Enable semantic search: mu bootstrap --force".to_string());
                     }
                 }
             }

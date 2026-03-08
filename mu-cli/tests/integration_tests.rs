@@ -400,63 +400,6 @@ fn test_bootstrap_updates_gitignore() {
 }
 
 // ============================================================================
-// Query Command Tests
-// ============================================================================
-
-#[test]
-fn test_query_examples_no_daemon() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-    // --examples should work without daemon
-    let output = run_mu(temp_dir.path(), &["query", "--examples"]);
-    assert!(output.status.success(), "query --examples should succeed");
-
-    let stdout_str = stdout(&output);
-    assert!(stdout_str.contains("MUQL"), "Should show MUQL examples");
-    assert!(stdout_str.contains("SELECT"), "Should show SELECT examples");
-    assert!(stdout_str.contains("SHOW"), "Should show SHOW examples");
-}
-
-#[test]
-fn test_query_schema_no_daemon() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-    // --schema should work without daemon
-    let output = run_mu(temp_dir.path(), &["query", "--schema"]);
-    assert!(output.status.success(), "query --schema should succeed");
-
-    let stdout_str = stdout(&output);
-    assert!(
-        stdout_str.contains("Schema"),
-        "Should show schema reference"
-    );
-    assert!(stdout_str.contains("nodes"), "Should mention nodes table");
-    assert!(
-        stdout_str.contains("functions"),
-        "Should mention functions table"
-    );
-    assert!(
-        stdout_str.contains("classes"),
-        "Should mention classes table"
-    );
-}
-
-#[test]
-fn test_query_alias_works() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-
-    // 'q' alias should work
-    let output = run_mu(temp_dir.path(), &["q", "--examples"]);
-    assert!(output.status.success(), "q alias should work");
-
-    let stdout_str = stdout(&output);
-    assert!(
-        stdout_str.contains("MUQL"),
-        "Should show MUQL examples via alias"
-    );
-}
-
-// ============================================================================
 // Output Format Tests
 // ============================================================================
 
@@ -503,27 +446,6 @@ fn test_format_table_produces_readable_output() {
     );
 }
 
-#[test]
-fn test_format_mu_produces_sigil_output() {
-    let temp_dir = TempDir::new().expect("Failed to create temp dir");
-    setup_sample_project(temp_dir.path());
-
-    // Bootstrap first
-    let _ = run_mu(temp_dir.path(), &["bootstrap"]);
-
-    // Status with MU format
-    let output = run_mu(temp_dir.path(), &["status", "--format", "mu"]);
-    assert!(output.status.success(), "status --format mu should succeed");
-
-    let stdout_str = stdout(&output);
-    // MU format should have sigil markers
-    assert!(
-        stdout_str.contains("::") || stdout_str.contains("#"),
-        "MU output should have sigil markers: {}",
-        stdout_str
-    );
-}
-
 // ============================================================================
 // CLI Flag Tests
 // ============================================================================
@@ -546,8 +468,8 @@ fn test_help_flag() {
         "Help should list status command"
     );
     assert!(
-        stdout_str.contains("query"),
-        "Help should list query command"
+        stdout_str.contains("impact"),
+        "Help should list impact command"
     );
 }
 

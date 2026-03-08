@@ -6,22 +6,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-/// Parse and validate threshold value (must be between 0.0 and 1.0)
-fn parse_threshold(s: &str) -> Result<f32, String> {
-    let value: f32 = s
-        .parse()
-        .map_err(|_| format!("'{}' is not a valid number", s))?;
-    if !(0.0..=1.0).contains(&value) {
-        return Err(format!(
-            "threshold must be between 0.0 and 1.0, got {}",
-            value
-        ));
-    }
-    Ok(value)
-}
-
 mod cache;
-mod citations;
 mod commands;
 mod config;
 mod output;
@@ -48,11 +33,9 @@ use output::OutputFormat;
 #[command(after_help = "Quick Start:
   mu bootstrap      Initialize code graph (run this first)
   mu status         Check project status
-  mu search \"auth\"  Find auth-related code
   mu deps MyClass   Show dependencies of MyClass
 
 Examples:
-  mu q \"fn c>50\"    Query functions with complexity > 50
   mu impact Parser  What breaks if I change Parser?
   mu grok \"auth\"    Semantic search with context")]
 pub struct Cli {
@@ -89,26 +72,6 @@ enum Commands {
         /// Force rebuild even if database exists
         #[arg(short, long)]
         force: bool,
-
-        /// Generate embeddings for semantic search (enables mu search)
-        #[arg(short, long)]
-        embed: bool,
-
-        /// Skip embedding generation without prompting
-        #[arg(long, conflicts_with = "embed")]
-        no_embed: bool,
-
-        /// Fail on .murc.toml errors instead of silently using defaults
-        #[arg(long)]
-        strict: bool,
-
-        /// Create HNSW index for fast approximate vector search
-        #[arg(long)]
-        hnsw: bool,
-
-        /// Skip HNSW index creation without prompting
-        #[arg(long, conflicts_with = "hnsw")]
-        no_hnsw: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -123,12 +86,8 @@ enum Commands {
         output: Option<String>,
 
         /// Detail level: low, medium, high, auto
-        #[arg(short, long, default_value = "medium")]
+        #[arg(short, long, default_value = "auto")]
         detail: String,
-
-        /// Maximum token budget for output (prioritizes important modules)
-        #[arg(long)]
-        max_tokens: Option<usize>,
     },
 
     /// Show project status and recommended next steps
@@ -154,51 +113,6 @@ enum Commands {
         status: bool,
     },
 
-    /// Semantic search across the codebase
-    Search {
-        /// Search query
-        query: String,
-
-        /// Maximum results to return
-        #[arg(short = 'n', long = "limit", default_value = "10")]
-        limit: usize,
-
-        /// Minimum similarity threshold (0.0-1.0)
-        #[arg(short, long, default_value = "0.1", value_parser = parse_threshold)]
-        threshold: f32,
-
-        /// Disable graph-aware reranking
-        #[arg(long = "no-rerank")]
-        no_rerank: bool,
-
-        /// Expand query using graph neighbors for better recall
-        #[arg(long)]
-        expand: bool,
-    },
-
-    /// Deep code exploration: search + graph walk + compress
-    #[command(visible_alias = "r")]
-    Research {
-        /// Natural language question or topic
-        query: String,
-
-        /// Maximum BFS hops from seed results
-        #[arg(long, default_value = "2")]
-        max_hops: usize,
-
-        /// Maximum token budget for output
-        #[arg(long)]
-        max_tokens: Option<usize>,
-
-        /// Expand query using graph neighbors for better recall
-        #[arg(long)]
-        expand: bool,
-
-        /// Disable graph-aware reranking
-        #[arg(long = "no-rerank")]
-        no_rerank: bool,
-    },
-
     /// Find relevant code context for a question (semantic search)
     Grok {
         /// Question or topic to find context for
@@ -207,29 +121,6 @@ enum Commands {
         /// Number of context chunks to retrieve (1-3)
         #[arg(short, long, default_value = "2")]
         depth: u8,
-    },
-
-    /// Execute a MUQL query
-    #[command(visible_alias = "q")]
-    Query {
-        /// MUQL query string (optional if using --interactive, --examples, or --schema)
-        query: Option<String>,
-
-        /// Interactive REPL mode
-        #[arg(short, long)]
-        interactive: bool,
-
-        /// Limit number of results (overrides LIMIT in query)
-        #[arg(short, long)]
-        limit: Option<usize>,
-
-        /// Show MUQL query examples
-        #[arg(long)]
-        examples: bool,
-
-        /// Show MUQL schema reference (tables, columns, edge types)
-        #[arg(long)]
-        schema: bool,
     },
 
     /// Show dependencies of a node (what this node depends on)
@@ -245,34 +136,9 @@ enum Commands {
         #[arg(short, long, default_value = "1")]
         depth: u8,
 
-        /// Include 'contains' edges (classes/functions within modules)
-        #[arg(long)]
+        /// Include structural 'contains' edges (classes/functions within modules)
+        #[arg(long, default_value_t = true)]
         include_contains: bool,
-    },
-
-    /// Show what depends on a node (reverse dependencies)
-    #[command(visible_alias = "rdeps")]
-    Usedby {
-        /// Node to analyze
-        node: String,
-
-        /// Maximum depth to traverse
-        #[arg(short, long, default_value = "1")]
-        depth: u8,
-
-        /// Include 'contains' edges (classes/functions within modules)
-        #[arg(long)]
-        include_contains: bool,
-    },
-
-    /// Read and display a file with MU context
-    Read {
-        /// File path to read
-        path: String,
-
-        /// Show line numbers
-        #[arg(short = 'n', long)]
-        line_numbers: bool,
     },
 
     /// Semantic diff between git refs
@@ -283,41 +149,6 @@ enum Commands {
         /// Head git ref (branch, commit, tag) - defaults to HEAD
         #[arg(default_value = "HEAD")]
         head_ref: String,
-    },
-
-    /// Detect dead code and missing test coverage
-    Coverage {
-        /// Show only orphan functions (no callers)
-        #[arg(long)]
-        orphans: bool,
-
-        /// Show only untested public functions
-        #[arg(long)]
-        untested: bool,
-    },
-
-    /// Explain how two nodes are connected in the codebase
-    Why {
-        /// Source node (class, function, or module name)
-        from: String,
-
-        /// Target node (class, function, or module name)
-        to: String,
-
-        /// Show all paths, not just the shortest
-        #[arg(long)]
-        all: bool,
-
-        /// Maximum number of paths to show (default: 5)
-        #[arg(long, default_value = "5")]
-        max_paths: usize,
-    },
-
-    /// Intelligent PR review with risk analysis
-    Review {
-        /// Git range to review (e.g., HEAD~3..HEAD, main..feature-branch)
-        /// If not specified, reviews uncommitted changes
-        range: Option<String>,
     },
 
     /// Find downstream impact (what might break if this node changes)
@@ -334,169 +165,12 @@ enum Commands {
         edge_types: Option<Vec<String>>,
     },
 
-    /// Find upstream ancestors (what this node depends on)
-    Ancestors {
-        /// Node to analyze
-        node: String,
-
-        /// Maximum depth to traverse (default: unlimited)
-        #[arg(short, long)]
-        depth: Option<u8>,
-
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    /// Detect circular dependencies in the codebase
-    Cycles {
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    /// Find shortest path between two nodes
-    Path {
-        /// Source node
-        from: String,
-
-        /// Target node
-        to: String,
-
-        /// Filter by edge types (e.g., imports,calls)
-        #[arg(short, long, value_delimiter = ',')]
-        edge_types: Option<Vec<String>>,
-    },
-
-    // ==================== Vibes ====================
-    /// Impact analysis with flair - what breaks if this changes?
-    Yolo {
-        /// Path to fix
-        #[arg(default_value = ".")]
-        path: String,
-    },
-
-    /// Find sus code - security risks, complexity, missing tests
-    Sus {
-        /// File to analyze, or "." to scan entire codebase
-        #[arg(default_value = ".")]
-        path: String,
-
-        /// Minimum warning level to show (1=info, 2=warn, 3=error)
-        #[arg(short, long, default_value = "1")]
-        threshold: u8,
-    },
-
-    /// Git archaeology - why does this code exist?
-    Wtf {
-        /// File path to analyze (shows origin, evolution, and files that change together)
-        target: Option<String>,
-    },
-
-    /// OMEGA compressed overview - feed your whole codebase to an LLM
-    Omg {
-        /// Maximum tokens for output
-        #[arg(short = 't', long, default_value = "8000")]
-        max_tokens: usize,
-
-        /// Exclude relationship edges from output
-        #[arg(long)]
-        no_edges: bool,
-    },
-
-    /// Naming convention check - does the code pass the vibe check?
-    Vibe {
-        /// Path to vibe check
-        #[arg(default_value = ".")]
-        path: String,
-
-        /// Force a specific naming convention (overrides language detection)
-        /// Valid options: snake, pascal, camel, screaming
-        #[arg(long)]
-        convention: Option<String>,
-    },
-
-    /// Achieve enlightenment - clear caches and temp files
-    Zen {
-        /// Path to clean
-        #[arg(default_value = ".")]
-        path: String,
-
-        /// Skip confirmation prompt
-        #[arg(short, long)]
-        yes: bool,
-
-        /// Full reset: remove ALL MU files (.mu/, .murc.toml, .mubase)
-        #[arg(short, long)]
-        reset: bool,
-    },
-
-    // ==================== Analysis & Export ====================
-    /// Detect code patterns in the codebase
-    Patterns {
-        /// Filter by pattern category
-        #[arg(short, long, value_parser = ["naming", "architecture", "testing", "imports", "error_handling", "api", "async", "logging"])]
-        category: Option<String>,
-
-        /// Force re-analysis (ignore cache)
-        #[arg(long)]
-        refresh: bool,
-
-        /// Include code examples in output
-        #[arg(long)]
-        examples: bool,
-    },
-
-    /// Export the code graph to various formats
-    Export {
-        /// Export format (mu, json, mermaid, d2, cytoscape)
-        #[arg(short = 'F', long = "export-format", default_value = "mu", value_parser = ["mu", "json", "mermaid", "d2", "cytoscape"])]
-        export_format: String,
-
-        /// Output file path (default: stdout)
-        #[arg(short, long)]
-        output: Option<String>,
-
-        /// Filter to subgraph containing this node
-        #[arg(short, long)]
-        node: Option<String>,
-
-        /// Maximum number of nodes to export
-        #[arg(short = 'l', long = "limit")]
-        limit: Option<usize>,
-    },
-
-    /// Show change history for a node
-    History {
-        /// Node to show history for (ID or name)
-        node: String,
-
-        /// Maximum number of commits to show
-        #[arg(short = 'n', long, default_value = "10")]
-        limit: usize,
-    },
-
     // ==================== Integration ====================
     /// Start MCP server for AI assistant integration (Claude, etc.)
     Mcp {
         /// Working directory (defaults to current)
         #[arg(default_value = ".")]
         path: String,
-    },
-
-    /// Start HTTP server with file watching for incremental updates
-    Serve {
-        /// Working directory (defaults to current)
-        #[arg(default_value = ".")]
-        path: String,
-
-        /// Port to listen on
-        #[arg(short, long, default_value = "1337")]
-        port: u16,
-
-        /// Disable file watching
-        #[arg(long)]
-        no_watch: bool,
     },
 
     // ==================== Utilities ====================
@@ -589,22 +263,14 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match command {
-        // Core commands
-        Commands::Bootstrap {
-            path,
-            force,
-            embed,
-            no_embed,
-            strict,
-            hnsw,
-            no_hnsw,
-        } => bootstrap::run(&path, force, embed, no_embed, hnsw, no_hnsw, strict, format).await,
+        Commands::Bootstrap { path, force } => {
+            bootstrap::run(&path, force, format).await
+        }
         Commands::Compress {
             path,
             output,
             detail,
-            max_tokens,
-        } => compress::run(&path, output.as_deref(), &detail, max_tokens, format).await,
+        } => compress::run(&path, output.as_deref(), &detail, format).await,
         Commands::Status { path } => status::run(&path, format).await,
         Commands::Embed {
             path,
@@ -617,125 +283,22 @@ async fn main() -> anyhow::Result<()> {
                 embed::run_incremental(&path, force, format).await
             }
         }
-        Commands::Research {
-            query,
-            max_hops,
-            max_tokens,
-            expand,
-            no_rerank,
-        } => research::run(&query, max_hops, max_tokens, expand, !no_rerank, format).await,
-        Commands::Search {
-            query,
-            limit,
-            threshold,
-            no_rerank,
-            expand,
-        } => search::run(&query, limit, threshold, !no_rerank, expand, format).await,
         Commands::Grok { question, depth } => grok::run(&question, depth, format).await,
-        Commands::Query {
-            query,
-            interactive,
-            limit,
-            examples,
-            schema,
-        } => {
-            query::run_extended(
-                query.as_deref(),
-                interactive,
-                format,
-                limit,
-                examples,
-                schema,
-            )
-            .await
-        }
         Commands::Deps {
             node,
             reverse,
             depth,
             include_contains,
         } => deps::run(&node, reverse, depth, include_contains, format).await,
-        Commands::Usedby {
-            node,
-            depth,
-            include_contains,
-        } => deps::run(&node, true, depth, include_contains, format).await,
-        Commands::Read { path, line_numbers } => read::run(&path, line_numbers, format).await,
         Commands::Diff { base_ref, head_ref } => diff::run(&base_ref, &head_ref, format).await,
-        Commands::Coverage { orphans, untested } => coverage::run(orphans, untested, format).await,
-        Commands::Why {
-            from,
-            to,
-            all,
-            max_paths,
-        } => why::run(&from, &to, all, max_paths, format).await,
-        Commands::Review { range } => review::run(range.as_deref(), format).await,
-
-        // Graph analysis commands
         Commands::Impact {
             node,
             depth,
             edge_types,
         } => graph::run_impact(&node, edge_types, depth, format).await,
-        Commands::Ancestors {
-            node,
-            depth,
-            edge_types,
-        } => graph::run_ancestors(&node, edge_types, depth, format).await,
-        Commands::Cycles { edge_types } => graph::run_cycles(edge_types, format).await,
-        Commands::Path {
-            from,
-            to,
-            edge_types,
-        } => graph::run_path(&from, &to, edge_types, format).await,
 
-        // Vibe commands
-        Commands::Yolo { path } => vibes::yolo::run(&path, format).await,
-        Commands::Sus { path, threshold } => vibes::sus::run(&path, threshold, format).await,
-        Commands::Wtf { target } => vibes::wtf::run(target.as_deref(), format).await,
-        Commands::Omg {
-            max_tokens,
-            no_edges,
-        } => vibes::omg::run(max_tokens, !no_edges, format).await,
-        Commands::Vibe { path, convention } => {
-            vibes::vibe::run(&path, format, convention.as_deref()).await
-        }
-        Commands::Zen { path, yes, reset } => vibes::zen::run(&path, yes, reset, format).await,
-
-        // Analysis commands
-        Commands::Patterns {
-            category,
-            refresh,
-            examples,
-        } => patterns::run(category.as_deref(), refresh, examples, format).await,
-
-        Commands::Export {
-            export_format,
-            output,
-            node,
-            limit,
-        } => {
-            export::run(
-                &export_format,
-                output.as_deref(),
-                node.as_deref(),
-                limit,
-                format,
-            )
-            .await
-        }
-
-        Commands::History { node, limit } => history::run(&node, limit, format).await,
-
-        // Integration commands
         Commands::Mcp { path } => mcp::run(&path).await,
-        Commands::Serve {
-            path,
-            port,
-            no_watch,
-        } => serve::run(&path, port, !no_watch, format).await,
 
-        // Utility commands
         Commands::Doctor { path } => doctor::run(&path, format).await,
         Commands::Completions {
             shell,
@@ -744,7 +307,6 @@ async fn main() -> anyhow::Result<()> {
             if instructions {
                 completions::run(shell, true, format)
             } else {
-                // Generate completions using the CLI Command
                 let mut cmd = Cli::command();
                 completions::generate_completions_with_cmd(shell, &mut cmd);
                 Ok(())
