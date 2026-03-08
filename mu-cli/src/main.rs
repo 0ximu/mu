@@ -21,6 +21,7 @@ fn parse_threshold(s: &str) -> Result<f32, String> {
 }
 
 mod cache;
+mod citations;
 mod commands;
 mod config;
 mod output;
