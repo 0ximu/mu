@@ -149,6 +149,20 @@ impl MUbase {
             super::migrations::migrate_embeddings_to_native(&conn)?;
         }
 
+        // Check if migration from v1.1.0 → v1.2.0 is needed (add source_text column)
+        let needs_source_text_migrate = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '1.1.0'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if needs_source_text_migrate {
+            tracing::info!("Adding source_text column to nodes table");
+            super::migrations::migrate_add_source_text(&conn)?;
+        }
+
         // Execute schema creation (CREATE TABLE IF NOT EXISTS is safe for existing tables)
         conn.execute_batch(SCHEMA_SQL)
             .context("Failed to initialize schema")?;
@@ -191,7 +205,7 @@ impl MUbase {
 
     /// Run any pending schema migrations.
     ///
-    /// Currently migrates v1.0.0 (JSON embeddings) to v1.1.0 (native FLOAT[384]).
+    /// Migration chain: v1.0.0 → v1.1.0 → v1.2.0
     pub fn run_migrations(&self) -> Result<()> {
         let current_version = self.get_schema_version()?;
         if super::migrations::needs_migration(&current_version, super::migrations::TARGET_VERSION) {
@@ -201,7 +215,19 @@ impl MUbase {
                 super::migrations::TARGET_VERSION
             );
             let conn = self.acquire_conn()?;
-            super::migrations::migrate_embeddings_to_native(&conn)?;
+            if current_version == "1.0.0" {
+                super::migrations::migrate_embeddings_to_native(&conn)?;
+            }
+            let version_after = conn
+                .query_row(
+                    "SELECT value FROM metadata WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| current_version.clone());
+            if version_after == "1.1.0" {
+                super::migrations::migrate_add_source_text(&conn)?;
+            }
         }
         Ok(())
     }
@@ -402,10 +428,10 @@ impl MUbase {
 
         tracing::info!("Creating FTS index on {} nodes...", count);
 
-        // Create FTS index on name, qualified_name, and file_path
-        // This allows searching for symbol names and file locations
+        // Create FTS index on name, qualified_name, file_path, and source_text
+        // This allows searching for symbol names, file locations, and code content
         conn.execute(
-            "PRAGMA create_fts_index('nodes', 'id', 'name', 'qualified_name', 'file_path', overwrite=1)",
+            "PRAGMA create_fts_index('nodes', 'id', 'name', 'qualified_name', 'file_path', 'source_text', overwrite=1)",
             [],
         )
         .context("Failed to create FTS index")?;
@@ -560,8 +586,8 @@ impl MUbase {
 
         conn.execute(
             r#"INSERT OR REPLACE INTO nodes
-               (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             params![
                 node.id,
                 node.node_type.as_str(),
@@ -572,6 +598,7 @@ impl MUbase {
                 node.line_end,
                 properties_json,
                 node.complexity,
+                node.source_text,
             ],
         )
         .with_context(|| format!("Failed to insert node: {}", node.id))?;
@@ -622,6 +649,7 @@ impl MUbase {
                     node.line_end,
                     properties_json,
                     node.complexity,
+                    node.source_text,
                 ])?;
             }
             appender.flush()?;
@@ -732,7 +760,7 @@ impl MUbase {
     pub fn get_node(&self, id: &str) -> Result<Option<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
              FROM nodes WHERE id = ?",
         )?;
 
@@ -752,6 +780,7 @@ impl MUbase {
                 line_end: row.get(6)?,
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
+                source_text: row.get(9)?,
             }))
         } else {
             Ok(None)
@@ -762,7 +791,7 @@ impl MUbase {
     pub fn all_nodes(&self) -> Result<Vec<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
              FROM nodes",
         )?;
 
@@ -783,6 +812,7 @@ impl MUbase {
                 line_end: row.get(6)?,
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
+                source_text: row.get(9)?,
             });
         }
 
@@ -793,7 +823,7 @@ impl MUbase {
     pub fn get_nodes_by_type(&self, node_type: NodeType) -> Result<Vec<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
              FROM nodes WHERE type = ?",
         )?;
 
@@ -814,6 +844,7 @@ impl MUbase {
                 line_end: row.get(6)?,
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
+                source_text: row.get(9)?,
             });
         }
 

@@ -464,6 +464,51 @@ fn build_function_lookup(nodes: &[mu_daemon::storage::Node]) -> HashMap<String, 
     func_lookup
 }
 
+/// Build source_text for a function/method from parsed data.
+///
+/// Format: `{docstring}\n{signature}\n{body_preview}`
+fn build_function_source_text(func: &mu_core::types::FunctionDef) -> Option<String> {
+    let mut parts = Vec::new();
+
+    if let Some(ref docstring) = func.docstring {
+        parts.push(docstring.clone());
+    }
+
+    // Build signature
+    let params_str: String = func
+        .parameters
+        .iter()
+        .map(|p| {
+            if let Some(ref ty) = p.type_annotation {
+                format!("{}: {}", p.name, ty)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let return_str = func
+        .return_type
+        .as_deref()
+        .map(|rt| format!(" -> {}", rt))
+        .unwrap_or_default();
+
+    parts.push(format!("fn {}({}){}", func.name, params_str, return_str));
+
+    // Body preview (truncated to 500 chars)
+    if let Some(ref body) = func.body_source {
+        let preview = if body.len() > 500 {
+            format!("{}...", &body[..500])
+        } else {
+            body.clone()
+        };
+        parts.push(preview);
+    }
+
+    Some(parts.join("\n"))
+}
+
 /// Build graph nodes and edges for a single module.
 fn build_module_graph(
     module: &mu_core::types::ModuleDef,
@@ -475,18 +520,54 @@ fn build_module_graph(
 ) {
     let rel_path = &module.path;
 
-    // Create module node
-    let module_node = mu_daemon::storage::Node::module(rel_path);
+    // Create module node with source_text
+    let mut module_node = mu_daemon::storage::Node::module(rel_path);
+    {
+        let mut parts = Vec::new();
+        if let Some(ref docstring) = module.module_docstring {
+            parts.push(docstring.clone());
+        }
+        if !module.imports.is_empty() {
+            let import_names: Vec<&str> = module.imports.iter().map(|i| i.module.as_str()).collect();
+            parts.push(format!("imports: {}", import_names.join(", ")));
+        }
+        if !parts.is_empty() {
+            module_node.source_text = Some(parts.join("\n"));
+        }
+    }
     let module_id = module_node.id.clone();
     nodes.push(module_node);
 
     // Create class nodes
     for class in &module.classes {
+        // Build source_text for class
+        let class_source_text = {
+            let mut parts = Vec::new();
+            if let Some(ref docstring) = class.docstring {
+                parts.push(docstring.clone());
+            }
+            let bases_str = if class.bases.is_empty() {
+                String::new()
+            } else {
+                format!("({})", class.bases.join(", "))
+            };
+            parts.push(format!("class {}{}", class.name, bases_str));
+            if !class.attributes.is_empty() {
+                parts.push(format!("  attributes: {}", class.attributes.join(", ")));
+            }
+            if !class.methods.is_empty() {
+                let method_names: Vec<&str> = class.methods.iter().map(|m| m.name.as_str()).collect();
+                parts.push(format!("  methods: {}", method_names.join(", ")));
+            }
+            Some(parts.join("\n"))
+        };
+
         let mut class_node = mu_daemon::storage::Node::class(
             rel_path,
             &class.name,
             class.start_line,
             class.end_line,
+            class_source_text,
         );
 
         // Build properties JSON with decorators and metadata
@@ -534,6 +615,7 @@ fn build_module_graph(
 
         // Method nodes
         for method in &class.methods {
+            let method_source_text = build_function_source_text(method);
             let mut method_node = mu_daemon::storage::Node::function(
                 rel_path,
                 &method.name,
@@ -541,6 +623,7 @@ fn build_module_graph(
                 method.start_line,
                 method.end_line,
                 method.body_complexity,
+                method_source_text,
             );
 
             // Build properties JSON with decorators and metadata
@@ -570,6 +653,7 @@ fn build_module_graph(
 
     // Module-level function nodes
     for func in &module.functions {
+        let func_source_text = build_function_source_text(func);
         let mut func_node = mu_daemon::storage::Node::function(
             rel_path,
             &func.name,
@@ -577,6 +661,7 @@ fn build_module_graph(
             func.start_line,
             func.end_line,
             func.body_complexity,
+            func_source_text,
         );
 
         // Build properties JSON with decorators
