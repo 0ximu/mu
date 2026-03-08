@@ -301,8 +301,4 @@ impl TableDisplay for super::models::CompressResult {
     fn to_table(&self) -> String {
         self.content.clone()
     }
-
-    fn to_mu(&self) -> String {
-        self.content.clone()
-    }
 }

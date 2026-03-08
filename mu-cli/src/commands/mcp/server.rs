@@ -2,7 +2,7 @@
 //!
 //! Exposes MU capabilities as MCP tools that can be called by AI assistants.
 
-use super::find_project_root;
+use crate::mubase::find_project_root;
 use std::collections::VecDeque;
 use std::fs;
 #[allow(unused_imports)]

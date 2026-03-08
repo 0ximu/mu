@@ -7,7 +7,7 @@
 //! - Embeddings coverage
 //! - MCP configuration
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use colored::Colorize;
 use duckdb::Connection;
@@ -103,45 +103,6 @@ impl TableDisplay for DoctorResult {
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut lines = vec![":: doctor".to_string()];
-
-        for check in &self.checks {
-            let status_str = match check.status {
-                CheckStatus::Ok => "ok",
-                CheckStatus::Warning => "warn",
-                CheckStatus::Error => "error",
-            };
-            lines.push(format!(
-                "# {} [{}]: {}",
-                check.label, status_str, check.value
-            ));
-        }
-
-        if !self.recommendations.is_empty() {
-            lines.push("# recommendations:".to_string());
-            for rec in &self.recommendations {
-                lines.push(format!("  -> {}", rec));
-            }
-        }
-
-        lines.join("\n")
-    }
-}
-
-/// Find the mubase database path
-fn find_mubase_path(root: &Path) -> Option<PathBuf> {
-    let new_path = root.join(".mu").join("mubase");
-    if new_path.exists() {
-        return Some(new_path);
-    }
-
-    let legacy_path = root.join(".mubase");
-    if legacy_path.exists() {
-        return Some(legacy_path);
-    }
-
-    None
 }
 
 /// Get file size in human-readable format
@@ -277,7 +238,7 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
     let mut recommendations = Vec::new();
 
     // Check 1: Database existence
-    let mubase_path = find_mubase_path(&root);
+    let mubase_path = crate::mubase::find_mubase_in(&root);
     match &mubase_path {
         Some(path) => {
             // Get file size

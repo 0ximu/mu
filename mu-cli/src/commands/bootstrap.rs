@@ -124,22 +124,10 @@ impl TableDisplay for BootstrapResult {
 
         output.push_str(&format!("\n{}\n", "Next Steps".cyan().bold()));
         output.push_str("  mu status              # Check status\n");
-        output.push_str("  mu query 'functions'   # Query the graph\n");
-        output.push_str("  mu search 'auth'       # Semantic search\n");
+        output.push_str("  mu grok 'auth'         # Semantic search\n");
+        output.push_str("  mu compress            # Codebase overview\n");
 
         output
-    }
-
-    fn to_mu(&self) -> String {
-        format!(
-            r#":: bootstrap
-# root: {}
-# mubase: {}
-# nodes: {}
-# edges: {}
-# duration: {}ms"#,
-            self.root_path, self.mubase_path, self.node_count, self.edge_count, self.duration_ms
-        )
     }
 }
 

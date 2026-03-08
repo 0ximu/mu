@@ -6,38 +6,8 @@
 mod server;
 
 use rmcp::{transport::stdio, ServiceExt};
-use std::path::Path;
 
 pub use server::MuMcpServer;
-
-/// Find the mubase path starting from the given directory
-#[allow(dead_code)]
-fn find_mubase_path(start_dir: &Path) -> Option<std::path::PathBuf> {
-    let mut current = start_dir.to_path_buf();
-    loop {
-        let mubase_path = current.join(".mu").join("mubase");
-        if mubase_path.exists() {
-            return Some(mubase_path);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
-}
-
-/// Find the project root (directory containing .mu)
-pub(crate) fn find_project_root(start_dir: &Path) -> Option<std::path::PathBuf> {
-    let mut current = start_dir.to_path_buf();
-    loop {
-        let mu_dir = current.join(".mu");
-        if mu_dir.exists() {
-            return Some(current);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
-}
 
 /// Run the MCP server
 ///

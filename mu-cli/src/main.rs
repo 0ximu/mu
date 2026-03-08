@@ -9,6 +9,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 mod cache;
 mod commands;
 mod config;
+mod mubase;
 mod output;
 mod tsconfig;
 

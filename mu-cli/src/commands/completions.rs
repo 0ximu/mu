@@ -61,13 +61,6 @@ impl TableDisplay for CompletionInstructions {
         output
     }
 
-    fn to_mu(&self) -> String {
-        let mut lines = vec![format!(":: completions {}", self.shell)];
-        for instruction in &self.instructions {
-            lines.push(format!("# {}", instruction));
-        }
-        lines.join("\n")
-    }
 }
 
 /// Get installation instructions for a shell

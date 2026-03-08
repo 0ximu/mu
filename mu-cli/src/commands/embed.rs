@@ -72,25 +72,6 @@ impl TableDisplay for EmbedResult {
         output
     }
 
-    fn to_mu(&self) -> String {
-        format!(
-            r#":: embed
-# mode: {}
-# total: {}
-# stale: {}
-# embedded: {}
-# duration: {}ms"#,
-            if self.was_incremental {
-                "incremental"
-            } else {
-                "full"
-            },
-            self.total_files,
-            self.stale_files,
-            self.embedded_count,
-            self.duration_ms
-        )
-    }
 }
 
 /// Result of embed status command
@@ -161,21 +142,6 @@ impl TableDisplay for EmbedStatusResult {
         output
     }
 
-    fn to_mu(&self) -> String {
-        format!(
-            r#":: embed-status
-# total: {}
-# embedded: {}
-# stale: {}
-# missing: {}
-# coverage: {:.1}%"#,
-            self.total_files,
-            self.embedded_files,
-            self.stale_files,
-            self.missing_files,
-            self.coverage_percent
-        )
-    }
 }
 
 /// Compute blake3 hash of a file's content
