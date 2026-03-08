@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod patterns;
 pub mod query;
 pub mod read;
+pub mod research;
 pub mod review;
 pub mod search;
 pub mod serve;

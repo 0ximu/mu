@@ -709,6 +709,81 @@ impl GraphData {
         result
     }
 
+    /// BFS from a set of seed nodes, return all reachable node IDs within max_hops.
+    ///
+    /// Follows edges in both directions (undirected BFS). If `edge_types` is provided,
+    /// only edges matching those types are traversed. Seed nodes are included in the result.
+    pub fn bfs_multi_seed(
+        &self,
+        seeds: &[String],
+        max_hops: usize,
+        edge_types: Option<&[String]>,
+    ) -> HashSet<String> {
+        let allowed: Option<HashSet<&String>> = edge_types.map(|t| t.iter().collect());
+
+        let mut visited: HashSet<NodeIndex> = HashSet::new();
+        let mut queue: VecDeque<(NodeIndex, usize)> = VecDeque::new();
+
+        for seed in seeds {
+            if let Some(&idx) = self.node_map.get(seed) {
+                if visited.insert(idx) {
+                    queue.push_back((idx, 0));
+                }
+            }
+        }
+
+        while let Some((current, depth)) = queue.pop_front() {
+            if depth >= max_hops {
+                continue;
+            }
+
+            // Outgoing edges
+            for edge in self.graph.edges_directed(current, Direction::Outgoing) {
+                if let Some(ref allowed_types) = allowed {
+                    if !allowed_types.contains(edge.weight()) {
+                        continue;
+                    }
+                }
+                let neighbor = edge.target();
+                if visited.insert(neighbor) {
+                    queue.push_back((neighbor, depth + 1));
+                }
+            }
+
+            // Incoming edges
+            for edge in self.graph.edges_directed(current, Direction::Incoming) {
+                if let Some(ref allowed_types) = allowed {
+                    if !allowed_types.contains(edge.weight()) {
+                        continue;
+                    }
+                }
+                let neighbor = edge.source();
+                if visited.insert(neighbor) {
+                    queue.push_back((neighbor, depth + 1));
+                }
+            }
+        }
+
+        visited
+            .into_iter()
+            .filter_map(|idx| self.reverse_map.get(&idx).cloned())
+            .collect()
+    }
+
+    /// Extract subgraph: filter edges to only those between given nodes.
+    /// Returns (source_id, target_id, edge_type) tuples.
+    pub fn extract_subgraph(&self, node_ids: &HashSet<String>) -> Vec<(String, String, String)> {
+        let mut edges = Vec::new();
+        for edge in self.graph.edge_references() {
+            let src = &self.reverse_map[&edge.source()];
+            let tgt = &self.reverse_map[&edge.target()];
+            if node_ids.contains(src) && node_ids.contains(tgt) {
+                edges.push((src.clone(), tgt.clone(), edge.weight().clone()));
+            }
+        }
+        edges
+    }
+
     /// Get node info for a given ID
     pub fn get_info(&self, node_id: &str) -> Option<&NodeInfo> {
         self.node_info.get(node_id)
@@ -1445,5 +1520,102 @@ mod tests {
         let path = path.unwrap();
         assert_eq!(path[0], "mod:c");
         assert_eq!(path[path.len() - 1], "mod:d");
+    }
+
+    #[test]
+    fn test_bfs_multi_seed_basic() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // From seed "mod:a" with max_hops=1, should reach b (outgoing) and c (incoming: c->a)
+        let seeds = vec!["mod:a".to_string()];
+        let visited = graph.bfs_multi_seed(&seeds, 1, None);
+
+        assert!(visited.contains("mod:a")); // seed included
+        assert!(visited.contains("mod:b")); // a -> b (outgoing)
+        assert!(visited.contains("mod:c")); // c -> a (incoming)
+    }
+
+    #[test]
+    fn test_bfs_multi_seed_hop_limit() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // From seed "mod:a" with max_hops=0, should only contain the seed itself
+        let seeds = vec!["mod:a".to_string()];
+        let visited = graph.bfs_multi_seed(&seeds, 0, None);
+
+        assert_eq!(visited.len(), 1);
+        assert!(visited.contains("mod:a"));
+    }
+
+    #[test]
+    fn test_bfs_multi_seed_multiple_seeds() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // From seeds a and d with max_hops=1
+        let seeds = vec!["mod:a".to_string(), "mod:d".to_string()];
+        let visited = graph.bfs_multi_seed(&seeds, 1, None);
+
+        assert!(visited.contains("mod:a"));
+        assert!(visited.contains("mod:d"));
+        assert!(visited.contains("mod:b")); // connected to both a and d
+        assert!(visited.contains("mod:c")); // c -> a incoming
+    }
+
+    #[test]
+    fn test_bfs_multi_seed_nonexistent_seed() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        let seeds = vec!["mod:nonexistent".to_string()];
+        let visited = graph.bfs_multi_seed(&seeds, 2, None);
+
+        assert!(visited.is_empty());
+    }
+
+    #[test]
+    fn test_bfs_multi_seed_edge_type_filter() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // With only "imports" edges, from b we should reach a and c but not d (calls edge)
+        let seeds = vec!["mod:b".to_string()];
+        let edge_types = vec!["imports".to_string()];
+        let visited = graph.bfs_multi_seed(&seeds, 2, Some(&edge_types));
+
+        assert!(visited.contains("mod:b"));
+        assert!(visited.contains("mod:a")); // a -> b via imports (incoming)
+        assert!(visited.contains("mod:c")); // b -> c via imports
+        assert!(!visited.contains("mod:d")); // b -> d is calls, filtered out
+    }
+
+    #[test]
+    fn test_extract_subgraph_basic() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // Extract subgraph for nodes a and b only
+        let mut node_ids = HashSet::new();
+        node_ids.insert("mod:a".to_string());
+        node_ids.insert("mod:b".to_string());
+
+        let edges = graph.extract_subgraph(&node_ids);
+
+        // Should contain a -> b (imports) but not b -> c or b -> d
+        assert!(edges.iter().any(|(s, t, _)| s == "mod:a" && t == "mod:b"));
+        assert!(!edges.iter().any(|(_, t, _)| t == "mod:c"));
+        assert!(!edges.iter().any(|(_, t, _)| t == "mod:d"));
+    }
+
+    #[test]
+    fn test_extract_subgraph_empty() {
+        let conn = create_test_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        let node_ids = HashSet::new();
+        let edges = graph.extract_subgraph(&node_ids);
+        assert!(edges.is_empty());
     }
 }

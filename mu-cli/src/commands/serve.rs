@@ -14,7 +14,7 @@ use axum::{
 };
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebounceEventResult};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -116,6 +116,20 @@ pub struct ImpactParams {
     pub symbol: String,
 }
 
+#[derive(Deserialize)]
+pub struct ResearchParams {
+    pub q: String,
+    #[serde(default = "default_max_hops")]
+    pub max_hops: usize,
+    #[allow(dead_code)]
+    pub max_tokens: Option<usize>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub expand: bool,
+    #[serde(default = "default_rerank")]
+    pub rerank: bool,
+}
+
 // OracleParams will be used in future for /oracle endpoint
 #[allow(dead_code)]
 #[derive(Deserialize)]
@@ -125,6 +139,9 @@ pub struct OracleParams {
 
 fn default_limit() -> usize {
     10
+}
+fn default_max_hops() -> usize {
+    2
 }
 fn default_threshold() -> f32 {
     0.1
@@ -565,6 +582,196 @@ async fn impact(
     ))
 }
 
+async fn research(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ResearchParams>,
+) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+
+    let mubase = state.mubase.read().await;
+
+    // Check embeddings
+    if !mubase.has_embeddings().unwrap_or(false) {
+        return Json(ApiResponse::<serde_json::Value>::err(
+            "No embeddings available. Run `mu embed` first.".to_string(),
+        ));
+    }
+
+    // Load embedding model
+    let model = match mu_embeddings::MuSigmaModel::embedded() {
+        Ok(m) => m,
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Failed to load embedding model: {}",
+                e
+            )));
+        }
+    };
+
+    let threshold = 0.1_f32;
+    let fetch_limit = if params.rerank {
+        mu_daemon::rerank::RerankConfig::default().candidate_pool
+    } else {
+        10
+    };
+
+    // Embed and search
+    let query_embedding = match model.embed_one(&params.q) {
+        Ok(e) => e,
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Failed to embed query: {}",
+                e
+            )));
+        }
+    };
+
+    let mut candidates = match mubase.vector_search(&query_embedding, fetch_limit, Some(threshold))
+    {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Search failed: {}",
+                e
+            )));
+        }
+    };
+
+    // Rerank if enabled
+    if params.rerank && candidates.len() > 1 {
+        if let Ok(graph) = mubase.load_graph() {
+            let config = mu_daemon::rerank::RerankConfig {
+                final_count: 10,
+                ..mu_daemon::rerank::RerankConfig::default()
+            };
+            candidates = mu_daemon::rerank::rerank(candidates, &graph, &config);
+        }
+    } else {
+        candidates.truncate(10);
+    }
+
+    if candidates.is_empty() {
+        let response = serde_json::json!({
+            "query": params.q,
+            "seed_count": 0,
+            "explored_nodes": 0,
+            "nodes": [],
+            "connections": [],
+        });
+        return Json(ApiResponse::ok(
+            response,
+            start.elapsed().as_millis() as u64,
+        ));
+    }
+
+    let seed_ids: Vec<String> = candidates.iter().map(|c| c.node_id.clone()).collect();
+
+    // Load graph and BFS walk
+    let graph = match mubase.load_graph() {
+        Ok(g) => g,
+        Err(e) => {
+            return Json(ApiResponse::<serde_json::Value>::err(format!(
+                "Failed to load graph: {}",
+                e
+            )));
+        }
+    };
+
+    // BFS walk using GraphEngine edges directly
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
+
+    for seed in &seed_ids {
+        if graph.has_node(seed) && visited.insert(seed.clone()) {
+            queue.push_back((seed.clone(), 0));
+        }
+    }
+
+    // Build adjacency from GraphEngine edges
+    let mut outgoing: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut incoming: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (src, tgt, etype) in graph.get_edges() {
+        outgoing
+            .entry(src.clone())
+            .or_default()
+            .push((tgt.clone(), etype.clone()));
+        incoming
+            .entry(tgt.clone())
+            .or_default()
+            .push((src.clone(), etype.clone()));
+    }
+
+    while let Some((current, depth)) = queue.pop_front() {
+        if depth >= params.max_hops {
+            continue;
+        }
+        if let Some(neighbors) = outgoing.get(&current) {
+            for (neighbor, _) in neighbors {
+                if visited.insert(neighbor.clone()) {
+                    queue.push_back((neighbor.clone(), depth + 1));
+                }
+            }
+        }
+        if let Some(neighbors) = incoming.get(&current) {
+            for (neighbor, _) in neighbors {
+                if visited.insert(neighbor.clone()) {
+                    queue.push_back((neighbor.clone(), depth + 1));
+                }
+            }
+        }
+    }
+
+    // Collect node details
+    let seed_set: HashSet<&String> = seed_ids.iter().collect();
+    let mut nodes_json: Vec<serde_json::Value> = Vec::new();
+
+    // Query node details from DB
+    for node_id in &visited {
+        let sql = format!(
+            "SELECT id, type, name, file_path, complexity FROM nodes WHERE id = '{}'",
+            node_id.replace('\'', "''")
+        );
+        if let Ok(result) = mubase.query(&sql) {
+            if let Some(row) = result.rows.first() {
+                nodes_json.push(serde_json::json!({
+                    "id": row.first().and_then(|v| v.as_str()).unwrap_or(""),
+                    "type": row.get(1).and_then(|v| v.as_str()).unwrap_or(""),
+                    "name": row.get(2).and_then(|v| v.as_str()).unwrap_or(""),
+                    "file_path": row.get(3).and_then(|v| v.as_str()),
+                    "complexity": row.get(4).and_then(|v| v.as_i64()),
+                    "is_seed": seed_set.contains(node_id),
+                }));
+            }
+        }
+    }
+
+    // Collect subgraph connections (edges between visited nodes)
+    let mut connections: Vec<serde_json::Value> = Vec::new();
+    for (src, tgt, etype) in graph.get_edges() {
+        if visited.contains(src) && visited.contains(tgt) && etype != "contains" {
+            connections.push(serde_json::json!({
+                "source": src,
+                "target": tgt,
+                "edge_type": etype,
+            }));
+        }
+    }
+
+    let response = serde_json::json!({
+        "query": params.q,
+        "seed_count": seed_ids.len(),
+        "explored_nodes": visited.len(),
+        "max_hops": params.max_hops,
+        "nodes": nodes_json,
+        "connections": connections,
+    });
+
+    Json(ApiResponse::ok(
+        response,
+        start.elapsed().as_millis() as u64,
+    ))
+}
+
 // ============================================================================
 // File Watcher & Incremental Updates
 // ============================================================================
@@ -947,6 +1154,7 @@ pub async fn run(path: &str, port: u16, watch: bool, _format: OutputFormat) -> R
         .route("/search", get(search))
         .route("/find", get(find))
         .route("/impact", get(impact))
+        .route("/research", get(research))
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
         .with_state(state);
 
@@ -982,6 +1190,7 @@ pub async fn run(path: &str, port: u16, watch: bool, _format: OutputFormat) -> R
     println!("    GET /search?q=&limit=    Semantic search");
     println!("    GET /find?symbol=        Find symbol");
     println!("    GET /impact?symbol=      Impact analysis");
+    println!("    GET /research?q=&max_hops= Deep code exploration");
     println!();
     println!("  Press {} to stop", "Ctrl+C".yellow());
     println!();
