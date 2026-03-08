@@ -94,6 +94,8 @@ pub struct SearchParams {
     pub limit: usize,
     #[serde(default = "default_threshold")]
     pub threshold: f32,
+    #[serde(default = "default_rerank")]
+    pub rerank: bool,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +126,9 @@ fn default_limit() -> usize {
 }
 fn default_threshold() -> f32 {
     0.1
+}
+fn default_rerank() -> bool {
+    true
 }
 fn default_detail() -> String {
     "medium".to_string()
@@ -326,9 +331,14 @@ async fn search(
         }
     };
 
-    // Search
-    let results = match mubase.vector_search(query_embedding, params.limit, Some(params.threshold))
-    {
+    // Search -- fetch more candidates if reranking
+    let fetch_limit = if params.rerank {
+        mu_daemon::rerank::RerankConfig::default().candidate_pool
+    } else {
+        params.limit
+    };
+
+    let results = match mubase.vector_search(query_embedding, fetch_limit, Some(params.threshold)) {
         Ok(r) => r,
         Err(e) => {
             return Json(ApiResponse::<Vec<SearchResult>>::err(format!(
@@ -338,16 +348,55 @@ async fn search(
         }
     };
 
-    let search_results: Vec<SearchResult> = results
-        .into_iter()
-        .map(|r| SearchResult {
-            node_id: r.node_id,
-            name: r.name,
-            node_type: r.node_type,
-            file_path: r.file_path,
-            similarity: r.similarity,
-        })
-        .collect();
+    let search_results: Vec<SearchResult> = if params.rerank && results.len() > 1 {
+        let graph = match mubase.load_graph() {
+            Ok(g) => g,
+            Err(_) => {
+                // If graph loading fails, fall back to raw results
+                return Json(ApiResponse::ok(
+                    results
+                        .into_iter()
+                        .take(params.limit)
+                        .map(|r| SearchResult {
+                            node_id: r.node_id,
+                            name: r.name,
+                            node_type: r.node_type,
+                            file_path: r.file_path,
+                            similarity: r.similarity,
+                        })
+                        .collect::<Vec<_>>(),
+                    start.elapsed().as_millis() as u64,
+                ));
+            }
+        };
+
+        let config = mu_daemon::rerank::RerankConfig {
+            final_count: params.limit,
+            ..mu_daemon::rerank::RerankConfig::default()
+        };
+
+        mu_daemon::rerank::rerank(results, &graph, &config)
+            .into_iter()
+            .map(|r| SearchResult {
+                node_id: r.node_id,
+                name: r.name,
+                node_type: r.node_type,
+                file_path: r.file_path,
+                similarity: r.similarity,
+            })
+            .collect()
+    } else {
+        results
+            .into_iter()
+            .map(|r| SearchResult {
+                node_id: r.node_id,
+                name: r.name,
+                node_type: r.node_type,
+                file_path: r.file_path,
+                similarity: r.similarity,
+            })
+            .collect()
+    };
 
     Json(ApiResponse::ok(
         search_results,

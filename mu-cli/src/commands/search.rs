@@ -149,6 +149,7 @@ pub async fn run(
     query: &str,
     limit: usize,
     threshold: f32,
+    rerank: bool,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     // Validate query is not empty
@@ -157,7 +158,7 @@ pub async fn run(
     }
 
     let start = Instant::now();
-    run_direct(query, limit, threshold, format, start).await
+    run_direct(query, limit, threshold, rerank, format, start).await
 }
 
 /// Run search directly against the database
@@ -165,6 +166,7 @@ async fn run_direct(
     query: &str,
     limit: usize,
     threshold: f32,
+    rerank: bool,
     format: OutputFormat,
     start: Instant,
 ) -> anyhow::Result<()> {
@@ -186,8 +188,51 @@ async fn run_direct(
     let has_embeddings = mubase.has_embeddings()?;
 
     let results = if has_embeddings {
-        // Semantic search path
-        run_semantic_search(&mubase, query, limit, threshold)?
+        // Semantic search path -- fetch more candidates if reranking
+        let fetch_limit = if rerank {
+            let config = mu_daemon::rerank::RerankConfig::default();
+            config.candidate_pool
+        } else {
+            limit
+        };
+
+        let mut candidates = run_semantic_search(&mubase, query, fetch_limit, threshold)?;
+
+        if rerank && candidates.len() > 1 {
+            // Load graph for reranking
+            let graph = mubase.load_graph()?;
+            let vector_results: Vec<mu_daemon::storage::VectorSearchResult> = candidates
+                .into_iter()
+                .map(|r| mu_daemon::storage::VectorSearchResult {
+                    node_id: r.node_id,
+                    similarity: r.similarity,
+                    name: r.name,
+                    node_type: r.node_type,
+                    file_path: r.file_path,
+                    qualified_name: None,
+                })
+                .collect();
+
+            let config = mu_daemon::rerank::RerankConfig {
+                final_count: limit,
+                ..mu_daemon::rerank::RerankConfig::default()
+            };
+
+            let reranked = mu_daemon::rerank::rerank(vector_results, &graph, &config);
+            candidates = reranked
+                .into_iter()
+                .map(|r| SearchResult {
+                    node_id: r.node_id,
+                    name: r.name,
+                    node_type: r.node_type,
+                    file_path: r.file_path,
+                    line_start: None,
+                    similarity: r.similarity,
+                })
+                .collect();
+        }
+
+        candidates
     } else {
         // Fallback to keyword search
         run_keyword_search(&mubase, query, limit)?

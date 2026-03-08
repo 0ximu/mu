@@ -179,6 +179,7 @@ impl MUbase {
     }
 
     /// Update the schema version in the database.
+    #[allow(dead_code)]
     fn set_schema_version(&self, version: &str) -> Result<()> {
         let conn = self.acquire_conn()?;
         conn.execute(
@@ -445,8 +446,7 @@ impl MUbase {
 
         // BM25 search using DuckDB FTS
         // The fts_main_nodes.match_bm25 function returns a score for matching documents
-        let sql = format!(
-            r#"
+        let sql = r#"
             SELECT
                 n.id,
                 n.name,
@@ -458,10 +458,9 @@ impl MUbase {
             WHERE score IS NOT NULL
             ORDER BY score DESC
             LIMIT ?
-            "#
-        );
+            "#;
 
-        let mut stmt = conn.prepare(&sql)?;
+        let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query(params![query, limit as i64])?;
         let mut results = Vec::new();
 
