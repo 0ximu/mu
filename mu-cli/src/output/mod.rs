@@ -1,8 +1,7 @@
 //! Output formatting module for MU CLI
 //!
 //! Provides unified output formatting across all commands with support for
-//! multiple formats: table (human-readable), json (machine-readable), csv,
-//! mu (sigil format), and tree (hierarchical display).
+//! table (human-readable) and json (machine-readable) formats.
 //!
 //! Automatically detects TTY context to adjust colors and truncation behavior.
 
@@ -15,22 +14,12 @@ use serde::Serialize;
 use std::io::IsTerminal;
 use std::str::FromStr;
 
-mod csv;
 mod json;
-mod mu;
 mod table;
-mod tree;
 
-// Re-exports for public API (currently not all used, but part of the framework)
-#[allow(unused_imports)]
-pub use self::csv::CsvOutput;
 pub use self::json::JsonOutput;
 #[allow(unused_imports)]
-pub use self::mu::{MuOutput, Sigil};
-#[allow(unused_imports)]
 pub use self::table::{AsTable, TableOutput};
-#[allow(unused_imports)]
-pub use self::tree::{NodeKind, TreeNode, TreeOutput};
 
 /// Output format for CLI results
 #[derive(Debug, Clone, Copy, Default, ValueEnum, PartialEq, Eq)]
@@ -40,12 +29,6 @@ pub enum OutputFormat {
     Table,
     /// JSON format for machine consumption
     Json,
-    /// CSV format for spreadsheet/data processing
-    Csv,
-    /// MU sigil format (! modules, $ functions, etc.)
-    Mu,
-    /// Tree format for hierarchical data
-    Tree,
 }
 
 impl FromStr for OutputFormat {
@@ -55,9 +38,6 @@ impl FromStr for OutputFormat {
         match s.to_lowercase().as_str() {
             "table" => Ok(OutputFormat::Table),
             "json" => Ok(OutputFormat::Json),
-            "csv" => Ok(OutputFormat::Csv),
-            "mu" => Ok(OutputFormat::Mu),
-            "tree" => Ok(OutputFormat::Tree),
             _ => Err(format!("Unknown output format: '{}'", s)),
         }
     }
@@ -233,29 +213,11 @@ pub trait Outputter: Serialize + Sized {
         JsonOutput::format(self, config)
     }
 
-    /// Render as CSV format
-    fn to_csv(&self, config: &OutputConfig) -> String;
-
-    /// Render as MU sigil format
-    fn to_mu(&self, config: &OutputConfig) -> String {
-        // Default implementation falls back to table
-        self.to_table(config)
-    }
-
-    /// Render as tree format
-    fn to_tree(&self, config: &OutputConfig) -> String {
-        // Default implementation falls back to table
-        self.to_table(config)
-    }
-
     /// Render using the format specified in config
     fn render(&self, config: &OutputConfig) -> String {
         match config.format {
             OutputFormat::Table => self.to_table(config),
             OutputFormat::Json => self.to_json(config),
-            OutputFormat::Csv => self.to_csv(config),
-            OutputFormat::Mu => self.to_mu(config),
-            OutputFormat::Tree => self.to_tree(config),
         }
     }
 
@@ -320,18 +282,6 @@ pub trait TableDisplay: Serialize {
 impl<T: TableDisplay + Serialize> Outputter for T {
     fn to_table(&self, _config: &OutputConfig) -> String {
         TableDisplay::to_table(self)
-    }
-
-    fn to_csv(&self, _config: &OutputConfig) -> String {
-        // Default CSV implementation for legacy types
-        format!(
-            "data\n\"{}\"",
-            TableDisplay::to_table(self).replace('"', "\"\"")
-        )
-    }
-
-    fn to_mu(&self, _config: &OutputConfig) -> String {
-        TableDisplay::to_mu(self)
     }
 }
 

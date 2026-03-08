@@ -31,7 +31,6 @@ pub async fn run(
     path: &str,
     output: Option<&str>,
     detail: &str,
-    max_tokens: Option<usize>,
     format: OutputFormat,
 ) -> Result<()> {
     let detail_level = DetailLevel::from_str(detail).unwrap_or(DetailLevel::Medium);
@@ -41,7 +40,7 @@ pub async fn run(
         .with_context(|| format!("Path not found: {}", path))?;
 
     // Try to load from database first
-    let mut codebase = if let Some(db_path) = loader::find_mubase(path) {
+    let codebase = if let Some(db_path) = loader::find_mubase(path) {
         eprintln!(
             "{} Using graph database for rich relationships",
             "INFO:".cyan()
@@ -75,23 +74,6 @@ pub async fn run(
     } else {
         detail_level
     };
-
-    // Apply token budget if specified
-    if let Some(budget) = max_tokens {
-        // Collect all modules from the folder tree
-        let mut all_modules = collect_modules(&codebase.tree);
-        let prioritized = budget::enforce_budget(&mut all_modules, budget);
-
-        // Rebuild tree from prioritized modules
-        codebase.tree = loader::build_folder_tree(&prioritized);
-        eprintln!(
-            "{} Token budget: {} max, kept {} of {} modules",
-            "INFO:".cyan(),
-            budget,
-            prioritized.len(),
-            all_modules.len()
-        );
-    }
 
     // Generate output
     let content = codebase.to_mu_format(resolved_detail);
@@ -129,11 +111,3 @@ pub async fn run(
     Output::new(result, format).render()
 }
 
-/// Recursively collect all modules from a folder tree
-fn collect_modules(node: &models::FolderNode) -> Vec<models::CompressedModule> {
-    let mut modules = node.modules.clone();
-    for child in node.children.values() {
-        modules.extend(collect_modules(child));
-    }
-    modules
-}

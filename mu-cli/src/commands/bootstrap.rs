@@ -8,12 +8,10 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{self, IsTerminal};
 use std::path::Path;
 use std::time::Instant;
 
 use colored::Colorize;
-use dialoguer::Confirm;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use serde_json::json;
@@ -127,14 +125,7 @@ impl TableDisplay for BootstrapResult {
         output.push_str(&format!("\n{}\n", "Next Steps".cyan().bold()));
         output.push_str("  mu status              # Check status\n");
         output.push_str("  mu query 'functions'   # Query the graph\n");
-        if self.embeddings_generated > 0 {
-            output.push_str("  mu search 'auth'       # Semantic search\n");
-            if !self.hnsw_index_created && self.embeddings_generated > 5000 {
-                output.push_str("  mu bootstrap --hnsw    # Enable fast search (recommended)\n");
-            }
-        } else {
-            output.push_str("  mu bootstrap --embed   # Enable semantic search\n");
-        }
+        output.push_str("  mu search 'auth'       # Semantic search\n");
 
         output
     }
@@ -236,224 +227,7 @@ fn ensure_config(root: &Path) -> bool {
     false
 }
 
-/// Determine whether to generate embeddings based on flags and user input
-fn should_embed(embed_flag: bool, no_embed_flag: bool) -> bool {
-    // Explicit flags take precedence
-    if embed_flag {
-        return true;
-    }
-    if no_embed_flag {
-        return false;
-    }
 
-    // If running interactively, prompt the user
-    if io::stdin().is_terminal() && io::stdout().is_terminal() {
-        println!();
-        println!(
-            "{} Embeddings dramatically improve semantic search results.",
-            "TIP:".cyan().bold()
-        );
-        println!("     This enables 'mu search' to find code by meaning, not just keywords.");
-        println!("     Embedding takes ~30s for most projects.\n");
-
-        Confirm::new()
-            .with_prompt("Generate embeddings now?")
-            .default(true)
-            .interact()
-            .unwrap_or(false)
-    } else {
-        // Non-interactive: default to no embeddings (user can use --embed explicitly)
-        false
-    }
-}
-
-/// Determine whether to create HNSW index based on flags, embedding count, and user input.
-///
-/// HNSW is only useful when:
-/// 1. Embeddings exist (otherwise nothing to index)
-/// 2. There are enough embeddings to benefit from indexing (>5000 threshold)
-fn should_hnsw(hnsw_flag: bool, no_hnsw_flag: bool, embedding_count: usize) -> bool {
-    // Explicit flags take precedence
-    if hnsw_flag {
-        return true;
-    }
-    if no_hnsw_flag {
-        return false;
-    }
-
-    // Only consider HNSW if we have enough embeddings to benefit
-    const HNSW_THRESHOLD: usize = 5000;
-    if embedding_count < HNSW_THRESHOLD {
-        return false;
-    }
-
-    // If running interactively, prompt the user
-    if io::stdin().is_terminal() && io::stdout().is_terminal() {
-        println!();
-        println!(
-            "{} You have {} embeddings. HNSW indexing can speed up vector search.",
-            "TIP:".cyan().bold(),
-            embedding_count
-        );
-        println!("     This creates an index for O(log n) approximate nearest neighbor search.");
-        println!("     Index creation takes ~10s and adds ~10MB to database size.\n");
-
-        Confirm::new()
-            .with_prompt("Create HNSW index for faster search?")
-            .default(true)
-            .interact()
-            .unwrap_or(false)
-    } else {
-        // Non-interactive: default to no HNSW (user can use --hnsw explicitly)
-        false
-    }
-}
-
-/// Run embeddings only on an existing database (without rebuilding the graph)
-async fn run_embeddings_only(mubase_path: &Path, format: OutputFormat) -> anyhow::Result<()> {
-    let start = Instant::now();
-
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-            .template("{spinner:.cyan} {msg}")
-            .unwrap(),
-    );
-    spinner.enable_steady_tick(std::time::Duration::from_millis(100));
-
-    spinner.set_message("Opening database...");
-    // Note: MUbase::open() automatically runs any needed migrations (v1.0.0 → v1.1.0)
-    let mubase = mu_daemon::storage::MUbase::open(mubase_path)?;
-    let stats = mubase.stats()?;
-
-    spinner.set_message("Loading embedding model...");
-
-    let embeddings_generated = match mu_embeddings::MuSigmaModel::embedded() {
-        Ok(model) => {
-            spinner.set_message("Loading nodes...");
-
-            // Get all nodes from the database
-            let nodes = mubase.all_nodes()?;
-            let nodes_to_embed: Vec<_> = nodes
-                .iter()
-                .filter(|n| n.node_type != mu_daemon::storage::NodeType::External)
-                .collect();
-
-            let total = nodes_to_embed.len();
-            spinner.set_message(format!("Generating embeddings for {} nodes...", total));
-
-            let mut embeddings_batch = Vec::new();
-            let mut embedded_count = 0;
-
-            // Process in batches for better progress feedback
-            let batch_size = 32;
-            for (batch_idx, batch) in nodes_to_embed.chunks(batch_size).enumerate() {
-                spinner.set_message(format!(
-                    "Generating embeddings... {}/{}",
-                    (batch_idx * batch_size).min(total),
-                    total
-                ));
-
-                // Create text content for each node
-                let texts: Vec<String> = batch
-                    .iter()
-                    .map(|n| {
-                        let type_prefix = match n.node_type {
-                            mu_daemon::storage::NodeType::Module => "module",
-                            mu_daemon::storage::NodeType::Class => "class",
-                            mu_daemon::storage::NodeType::Function => "function",
-                            mu_daemon::storage::NodeType::External => "external",
-                        };
-                        format!(
-                            "{} {} {}",
-                            type_prefix,
-                            n.name,
-                            n.qualified_name.as_deref().unwrap_or("")
-                        )
-                    })
-                    .collect();
-
-                let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-
-                match model.embed(&text_refs) {
-                    Ok(batch_embeddings) => {
-                        for (node, (text, embedding)) in
-                            batch.iter().zip(texts.iter().zip(batch_embeddings))
-                        {
-                            embeddings_batch.push((node.id.clone(), embedding, Some(text.clone())));
-                            embedded_count += 1;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to embed batch: {}", e);
-                    }
-                }
-            }
-
-            // Clear existing embeddings and insert new ones
-            if !embeddings_batch.is_empty() {
-                spinner.set_message("Storing embeddings...");
-                mubase.clear_embeddings()?;
-                if let Err(e) =
-                    mubase.insert_embeddings_batch(&embeddings_batch, Some("mu-sigma-v2"))
-                {
-                    tracing::warn!("Failed to store embeddings: {}", e);
-                }
-            }
-
-            embedded_count
-        }
-        Err(e) => {
-            spinner.finish_and_clear();
-            anyhow::bail!("Failed to load embedding model: {}", e);
-        }
-    };
-
-    spinner.finish_and_clear();
-
-    let duration_ms = start.elapsed().as_millis() as u64;
-
-    // Build a simple result for embedding-only mode
-    let result = BootstrapResult {
-        success: true,
-        root_path: mubase_path
-            .parent()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default(),
-        mubase_path: mubase_path.to_string_lossy().to_string(),
-        files_scanned: 0,
-        files_parsed: 0,
-        files_cached: 0,
-        node_count: stats.node_count,
-        edge_count: stats.edge_count,
-        nodes_by_type: stats.type_counts,
-        duration_ms,
-        config_created: false,
-        gitignore_updated: false,
-        embeddings_generated,
-        hnsw_index_created: false, // HNSW not created in embedding-only mode
-        fts_index_created: false,  // FTS not created in embedding-only mode
-    };
-
-    // Custom output for embedding-only mode
-    if format == OutputFormat::Table {
-        println!(
-            "{} Generated {} embeddings in {}ms",
-            "SUCCESS:".green().bold(),
-            embeddings_generated.to_string().green(),
-            duration_ms
-        );
-        println!("\n{}", "Semantic search is now ready!".cyan());
-        println!("  mu search 'auth'       # Find authentication code");
-        println!("  mu search 'database'   # Find database operations");
-    } else {
-        Output::new(result, format).render()?;
-    }
-
-    Ok(())
-}
 
 // ============================================================================
 // Scanning & Parsing
@@ -1004,15 +778,9 @@ fn create_spinner() -> ProgressBar {
 }
 
 /// Run the bootstrap command
-#[allow(clippy::too_many_arguments)]
 pub async fn run(
     path: &str,
     force: bool,
-    embed: bool,
-    no_embed: bool,
-    hnsw: bool,
-    no_hnsw: bool,
-    strict: bool,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let start = Instant::now();
@@ -1033,12 +801,8 @@ pub async fn run(
     let config_created = ensure_config(&root);
     let gitignore_updated = update_gitignore(&root);
 
-    // Load configuration
-    let config = if strict {
-        MuConfig::load_strict(&root)?
-    } else {
-        MuConfig::load(&root)
-    };
+    // Load configuration (strict mode: fail on config errors)
+    let config = MuConfig::load_strict(&root)?;
     tracing::debug!("Loaded ignore patterns: {:?}", config.ignore_patterns());
 
     // Determine mubase path
@@ -1047,10 +811,6 @@ pub async fn run(
 
     // Check if rebuild is needed
     if mubase_path.exists() && !force {
-        if embed {
-            return run_embeddings_only(&mubase_path, format).await;
-        }
-
         let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
         let stats = mubase.stats()?;
         println!(
@@ -1067,7 +827,6 @@ pub async fn run(
         fs::create_dir_all(&mu_dir)?;
     }
 
-    let do_embed = should_embed(embed, no_embed);
     let spinner = create_spinner();
 
     // Step 1: Scan and parse
@@ -1093,18 +852,13 @@ pub async fn run(
     mubase.insert_edges(&edges)?;
     let stats = mubase.stats()?;
 
-    // Step 4: Generate embeddings
-    let embeddings_generated = if do_embed {
-        generate_embeddings(&nodes, &mubase, &spinner)
-    } else {
-        0
-    };
+    // Step 4: Generate embeddings (always)
+    let embeddings_generated = generate_embeddings(&nodes, &mubase, &spinner);
 
     spinner.finish_and_clear();
 
-    // Step 5: Create HNSW index (optional, based on flags and embedding count)
-    let hnsw_index_created =
-        if embeddings_generated > 0 && should_hnsw(hnsw, no_hnsw, embeddings_generated) {
+    // Step 5: Create HNSW index (always when embeddings exist)
+    let hnsw_index_created = if embeddings_generated > 0 {
             let spinner = create_spinner();
             spinner.set_message("Creating HNSW index...");
 
