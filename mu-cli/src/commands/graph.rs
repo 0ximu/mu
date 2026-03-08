@@ -50,7 +50,7 @@ fn find_mubase(start_path: &str) -> Result<PathBuf> {
 }
 
 /// Open database connection in read-only mode.
-fn open_db() -> Result<Connection> {
+pub fn open_db() -> Result<Connection> {
     let db_path = find_mubase(".")?;
     Connection::open_with_flags(
         &db_path,
@@ -591,6 +591,7 @@ impl GraphData {
     }
 
     /// DFS helper for finding all paths.
+    #[allow(clippy::too_many_arguments)]
     fn dfs_all_paths(
         &self,
         current: NodeIndex,

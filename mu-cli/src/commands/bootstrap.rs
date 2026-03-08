@@ -1004,6 +1004,7 @@ fn create_spinner() -> ProgressBar {
 }
 
 /// Run the bootstrap command
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     path: &str,
     force: bool,
