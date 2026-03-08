@@ -520,7 +520,10 @@ async fn impact(
 
 /// File extensions we care about
 fn is_source_file(path: &Path) -> bool {
-    let extensions = ["py", "ts", "tsx", "js", "jsx", "go", "rs", "java", "cs"];
+    let extensions = [
+        "py", "ts", "tsx", "js", "jsx", "go", "rs", "java", "cs", "c", "h", "cpp", "cc", "hpp",
+        "kt", "kts", "swift", "php", "rb",
+    ];
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|ext| extensions.contains(&ext))
@@ -591,6 +594,12 @@ async fn handle_file_change(
             "rs" => "rust",
             "java" => "java",
             "cs" => "csharp",
+            "c" | "h" => "c",
+            "cpp" | "cc" | "hpp" => "cpp",
+            "kt" | "kts" => "kotlin",
+            "swift" => "swift",
+            "php" => "php",
+            "rb" => "ruby",
             _ => "unknown",
         })
         .unwrap_or("unknown");

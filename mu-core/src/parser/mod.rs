@@ -8,11 +8,17 @@ use rayon::prelude::*;
 
 use crate::types::{FileInfo, ParseResult};
 
+pub mod c_lang;
+pub mod cpp;
 pub mod csharp;
 pub mod go;
 pub mod java;
+pub mod kotlin;
+pub mod php;
 pub mod python;
+pub mod ruby;
 pub mod rust_lang;
+pub mod swift;
 pub mod typescript;
 
 mod helpers;
@@ -51,6 +57,12 @@ pub fn parse_source(source: &str, path: &str, language: &str) -> ParseResult {
         "java" => java::parse(source, path),
         "rust" | "rs" => rust_lang::parse(source, path),
         "csharp" | "cs" | "c#" => csharp::parse(source, path),
+        "c" => c_lang::parse(source, path),
+        "cpp" | "c++" | "cc" | "cxx" => cpp::parse(source, path),
+        "kotlin" | "kt" | "kts" => kotlin::parse(source, path),
+        "swift" => swift::parse(source, path),
+        "php" => php::parse(source, path),
+        "ruby" | "rb" => ruby::parse(source, path),
         _ => Err(format!("Unsupported language: {}", language)),
     };
 
@@ -78,5 +90,17 @@ pub fn supported_languages() -> &'static [&'static str] {
         "csharp",
         "cs",
         "c#",
+        "c",
+        "cpp",
+        "c++",
+        "cc",
+        "cxx",
+        "kotlin",
+        "kt",
+        "kts",
+        "swift",
+        "php",
+        "ruby",
+        "rb",
     ]
 }

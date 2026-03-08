@@ -228,6 +228,164 @@ static CSHARP_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
     ])
 });
 
+/// C built-in types to filter out from referenced_types.
+static C_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "int", "char", "float", "double", "void", "long", "short", "unsigned", "signed", "size_t",
+        "FILE", "NULL",
+    ])
+});
+
+/// C++ built-in types to filter out from referenced_types.
+static CPP_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "int",
+        "char",
+        "float",
+        "double",
+        "void",
+        "long",
+        "short",
+        "unsigned",
+        "signed",
+        "bool",
+        "string",
+        "String",
+        "vector",
+        "map",
+        "set",
+        "list",
+        "pair",
+        "tuple",
+        "unique_ptr",
+        "shared_ptr",
+        "weak_ptr",
+        "optional",
+        "variant",
+        "any",
+        "size_t",
+        "nullptr_t",
+    ])
+});
+
+/// Kotlin built-in types to filter out from referenced_types.
+static KOTLIN_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "String",
+        "Int",
+        "Long",
+        "Double",
+        "Float",
+        "Boolean",
+        "Char",
+        "Byte",
+        "Short",
+        "Unit",
+        "Any",
+        "Nothing",
+        "List",
+        "MutableList",
+        "Map",
+        "MutableMap",
+        "Set",
+        "MutableSet",
+        "Array",
+        "Sequence",
+        "Pair",
+        "Triple",
+        "Comparable",
+        "Iterable",
+    ])
+});
+
+/// Swift built-in types to filter out from referenced_types.
+static SWIFT_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "String",
+        "Int",
+        "Double",
+        "Float",
+        "Bool",
+        "Character",
+        "Optional",
+        "Array",
+        "Dictionary",
+        "Set",
+        "Void",
+        "Any",
+        "AnyObject",
+        "Error",
+        "Codable",
+        "Hashable",
+        "Equatable",
+        "Comparable",
+        "CustomStringConvertible",
+    ])
+});
+
+/// PHP built-in types to filter out from referenced_types.
+static PHP_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "string",
+        "int",
+        "float",
+        "bool",
+        "array",
+        "object",
+        "callable",
+        "iterable",
+        "void",
+        "null",
+        "mixed",
+        "never",
+        "self",
+        "static",
+        "parent",
+        "Closure",
+        "Throwable",
+        "Exception",
+        "Error",
+        "Iterator",
+        "Countable",
+        "Serializable",
+        "ArrayAccess",
+    ])
+});
+
+/// Ruby built-in types to filter out from referenced_types.
+static RUBY_BUILTINS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
+    HashSet::from([
+        "String",
+        "Integer",
+        "Float",
+        "Array",
+        "Hash",
+        "Symbol",
+        "NilClass",
+        "TrueClass",
+        "FalseClass",
+        "Object",
+        "BasicObject",
+        "Kernel",
+        "Module",
+        "Class",
+        "Proc",
+        "Method",
+        "Comparable",
+        "Enumerable",
+        "Enumerator",
+        "IO",
+        "File",
+        "Dir",
+        "Regexp",
+        "Range",
+        "Struct",
+        "Exception",
+        "StandardError",
+        "RuntimeError",
+    ])
+});
+
 /// Get the appropriate builtin set for a language.
 fn get_builtins_for_language(language: &str) -> &'static HashSet<&'static str> {
     match language {
@@ -237,6 +395,12 @@ fn get_builtins_for_language(language: &str) -> &'static HashSet<&'static str> {
         "java" => &JAVA_BUILTINS,
         "rust" | "rs" => &RUST_BUILTINS,
         "csharp" | "cs" | "c#" => &CSHARP_BUILTINS,
+        "c" => &C_BUILTINS,
+        "cpp" | "c++" | "cc" | "cxx" => &CPP_BUILTINS,
+        "kotlin" | "kt" | "kts" => &KOTLIN_BUILTINS,
+        "swift" => &SWIFT_BUILTINS,
+        "php" => &PHP_BUILTINS,
+        "ruby" | "rb" => &RUBY_BUILTINS,
         _ => &PYTHON_BUILTINS, // Default fallback
     }
 }
