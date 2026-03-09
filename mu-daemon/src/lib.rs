@@ -8,3 +8,4 @@ pub mod embeddings;
 pub mod query_expansion;
 pub mod rerank;
 pub mod storage;
+pub mod summary;
