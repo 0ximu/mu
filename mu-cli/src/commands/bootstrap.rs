@@ -37,8 +37,8 @@ pub struct BootstrapResult {
     pub duration_ms: u64,
     pub config_created: bool,
     pub gitignore_updated: bool,
-    pub embeddings_generated: usize,
-    pub hnsw_index_created: bool,
+    pub importance_scores_computed: usize,
+    pub summaries_generated: usize,
     pub fts_index_created: bool,
 }
 
@@ -101,23 +101,23 @@ impl TableDisplay for BootstrapResult {
             }
         }
 
-        if self.embeddings_generated > 0 || self.hnsw_index_created || self.fts_index_created {
+        if self.importance_scores_computed > 0 || self.summaries_generated > 0 || self.fts_index_created {
             output.push_str(&format!("\n{}\n", "Search".cyan().bold()));
+            if self.importance_scores_computed > 0 {
+                output.push_str(&format!(
+                    "  PageRank:   {} importance scores\n",
+                    self.importance_scores_computed.to_string().green()
+                ));
+            }
+            if self.summaries_generated > 0 {
+                output.push_str(&format!(
+                    "  Summaries:  {} heuristic summaries\n",
+                    self.summaries_generated.to_string().green()
+                ));
+            }
             if self.fts_index_created {
                 output.push_str(&format!(
-                    "  FTS Index:  {} (BM25 keyword search)\n",
-                    "created".green()
-                ));
-            }
-            if self.embeddings_generated > 0 {
-                output.push_str(&format!(
-                    "  Embeddings: {} (semantic search)\n",
-                    self.embeddings_generated.to_string().green()
-                ));
-            }
-            if self.hnsw_index_created {
-                output.push_str(&format!(
-                    "  HNSW Index: {} (fast vector search)\n",
+                    "  FTS Index:  {} (BM25 on search_text)\n",
                     "created".green()
                 ));
             }
@@ -931,91 +931,6 @@ fn detect_cross_service_edges(
 }
 
 // ============================================================================
-// Embeddings
-// ============================================================================
-
-/// Generate embeddings for nodes and store them in the database.
-fn generate_embeddings(
-    nodes: &[mu_daemon::storage::Node],
-    mubase: &mu_daemon::storage::MUbase,
-    spinner: &ProgressBar,
-) -> usize {
-    spinner.set_message("Loading embedding model...");
-
-    let model = match mu_embeddings::MuSigmaModel::embedded() {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("Failed to load embedding model: {}", e);
-            return 0;
-        }
-    };
-
-    spinner.set_message("Generating embeddings...");
-
-    let nodes_to_embed: Vec<_> = nodes
-        .iter()
-        .filter(|n| n.node_type != mu_daemon::storage::NodeType::External)
-        .collect();
-
-    let total = nodes_to_embed.len();
-    let mut embeddings_batch = Vec::new();
-    let mut embedded_count = 0;
-    let batch_size = 32;
-
-    for (batch_idx, batch) in nodes_to_embed.chunks(batch_size).enumerate() {
-        spinner.set_message(format!(
-            "Generating embeddings... {}/{}",
-            (batch_idx * batch_size).min(total),
-            total
-        ));
-
-        let texts: Vec<String> = batch
-            .iter()
-            .map(|n| {
-                let type_prefix = match n.node_type {
-                    mu_daemon::storage::NodeType::Module => "module",
-                    mu_daemon::storage::NodeType::Class => "class",
-                    mu_daemon::storage::NodeType::Function => "function",
-                    mu_daemon::storage::NodeType::External => "external",
-                    mu_daemon::storage::NodeType::Message => "message",
-                };
-                format!(
-                    "{} {} {}",
-                    type_prefix,
-                    n.name,
-                    n.qualified_name.as_deref().unwrap_or("")
-                )
-            })
-            .collect();
-
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-
-        match model.embed(&text_refs) {
-            Ok(batch_embeddings) => {
-                for (node, (text, embedding)) in
-                    batch.iter().zip(texts.iter().zip(batch_embeddings))
-                {
-                    embeddings_batch.push((node.id.clone(), embedding, Some(text.clone())));
-                    embedded_count += 1;
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Failed to embed batch: {}", e);
-            }
-        }
-    }
-
-    if !embeddings_batch.is_empty() {
-        spinner.set_message("Storing embeddings...");
-        if let Err(e) = mubase.insert_embeddings_batch(&embeddings_batch, Some("mu-sigma-v2")) {
-            tracing::warn!("Failed to store embeddings: {}", e);
-        }
-    }
-
-    embedded_count
-}
-
-// ============================================================================
 // Main Entry Point
 // ============================================================================
 
@@ -1107,62 +1022,60 @@ pub async fn run(
     mubase.insert_edges(&edges)?;
     let stats = mubase.stats()?;
 
-    // Step 4: Generate embeddings (always)
-    let embeddings_generated = generate_embeddings(&nodes, &mubase, &spinner);
+    // Step 4: Compute PageRank importance scores
+    spinner.set_message("Computing importance scores...");
+    let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let edge_tuples: Vec<(String, String, String)> = edges
+        .iter()
+        .map(|e| (e.source_id.clone(), e.target_id.clone(), e.edge_type.to_string()))
+        .collect();
+    let pr_config = mu_daemon::pagerank::PageRankConfig::default();
+    let importance_scores = mu_daemon::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
+    let score_pairs: Vec<(String, f32)> = importance_scores.into_iter().collect();
+    mubase.update_importance_batch(&score_pairs)?;
+    let importance_scores_computed = score_pairs.len();
+    tracing::info!("Updated {} importance scores", importance_scores_computed);
 
-    spinner.finish_and_clear();
+    // Step 5: Generate heuristic summaries (needs edges for callers/callees)
+    spinner.set_message("Generating heuristic summaries...");
+    let mut summaries_generated = 0;
+    for node in &nodes {
+        let source_text = node.source_text.as_deref().unwrap_or("");
+        let code_hash = mu_daemon::summary::compute_code_hash(source_text);
+        let summary = mu_daemon::summary::generate_heuristic_summary(node, &edge_tuples);
+        mubase.update_summary(&node.id, &summary, "heuristic", &code_hash)?;
+        summaries_generated += 1;
+    }
+    tracing::info!("Generated {} heuristic summaries", summaries_generated);
 
-    // Step 5: Create HNSW index (always when embeddings exist)
-    let hnsw_index_created = if embeddings_generated > 0 {
-            let spinner = create_spinner();
-            spinner.set_message("Creating HNSW index...");
+    // Step 6: Build search_text from summaries + identity fields
+    spinner.set_message("Building search text...");
+    let updated_nodes = mubase.all_nodes()?;
+    let search_texts: Vec<(String, String)> = updated_nodes
+        .iter()
+        .map(|n| {
+            let search_text = mu_daemon::summary::build_search_text(n, n.summary_text.as_deref());
+            (n.id.clone(), search_text)
+        })
+        .collect();
+    mubase.update_search_text_batch(&search_texts)?;
 
-            match mubase.create_hnsw_index() {
-                Ok(created) => {
-                    spinner.finish_and_clear();
-                    if created {
-                        tracing::info!("HNSW index created successfully");
-                    }
-                    created
-                }
-                Err(e) => {
-                    spinner.finish_and_clear();
-                    // Don't fail bootstrap if HNSW creation fails - it's optional
-                    tracing::warn!("Failed to create HNSW index: {}", e);
-                    println!(
-                        "{} HNSW index creation failed: {}",
-                        "WARNING:".yellow().bold(),
-                        e
-                    );
-                    println!("         Vector search will use linear scan (still functional).\n");
-                    false
-                }
+    // Step 7: Rebuild FTS index on search_text
+    spinner.set_message("Building FTS index...");
+    let fts_index_created = match mubase.rebuild_fts_on_search_text() {
+        Ok(created) => {
+            if created {
+                tracing::info!("FTS index rebuilt on search_text");
             }
-        } else {
+            created
+        }
+        Err(e) => {
+            tracing::warn!("Failed to create FTS index: {}", e);
             false
-        };
-
-    // Step 6: Create FTS index for BM25 keyword search (always, if nodes exist)
-    let fts_index_created = {
-        let spinner = create_spinner();
-        spinner.set_message("Creating FTS index for keyword search...");
-
-        match mubase.create_fts_index() {
-            Ok(created) => {
-                spinner.finish_and_clear();
-                if created {
-                    tracing::info!("FTS index created successfully");
-                }
-                created
-            }
-            Err(e) => {
-                spinner.finish_and_clear();
-                // Don't fail bootstrap if FTS creation fails - fallback to LIKE search
-                tracing::warn!("Failed to create FTS index: {}", e);
-                false
-            }
         }
     };
+
+    spinner.finish_and_clear();
 
     // Output result
     let result = BootstrapResult {
@@ -1178,8 +1091,8 @@ pub async fn run(
         duration_ms: start.elapsed().as_millis() as u64,
         config_created,
         gitignore_updated,
-        embeddings_generated,
-        hnsw_index_created,
+        importance_scores_computed,
+        summaries_generated,
         fts_index_created,
     };
 
