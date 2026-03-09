@@ -6,11 +6,10 @@
 
 // V2 modules (to be removed)
 pub mod embeddings;
-pub mod pagerank;
 pub mod query_expansion;
 pub mod rerank;
 
-pub mod summary;
+// V3 modules
 pub mod pagerank;
 pub mod search;
 pub mod storage;
