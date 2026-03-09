@@ -688,6 +688,256 @@ impl MUbase {
         Ok(nodes)
     }
 
+    /// Bulk lookup nodes by IDs.
+    ///
+    /// Returns found nodes (missing IDs are silently skipped).
+    pub fn get_nodes_batch(&self, ids: &[String]) -> Result<Vec<Node>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.acquire_conn()?;
+        let placeholders: Vec<String> = (1..=ids.len()).map(|i| format!("?{}", i)).collect();
+        let in_clause = placeholders.join(", ");
+
+        let sql = format!(
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+             FROM nodes WHERE id IN ({})",
+            in_clause
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn duckdb::ToSql> = ids.iter().map(|id| id as &dyn duckdb::ToSql).collect();
+        let mut rows = stmt.query(params.as_slice())?;
+        let mut nodes = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_type_str: String = row.get(1)?;
+            let properties_str: Option<String> = row.get(7)?;
+
+            nodes.push(Node {
+                id: row.get(0)?,
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
+                name: row.get(2)?,
+                qualified_name: row.get(3)?,
+                file_path: row.get(4)?,
+                line_start: row.get(5)?,
+                line_end: row.get(6)?,
+                properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
+                complexity: row.get(8)?,
+                source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
+            });
+        }
+
+        Ok(nodes)
+    }
+
+    /// Get edges connected to the given node IDs.
+    ///
+    /// - direction "outgoing": source_id IN ids
+    /// - direction "incoming": target_id IN ids
+    /// - direction "both": source_id IN ids OR target_id IN ids
+    /// - edge_types: optional filter on edge type
+    ///
+    /// Returns (source_id, target_id, edge_type) tuples.
+    pub fn get_edges_for_nodes(
+        &self,
+        node_ids: &[String],
+        edge_types: Option<&[String]>,
+        direction: &str,
+    ) -> Result<Vec<(String, String, String)>> {
+        if node_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conn = self.acquire_conn()?;
+
+        // Build node ID placeholders
+        let node_placeholders: Vec<String> = (1..=node_ids.len()).map(|i| format!("?{}", i)).collect();
+        let node_in = node_placeholders.join(", ");
+
+        // Direction clause
+        let direction_clause = match direction {
+            "outgoing" => format!("source_id IN ({})", node_in),
+            "incoming" => format!("target_id IN ({})", node_in),
+            _ => format!("(source_id IN ({}) OR target_id IN ({}))", node_in, node_in),
+        };
+
+        // Edge type filter
+        let mut params: Vec<&dyn duckdb::ToSql> = node_ids
+            .iter()
+            .map(|id| id as &dyn duckdb::ToSql)
+            .collect();
+
+        // For "both" direction, node IDs appear twice in the SQL
+        if direction != "outgoing" && direction != "incoming" {
+            let extra: Vec<&dyn duckdb::ToSql> = node_ids
+                .iter()
+                .map(|id| id as &dyn duckdb::ToSql)
+                .collect();
+            params.extend(extra);
+        }
+
+        let type_clause = if let Some(types) = edge_types {
+            if types.is_empty() {
+                String::new()
+            } else {
+                let base = params.len();
+                let type_placeholders: Vec<String> = (1..=types.len())
+                    .map(|i| format!("?{}", base + i))
+                    .collect();
+                for t in types {
+                    params.push(t as &dyn duckdb::ToSql);
+                }
+                format!(" AND type IN ({})", type_placeholders.join(", "))
+            }
+        } else {
+            String::new()
+        };
+
+        let sql = format!(
+            "SELECT source_id, target_id, type FROM edges WHERE {}{}",
+            direction_clause, type_clause
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query(params.as_slice())?;
+        let mut edges = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            edges.push((row.get(0)?, row.get(1)?, row.get(2)?));
+        }
+
+        Ok(edges)
+    }
+
+    /// Recreate the FTS index after enrichment.
+    ///
+    /// Drops and rebuilds the FTS index on search_text.
+    pub fn rebuild_fts_index(&self) -> Result<()> {
+        let conn = self.acquire_conn()?;
+
+        // Ensure FTS extension is loaded
+        let _ = conn.execute("INSTALL fts", []);
+        let _ = conn.execute("LOAD fts", []);
+
+        conn.execute_batch("PRAGMA create_fts_index('nodes', 'id', 'name', 'qualified_name', 'file_path', 'search_text', overwrite=1);")?;
+        self.fts_available.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Bulk update summaries and rebuild search_text for multiple nodes.
+    ///
+    /// Takes (node_id, summary_text, summary_source) tuples.
+    /// Also rebuilds search_text for each updated node using build_search_text.
+    /// Returns the number of nodes updated.
+    pub fn update_summaries_batch(&self, summaries: &[(String, String, String)]) -> Result<usize> {
+        if summaries.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.acquire_conn()?;
+        let mut update_stmt = conn.prepare(
+            "UPDATE nodes SET summary_text = ?, summary_source = ?, summary_updated_at = CURRENT_TIMESTAMP, search_text = ? WHERE id = ?",
+        )?;
+
+        let mut count = 0usize;
+        for (node_id, summary_text, summary_source) in summaries {
+            // Fetch the node so we can rebuild search_text
+            let node = {
+                let mut stmt = conn.prepare(
+                    "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                            summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+                     FROM nodes WHERE id = ?",
+                )?;
+                let mut rows = stmt.query(params![node_id])?;
+                if let Some(row) = rows.next()? {
+                    let node_type_str: String = row.get(1)?;
+                    let properties_str: Option<String> = row.get(7)?;
+                    Some(Node {
+                        id: row.get(0)?,
+                        node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
+                        name: row.get(2)?,
+                        qualified_name: row.get(3)?,
+                        file_path: row.get(4)?,
+                        line_start: row.get(5)?,
+                        line_end: row.get(6)?,
+                        properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
+                        complexity: row.get(8)?,
+                        source_text: row.get(9)?,
+                        summary_text: row.get(10)?,
+                        summary_source: row.get(11)?,
+                        summary_code_hash: row.get(12)?,
+                        importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                        search_text: row.get(14)?,
+                        summary_updated_at: row.get(15)?,
+                    })
+                } else {
+                    None
+                }
+            };
+
+            if let Some(node) = node {
+                let search_text = crate::summary::build_search_text(&node, Some(summary_text));
+                update_stmt.execute(params![summary_text, summary_source, search_text, node_id])?;
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Get the top N nodes ordered by importance score (descending).
+    ///
+    /// Used by pack_context to select the most important nodes when
+    /// no specific query is provided.
+    pub fn get_top_nodes_by_importance(&self, limit: usize) -> Result<Vec<Node>> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+             FROM nodes
+             ORDER BY importance_score DESC
+             LIMIT ?",
+        )?;
+
+        let mut rows = stmt.query(params![limit as i64])?;
+        let mut nodes = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_type_str: String = row.get(1)?;
+            let properties_str: Option<String> = row.get(7)?;
+
+            nodes.push(Node {
+                id: row.get(0)?,
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
+                name: row.get(2)?,
+                qualified_name: row.get(3)?,
+                file_path: row.get(4)?,
+                line_start: row.get(5)?,
+                line_end: row.get(6)?,
+                properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
+                complexity: row.get(8)?,
+                source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
+            });
+        }
+
+        Ok(nodes)
+    }
+
     /// Rebuild FTS index on search_text only.
     ///
     /// Drops existing FTS index and recreates it targeting search_text
