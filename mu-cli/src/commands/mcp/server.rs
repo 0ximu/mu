@@ -106,6 +106,16 @@ pub struct OracleParams {
     pub task: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct AuditParams {
+    /// Minimum complexity threshold to flag (default: 30)
+    #[schemars(description = "Complexity threshold (default: 30)")]
+    pub min_complexity: Option<u32>,
+    /// Scope audit to files changed since this git ref (e.g., "main", "HEAD~5")
+    #[schemars(description = "Git ref to scope audit to changed files only")]
+    pub diff_base: Option<String>,
+}
+
 // ============================================================================
 // Session State - Activity-dependent awareness for the cognitive layer
 // ============================================================================
@@ -1316,6 +1326,28 @@ impl MuMcpServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    /// Audit: Run code quality rules and report violations
+    #[tool(
+        description = "Run code quality audit on the codebase. Finds dead code, high complexity, missing docs, hardcoded secrets, TODO/FIXMEs, unwrap abuse, and long parameter lists. Supports project-local custom rules from .mu/rules/."
+    )]
+    async fn mu_audit(
+        &self,
+        Parameters(params): Parameters<AuditParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
+        let result = crate::commands::audit::run_audit_for_mcp(
+            &state.mubase,
+            &state.project_root,
+            params.min_complexity,
+            params.diff_base.as_deref(),
+        )
+        .map_err(|e| McpError::internal_error(e, None))?;
+
+        let md = crate::commands::audit::format_as_markdown(&result);
+        Ok(CallToolResult::success(vec![Content::text(md)]))
     }
 }
 

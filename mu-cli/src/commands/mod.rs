@@ -2,6 +2,7 @@
 //!
 //! Each command module provides a `run` function that executes the command logic.
 
+pub mod audit;
 pub mod bootstrap;
 pub mod completions;
 pub mod compress;
