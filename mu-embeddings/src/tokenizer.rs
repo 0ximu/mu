@@ -22,6 +22,17 @@ pub struct EncodedInput {
     pub token_type_ids: Vec<u32>,
 }
 
+/// Result of encoding with a token budget.
+#[derive(Debug, Clone)]
+pub struct BudgetEncoding {
+    /// The encoded tokens (possibly truncated to fit the budget).
+    pub encoded: EncodedInput,
+    /// Actual token count after encoding.
+    pub token_count: usize,
+    /// Whether the input was truncated to fit.
+    pub truncated: bool,
+}
+
 impl MuTokenizer {
     /// Load tokenizer from a file path.
     ///
@@ -174,11 +185,83 @@ impl MuTokenizer {
     pub fn max_length(&self) -> usize {
         self.max_length
     }
+
+    /// Estimate the number of tokens in a text without allocating a full EncodedInput.
+    ///
+    /// Falls back to a heuristic (len / 4) if tokenization fails.
+    pub fn estimate_tokens(&self, text: &str) -> usize {
+        self.tokenizer
+            .encode(text, false)
+            .map(|enc| enc.get_ids().len())
+            .unwrap_or(text.len() / 4)
+    }
+
+    /// Encode text with a token budget, truncating the input string to fit.
+    ///
+    /// Uses binary search on the char boundary to find the longest prefix
+    /// that fits within `token_budget` tokens, then returns the encoded
+    /// result and whether truncation occurred.
+    pub fn encode_with_budget(&self, text: &str, token_budget: usize) -> Result<BudgetEncoding> {
+        // Fast path: text already fits
+        let full_tokens = self.estimate_tokens(text);
+        if full_tokens <= token_budget {
+            let encoded = self.encode(text)?;
+            return Ok(BudgetEncoding {
+                encoded,
+                token_count: full_tokens,
+                truncated: false,
+            });
+        }
+
+        // Binary search for the longest char prefix that fits within budget.
+        // Start with a proportional estimate to narrow the range quickly.
+        let char_count = text.chars().count();
+        let ratio = token_budget as f64 / full_tokens.max(1) as f64;
+        let estimate = ((char_count as f64) * ratio * 0.95) as usize; // slightly conservative
+
+        let mut lo = estimate.min(char_count).saturating_sub(50);
+        let mut hi = (estimate + 50).min(char_count);
+
+        // Verify bounds: lo must fit, hi must exceed (or we widen)
+        let lo_text: String = text.chars().take(lo).collect();
+        if self.estimate_tokens(&lo_text) > token_budget {
+            lo = 0;
+        }
+        let hi_text: String = text.chars().take(hi).collect();
+        if self.estimate_tokens(&hi_text) <= token_budget {
+            hi = char_count;
+        }
+
+        while lo + 1 < hi {
+            let mid = (lo + hi) / 2;
+            let prefix: String = text.chars().take(mid).collect();
+            if self.estimate_tokens(&prefix) <= token_budget {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let truncated_text: String = text.chars().take(lo).collect();
+        let token_count = self.estimate_tokens(&truncated_text);
+        let encoded = self.encode(&truncated_text)?;
+
+        Ok(BudgetEncoding {
+            encoded,
+            token_count,
+            truncated: true,
+        })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn load_tokenizer() -> MuTokenizer {
+        let json = std::str::from_utf8(crate::embedded::TOKENIZER_BYTES).unwrap();
+        MuTokenizer::from_json(json).unwrap()
+    }
 
     #[test]
     fn test_encoded_input_fields() {
@@ -191,5 +274,60 @@ mod tests {
         assert_eq!(input.input_ids.len(), 6);
         assert_eq!(input.attention_mask.len(), 6);
         assert_eq!(input.token_type_ids.len(), 6);
+    }
+
+    #[test]
+    fn test_estimate_tokens_returns_reasonable_values() {
+        let tok = load_tokenizer();
+        // Short text
+        let count = tok.estimate_tokens("fn hello() {}");
+        assert!(count > 0 && count < 20, "got {} tokens", count);
+
+        // Longer text should have more tokens
+        let long = "function ".repeat(100);
+        let long_count = tok.estimate_tokens(&long);
+        assert!(long_count > count);
+    }
+
+    #[test]
+    fn test_estimate_tokens_empty_string() {
+        let tok = load_tokenizer();
+        let count = tok.estimate_tokens("");
+        // Might be 0 or a small number for special tokens; just shouldn't panic
+        assert!(count <= 2);
+    }
+
+    #[test]
+    fn test_encode_with_budget_no_truncation() {
+        let tok = load_tokenizer();
+        let result = tok.encode_with_budget("fn hello() {}", 480).unwrap();
+        assert!(!result.truncated);
+        assert!(result.token_count <= 480);
+        assert!(!result.encoded.input_ids.is_empty());
+    }
+
+    #[test]
+    fn test_encode_with_budget_truncates() {
+        let tok = load_tokenizer();
+        let long_text = "fn process_data() { let x = 42; } ".repeat(200);
+        let result = tok.encode_with_budget(&long_text, 50).unwrap();
+        assert!(result.truncated);
+        assert!(result.token_count <= 50, "got {} tokens", result.token_count);
+    }
+
+    #[test]
+    fn test_encode_with_budget_binary_search_converges() {
+        let tok = load_tokenizer();
+        // Test with various budgets to ensure binary search works
+        for budget in [10, 50, 100, 200, 480] {
+            let text = "impl Iterator for MyStruct { fn next(&mut self) -> Option<Self::Item> { None } } ".repeat(50);
+            let result = tok.encode_with_budget(&text, budget).unwrap();
+            assert!(
+                result.token_count <= budget,
+                "budget={}, got {} tokens",
+                budget,
+                result.token_count
+            );
+        }
     }
 }
