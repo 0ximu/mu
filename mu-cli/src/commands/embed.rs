@@ -167,8 +167,12 @@ pub fn compute_all_hashes(
     hashes
 }
 
-/// Max characters for embedding text input.
-const EMBED_TEXT_MAX_CHARS: usize = 400;
+/// Token budget for embedding text (512 max_seq_len - 32 overhead for special tokens).
+const EMBED_TOKEN_BUDGET: usize = 480;
+
+/// Safety cap in characters to avoid tokenizing very long source files.
+/// Anything beyond this is pre-trimmed before token-level truncation.
+const EMBED_CHAR_SAFETY_CAP: usize = 4000;
 
 /// Extract source code lines from a file on disk.
 fn extract_source(
@@ -206,8 +210,9 @@ fn extract_source(
 
 /// Build rich text for embedding a node.
 ///
-/// Priority: docstring (up to 100 chars) + source (remainder), capped at EMBED_TEXT_MAX_CHARS.
+/// Priority: docstring (up to 100 chars) + source (remainder), capped at EMBED_CHAR_SAFETY_CAP.
 /// Falls back to "{type} {name} {qualified_name}" when source is unavailable.
+/// Final token-level truncation happens later via the tokenizer.
 fn build_embedding_text(
     project_root: &Path,
     type_str: &str,
@@ -232,9 +237,9 @@ fn build_embedding_text(
 
     match (docstring, source) {
         (Some(doc), Some(src)) => {
-            let doc_budget = 100usize.min(EMBED_TEXT_MAX_CHARS.saturating_sub(header.len()));
+            let doc_budget = 100usize.min(EMBED_CHAR_SAFETY_CAP.saturating_sub(header.len()));
             let doc_truncated: String = doc.chars().take(doc_budget).collect();
-            let remaining = EMBED_TEXT_MAX_CHARS
+            let remaining = EMBED_CHAR_SAFETY_CAP
                 .saturating_sub(header.len())
                 .saturating_sub(doc_truncated.len())
                 .saturating_sub(1); // newline between doc and src
@@ -246,14 +251,14 @@ fn build_embedding_text(
             text
         }
         (None, Some(src)) => {
-            let src_budget = EMBED_TEXT_MAX_CHARS.saturating_sub(header.len());
+            let src_budget = EMBED_CHAR_SAFETY_CAP.saturating_sub(header.len());
             let src_truncated: String = src.chars().take(src_budget).collect();
             let mut text = header;
             text.push_str(&src_truncated);
             text
         }
         (Some(doc), None) => {
-            let doc_budget = EMBED_TEXT_MAX_CHARS.saturating_sub(header.len());
+            let doc_budget = EMBED_CHAR_SAFETY_CAP.saturating_sub(header.len());
             let doc_truncated: String = doc.chars().take(doc_budget).collect();
             let mut text = header;
             text.push_str(&doc_truncated);
@@ -264,6 +269,57 @@ fn build_embedding_text(
             format!("{} {} {}", type_str, name, qualified_name)
         }
     }
+}
+
+/// Truncate text to fit within the token budget using binary search.
+///
+/// Returns the (possibly truncated) text. Uses the tokenizer for accurate
+/// token counting and binary search to find the optimal cut point.
+fn truncate_to_token_budget(text: &str, tokenizer: &mu_embeddings::MuTokenizer) -> String {
+    let token_count = tokenizer.estimate_tokens(text);
+    if token_count <= EMBED_TOKEN_BUDGET {
+        tracing::debug!(tokens = token_count, "text fits token budget");
+        return text.to_string();
+    }
+
+    // Binary search for the longest char prefix that fits
+    let char_count = text.chars().count();
+    let ratio = EMBED_TOKEN_BUDGET as f64 / token_count.max(1) as f64;
+    let estimate = ((char_count as f64) * ratio * 0.95) as usize;
+
+    let mut lo = estimate.min(char_count).saturating_sub(50);
+    let mut hi = (estimate + 50).min(char_count);
+
+    // Verify bounds
+    let lo_text: String = text.chars().take(lo).collect();
+    if tokenizer.estimate_tokens(&lo_text) > EMBED_TOKEN_BUDGET {
+        lo = 0;
+    }
+    let hi_text: String = text.chars().take(hi).collect();
+    if tokenizer.estimate_tokens(&hi_text) <= EMBED_TOKEN_BUDGET {
+        hi = char_count;
+    }
+
+    while lo + 1 < hi {
+        let mid = (lo + hi) / 2;
+        let prefix: String = text.chars().take(mid).collect();
+        if tokenizer.estimate_tokens(&prefix) <= EMBED_TOKEN_BUDGET {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+
+    let truncated: String = text.chars().take(lo).collect();
+    let final_tokens = tokenizer.estimate_tokens(&truncated);
+    tracing::debug!(
+        original_tokens = token_count,
+        truncated_tokens = final_tokens,
+        original_chars = char_count,
+        truncated_chars = lo,
+        "truncated text to fit token budget"
+    );
+    truncated
 }
 
 /// Run incremental embedding update
@@ -452,6 +508,12 @@ pub async fn run_incremental(path: &str, force: bool, format: OutputFormat) -> a
                     properties,
                 )
             })
+            .collect();
+
+        // Truncate texts to fit within the token budget
+        let texts: Vec<String> = texts
+            .into_iter()
+            .map(|t| truncate_to_token_budget(&t, model.tokenizer()))
             .collect();
 
         // Convert to &str slice for embedding
@@ -698,10 +760,10 @@ mod tests {
     }
 
     #[test]
-    fn test_build_embedding_text_truncated_to_max() {
+    fn test_build_embedding_text_truncated_to_safety_cap() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("big.rs");
-        let big_content = "x".repeat(1000);
+        let big_content = "x".repeat(10000);
         fs::write(&file_path, &big_content).unwrap();
 
         let text = build_embedding_text(
@@ -715,7 +777,7 @@ mod tests {
             None,
         );
 
-        assert!(text.len() <= EMBED_TEXT_MAX_CHARS);
+        assert!(text.len() <= EMBED_CHAR_SAFETY_CAP);
     }
 
     #[test]
@@ -757,6 +819,6 @@ mod tests {
         assert!(text.starts_with("function greet\n"));
         assert!(text.contains("Greets the user politely"));
         assert!(text.contains("fn greet()"));
-        assert!(text.len() <= EMBED_TEXT_MAX_CHARS);
+        assert!(text.len() <= EMBED_CHAR_SAFETY_CAP);
     }
 }
