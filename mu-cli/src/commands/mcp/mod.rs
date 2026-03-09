@@ -4,6 +4,7 @@
 //! to understand and query codebases.
 
 mod server;
+mod tools_v3;
 
 use rmcp::{transport::stdio, ServiceExt};
 
