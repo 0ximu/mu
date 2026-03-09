@@ -7,4 +7,5 @@
 pub mod embeddings;
 pub mod query_expansion;
 pub mod rerank;
+pub mod search;
 pub mod storage;
