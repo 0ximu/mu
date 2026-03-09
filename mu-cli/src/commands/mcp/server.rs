@@ -116,6 +116,19 @@ pub struct AuditParams {
     pub diff_base: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReviewParams {
+    /// Base git ref (defaults to main/develop)
+    #[schemars(description = "Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')")]
+    pub base_ref: Option<String>,
+    /// Whether to include impact analysis (default: true)
+    #[schemars(description = "Include downstream impact analysis (default: true)")]
+    pub include_impact: Option<bool>,
+    /// Min complexity threshold for audit (default: 15, lower for review)
+    #[schemars(description = "Complexity threshold for audit (default: 15)")]
+    pub min_complexity: Option<u32>,
+}
+
 // ============================================================================
 // Session State - Activity-dependent awareness for the cognitive layer
 // ============================================================================
@@ -756,118 +769,94 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Diff: Semantic diff showing what changed
+    /// Diff: Real semantic diff showing what symbols changed
     #[tool(
-        description = "See what symbols changed between git refs. Shows functions/classes added, modified, or removed."
+        description = "See what symbols changed between git refs. Parses both versions and compares at the entity level — shows functions/classes added, modified, or removed with breaking change detection."
     )]
     async fn mu_diff(
         &self,
         Parameters(params): Parameters<DiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        let state = self.ensure_state().await?;
+        let _state = self.ensure_state().await?;
 
-        // Detect default branch
-        let base = params.base_ref.unwrap_or_else(|| {
-            let result = Command::new("git")
-                .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
-                .current_dir(&state.project_root)
-                .output();
+        let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
 
-            result
-                .ok()
-                .and_then(|o| String::from_utf8(o.stdout).ok())
-                .and_then(|s| s.trim().rsplit('/').next().map(|s| s.to_string()))
-                .unwrap_or_else(|| "main".to_string())
-        });
+        let diff_result = crate::commands::diff::semantic_diff(&base, "HEAD")
+            .map_err(|e| McpError::internal_error(format!("diff failed: {}", e), None))?;
 
+        // Format as markdown
         let mut output = String::new();
-        output.push_str(&format!("# Semantic Diff: {} → HEAD\n\n", base));
-
-        // Get changed files
-        let diff_result = Command::new("git")
-            .args(["diff", "--name-status", &base, "HEAD"])
-            .current_dir(&state.project_root)
-            .output()
-            .map_err(|e| McpError::internal_error(format!("git error: {}", e), None))?;
-
-        let diff_output = String::from_utf8_lossy(&diff_result.stdout);
-
-        let mut added_files = Vec::new();
-        let mut modified_files = Vec::new();
-        let mut deleted_files = Vec::new();
-
-        for line in diff_output.lines() {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
-                let status = parts[0];
-                let file = parts[1];
-                match status.chars().next() {
-                    Some('A') => added_files.push(file),
-                    Some('M') => modified_files.push(file),
-                    Some('D') => deleted_files.push(file),
-                    _ => {}
-                }
-            }
-        }
-
-        let total = added_files.len() + modified_files.len() + deleted_files.len();
+        output.push_str(&format!("# Semantic Diff: {} -> HEAD\n\n", base));
         output.push_str(&format!(
-            "{} files changed: +{} ~{} -{}\n\n",
-            total,
-            added_files.len(),
-            modified_files.len(),
-            deleted_files.len()
+            "{} changes ({} breaking) in {} files ({}ms)\n\n",
+            diff_result.changes.len(),
+            diff_result.breaking_changes.len(),
+            diff_result.files_changed,
+            diff_result.duration_ms
         ));
 
-        // For each modified file, show what symbols changed
-        if !modified_files.is_empty() {
-            output.push_str("## Modified Files\n");
-            for file in modified_files.iter().take(10) {
-                output.push_str(&format!("\n### {}\n", file));
-
-                // Get symbols in this file
-                let sql = format!(
-                    "SELECT type, name FROM nodes WHERE file_path = '{}' ORDER BY line_start",
-                    file.replace('\'', "''")
-                );
-                if let Ok(nodes) = state.mubase.query(&sql) {
-                    let symbols: Vec<String> = nodes
-                        .rows
-                        .iter()
-                        .filter_map(|r| {
-                            let t = r.first().and_then(|v| v.as_str())?;
-                            let n = r.get(1).and_then(|v| v.as_str())?;
-                            if t == "module" {
-                                return None;
-                            }
-                            let sigil = match t {
-                                "class" => "$",
-                                "function" => "#",
-                                _ => "@",
-                            };
-                            Some(format!("{}{}", sigil, n))
-                        })
-                        .collect();
-
-                    if !symbols.is_empty() {
-                        output.push_str(&format!("  Contains: {}\n", symbols.join(", ")));
-                    }
+        if !diff_result.breaking_changes.is_empty() {
+            output.push_str("## Breaking Changes\n\n");
+            for change in &diff_result.breaking_changes {
+                output.push_str(&format!(
+                    "- `{}` [{}] {} {}\n",
+                    change.entity_name,
+                    change.entity_type,
+                    change.change_type,
+                    change.description.as_deref().unwrap_or("")
+                ));
+                if let Some(ref path) = change.file_path {
+                    output.push_str(&format!("  - {}\n", path));
                 }
             }
+            output.push('\n');
         }
 
-        if !added_files.is_empty() {
-            output.push_str("\n## Added Files\n");
-            for file in added_files.iter().take(10) {
-                output.push_str(&format!("  + {}\n", file));
+        // Group changes by type
+        let added: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "added").collect();
+        let modified: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "modified" || c.change_type == "signature_changed").collect();
+        let removed: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "removed").collect();
+
+        if !added.is_empty() {
+            output.push_str(&format!("## Added ({})\n\n", added.len()));
+            for change in &added {
+                output.push_str(&format!("- `{}` [{}]", change.entity_name, change.entity_type));
+                if let Some(ref path) = change.file_path {
+                    output.push_str(&format!(" -- {}", path));
+                }
+                output.push('\n');
             }
+            output.push('\n');
         }
 
-        if !deleted_files.is_empty() {
-            output.push_str("\n## Deleted Files\n");
-            for file in deleted_files.iter().take(10) {
-                output.push_str(&format!("  - {}\n", file));
+        if !modified.is_empty() {
+            output.push_str(&format!("## Modified ({})\n\n", modified.len()));
+            for change in &modified {
+                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
+                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
+                if let Some(ref path) = change.file_path {
+                    output.push_str(&format!(" -- {}", path));
+                }
+                output.push('\n');
             }
+            output.push('\n');
+        }
+
+        if !removed.is_empty() {
+            output.push_str(&format!("## Removed ({})\n\n", removed.len()));
+            for change in &removed {
+                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
+                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
+                if let Some(ref path) = change.file_path {
+                    output.push_str(&format!(" -- {}", path));
+                }
+                output.push('\n');
+            }
+            output.push('\n');
+        }
+
+        if diff_result.changes.is_empty() {
+            output.push_str("No semantic changes detected.\n");
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
@@ -1347,6 +1336,33 @@ impl MuMcpServer {
         .map_err(|e| McpError::internal_error(e, None))?;
 
         let md = crate::commands::audit::format_as_markdown(&result);
+        Ok(CallToolResult::success(vec![Content::text(md)]))
+    }
+
+    /// Review: Full PR risk analysis combining diff + impact + audit
+    #[tool(
+        description = "Full PR review: semantic diff, downstream impact analysis, code audit, and risk scoring. Use this before merging to understand what changed, what might break, and how risky the changes are."
+    )]
+    async fn mu_review(
+        &self,
+        Parameters(params): Parameters<ReviewParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
+        let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
+        let include_impact = params.include_impact.unwrap_or(true);
+        let min_complexity = params.min_complexity;
+
+        let result = crate::commands::review::run_review(
+            &state.mubase,
+            &state.project_root,
+            &base,
+            include_impact,
+            min_complexity,
+        )
+        .map_err(|e| McpError::internal_error(e, None))?;
+
+        let md = crate::commands::review::format_as_markdown(&result);
         Ok(CallToolResult::success(vec![Content::text(md)]))
     }
 }
@@ -2275,6 +2291,8 @@ impl ServerHandler for MuMcpServer {
                  • mu_compress: Get codebase overview\n\
                  • mu_impact: What depends on a symbol\n\
                  • mu_diff: What changed between git refs\n\
+                 • mu_review: Full PR review (diff + impact + audit + risk score)\n\
+                 • mu_audit: Run code quality rules\n\
                  • mu_sus: Find suspicious/complex code\n\
                  • mu_wtf: Git archaeology for a file".into()
             ),
