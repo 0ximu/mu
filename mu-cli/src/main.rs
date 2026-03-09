@@ -166,6 +166,26 @@ enum Commands {
         edge_types: Option<Vec<String>>,
     },
 
+    /// Audit codebase for code smells, complexity, missing docs, and custom rules
+    #[command(visible_alias = "lint")]
+    Audit {
+        /// Minimum complexity threshold to flag (default: 30)
+        #[arg(long, default_value = None)]
+        min_complexity: Option<u32>,
+
+        /// Maximum parameter count before flagging (default: 6)
+        #[arg(long, default_value = None)]
+        max_params: Option<usize>,
+
+        /// Scope audit to files changed since this git ref (e.g., "main", "HEAD~5")
+        #[arg(long)]
+        diff: Option<String>,
+
+        /// Path to project rules directory (default: .mu/rules/)
+        #[arg(long)]
+        rules_dir: Option<String>,
+    },
+
     // ==================== Integration ====================
     /// Start MCP server for AI assistant integration (Claude, etc.)
     Mcp {
@@ -297,6 +317,13 @@ async fn main() -> anyhow::Result<()> {
             depth,
             edge_types,
         } => graph::run_impact(&node, edge_types, depth, format).await,
+
+        Commands::Audit {
+            min_complexity,
+            max_params,
+            diff,
+            rules_dir,
+        } => audit::run(min_complexity, max_params, diff.as_deref(), rules_dir.as_deref(), format).await,
 
         Commands::Mcp { path } => mcp::run(&path).await,
 
