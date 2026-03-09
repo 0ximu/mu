@@ -76,6 +76,9 @@ pub struct ImpactParams {
     /// Symbol name to analyze for downstream dependencies
     #[schemars(description = "Symbol name to analyze (e.g., 'DatabaseConnection')")]
     pub symbol: String,
+    /// Include cross-service edges (MassTransit pub/sub, HTTP clients, shared contracts)
+    #[schemars(description = "Include cross-service edges like MassTransit pub/sub, HTTP calls, shared contracts (default: false)")]
+    pub cross_service: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -689,6 +692,40 @@ impl MuMcpServer {
                 output.push_str(&format!("  {} [{}] — {}\n", name, node_type, file_path));
             }
             output.push('\n');
+        }
+
+        // Cross-service edges (MassTransit pub/sub, HTTP, contracts)
+        if params.cross_service.unwrap_or(false) {
+            let cs_sql = format!(
+                "SELECT DISTINCT e.type, n2.name, n2.type, n2.file_path, e.properties
+                 FROM edges e
+                 JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id
+                 JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id
+                 WHERE n.name = '{}'
+                 AND e.type IN ('publishes', 'subscribes', 'calls_http', 'uses_contract')
+                 LIMIT 30",
+                params.symbol.replace('\'', "''")
+            );
+
+            if let Ok(cs_result) = state.mubase.query(&cs_sql) {
+                if !cs_result.rows.is_empty() {
+                    output.push_str(&format!(
+                        "## Cross-Service Edges ({} found)\n",
+                        cs_result.rows.len()
+                    ));
+                    for row in &cs_result.rows {
+                        let edge_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
+                        let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
+                        let node_type = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
+                        let file_path = row.get(3).and_then(|v| v.as_str()).unwrap_or("?");
+                        output.push_str(&format!(
+                            "  {} {} [{}] — {}\n",
+                            edge_type, name, node_type, file_path
+                        ));
+                    }
+                    output.push('\n');
+                }
+            }
         }
 
         // If graph is sparse, supplement with grep
