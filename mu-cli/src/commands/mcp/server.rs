@@ -1,18 +1,15 @@
 //! MCP Server implementation for MU
 //!
 //! Exposes MU capabilities as MCP tools that can be called by AI assistants.
+//! V3: search_nodes, expand_nodes, read_nodes, pack_context, enrich_nodes.
 
 use crate::mubase::find_project_root;
-use std::collections::VecDeque;
 use std::fs;
 #[allow(unused_imports)]
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Instant;
-
-use tokio::sync::Mutex;
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Parameters},
@@ -23,337 +20,182 @@ use rmcp::{
 use serde::Deserialize;
 use tokio::sync::{OnceCell, RwLock};
 
+use super::tools_v3;
+
 /// Lazily-initialized project state
 struct ProjectState {
     mubase: mu_daemon::storage::MUbase,
     project_root: PathBuf,
 }
 
-/// MU MCP Server - exposes codebase intelligence tools
+/// MU MCP Server - exposes codebase intelligence tools via MCP.
 ///
-/// Now with session state for activity-dependent awareness.
-/// MU remembers what you've looked at and can detect patterns.
+/// V3 tools provide structured graph access: search, expand, read, pack, enrich.
 ///
 /// Supports dynamic project detection via MCP client roots - the server will
 /// use the client's working directory instead of its own CWD.
 #[derive(Clone)]
 pub struct MuMcpServer {
     /// Lazily-initialized project state (mubase + project_root)
-    /// Initialized on first tool call using client roots or fallback directory
     state: Arc<OnceCell<ProjectState>>,
     /// Client roots received during MCP initialization
-    /// Used to determine which project the client is working in
     client_roots: Arc<RwLock<Option<Vec<Root>>>>,
     /// Fallback directory if no client roots are provided
     fallback_dir: PathBuf,
-    /// Embedding model (lazily loaded)
-    model: Arc<OnceCell<mu_embeddings::MuSigmaModel>>,
     tool_router: ToolRouter<MuMcpServer>,
-    /// Session state for cognitive layer - tracks accessed nodes and queries
-    session: Arc<Mutex<SessionState>>,
 }
 
-// Tool parameter structs
+// ============================================================================
+// V3 Tool Parameter Structs
+// ============================================================================
+
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct GrokParams {
-    /// Natural language question about the codebase (e.g., "how does authentication work")
-    #[schemars(description = "Natural language question about the codebase")]
+pub struct SearchNodesParams {
+    /// Natural language query or symbol name to search for
+    #[schemars(description = "Natural language query or exact symbol name")]
     pub query: String,
-    /// Number of code snippets to return (default: 3)
-    #[schemars(description = "Number of results to return (1-10, default: 3)")]
+    /// Maximum results to return (default: 5)
+    #[schemars(description = "Number of results (1-20, default: 5)")]
     pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExpandNodesParams {
+    /// Node IDs to expand from (e.g., ["fn:src/lib.rs:main"])
+    #[schemars(description = "Node IDs to expand from")]
+    pub node_ids: Vec<String>,
+    /// How many hops to traverse (default: 1)
+    #[schemars(description = "Graph traversal depth (1-3, default: 1)")]
+    pub depth: Option<u8>,
+    /// Filter to specific edge types (e.g., ["calls", "uses"])
+    #[schemars(description = "Edge types to follow (e.g., calls, uses, imports, contains, inherits)")]
+    pub edge_types: Option<Vec<String>>,
+    /// Direction: "outgoing", "incoming", or "both" (default: "outgoing")
+    #[schemars(description = "Traversal direction: outgoing, incoming, or both")]
+    pub direction: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadNodesParams {
+    /// Node IDs to read
+    #[schemars(description = "Node IDs to read")]
+    pub node_ids: Vec<String>,
+    /// Detail level: "signature", "summary", "source", "full" (default: "source")
+    #[schemars(description = "Detail mode: signature (first line), summary (text summary), source (full code), full (source + neighbors)")]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PackContextParams {
+    /// Specific node IDs to pack (omit for project overview)
+    #[schemars(description = "Node IDs to pack. Omit for automatic project overview.")]
+    pub node_ids: Option<Vec<String>>,
+    /// Token budget (default: 4000)
+    #[schemars(description = "Approximate token budget (default: 4000)")]
+    pub budget: Option<usize>,
+    /// Layout style: "grouped" (by file) or "flat" (default: "grouped")
+    #[schemars(description = "Layout: grouped (by file) or flat")]
+    pub style: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EnrichNodesParams {
+    /// Filter to specific node IDs when requesting candidates
+    #[schemars(description = "Filter candidates to these node IDs")]
+    pub node_ids: Option<Vec<String>>,
+    /// Store LLM-generated summaries for nodes
+    #[schemars(description = "Summaries to store: [{node_id, summary}, ...]")]
+    pub summaries: Option<Vec<NodeSummaryInput>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct NodeSummaryInput {
+    /// The node ID
+    #[schemars(description = "Node ID")]
+    pub node_id: String,
+    /// LLM-generated summary text
+    #[schemars(description = "Summary text")]
+    pub summary: String,
+}
+
+// Unchanged tool parameter structs
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindParams {
-    /// Exact symbol name to find (function, class, module)
     #[schemars(description = "Exact symbol name to find (e.g., 'parse_config', 'UserService')")]
     pub symbol: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ImpactParams {
-    /// Symbol name to analyze for downstream dependencies
     #[schemars(description = "Symbol name to analyze (e.g., 'DatabaseConnection')")]
     pub symbol: String,
-    /// Include cross-service edges (MassTransit pub/sub, HTTP clients, shared contracts)
     #[schemars(description = "Include cross-service edges like MassTransit pub/sub, HTTP calls, shared contracts (default: false)")]
     pub cross_service: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DiffParams {
-    /// Base git ref to compare against (branch, commit, tag). Defaults to 'main' or 'master'.
     #[schemars(description = "Base git ref (e.g., 'main', 'HEAD~5', 'v1.0.0')")]
     pub base_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct WtfParams {
-    /// File path to investigate history for
     #[schemars(description = "File path to investigate (e.g., 'src/auth/login.rs')")]
     pub file: String,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SusParams {
-    /// Minimum complexity threshold (default: 15)
     #[schemars(description = "Minimum complexity score to flag (default: 15)")]
     pub min_complexity: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct OracleParams {
-    /// The task you want to accomplish (e.g., "fix the login bug where sessions expire too early")
-    #[schemars(description = "Natural language description of the task you want to accomplish")]
-    pub task: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 pub struct AuditParams {
-    /// Minimum complexity threshold to flag (default: 30)
     #[schemars(description = "Complexity threshold (default: 30)")]
     pub min_complexity: Option<u32>,
-    /// Scope audit to files changed since this git ref (e.g., "main", "HEAD~5")
     #[schemars(description = "Git ref to scope audit to changed files only")]
     pub diff_base: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReviewParams {
-    /// Base git ref (defaults to main/develop)
     #[schemars(description = "Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')")]
     pub base_ref: Option<String>,
-    /// Whether to include impact analysis (default: true)
     #[schemars(description = "Include downstream impact analysis (default: true)")]
     pub include_impact: Option<bool>,
-    /// Min complexity threshold for audit (default: 15, lower for review)
     #[schemars(description = "Complexity threshold for audit (default: 15)")]
     pub min_complexity: Option<u32>,
 }
 
 // ============================================================================
-// Session State - Activity-dependent awareness for the cognitive layer
+// Server implementation
 // ============================================================================
-
-/// A node that was accessed during this session
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct AccessedNode {
-    pub name: String,
-    pub node_type: String,
-    pub file_path: Option<String>,
-    pub accessed_at: Instant,
-    pub query: String, // The query that led to this access
-}
-
-/// Session state tracking - gives MU memory across MCP calls
-#[derive(Debug, Default)]
-#[allow(dead_code)]
-pub struct SessionState {
-    /// Recently accessed nodes (most recent first)
-    accessed_nodes: VecDeque<AccessedNode>,
-    /// Query history for pattern detection
-    query_history: VecDeque<String>,
-    /// Session start time
-    #[allow(dead_code)]
-    started_at: Option<Instant>,
-    /// Git recency cache: file_path -> commit count in last 30 days
-    /// Lazy-loaded on first access, represents "hot" files in the codebase
-    git_recency: Option<std::collections::HashMap<String, u32>>,
-}
-
-impl SessionState {
-    const MAX_NODES: usize = 50;
-    const MAX_QUERIES: usize = 20;
-
-    pub fn new() -> Self {
-        Self {
-            accessed_nodes: VecDeque::new(),
-            query_history: VecDeque::new(),
-            started_at: Some(Instant::now()),
-            git_recency: None, // Lazy-loaded on first search
-        }
-    }
-
-    /// Record that nodes were accessed via a query
-    fn record_access(&mut self, query: &str, nodes: &[SearchResult]) {
-        // Record the query
-        self.query_history.push_front(query.to_string());
-        if self.query_history.len() > Self::MAX_QUERIES {
-            self.query_history.pop_back();
-        }
-
-        // Record accessed nodes
-        let now = Instant::now();
-        for node in nodes {
-            self.accessed_nodes.push_front(AccessedNode {
-                name: node.name.clone(),
-                node_type: node.node_type.clone(),
-                file_path: node.file_path.clone(),
-                accessed_at: now,
-                query: query.to_string(),
-            });
-        }
-
-        // Trim to max size
-        while self.accessed_nodes.len() > Self::MAX_NODES {
-            self.accessed_nodes.pop_back();
-        }
-    }
-
-    /// Get unique nodes accessed (deduped by name)
-    pub fn unique_nodes(&self) -> Vec<&AccessedNode> {
-        let mut seen = std::collections::HashSet::new();
-        self.accessed_nodes
-            .iter()
-            .filter(|n| seen.insert(&n.name))
-            .collect()
-    }
-
-    /// Count how many times a node has been accessed
-    pub fn access_count(&self, name: &str) -> usize {
-        self.accessed_nodes
-            .iter()
-            .filter(|n| n.name == name)
-            .count()
-    }
-
-    /// Detect if we're stuck in a cluster (same nodes accessed repeatedly)
-    pub fn detect_rumination(&self) -> Option<Vec<String>> {
-        if self.query_history.len() < 3 {
-            return None;
-        }
-
-        // Count node access frequency
-        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-        for node in &self.accessed_nodes {
-            *counts.entry(&node.name).or_default() += 1;
-        }
-
-        // Find nodes accessed 3+ times
-        let repeated: Vec<String> = counts
-            .iter()
-            .filter(|(_, count)| **count >= 3)
-            .map(|(name, _)| name.to_string())
-            .collect();
-
-        if repeated.len() >= 2 {
-            Some(repeated)
-        } else {
-            None
-        }
-    }
-
-    /// Get query count
-    pub fn query_count(&self) -> usize {
-        self.query_history.len()
-    }
-
-    /// Check if a node has been seen
-    pub fn has_seen(&self, name: &str) -> bool {
-        self.accessed_nodes.iter().any(|n| n.name == name)
-    }
-
-    /// Load git recency data (files modified in last 30 days with commit counts).
-    /// This represents "hot" areas of the codebase - recently active circuits.
-    pub fn load_git_recency(&mut self) {
-        if self.git_recency.is_some() {
-            return; // Already loaded
-        }
-
-        let mut recency = std::collections::HashMap::new();
-
-        // Get files changed in last 30 days with commit counts
-        // git log --since="30 days ago" --name-only --pretty=format: gives us file names
-        let output = Command::new("git")
-            .args([
-                "log",
-                "--since=30 days ago",
-                "--name-only",
-                "--pretty=format:",
-            ])
-            .output();
-
-        if let Ok(output) = output {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                for line in stdout.lines() {
-                    let file = line.trim();
-                    if !file.is_empty() {
-                        *recency.entry(file.to_string()).or_insert(0) += 1;
-                    }
-                }
-            }
-        }
-
-        self.git_recency = Some(recency);
-    }
-
-    /// Get the git recency boost for a file path.
-    /// Returns 0.0-1.0 based on how "hot" (recently modified) the file is.
-    #[allow(dead_code)]
-    pub fn git_recency_boost(&self, file_path: &str) -> f32 {
-        if let Some(ref recency) = self.git_recency {
-            if let Some(&commit_count) = recency.get(file_path) {
-                // More commits = hotter file
-                // Scale: 1 commit = 0.1, 5+ commits = 0.5 (capped)
-                return (commit_count as f32 * 0.1).min(0.5);
-            }
-        }
-        0.0
-    }
-
-    /// Get all hot files (for debugging/display)
-    #[allow(dead_code)]
-    pub fn hot_files(&self) -> Vec<(&str, u32)> {
-        if let Some(ref recency) = self.git_recency {
-            let mut files: Vec<_> = recency.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-            files.sort_by(|a, b| b.1.cmp(&a.1));
-            files.truncate(10);
-            files
-        } else {
-            vec![]
-        }
-    }
-}
 
 #[tool_router]
 impl MuMcpServer {
-    /// Create a new MCP server with lazy project initialization.
-    ///
-    /// The server won't open any database until the first tool call.
-    /// At that point, it will use client roots (if provided during MCP init)
-    /// or fall back to the provided directory.
     pub fn new(fallback_dir: PathBuf) -> Self {
         Self {
             state: Arc::new(OnceCell::new()),
             client_roots: Arc::new(RwLock::new(None)),
             fallback_dir,
-            model: Arc::new(OnceCell::new()),
             tool_router: Self::tool_router(),
-            session: Arc::new(Mutex::new(SessionState::new())),
         }
     }
 
-    /// Ensure the project state is initialized, using client roots if available.
-    ///
-    /// This is called lazily on the first tool invocation.
     async fn ensure_state(&self) -> Result<&ProjectState, McpError> {
         self.state
             .get_or_try_init(|| async {
-                // Determine the starting directory for project search
                 let start_dir = {
                     let roots = self.client_roots.read().await;
                     if let Some(ref root_list) = *roots {
                         if let Some(first_root) = root_list.first() {
-                            // Client provided roots - use the first one
-                            // Root URI is typically "file:///path/to/dir"
                             let uri = &first_root.uri;
                             if let Some(path) = uri.strip_prefix("file://") {
                                 PathBuf::from(path)
                             } else {
-                                // Try as plain path
                                 PathBuf::from(uri)
                             }
                         } else {
@@ -364,7 +206,6 @@ impl MuMcpServer {
                     }
                 };
 
-                // Find .mu directory from start_dir
                 let project_root = find_project_root(&start_dir).ok_or_else(|| {
                     McpError::internal_error(
                         format!(
@@ -381,110 +222,90 @@ impl MuMcpServer {
                         McpError::internal_error(format!("Failed to open mubase: {}", e), None)
                     })?;
 
-                Ok(ProjectState {
-                    mubase,
-                    project_root,
-                })
+                Ok(ProjectState { mubase, project_root })
             })
             .await
     }
 
-    /// Get the mubase, ensuring lazy initialization
-    #[allow(dead_code)]
-    async fn mubase(&self) -> Result<&mu_daemon::storage::MUbase, McpError> {
-        Ok(&self.ensure_state().await?.mubase)
-    }
+    // ========================================================================
+    // V3 Tools
+    // ========================================================================
 
-    /// Get the project root, ensuring lazy initialization
-    #[allow(dead_code)]
-    async fn project_root(&self) -> Result<&PathBuf, McpError> {
-        Ok(&self.ensure_state().await?.project_root)
-    }
-
-    /// Grok: Semantic search with actual code snippets
-    #[tool(
-        description = "Find and show relevant code for a question. Returns actual code snippets, not just locations. Use this to understand how something works."
-    )]
-    async fn mu_grok(
+    #[tool(description = "Search the code graph by name or concept. Three-phase cascade: exact match, BM25 full-text, importance-weighted. Returns ranked results with node IDs for use with other tools.")]
+    async fn mu_search(
         &self,
-        Parameters(params): Parameters<GrokParams>,
+        Parameters(params): Parameters<SearchNodesParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Ensure lazy state is initialized (uses client roots if available)
         let state = self.ensure_state().await?;
-
-        let start = Instant::now();
-        let limit = params.limit.unwrap_or(3).clamp(1, 10);
-
-        // Get search results
-        let results = if state.mubase.has_embeddings().unwrap_or(false) {
-            self.run_semantic_search(&state.mubase, &params.query, limit)
-                .await
-                .unwrap_or_default()
-        } else {
-            self.run_keyword_search(&state.mubase, &params.query, limit)
-                .unwrap_or_default()
-        };
-
-        // Record this access in session state (activity-dependent awareness)
-        {
-            let mut session = self.session.lock().await;
-            session.record_access(&params.query, &results);
-        }
-
-        let mut output = String::new();
-        output.push_str(&format!("# grok: \"{}\"\n", params.query));
-        output.push_str(&format!(
-            "# {} results in {}ms\n\n",
-            results.len(),
-            start.elapsed().as_millis()
-        ));
-
-        // For each result, read and show the actual code
-        for (i, result) in results.iter().enumerate() {
-            let sigil = match result.node_type.as_str() {
-                "module" => "!",
-                "class" => "$",
-                "function" => "#",
-                _ => "@",
-            };
-
-            output.push_str(&format!(
-                "## {}. {}{} [{}] — {:.0}% match\n",
-                i + 1,
-                sigil,
-                result.name,
-                result.node_type,
-                result.similarity * 100.0
-            ));
-
-            if let Some(ref path) = result.file_path {
-                output.push_str(&format!("File: {}\n", path));
-
-                // Read and show actual code snippet
-                let full_path = state.project_root.join(path);
-                if let Ok(content) = fs::read_to_string(&full_path) {
-                    if let Some(snippet) =
-                        self.extract_snippet(&content, &result.name, &result.node_type)
-                    {
-                        output.push_str("```\n");
-                        output.push_str(&snippet);
-                        if !snippet.ends_with('\n') {
-                            output.push('\n');
-                        }
-                        output.push_str("```\n");
-                    }
-                }
-            }
-            output.push('\n');
-        }
-
+        let limit = params.limit.unwrap_or(5).clamp(1, 20);
+        let output = tools_v3::search_nodes_tool(&state.mubase, &state.project_root, &params.query, limit)
+            .map_err(|e| McpError::internal_error(format!("search failed: {}", e), None))?;
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Find: Exact symbol lookup with code
-    #[tool(
-        description = "Find a specific symbol by exact name. Use this when you know the function/class name you're looking for."
-    )]
+    #[tool(description = "Expand the code graph from seed nodes. Walk edges (calls, uses, imports, contains) outward/inward up to N hops. Use this to discover dependencies and dependents.")]
+    async fn mu_expand(
+        &self,
+        Parameters(params): Parameters<ExpandNodesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+        let depth = params.depth.unwrap_or(1).clamp(1, 3);
+        let direction = params.direction.as_deref().unwrap_or("outgoing");
+        let edge_types_vec = params.edge_types.unwrap_or_default();
+        let edge_types: Option<&[String]> = if edge_types_vec.is_empty() { None } else { Some(&edge_types_vec) };
+        let output = tools_v3::expand_nodes_tool(&state.mubase, &params.node_ids, depth, edge_types, direction)
+            .map_err(|e| McpError::internal_error(format!("expand failed: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Read node details by ID. Modes: 'signature' (declaration line), 'summary' (text summary), 'source' (full code), 'full' (source + neighbors). Use node IDs from mu_search or mu_expand.")]
+    async fn mu_read(
+        &self,
+        Parameters(params): Parameters<ReadNodesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+        let mode = params.mode.as_deref().unwrap_or("source");
+        let output = tools_v3::read_nodes_tool(&state.mubase, &state.project_root, &params.node_ids, mode)
+            .map_err(|e| McpError::internal_error(format!("read failed: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Pack code context within a token budget. With node IDs: packs those nodes (full source, degrading to signature+summary). Without: packs project overview by importance. Use before asking an LLM about code.")]
+    async fn mu_context(
+        &self,
+        Parameters(params): Parameters<PackContextParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+        let budget = params.budget.unwrap_or(4000).clamp(500, 50000);
+        let style = params.style.as_deref().unwrap_or("grouped");
+        let node_ids = params.node_ids.unwrap_or_default();
+        let node_ids_ref: Option<&[String]> = if node_ids.is_empty() { None } else { Some(&node_ids) };
+        let output = tools_v3::pack_context_tool(&state.mubase, &state.project_root, node_ids_ref, budget, style)
+            .map_err(|e| McpError::internal_error(format!("context pack failed: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    #[tool(description = "Improve search quality by adding LLM summaries. Without summaries: returns high-importance nodes needing enrichment with source previews and prompt guidance. With summaries: stores them and rebuilds search index.")]
+    async fn mu_enrich(
+        &self,
+        Parameters(params): Parameters<EnrichNodesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+        let node_ids = params.node_ids.unwrap_or_default();
+        let node_ids_ref: Option<&[String]> = if node_ids.is_empty() { None } else { Some(&node_ids) };
+        let summaries_vec: Vec<(String, String)> = params.summaries.unwrap_or_default()
+            .into_iter().map(|s| (s.node_id, s.summary)).collect();
+        let summaries_ref: Option<&[(String, String)]> = if summaries_vec.is_empty() { None } else { Some(&summaries_vec) };
+        let output = tools_v3::enrich_nodes_tool(&state.mubase, node_ids_ref, summaries_ref)
+            .map_err(|e| McpError::internal_error(format!("enrich failed: {}", e), None))?;
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    // ========================================================================
+    // Unchanged tools
+    // ========================================================================
+
+    #[tool(description = "Find a specific symbol by exact name. Use this when you know the function/class name you're looking for.")]
     async fn mu_find(
         &self,
         Parameters(params): Parameters<FindParams>,
@@ -497,9 +318,7 @@ impl MuMcpServer {
             params.symbol.replace('\'', "''")
         );
 
-        let result = state
-            .mubase
-            .query(&sql)
+        let result = state.mubase.query(&sql)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let mut output = String::new();
@@ -514,16 +333,12 @@ impl MuMcpServer {
             let end_line = row.get(4).and_then(|v| v.as_i64()).unwrap_or(0);
 
             let sigil = match node_type {
-                "module" => "!",
-                "class" => "$",
-                "function" => "#",
-                _ => "@",
+                "module" => "!", "class" => "$", "function" => "#", _ => "@",
             };
 
             output.push_str(&format!("## {}{} [{}]\n", sigil, name, node_type));
             output.push_str(&format!("{}:{}-{}\n", file_path, start_line, end_line));
 
-            // Show the actual code
             let full_path = state.project_root.join(file_path);
             if let Ok(content) = fs::read_to_string(&full_path) {
                 let lines: Vec<&str> = content.lines().collect();
@@ -535,9 +350,7 @@ impl MuMcpServer {
                         output.push_str(line);
                         output.push('\n');
                     }
-                    if end > start + 30 {
-                        output.push_str("... (truncated)\n");
-                    }
+                    if end > start + 30 { output.push_str("... (truncated)\n"); }
                     output.push_str("```\n");
                 }
             }
@@ -545,84 +358,42 @@ impl MuMcpServer {
         }
 
         if result.rows.is_empty() {
-            output.push_str("No exact matches. Try mu_grok for semantic search.\n");
+            output.push_str("No exact matches. Try mu_search for fuzzy/semantic search.\n");
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Compress: Token-efficient codebase overview
-    #[tool(
-        description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project."
-    )]
+    #[tool(description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project.")]
     async fn mu_compress(&self) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        // Get stats
-        let stats = state
-            .mubase
-            .query(
-                "SELECT
-            (SELECT COUNT(*) FROM nodes) as nodes,
-            (SELECT COUNT(*) FROM edges) as edges,
-            (SELECT COUNT(DISTINCT file_path) FROM nodes) as files",
-            )
+        let stats = state.mubase.query(
+            "SELECT (SELECT COUNT(*) FROM nodes) as nodes, (SELECT COUNT(*) FROM edges) as edges, (SELECT COUNT(DISTINCT file_path) FROM nodes) as files")
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let (node_count, edge_count, file_count) = stats
-            .rows
-            .first()
-            .map(|r| {
-                (
-                    r.first().and_then(|v| v.as_i64()).unwrap_or(0),
-                    r.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
-                    r.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-                )
-            })
+        let (node_count, edge_count, file_count) = stats.rows.first()
+            .map(|r| (
+                r.first().and_then(|v| v.as_i64()).unwrap_or(0),
+                r.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
+                r.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+            ))
             .unwrap_or((0, 0, 0));
 
-        // Detect languages
-        let langs = state
-            .mubase
-            .query(
-                "SELECT DISTINCT
-            CASE
-                WHEN file_path LIKE '%.rs' THEN 'Rust'
-                WHEN file_path LIKE '%.py' THEN 'Python'
-                WHEN file_path LIKE '%.ts' THEN 'TypeScript'
-                WHEN file_path LIKE '%.js' THEN 'JavaScript'
-                WHEN file_path LIKE '%.go' THEN 'Go'
-                WHEN file_path LIKE '%.java' THEN 'Java'
-                WHEN file_path LIKE '%.cs' THEN 'C#'
-                ELSE 'Other'
-            END as lang
-            FROM nodes WHERE file_path IS NOT NULL",
-            )
+        let langs = state.mubase.query(
+            "SELECT DISTINCT CASE WHEN file_path LIKE '%.rs' THEN 'Rust' WHEN file_path LIKE '%.py' THEN 'Python' WHEN file_path LIKE '%.ts' THEN 'TypeScript' WHEN file_path LIKE '%.js' THEN 'JavaScript' WHEN file_path LIKE '%.go' THEN 'Go' WHEN file_path LIKE '%.java' THEN 'Java' WHEN file_path LIKE '%.cs' THEN 'C#' ELSE 'Other' END as lang FROM nodes WHERE file_path IS NOT NULL")
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let languages: Vec<String> = langs
-            .rows
-            .iter()
+        let languages: Vec<String> = langs.rows.iter()
             .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
             .filter(|s| s != "Other")
             .collect();
 
         let mut output = String::new();
         output.push_str("# MU Codebase Overview\n\n");
-        output.push_str(&format!(
-            "Files: {} | Symbols: {} | Edges: {}\n",
-            file_count, node_count, edge_count
-        ));
-        output.push_str(&format!(
-            "Languages: {}\n\n",
-            if languages.is_empty() {
-                "Unknown".to_string()
-            } else {
-                languages.join(", ")
-            }
-        ));
+        output.push_str(&format!("Files: {} | Symbols: {} | Edges: {}\n", file_count, node_count, edge_count));
+        output.push_str(&format!("Languages: {}\n\n", if languages.is_empty() { "Unknown".to_string() } else { languages.join(", ") }));
 
-        // Get structure grouped by directory
         let nodes_result = state.mubase.query(
             "SELECT type, name, file_path, complexity FROM nodes ORDER BY file_path, type DESC, name LIMIT 500")
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -636,41 +407,30 @@ impl MuMcpServer {
             let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("");
             let complexity = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
 
-            // Track directory changes
             let dir = file_path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
             if dir != current_dir && !dir.is_empty() {
                 current_dir = dir.to_string();
                 output.push_str(&format!("\n## {}/\n", dir));
             }
 
-            // Track file changes
             if file_path != current_file && !file_path.is_empty() {
                 current_file = file_path.to_string();
-                let filename = file_path
-                    .rsplit_once('/')
-                    .map(|(_, f)| f)
-                    .unwrap_or(file_path);
+                let filename = file_path.rsplit_once('/').map(|(_, f)| f).unwrap_or(file_path);
                 output.push_str(&format!("  ! {}\n", filename));
             }
 
             let sigil = match node_type {
-                "module" => continue, // Skip module entries, we show files
-                "class" => "$",
-                "function" => "#",
-                _ => "@",
+                "module" => continue, "class" => "$", "function" => "#", _ => "@",
             };
 
-            let complexity_indicator = if complexity > 20 { " ⚠" } else { "" };
+            let complexity_indicator = if complexity > 20 { " !!" } else { "" };
             output.push_str(&format!("    {}{}{}\n", sigil, name, complexity_indicator));
         }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Impact: What depends on this symbol (with grep fallback)
-    #[tool(
-        description = "Find what code depends on a symbol. Shows what might break if you change it."
-    )]
+    #[tool(description = "Find what code depends on a symbol. Shows what might break if you change it.")]
     async fn mu_impact(
         &self,
         Parameters(params): Parameters<ImpactParams>,
@@ -680,20 +440,11 @@ impl MuMcpServer {
         let mut output = String::new();
         output.push_str(&format!("# Impact Analysis: {}\n\n", params.symbol));
 
-        // First, try the graph-based approach
         let sql = format!(
-            "SELECT DISTINCT n.name, n.type, n.file_path FROM edges e
-             JOIN nodes n ON n.id = e.source_id
-             WHERE e.target_id IN (SELECT id FROM nodes WHERE name = '{}')
-             LIMIT 50",
+            "SELECT DISTINCT n.name, n.type, n.file_path FROM edges e JOIN nodes n ON n.id = e.source_id WHERE e.target_id IN (SELECT id FROM nodes WHERE name = '{}') LIMIT 50",
             params.symbol.replace('\'', "''")
         );
-
-        let result = state
-            .mubase
-            .query(&sql)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
+        let result = state.mubase.query(&sql).map_err(|e| McpError::internal_error(e.to_string(), None))?;
         let graph_count = result.rows.len();
 
         if graph_count > 0 {
@@ -702,101 +453,54 @@ impl MuMcpServer {
                 let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-                output.push_str(&format!("  {} [{}] — {}\n", name, node_type, file_path));
+                output.push_str(&format!("  {} [{}] -- {}\n", name, node_type, file_path));
             }
             output.push('\n');
         }
 
-        // Cross-service edges (MassTransit pub/sub, HTTP, contracts)
         if params.cross_service.unwrap_or(false) {
             let cs_sql = format!(
-                "SELECT DISTINCT e.type, n2.name, n2.type, n2.file_path, e.properties
-                 FROM edges e
-                 JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id
-                 JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id
-                 WHERE n.name = '{}'
-                 AND e.type IN ('publishes', 'subscribes', 'calls_http', 'uses_contract')
-                 LIMIT 30",
+                "SELECT DISTINCT e.type, n2.name, n2.type, n2.file_path, e.properties FROM edges e JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id WHERE n.name = '{}' AND e.type IN ('publishes', 'subscribes', 'calls_http', 'uses_contract') LIMIT 30",
                 params.symbol.replace('\'', "''")
             );
-
             if let Ok(cs_result) = state.mubase.query(&cs_sql) {
                 if !cs_result.rows.is_empty() {
-                    output.push_str(&format!(
-                        "## Cross-Service Edges ({} found)\n",
-                        cs_result.rows.len()
-                    ));
+                    output.push_str(&format!("## Cross-Service Edges ({} found)\n", cs_result.rows.len()));
                     for row in &cs_result.rows {
                         let edge_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                         let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                         let node_type = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
                         let file_path = row.get(3).and_then(|v| v.as_str()).unwrap_or("?");
-                        output.push_str(&format!(
-                            "  {} {} [{}] — {}\n",
-                            edge_type, name, node_type, file_path
-                        ));
+                        output.push_str(&format!("  {} {} [{}] -- {}\n", edge_type, name, node_type, file_path));
                     }
                     output.push('\n');
                 }
             }
         }
 
-        // If graph is sparse, supplement with grep
         if graph_count < 5 {
             output.push_str("## Text References (grep)\n");
-
             let grep_result = Command::new("grep")
-                .args([
-                    "-rn",
-                    "--include=*.rs",
-                    "--include=*.py",
-                    "--include=*.ts",
-                    "--include=*.js",
-                    "--include=*.go",
-                    "--include=*.java",
-                    "-l",
-                    &params.symbol,
-                ])
-                .current_dir(&state.project_root)
-                .output();
+                .args(["-rn", "--include=*.rs", "--include=*.py", "--include=*.ts", "--include=*.js", "--include=*.go", "--include=*.java", "-l", &params.symbol])
+                .current_dir(&state.project_root).output();
 
             if let Ok(grep_out) = grep_result {
                 let files = String::from_utf8_lossy(&grep_out.stdout);
                 let file_list: Vec<&str> = files.lines().take(20).collect();
-
                 if file_list.is_empty() {
                     output.push_str("  No text references found.\n");
                 } else {
                     output.push_str(&format!("  Found in {} files:\n", file_list.len()));
-                    for file in file_list {
-                        output.push_str(&format!("    {}\n", file));
-                    }
+                    for file in &file_list { output.push_str(&format!("    {}\n", file)); }
 
-                    // Show a sample of actual usages
                     output.push_str("\n## Sample Usages\n");
                     let context_result = Command::new("grep")
-                        .args([
-                            "-rn",
-                            "--include=*.rs",
-                            "--include=*.py",
-                            "--include=*.ts",
-                            "--include=*.js",
-                            "--include=*.go",
-                            "--include=*.java",
-                            "-C1",
-                            &params.symbol,
-                        ])
-                        .current_dir(&state.project_root)
-                        .output();
-
+                        .args(["-rn", "--include=*.rs", "--include=*.py", "--include=*.ts", "--include=*.js", "--include=*.go", "--include=*.java", "-C1", &params.symbol])
+                        .current_dir(&state.project_root).output();
                     if let Ok(ctx) = context_result {
                         let context = String::from_utf8_lossy(&ctx.stdout);
-                        let lines: Vec<&str> = context.lines().take(30).collect();
                         output.push_str("```\n");
-                        for line in lines {
-                            output.push_str(line);
-                            output.push('\n');
-                        }
+                        for line in context.lines().take(30) { output.push_str(line); output.push('\n'); }
                         output.push_str("```\n");
                     }
                 }
@@ -806,103 +510,53 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Diff: Real semantic diff showing what symbols changed
-    #[tool(
-        description = "See what symbols changed between git refs. Parses both versions and compares at the entity level — shows functions/classes added, modified, or removed with breaking change detection."
-    )]
+    #[tool(description = "See what symbols changed between git refs. Parses both versions and compares at the entity level -- shows functions/classes added, modified, or removed with breaking change detection.")]
     async fn mu_diff(
         &self,
         Parameters(params): Parameters<DiffParams>,
     ) -> Result<CallToolResult, McpError> {
         let _state = self.ensure_state().await?;
-
         let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
-
         let diff_result = crate::commands::diff::semantic_diff(&base, "HEAD")
             .map_err(|e| McpError::internal_error(format!("diff failed: {}", e), None))?;
 
-        // Format as markdown
         let mut output = String::new();
         output.push_str(&format!("# Semantic Diff: {} -> HEAD\n\n", base));
-        output.push_str(&format!(
-            "{} changes ({} breaking) in {} files ({}ms)\n\n",
-            diff_result.changes.len(),
-            diff_result.breaking_changes.len(),
-            diff_result.files_changed,
-            diff_result.duration_ms
-        ));
+        output.push_str(&format!("{} changes ({} breaking) in {} files ({}ms)\n\n",
+            diff_result.changes.len(), diff_result.breaking_changes.len(), diff_result.files_changed, diff_result.duration_ms));
 
         if !diff_result.breaking_changes.is_empty() {
             output.push_str("## Breaking Changes\n\n");
             for change in &diff_result.breaking_changes {
-                output.push_str(&format!(
-                    "- `{}` [{}] {} {}\n",
-                    change.entity_name,
-                    change.entity_type,
-                    change.change_type,
-                    change.description.as_deref().unwrap_or("")
-                ));
-                if let Some(ref path) = change.file_path {
-                    output.push_str(&format!("  - {}\n", path));
-                }
+                output.push_str(&format!("- `{}` [{}] {} {}\n", change.entity_name, change.entity_type, change.change_type, change.description.as_deref().unwrap_or("")));
+                if let Some(ref path) = change.file_path { output.push_str(&format!("  - {}\n", path)); }
             }
             output.push('\n');
         }
 
-        // Group changes by type
         let added: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "added").collect();
         let modified: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "modified" || c.change_type == "signature_changed").collect();
         let removed: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "removed").collect();
 
-        if !added.is_empty() {
-            output.push_str(&format!("## Added ({})\n\n", added.len()));
-            for change in &added {
-                output.push_str(&format!("- `{}` [{}]", change.entity_name, change.entity_type));
-                if let Some(ref path) = change.file_path {
-                    output.push_str(&format!(" -- {}", path));
+        for (label, items) in [("Added", &added), ("Modified", &modified), ("Removed", &removed)] {
+            if !items.is_empty() {
+                output.push_str(&format!("## {} ({})\n\n", label, items.len()));
+                for change in items {
+                    let marker = if change.is_breaking { " **BREAKING**" } else { "" };
+                    output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
+                    if let Some(ref path) = change.file_path { output.push_str(&format!(" -- {}", path)); }
+                    output.push('\n');
                 }
                 output.push('\n');
             }
-            output.push('\n');
         }
 
-        if !modified.is_empty() {
-            output.push_str(&format!("## Modified ({})\n\n", modified.len()));
-            for change in &modified {
-                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
-                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
-                if let Some(ref path) = change.file_path {
-                    output.push_str(&format!(" -- {}", path));
-                }
-                output.push('\n');
-            }
-            output.push('\n');
-        }
-
-        if !removed.is_empty() {
-            output.push_str(&format!("## Removed ({})\n\n", removed.len()));
-            for change in &removed {
-                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
-                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
-                if let Some(ref path) = change.file_path {
-                    output.push_str(&format!(" -- {}", path));
-                }
-                output.push('\n');
-            }
-            output.push('\n');
-        }
-
-        if diff_result.changes.is_empty() {
-            output.push_str("No semantic changes detected.\n");
-        }
+        if diff_result.changes.is_empty() { output.push_str("No semantic changes detected.\n"); }
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Sus: Find suspicious code with categories
-    #[tool(
-        description = "Find suspicious code: high complexity, security-sensitive names, large functions. Good for code review."
-    )]
+    #[tool(description = "Find suspicious code: high complexity, security-sensitive names, large functions. Good for code review.")]
     async fn mu_sus(
         &self,
         Parameters(params): Parameters<SusParams>,
@@ -913,85 +567,49 @@ impl MuMcpServer {
         let mut output = String::new();
         output.push_str("# Suspicious Code Report\n\n");
 
-        // High complexity
         let complex_sql = format!(
-            "SELECT name, type, file_path, complexity FROM nodes
-             WHERE complexity >= {} AND type = 'function'
-             ORDER BY complexity DESC LIMIT 15",
+            "SELECT name, type, file_path, complexity FROM nodes WHERE complexity >= {} AND type = 'function' ORDER BY complexity DESC LIMIT 15",
             min_complexity
         );
-        let complex = state
-            .mubase
-            .query(&complex_sql)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let complex = state.mubase.query(&complex_sql).map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !complex.rows.is_empty() {
-            output.push_str(&format!(
-                "## High Complexity (≥{}) — {} found\n",
-                min_complexity,
-                complex.rows.len()
-            ));
+            output.push_str(&format!("## High Complexity (>={}) -- {} found\n", min_complexity, complex.rows.len()));
             output.push_str("Functions that are hard to understand and maintain:\n\n");
             for row in &complex.rows {
                 let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
                 let complexity = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
-                output.push_str(&format!("  #{} c={} — {}\n", name, complexity, file_path));
+                output.push_str(&format!("  #{} c={} -- {}\n", name, complexity, file_path));
             }
             output.push('\n');
         }
 
-        // Security-sensitive
-        let security_sql = "SELECT name, type, file_path FROM nodes
-            WHERE LOWER(name) LIKE '%auth%'
-               OR LOWER(name) LIKE '%token%'
-               OR LOWER(name) LIKE '%password%'
-               OR LOWER(name) LIKE '%secret%'
-               OR LOWER(name) LIKE '%crypt%'
-               OR LOWER(name) LIKE '%credential%'
-               OR LOWER(name) LIKE '%api_key%'
-            ORDER BY file_path LIMIT 20";
-        let security = state
-            .mubase
-            .query(security_sql)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let security_sql = "SELECT name, type, file_path FROM nodes WHERE LOWER(name) LIKE '%auth%' OR LOWER(name) LIKE '%token%' OR LOWER(name) LIKE '%password%' OR LOWER(name) LIKE '%secret%' OR LOWER(name) LIKE '%crypt%' OR LOWER(name) LIKE '%credential%' OR LOWER(name) LIKE '%api_key%' ORDER BY file_path LIMIT 20";
+        let security = state.mubase.query(security_sql).map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !security.rows.is_empty() {
-            output.push_str(&format!(
-                "## Security-Sensitive — {} found\n",
-                security.rows.len()
-            ));
+            output.push_str(&format!("## Security-Sensitive -- {} found\n", security.rows.len()));
             output.push_str("Code handling authentication, secrets, or credentials:\n\n");
             for row in &security.rows {
                 let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                 let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                 let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-                let sigil = match node_type {
-                    "class" => "$",
-                    "function" => "#",
-                    _ => "@",
-                };
-                output.push_str(&format!("  {}{} — {}\n", sigil, name, file_path));
+                let sigil = match node_type { "class" => "$", "function" => "#", _ => "@" };
+                output.push_str(&format!("  {}{} -- {}\n", sigil, name, file_path));
             }
             output.push('\n');
         }
 
-        // Large functions (by line count if available)
-        let large_sql = "SELECT name, file_path, (line_end - line_start) as lines FROM nodes
-            WHERE type = 'function' AND line_end > line_start
-            ORDER BY lines DESC LIMIT 10";
+        let large_sql = "SELECT name, file_path, (line_end - line_start) as lines FROM nodes WHERE type = 'function' AND line_end > line_start ORDER BY lines DESC LIMIT 10";
         if let Ok(large) = state.mubase.query(large_sql) {
             if !large.rows.is_empty() {
-                output.push_str("## Large Functions (by lines)\n");
-                output.push_str("Long functions that might need refactoring:\n\n");
+                output.push_str("## Large Functions (by lines)\nLong functions that might need refactoring:\n\n");
                 for row in &large.rows {
                     let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                     let file_path = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                     let lines = row.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
-                    if lines > 50 {
-                        output
-                            .push_str(&format!("  #{} ({} lines) — {}\n", name, lines, file_path));
-                    }
+                    if lines > 50 { output.push_str(&format!("  #{} ({} lines) -- {}\n", name, lines, file_path)); }
                 }
             }
         }
@@ -999,10 +617,7 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// WTF: Git archaeology with context
-    #[tool(
-        description = "Understand why code exists. Shows git history, recent changes, and who works on a file."
-    )]
+    #[tool(description = "Understand why code exists. Shows git history, recent changes, and who works on a file.")]
     async fn mu_wtf(
         &self,
         Parameters(params): Parameters<WtfParams>,
@@ -1014,114 +629,48 @@ impl MuMcpServer {
         let mut output = String::new();
         output.push_str(&format!("# WTF: {}\n\n", file_path));
 
-        // Check if file exists
         let file_exists = full_path.exists();
-        let is_tracked = Command::new("git")
-            .args(["ls-files", file_path])
-            .current_dir(&state.project_root)
-            .output()
-            .map(|o| !o.stdout.is_empty())
-            .unwrap_or(false);
+        let is_tracked = Command::new("git").args(["ls-files", file_path]).current_dir(&state.project_root)
+            .output().map(|o| !o.stdout.is_empty()).unwrap_or(false);
 
-        // File info
         if file_exists {
-            if let Ok(metadata) = fs::metadata(&full_path) {
-                let size = metadata.len();
-                output.push_str(&format!("Size: {} bytes\n", size));
-            }
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                let lines = content.lines().count();
-                output.push_str(&format!("Lines: {}\n", lines));
-            }
+            if let Ok(metadata) = fs::metadata(&full_path) { output.push_str(&format!("Size: {} bytes\n", metadata.len())); }
+            if let Ok(content) = fs::read_to_string(&full_path) { output.push_str(&format!("Lines: {}\n", content.lines().count())); }
         } else {
-            output.push_str("⚠ File not found on disk\n");
+            output.push_str("File not found on disk\n");
         }
 
-        output.push_str(&format!(
-            "Git tracked: {}\n\n",
-            if is_tracked { "Yes" } else { "No" }
-        ));
+        output.push_str(&format!("Git tracked: {}\n\n", if is_tracked { "Yes" } else { "No" }));
 
         if is_tracked {
-            // Recent commits
             output.push_str("## Recent Commits\n");
-            let log = Command::new("git")
-                .args([
-                    "log",
-                    "--format=%h %ad %an: %s",
-                    "--date=short",
-                    "-10",
-                    "--",
-                    file_path,
-                ])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(log_out) = log {
+            if let Ok(log_out) = Command::new("git").args(["log", "--format=%h %ad %an: %s", "--date=short", "-10", "--", file_path]).current_dir(&state.project_root).output() {
                 let log_str = String::from_utf8_lossy(&log_out.stdout);
-                if log_str.is_empty() {
-                    output.push_str("  No commits yet (new file?)\n");
-                } else {
-                    for line in log_str.lines() {
-                        output.push_str(&format!("  {}\n", line));
-                    }
-                }
+                if log_str.is_empty() { output.push_str("  No commits yet (new file?)\n"); }
+                else { for line in log_str.lines() { output.push_str(&format!("  {}\n", line)); } }
             }
 
-            // Contributors
             output.push_str("\n## Contributors\n");
-            let authors = Command::new("git")
-                .args(["shortlog", "-sn", "--", file_path])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(auth_out) = authors {
+            if let Ok(auth_out) = Command::new("git").args(["shortlog", "-sn", "--", file_path]).current_dir(&state.project_root).output() {
                 let auth_str = String::from_utf8_lossy(&auth_out.stdout);
-                for line in auth_str.lines().take(5) {
-                    output.push_str(&format!("  {}\n", line.trim()));
-                }
+                for line in auth_str.lines().take(5) { output.push_str(&format!("  {}\n", line.trim())); }
             }
 
-            // First created
             output.push_str("\n## Origin\n");
-            let first = Command::new("git")
-                .args([
-                    "log",
-                    "--format=%ad %an: %s",
-                    "--date=short",
-                    "--diff-filter=A",
-                    "--",
-                    file_path,
-                ])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(first_out) = first {
+            if let Ok(first_out) = Command::new("git").args(["log", "--format=%ad %an: %s", "--date=short", "--diff-filter=A", "--", file_path]).current_dir(&state.project_root).output() {
                 let first_str = String::from_utf8_lossy(&first_out.stdout);
-                if let Some(line) = first_str.lines().last() {
-                    output.push_str(&format!("  Created: {}\n", line));
-                }
+                if let Some(line) = first_str.lines().last() { output.push_str(&format!("  Created: {}\n", line)); }
             }
         } else if file_exists {
-            output.push_str("## Status: Untracked file\n");
-            output.push_str("This file exists but isn't in git yet.\n");
-
-            // Show first few lines
+            output.push_str("## Status: Untracked file\nThis file exists but isn't in git yet.\n");
             if let Ok(content) = fs::read_to_string(&full_path) {
                 output.push_str("\n## Preview\n```\n");
-                for line in content.lines().take(10) {
-                    output.push_str(line);
-                    output.push('\n');
-                }
+                for line in content.lines().take(10) { output.push_str(line); output.push('\n'); }
                 output.push_str("```\n");
             }
         }
 
-        // Database info
-        let sql = format!(
-            "SELECT type, name, complexity FROM nodes WHERE file_path = '{}' ORDER BY line_start",
-            file_path.replace('\'', "''")
-        );
+        let sql = format!("SELECT type, name, complexity FROM nodes WHERE file_path = '{}' ORDER BY line_start", file_path.replace('\'', "''"));
         if let Ok(nodes) = state.mubase.query(&sql) {
             if !nodes.rows.is_empty() {
                 output.push_str("\n## Symbols in file\n");
@@ -1129,18 +678,10 @@ impl MuMcpServer {
                     let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
                     let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
                     let complexity = row.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
-                    if node_type == "module" {
-                        continue;
-                    }
-                    let sigil = match node_type {
-                        "class" => "$",
-                        "function" => "#",
-                        _ => "@",
-                    };
+                    if node_type == "module" { continue; }
+                    let sigil = match node_type { "class" => "$", "function" => "#", _ => "@" };
                     output.push_str(&format!("  {}{}", sigil, name));
-                    if complexity > 15 {
-                        output.push_str(&format!(" (c={})", complexity));
-                    }
+                    if complexity > 15 { output.push_str(&format!(" (c={})", complexity)); }
                     output.push('\n');
                 }
             }
@@ -1149,1203 +690,73 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Oracle: Task-aware context retrieval - THE divine feature
-    #[tool(
-        description = "Get exactly what you need to accomplish a task. Returns must-read code, supporting context, and relevant patterns. Use this when you have a specific task like 'fix bug X' or 'add feature Y'."
-    )]
-    async fn mu_oracle(
-        &self,
-        Parameters(params): Parameters<OracleParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let state = self.ensure_state().await?;
-        let start = Instant::now();
-
-        // Extract task-aware keywords (used for context expansion)
-        let keywords = self.extract_task_keywords(&params.task);
-
-        let mut output = String::new();
-        output.push_str(&format!("# Oracle: \"{}\"\n", params.task));
-
-        // Get must-read nodes via hybrid search (BM25 + semantic with RRF)
-        // This combines keyword matching (finds exact symbol names like "create_hnsw_index")
-        // with semantic search (finds conceptually related code)
-        let must_read = self.hybrid_search(&state.mubase, &params.task, 7).await;
-
-        // Record this access in session state (activity-dependent awareness)
-        {
-            let mut session = self.session.lock().await;
-            session.record_access(&params.task, &must_read);
-        }
-
-        // Collect file paths from must-read for pattern extraction
-        let must_read_files: Vec<String> = must_read
-            .iter()
-            .filter_map(|r| r.file_path.clone())
-            .collect();
-
-        // Get supporting context via graph expansion
-        let must_read_ids: Vec<&str> = must_read.iter().map(|r| r.name.as_str()).collect();
-        let context_nodes = self.get_context_nodes(
-            &state.mubase,
-            &state.project_root,
-            &must_read_ids,
-            &keywords,
-        );
-
-        // Extract patterns from the codebase relevant to this task
-        let patterns = self.extract_patterns(&state.mubase, &keywords, &must_read_files);
-
-        let duration = start.elapsed().as_millis();
-        output.push_str(&format!(
-            "# {} must-read, {} context, {} patterns | {}ms\n\n",
-            must_read.len(),
-            context_nodes.len(),
-            patterns.len(),
-            duration
-        ));
-
-        // === MUST READ SECTION ===
-        output.push_str("## Must Read\n");
-        output.push_str("Critical code for this task:\n\n");
-
-        if must_read.is_empty() {
-            output.push_str("No directly relevant code found. Try rephrasing the task.\n\n");
-        } else {
-            for result in &must_read {
-                let sigil = match result.node_type.as_str() {
-                    "module" => "!",
-                    "class" => "$",
-                    "function" => "#",
-                    _ => "@",
-                };
-
-                output.push_str(&format!(
-                    "### {}{} [{}] — {:.0}% relevant\n",
-                    sigil,
-                    result.name,
-                    result.node_type,
-                    result.similarity * 100.0
-                ));
-
-                if let Some(ref path) = result.file_path {
-                    output.push_str(&format!("File: {}\n", path));
-
-                    // Read and show full code
-                    let full_path = state.project_root.join(path);
-                    if let Ok(content) = fs::read_to_string(&full_path) {
-                        if let Some(snippet) =
-                            self.extract_snippet(&content, &result.name, &result.node_type)
-                        {
-                            output.push_str("```\n");
-                            output.push_str(&snippet);
-                            if !snippet.ends_with('\n') {
-                                output.push('\n');
-                            }
-                            output.push_str("```\n");
-                        }
-                    }
-                }
-                output.push('\n');
-            }
-        }
-
-        // === CONTEXT SECTION ===
-        output.push_str("## Context\n");
-        output.push_str("Supporting code you should understand:\n\n");
-
-        if context_nodes.is_empty() {
-            output.push_str("No additional context found.\n\n");
-        } else {
-            for (name, node_type, file_path, signature) in &context_nodes {
-                let sigil = match node_type.as_str() {
-                    "module" => "!",
-                    "class" => "$",
-                    "function" => "#",
-                    _ => "@",
-                };
-                output.push_str(&format!("{}{} — {}\n", sigil, name, file_path));
-                if let Some(sig) = signature {
-                    output.push_str(&format!("  `{}`\n", sig));
-                }
-            }
-            output.push('\n');
-        }
-
-        // === PATTERNS SECTION ===
-        output.push_str("## Patterns\n");
-        output.push_str("Relevant conventions in this codebase:\n\n");
-
-        if patterns.is_empty() {
-            output.push_str("No specific patterns detected.\n");
-        } else {
-            for pattern in &patterns {
-                output.push_str(&format!("- {}\n", pattern));
-            }
-        }
-
-        // === SESSION AWARENESS SECTION ===
-        // This is the cognitive layer - MU telling the LLM what it knows about the exploration
-        output.push_str("\n---\n\n## 🧠 Session Awareness\n\n");
-
-        let session = self.session.lock().await;
-        let unique_nodes = session.unique_nodes();
-        let query_count = session.query_count();
-
-        output.push_str(&format!(
-            "**Exploration**: {} queries, {} unique symbols explored\n\n",
-            query_count,
-            unique_nodes.len()
-        ));
-
-        // Show recently accessed nodes (brief summary)
-        if !unique_nodes.is_empty() {
-            output.push_str("**Recently accessed**:\n");
-            for node in unique_nodes.iter().take(5) {
-                let sigil = match node.node_type.as_str() {
-                    "module" => "!",
-                    "class" => "$",
-                    "function" => "#",
-                    _ => "@",
-                };
-                let access_count = session.access_count(&node.name);
-                if access_count > 1 {
-                    output.push_str(&format!(
-                        "- {}{} (×{}) — {}\n",
-                        sigil,
-                        node.name,
-                        access_count,
-                        node.file_path.as_deref().unwrap_or("unknown")
-                    ));
-                } else {
-                    output.push_str(&format!(
-                        "- {}{} — {}\n",
-                        sigil,
-                        node.name,
-                        node.file_path.as_deref().unwrap_or("unknown")
-                    ));
-                }
-            }
-            output.push('\n');
-        }
-
-        // Rumination detection - are we stuck in a loop?
-        if let Some(repeated_nodes) = session.detect_rumination() {
-            output.push_str("**⚠️ Pattern Alert**: You've been revisiting the same nodes:\n");
-            for node in &repeated_nodes {
-                output.push_str(&format!(
-                    "- {} ({}× accessed)\n",
-                    node,
-                    session.access_count(node)
-                ));
-            }
-
-            // Find unexplored neighbors as escape routes
-            let escape_routes =
-                self.find_unexplored_neighbors(&state.mubase, &repeated_nodes, &session);
-            if !escape_routes.is_empty() {
-                output.push_str("\n**Suggested escape routes** (unexplored neighbors):\n");
-                for (name, file_path, relationship) in escape_routes.iter().take(3) {
-                    output.push_str(&format!("- {} — {} ({})\n", name, file_path, relationship));
-                }
-            }
-            output.push('\n');
-        }
-
-        Ok(CallToolResult::success(vec![Content::text(output)]))
-    }
-
-    /// Audit: Run code quality rules and report violations
-    #[tool(
-        description = "Run code quality audit on the codebase. Finds dead code, high complexity, missing docs, hardcoded secrets, TODO/FIXMEs, unwrap abuse, and long parameter lists. Supports project-local custom rules from .mu/rules/."
-    )]
+    #[tool(description = "Run code quality audit on the codebase. Finds dead code, high complexity, missing docs, hardcoded secrets, TODO/FIXMEs, unwrap abuse, and long parameter lists.")]
     async fn mu_audit(
         &self,
         Parameters(params): Parameters<AuditParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
-
-        let result = crate::commands::audit::run_audit_for_mcp(
-            &state.mubase,
-            &state.project_root,
-            params.min_complexity,
-            params.diff_base.as_deref(),
-        )
-        .map_err(|e| McpError::internal_error(e, None))?;
-
+        let result = crate::commands::audit::run_audit_for_mcp(&state.mubase, &state.project_root, params.min_complexity, params.diff_base.as_deref())
+            .map_err(|e| McpError::internal_error(e, None))?;
         let md = crate::commands::audit::format_as_markdown(&result);
         Ok(CallToolResult::success(vec![Content::text(md)]))
     }
 
-    /// Review: Full PR risk analysis combining diff + impact + audit
-    #[tool(
-        description = "Full PR review: semantic diff, downstream impact analysis, code audit, and risk scoring. Use this before merging to understand what changed, what might break, and how risky the changes are."
-    )]
+    #[tool(description = "Full PR review: semantic diff, downstream impact analysis, code audit, and risk scoring. Use this before merging.")]
     async fn mu_review(
         &self,
         Parameters(params): Parameters<ReviewParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
-
         let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
         let include_impact = params.include_impact.unwrap_or(true);
         let min_complexity = params.min_complexity;
-
-        let result = crate::commands::review::run_review(
-            &state.mubase,
-            &state.project_root,
-            &base,
-            include_impact,
-            min_complexity,
-        )
-        .map_err(|e| McpError::internal_error(e, None))?;
-
+        let result = crate::commands::review::run_review(&state.mubase, &state.project_root, &base, include_impact, min_complexity)
+            .map_err(|e| McpError::internal_error(e, None))?;
         let md = crate::commands::review::format_as_markdown(&result);
         Ok(CallToolResult::success(vec![Content::text(md)]))
     }
 }
 
-// Helper methods
-impl MuMcpServer {
-    /// Extract task-aware keywords - smarter than basic stop-word filtering
-    fn extract_task_keywords(&self, task: &str) -> Vec<String> {
-        // Task action words that hint at intent but aren't searchable
-        const TASK_WORDS: &[&str] = &[
-            "fix",
-            "add",
-            "implement",
-            "create",
-            "update",
-            "change",
-            "modify",
-            "refactor",
-            "remove",
-            "delete",
-            "debug",
-            "investigate",
-            "find",
-            "bug",
-            "issue",
-            "error",
-            "problem",
-            "feature",
-            "improve",
-            "the",
-            "a",
-            "an",
-            "is",
-            "are",
-            "was",
-            "were",
-            "be",
-            "been",
-            "have",
-            "has",
-            "had",
-            "do",
-            "does",
-            "did",
-            "will",
-            "would",
-            "could",
-            "should",
-            "may",
-            "might",
-            "must",
-            "shall",
-            "this",
-            "that",
-            "these",
-            "those",
-            "it",
-            "its",
-            "and",
-            "or",
-            "but",
-            "if",
-            "then",
-            "else",
-            "when",
-            "where",
-            "what",
-            "which",
-            "who",
-            "how",
-            "why",
-            "with",
-            "without",
-            "for",
-            "from",
-            "to",
-            "in",
-            "on",
-            "at",
-            "by",
-            "of",
-            "about",
-            "into",
-            "through",
-            "during",
-            "before",
-            "after",
-            "above",
-            "below",
-            "between",
-            "under",
-            "over",
-            "i",
-            "me",
-            "my",
-            "we",
-            "our",
-            "you",
-            "your",
-            "need",
-            "want",
-            "like",
-            "make",
-            "get",
-            "set",
-            "use",
-            "new",
-            "old",
-            "some",
-            "any",
-            "all",
-            "each",
-            "every",
-            "code",
-            "function",
-            "method",
-            "class",
-            "file",
-            "module",
-        ];
-
-        task.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-            .filter(|w| w.len() > 2)
-            .filter(|w| !TASK_WORDS.contains(&w.to_lowercase().as_str()))
-            .map(|w| w.to_string())
-            .collect()
-    }
-
-    /// Perform hybrid search combining BM25 (keyword) and semantic (embedding) results.
-    ///
-    /// Uses Reciprocal Rank Fusion (RRF) to merge rankings from both systems.
-    /// This ensures we find both:
-    /// - Exact keyword matches (e.g., "create_hnsw_index" when searching "hnsw")
-    /// - Conceptually related code (e.g., storage/persistence code)
-    ///
-    /// Two types of activity-dependent boost:
-    /// 1. Session activity: nodes connected to recently accessed symbols
-    /// 2. Git recency: files modified recently in git ("hot" codebase areas)
-    async fn hybrid_search(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        query: &str,
-        limit: usize,
-    ) -> Vec<SearchResult> {
-        // Get session context for activity-dependent boosting
-        let (recent_nodes, git_boosts) = {
-            let mut session = self.session.lock().await;
-
-            // Load git recency data if not already cached
-            session.load_git_recency();
-
-            // Get recently accessed nodes
-            let nodes: Vec<String> = session
-                .unique_nodes()
-                .iter()
-                .map(|n| n.name.clone())
-                .collect();
-
-            // Clone git recency for use outside the lock
-            let boosts = session.git_recency.clone().unwrap_or_default();
-
-            (nodes, boosts)
-        };
-
-        // Get results from both systems
-        let bm25_results = mubase.bm25_search(query, limit * 2).unwrap_or_default();
-        let semantic_results = self
-            .run_semantic_search(mubase, query, limit * 2)
-            .await
-            .unwrap_or_default();
-
-        // Convert BM25 results to SearchResult format
-        let bm25_converted: Vec<SearchResult> = bm25_results
-            .into_iter()
-            .map(|r| SearchResult {
-                name: r.name,
-                node_type: r.node_type,
-                file_path: r.file_path,
-                similarity: r.similarity,
-            })
-            .collect();
-
-        // Apply RRF merge with both activity boosts
-        self.rrf_merge(
-            mubase,
-            bm25_converted,
-            semantic_results,
-            limit,
-            &recent_nodes,
-            &git_boosts,
-        )
-    }
-
-    /// Reciprocal Rank Fusion - merge two ranked lists into one.
-    ///
-    /// RRF score = Σ weight/(k + rank) for each list where the item appears.
-    /// This elegantly combines rankings without needing to normalize scores.
-    ///
-    /// k=60 is the standard constant that balances contribution from different ranks.
-    /// BM25 is weighted 2x higher because exact keyword matches are more valuable
-    /// for code search than semantic similarity.
-    ///
-    /// Two types of activity boost:
-    /// 1. Session activity: nodes connected to recently accessed symbols
-    /// 2. Git recency: files modified recently ("hot" codebase areas)
-    fn rrf_merge(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        bm25_results: Vec<SearchResult>,
-        semantic_results: Vec<SearchResult>,
-        limit: usize,
-        recent_nodes: &[String],
-        git_boosts: &std::collections::HashMap<String, u32>,
-    ) -> Vec<SearchResult> {
-        use std::collections::HashMap;
-
-        const K: f32 = 60.0; // RRF constant
-        const BM25_WEIGHT: f32 = 2.0; // Keyword matches weighted 2x
-        const SEMANTIC_WEIGHT: f32 = 1.0;
-        const ACTIVITY_WEIGHT: f32 = 0.5; // Boost for nodes near recent session activity
-        const GIT_RECENCY_WEIGHT: f32 = 0.3; // Boost for recently modified files
-
-        // Track scores and keep the result data
-        let mut scores: HashMap<String, f32> = HashMap::new();
-        let mut result_data: HashMap<String, SearchResult> = HashMap::new();
-
-        // Capture actual similarities before consuming the vecs
-        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
-        for r in &semantic_results {
-            semantic_sims.insert(r.name.clone(), r.similarity);
-        }
-        let mut bm25_sims: HashMap<String, f32> = HashMap::new();
-        for r in &bm25_results {
-            bm25_sims.insert(r.name.clone(), r.similarity);
-        }
-
-        // Score from BM25 ranking (keyword matches) - weighted higher
-        for (rank, result) in bm25_results.into_iter().enumerate() {
-            let key = result.name.clone();
-            *scores.entry(key.clone()).or_default() += BM25_WEIGHT / (K + rank as f32 + 1.0);
-            result_data.entry(key).or_insert(result);
-        }
-
-        // Score from semantic ranking (conceptual matches)
-        for (rank, result) in semantic_results.into_iter().enumerate() {
-            let key = result.name.clone();
-            *scores.entry(key.clone()).or_default() += SEMANTIC_WEIGHT / (K + rank as f32 + 1.0);
-            result_data.entry(key).or_insert(result);
-        }
-
-        // Activity-dependent boost: strengthen nodes connected to recent session activity
-        if !recent_nodes.is_empty() {
-            let activity_boosts = self.compute_activity_boosts(mubase, &scores, recent_nodes);
-            for (name, boost) in activity_boosts {
-                if let Some(score) = scores.get_mut(&name) {
-                    *score += boost * ACTIVITY_WEIGHT;
-                }
-            }
-        }
-
-        // Git recency boost: strengthen nodes in recently modified files
-        if !git_boosts.is_empty() {
-            for (name, result) in result_data.iter() {
-                if let Some(ref file_path) = result.file_path {
-                    if let Some(&commit_count) = git_boosts.get(file_path) {
-                        // More commits = hotter file (capped at 5 commits for max boost)
-                        let boost = (commit_count as f32 * 0.1).min(0.5);
-                        if let Some(score) = scores.get_mut(name) {
-                            *score += boost * GIT_RECENCY_WEIGHT;
-                        }
-                    }
-                }
-            }
-        }
-
-        // Sort by RRF score
-        let mut scored: Vec<(String, f32)> = scores.into_iter().collect();
-        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-        // Build final results - use actual cosine similarity for display score
-        // RRF controls ordering, but the displayed score = real similarity
-        scored
-            .into_iter()
-            .take(limit)
-            .filter_map(|(key, _score)| {
-                result_data.remove(&key).map(|mut r| {
-                    // Prefer semantic similarity (actual cosine), fall back to BM25 score
-                    r.similarity = semantic_sims.get(&key).copied()
-                        .unwrap_or_else(|| bm25_sims.get(&key).copied().unwrap_or(0.3));
-                    r
-                })
-            })
-            .collect()
-    }
-
-    /// Get supporting context nodes through graph traversal
-    #[allow(clippy::ptr_arg)]
-    fn get_context_nodes(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        project_root: &Path,
-        must_read_names: &[&str],
-        keywords: &[String],
-    ) -> Vec<(String, String, String, Option<String>)> {
-        let mut context = Vec::new();
-        let mut seen: std::collections::HashSet<String> =
-            must_read_names.iter().map(|s| s.to_string()).collect();
-
-        // Get dependencies of must-read nodes
-        for name in must_read_names {
-            let sql = format!(
-                "SELECT DISTINCT n.name, n.type, n.file_path, n.line_start, n.line_end
-                 FROM edges e
-                 JOIN nodes n ON n.id = e.target_id
-                 WHERE e.source_id IN (SELECT id FROM nodes WHERE name = '{}')
-                   AND e.type IN ('imports', 'calls', 'uses')
-                 LIMIT 5",
-                name.replace('\'', "''")
-            );
-
-            if let Ok(result) = mubase.query(&sql) {
-                for row in &result.rows {
-                    let dep_name = row
-                        .first()
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if seen.insert(dep_name.clone()) {
-                        let node_type = row
-                            .get(1)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let file_path = row
-                            .get(2)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let line_start = row.get(3).and_then(|v| v.as_i64());
-                        let line_end = row.get(4).and_then(|v| v.as_i64());
-
-                        // Extract signature if it's a function
-                        let signature = if node_type == "function" {
-                            self.get_function_signature(
-                                project_root,
-                                &file_path,
-                                line_start,
-                                line_end,
-                            )
-                        } else {
-                            None
-                        };
-
-                        context.push((dep_name, node_type, file_path, signature));
-                    }
-                }
-            }
-        }
-
-        // Also find nodes matching keywords that aren't already included
-        for keyword in keywords.iter().take(3) {
-            let sql = format!(
-                "SELECT name, type, file_path, line_start, line_end FROM nodes
-                 WHERE LOWER(name) LIKE '%{}%'
-                 LIMIT 3",
-                keyword.to_lowercase().replace('\'', "''")
-            );
-
-            if let Ok(result) = mubase.query(&sql) {
-                for row in &result.rows {
-                    let name = row
-                        .first()
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if seen.insert(name.clone()) {
-                        let node_type = row
-                            .get(1)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let file_path = row
-                            .get(2)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string();
-                        let line_start = row.get(3).and_then(|v| v.as_i64());
-                        let line_end = row.get(4).and_then(|v| v.as_i64());
-
-                        let signature = if node_type == "function" {
-                            self.get_function_signature(
-                                project_root,
-                                &file_path,
-                                line_start,
-                                line_end,
-                            )
-                        } else {
-                            None
-                        };
-
-                        context.push((name, node_type, file_path, signature));
-                    }
-                }
-            }
-        }
-
-        // Limit total context
-        context.truncate(10);
-        context
-    }
-
-    /// Get function signature (first line of definition)
-    #[allow(clippy::ptr_arg)]
-    fn get_function_signature(
-        &self,
-        project_root: &Path,
-        file_path: &str,
-        line_start: Option<i64>,
-        _line_end: Option<i64>,
-    ) -> Option<String> {
-        let full_path = project_root.join(file_path);
-        let content = fs::read_to_string(&full_path).ok()?;
-        let lines: Vec<&str> = content.lines().collect();
-
-        let start = line_start.unwrap_or(1) as usize;
-        if start > 0 && start <= lines.len() {
-            let first_line = lines[start - 1].trim();
-            // Truncate long signatures
-            if first_line.len() > 80 {
-                Some(format!("{}...", &first_line[..77]))
-            } else {
-                Some(first_line.to_string())
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Extract relevant patterns from the codebase
-    fn extract_patterns(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        keywords: &[String],
-        relevant_files: &[String],
-    ) -> Vec<String> {
-        let mut patterns = Vec::new();
-
-        // Check for error handling patterns
-        let error_sql = "SELECT DISTINCT
-            CASE
-                WHEN name LIKE '%Error%' OR name LIKE '%Exception%' THEN name
-                ELSE NULL
-            END as error_type
-            FROM nodes
-            WHERE (name LIKE '%Error%' OR name LIKE '%Exception%')
-              AND type = 'class'
-            LIMIT 5";
-
-        if let Ok(result) = mubase.query(error_sql) {
-            let error_types: Vec<String> = result
-                .rows
-                .iter()
-                .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
-                .collect();
-            if !error_types.is_empty() {
-                patterns.push(format!("Error types: {}", error_types.join(", ")));
-            }
-        }
-
-        // Check if task mentions config-related keywords
-        let config_keywords = ["config", "setting", "option", "timeout", "expire", "limit"];
-        let has_config_keyword = keywords.iter().any(|k| {
-            config_keywords
-                .iter()
-                .any(|ck| k.to_lowercase().contains(ck))
-        });
-
-        if has_config_keyword {
-            // Look for config-related files
-            let config_sql = "SELECT DISTINCT file_path FROM nodes
-                WHERE LOWER(file_path) LIKE '%config%'
-                   OR LOWER(file_path) LIKE '%settings%'
-                   OR LOWER(file_path) LIKE '%.toml'
-                   OR LOWER(file_path) LIKE '%.yaml'
-                   OR LOWER(file_path) LIKE '%.json'
-                LIMIT 5";
-
-            if let Ok(result) = mubase.query(config_sql) {
-                let config_files: Vec<String> = result
-                    .rows
-                    .iter()
-                    .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
-                    .collect();
-                if !config_files.is_empty() {
-                    patterns.push(format!("Config files: {}", config_files.join(", ")));
-                }
-            }
-        }
-
-        // Look for test patterns related to the files we found
-        if !relevant_files.is_empty() {
-            let test_paths: Vec<String> = relevant_files
-                .iter()
-                .filter_map(|f| {
-                    // Common test file patterns
-                    if f.contains("test") || f.contains("spec") {
-                        return None; // Already a test file
-                    }
-                    let stem = f
-                        .trim_end_matches(".rs")
-                        .trim_end_matches(".py")
-                        .trim_end_matches(".ts")
-                        .trim_end_matches(".js");
-                    Some(format!(
-                        "{}test%' OR file_path LIKE '%{}_test%' OR file_path LIKE '%{}_spec%",
-                        stem.replace('\'', "''"),
-                        stem.replace('\'', "''"),
-                        stem.replace('\'', "''")
-                    ))
-                })
-                .take(3)
-                .collect();
-
-            if !test_paths.is_empty() {
-                let test_sql = format!(
-                    "SELECT DISTINCT file_path FROM nodes WHERE file_path LIKE '%{}' LIMIT 3",
-                    test_paths.first().unwrap_or(&String::new())
-                );
-
-                if let Ok(result) = mubase.query(&test_sql) {
-                    let test_files: Vec<String> = result
-                        .rows
-                        .iter()
-                        .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
-                        .collect();
-                    if !test_files.is_empty() {
-                        patterns.push(format!("Related tests: {}", test_files.join(", ")));
-                    }
-                }
-            }
-        }
-
-        // Check for common architectural patterns in the must-read files
-        if let Some(file_pattern) = relevant_files.first() {
-            if file_pattern.contains("controller") || file_pattern.contains("handler") {
-                patterns.push("Architecture: Controller/Handler pattern detected".to_string());
-            } else if file_pattern.contains("service") {
-                patterns.push("Architecture: Service layer pattern detected".to_string());
-            } else if file_pattern.contains("repository") || file_pattern.contains("repo") {
-                patterns.push("Architecture: Repository pattern detected".to_string());
-            }
-        }
-
-        patterns
-    }
-    async fn run_semantic_search(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        query: &str,
-        limit: usize,
-    ) -> anyhow::Result<Vec<SearchResult>> {
-        let model = self
-            .model
-            .get_or_try_init(|| async { mu_embeddings::MuSigmaModel::embedded() })
-            .await?;
-        let embedding = model.embed_one(query)?;
-        let results = mubase.vector_search(&embedding, limit, Some(0.3))?;
-
-        Ok(results
-            .into_iter()
-            .map(|r| SearchResult {
-                name: r.name,
-                node_type: r.node_type,
-                file_path: r.file_path,
-                similarity: r.similarity,
-            })
-            .collect())
-    }
-
-    fn run_keyword_search(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        query: &str,
-        limit: usize,
-    ) -> anyhow::Result<Vec<SearchResult>> {
-        let sql = format!(
-            "SELECT type, name, file_path FROM nodes WHERE LOWER(name) LIKE '%{}%' LIMIT {}",
-            query.to_lowercase().replace('\'', "''"),
-            limit
-        );
-        let result = mubase.query(&sql)?;
-
-        Ok(result
-            .rows
-            .iter()
-            .map(|row| SearchResult {
-                name: row
-                    .get(1)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                node_type: row
-                    .first()
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                file_path: row.get(2).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                similarity: 1.0,
-            })
-            .collect())
-    }
-
-    /// Extract a code snippet around a symbol
-    fn extract_snippet(&self, content: &str, name: &str, node_type: &str) -> Option<String> {
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Find the line containing the symbol definition
-        let patterns: Vec<String> = match node_type {
-            "function" => vec![
-                format!("fn {}", name),
-                format!("def {}(", name),
-                format!("func {}", name),
-                format!("function {}", name),
-                format!("{} = function", name),
-                format!("{} = (", name),
-                format!("{} = async", name),
-            ],
-            "class" => vec![
-                format!("class {}", name),
-                format!("struct {}", name),
-                format!("interface {}", name),
-                format!("type {} ", name),
-            ],
-            _ => vec![name.to_string()],
-        };
-
-        for (i, line) in lines.iter().enumerate() {
-            for pattern in &patterns {
-                if line.contains(pattern.as_str()) {
-                    // Found it, extract context
-                    let start = i;
-                    let mut end = i + 1;
-
-                    // Try to find the end of the block (simple heuristic)
-                    let mut brace_count = 0;
-                    let mut found_open = false;
-                    for (offset, l) in lines.iter().skip(i).take(50).enumerate() {
-                        for c in l.chars() {
-                            if c == '{' || c == '(' && !found_open {
-                                brace_count += 1;
-                                found_open = true;
-                            } else if c == '}' || (c == ')' && found_open && brace_count == 1) {
-                                brace_count -= 1;
-                            }
-                        }
-                        end = i + offset + 1;
-                        if found_open && brace_count <= 0 {
-                            break;
-                        }
-                    }
-
-                    // Limit to 25 lines
-                    let snippet_end = end.min(start + 25);
-                    let mut snippet = lines[start..snippet_end].join("\n");
-                    if end > snippet_end {
-                        snippet.push_str("\n  // ... (truncated)");
-                    }
-                    return Some(snippet);
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Find unexplored neighbors of nodes the user has been revisiting.
-    /// These are potential "escape routes" from rumination loops.
-    fn find_unexplored_neighbors(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        repeated_nodes: &[String],
-        session: &SessionState,
-    ) -> Vec<(String, String, String)> {
-        let mut neighbors = Vec::new();
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        for node_name in repeated_nodes {
-            // Find both incoming and outgoing edges from this node
-            let sql = format!(
-                "SELECT DISTINCT n.name, n.file_path, e.type
-                 FROM edges e
-                 JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id)
-                 WHERE (e.source_id IN (SELECT id FROM nodes WHERE name = '{}')
-                    OR e.target_id IN (SELECT id FROM nodes WHERE name = '{}'))
-                   AND n.name != '{}'
-                 LIMIT 10",
-                node_name.replace('\'', "''"),
-                node_name.replace('\'', "''"),
-                node_name.replace('\'', "''")
-            );
-
-            if let Ok(result) = mubase.query(&sql) {
-                for row in &result.rows {
-                    let name = row
-                        .first()
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    // Skip if already seen in session or already in our list
-                    if session.has_seen(&name) || !seen.insert(name.clone()) {
-                        continue;
-                    }
-
-                    let file_path = row
-                        .get(1)
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let relationship = row
-                        .get(2)
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("related")
-                        .to_string();
-
-                    neighbors.push((name, file_path, relationship));
-                }
-            }
-        }
-
-        neighbors
-    }
-
-    /// Compute activity boosts for search results based on graph proximity to recent nodes.
-    ///
-    /// Neural plasticity principle: nodes connected to recently "active" (accessed) nodes
-    /// should be boosted in search results. This implements "activity-dependent strengthening".
-    ///
-    /// Returns: Vec of (node_name, boost_factor) for nodes that deserve a boost.
-    fn compute_activity_boosts(
-        &self,
-        mubase: &mu_daemon::storage::MUbase,
-        candidates: &std::collections::HashMap<String, f32>,
-        recent_nodes: &[String],
-    ) -> Vec<(String, f32)> {
-        let mut boosts = Vec::new();
-
-        // Skip if no recent activity
-        if recent_nodes.is_empty() {
-            return boosts;
-        }
-
-        // Build a set of recent node names for quick lookup
-        let recent_set: std::collections::HashSet<&str> =
-            recent_nodes.iter().map(|s| s.as_str()).collect();
-
-        // For each candidate, check if it's connected to any recent node
-        for candidate_name in candidates.keys() {
-            // Skip if the candidate IS a recent node (don't double-boost)
-            if recent_set.contains(candidate_name.as_str()) {
-                // Direct hit: strong boost
-                boosts.push((candidate_name.clone(), 1.0));
-                continue;
-            }
-
-            // Check if candidate is a 1-hop neighbor of any recent node
-            let sql = format!(
-                "SELECT COUNT(*) FROM edges e
-                 JOIN nodes n1 ON n1.id = e.source_id
-                 JOIN nodes n2 ON n2.id = e.target_id
-                 WHERE (n1.name = '{}' AND n2.name IN ({}))
-                    OR (n2.name = '{}' AND n1.name IN ({}))",
-                candidate_name.replace('\'', "''"),
-                recent_nodes
-                    .iter()
-                    .take(10) // Limit to avoid huge queries
-                    .map(|n| format!("'{}'", n.replace('\'', "''")))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-                candidate_name.replace('\'', "''"),
-                recent_nodes
-                    .iter()
-                    .take(10)
-                    .map(|n| format!("'{}'", n.replace('\'', "''")))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
-
-            if let Ok(result) = mubase.query(&sql) {
-                if let Some(count) = result
-                    .rows
-                    .first()
-                    .and_then(|r| r.first())
-                    .and_then(|v| v.as_i64())
-                {
-                    if count > 0 {
-                        // Connected to recent activity: moderate boost
-                        // More connections = stronger boost (capped at 0.8)
-                        let boost = (count as f32 * 0.2).min(0.8);
-                        boosts.push((candidate_name.clone(), boost));
-                    }
-                }
-            }
-        }
-
-        boosts
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-struct SearchResult {
-    name: String,
-    node_type: String,
-    file_path: Option<String>,
-    similarity: f32,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    /// Verify that semantic_sims lookup uses result.name as the key
-    #[test]
-    fn test_semantic_sims_keyed_by_name() {
-        let results = vec![
-            SearchResult { name: "foo".into(), similarity: 0.92, ..Default::default() },
-            SearchResult { name: "bar".into(), similarity: 0.75, ..Default::default() },
-        ];
-
-        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
-        for r in &results {
-            semantic_sims.insert(r.name.clone(), r.similarity);
-        }
-
-        assert_eq!(semantic_sims.get("foo").copied(), Some(0.92));
-        assert_eq!(semantic_sims.get("bar").copied(), Some(0.75));
-        assert_eq!(semantic_sims.get("missing"), None);
-    }
-
-    /// Verify RRF ordering is preserved when we swap out display scores.
-    /// Items should stay in RRF-rank order even though similarity values differ.
-    #[test]
-    fn test_rrf_ordering_preserved_with_real_similarities() {
-        // Simulate RRF-scored items (already sorted by RRF score desc)
-        let rrf_ranked: Vec<(String, f32)> = vec![
-            ("top".into(), 0.05),
-            ("mid".into(), 0.03),
-            ("low".into(), 0.01),
-        ];
-
-        let mut semantic_sims: HashMap<String, f32> = HashMap::new();
-        // "mid" has higher cosine sim than "top" -- but RRF says "top" ranks first
-        semantic_sims.insert("top".into(), 0.70);
-        semantic_sims.insert("mid".into(), 0.95);
-
-        let bm25_sims: HashMap<String, f32> = HashMap::new();
-
-        let result_data: HashMap<String, SearchResult> = vec![
-            ("top".into(), SearchResult { name: "top".into(), similarity: 0.0, ..Default::default() }),
-            ("mid".into(), SearchResult { name: "mid".into(), similarity: 0.0, ..Default::default() }),
-            ("low".into(), SearchResult { name: "low".into(), similarity: 0.0, ..Default::default() }),
-        ].into_iter().collect();
-
-        let mut result_data = result_data;
-        let final_results: Vec<SearchResult> = rrf_ranked
-            .into_iter()
-            .filter_map(|(key, _score)| {
-                result_data.remove(&key).map(|mut r| {
-                    r.similarity = semantic_sims.get(&key).copied()
-                        .unwrap_or_else(|| bm25_sims.get(&key).copied().unwrap_or(0.3));
-                    r
-                })
-            })
-            .collect();
-
-        // Order preserved: top, mid, low
-        assert_eq!(final_results[0].name, "top");
-        assert_eq!(final_results[1].name, "mid");
-        assert_eq!(final_results[2].name, "low");
-
-        // Display scores reflect actual cosine similarities
-        assert!((final_results[0].similarity - 0.70).abs() < 0.001);
-        assert!((final_results[1].similarity - 0.95).abs() < 0.001);
-        // "low" has no semantic or BM25 entry, falls back to 0.3
-        assert!((final_results[2].similarity - 0.3).abs() < 0.001);
-    }
-
-    /// Keyword scoring sigmoid caps at 0.85
-    #[test]
-    fn test_keyword_scoring_caps_at_085() {
-        // Simulate various match scores through the sigmoid
-        for match_score in [1.0_f32, 3.0, 6.0, 10.0, 50.0, 100.0] {
-            let similarity = (match_score / (match_score + 3.0)).min(0.85);
-            assert!(similarity <= 0.85, "score {} produced similarity {} > 0.85", match_score, similarity);
-            assert!(similarity > 0.0);
-        }
-
-        // Low match score should give low similarity
-        let low = (1.0_f32 / (1.0 + 3.0)).min(0.85);
-        assert!(low < 0.3, "low match score should give low similarity, got {}", low);
-
-        // High match score should approach but not exceed 0.85
-        let high = (100.0_f32 / (100.0 + 3.0)).min(0.85);
-        assert!((high - 0.85).abs() < 0.001);
-    }
-}
+// ============================================================================
+// ServerHandler
+// ============================================================================
 
 #[tool_handler]
 impl ServerHandler for MuMcpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: Default::default(),
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation {
                 name: "mu".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
             },
             instructions: Some(
-                "MU - semantic code intelligence. Tools:\n\
-                 • mu_oracle: THE divine tool - get exactly what you need for a task (must-read code, context, patterns)\n\
-                 • mu_grok: Understand code (semantic search + snippets)\n\
-                 • mu_find: Find exact symbol by name\n\
-                 • mu_compress: Get codebase overview\n\
-                 • mu_impact: What depends on a symbol\n\
-                 • mu_diff: What changed between git refs\n\
-                 • mu_review: Full PR review (diff + impact + audit + risk score)\n\
-                 • mu_audit: Run code quality rules\n\
-                 • mu_sus: Find suspicious/complex code\n\
-                 • mu_wtf: Git archaeology for a file".into()
+                "MU - semantic code intelligence (V3 tools).\n\n\
+                 ## Primary workflow: search -> read/expand -> context\n\
+                 1. `mu_search` -- find nodes by name or concept (returns node IDs)\n\
+                 2. `mu_read` -- read node source/summary/signature by ID\n\
+                 3. `mu_expand` -- walk graph edges from a node (calls, uses, imports)\n\
+                 4. `mu_context` -- pack multiple nodes into a token budget\n\
+                 5. `mu_enrich` -- improve search quality with LLM summaries\n\n\
+                 ## Utility tools\n\
+                 - `mu_find` -- exact symbol name lookup with code\n\
+                 - `mu_compress` -- codebase structure overview\n\
+                 - `mu_impact` -- downstream dependency analysis\n\
+                 - `mu_diff` -- semantic diff between git refs\n\
+                 - `mu_review` -- full PR review (diff + impact + audit)\n\
+                 - `mu_audit` -- code quality rules\n\
+                 - `mu_sus` -- suspicious/complex code finder\n\
+                 - `mu_wtf` -- git archaeology for a file".into()
             ),
         }
     }
 
-    /// Handle roots list changed notification from the client.
-    ///
-    /// When Claude Code changes directories or the client's workspace changes,
-    /// we receive this notification. We then fetch the new roots and store them
-    /// for use in lazy project initialization.
     async fn on_roots_list_changed(
         &self,
         context: rmcp::service::NotificationContext<rmcp::service::RoleServer>,
     ) {
-        // Try to fetch the current roots from the client
         if let Ok(roots_result) = context.peer.list_roots().await {
             let mut client_roots = self.client_roots.write().await;
             *client_roots = Some(roots_result.roots);
