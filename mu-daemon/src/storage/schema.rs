@@ -17,6 +17,8 @@ pub enum NodeType {
     Function,
     /// External dependency (package)
     External,
+    /// Virtual message node (MassTransit command/event)
+    Message,
 }
 
 impl NodeType {
@@ -26,6 +28,7 @@ impl NodeType {
             NodeType::Class => "class",
             NodeType::Function => "function",
             NodeType::External => "external",
+            NodeType::Message => "message",
         }
     }
 
@@ -35,6 +38,7 @@ impl NodeType {
             "class" => Some(NodeType::Class),
             "function" => Some(NodeType::Function),
             "external" => Some(NodeType::External),
+            "message" => Some(NodeType::Message),
             _ => None,
         }
     }
@@ -60,7 +64,18 @@ pub enum EdgeType {
     Calls,
     /// Function→Variable (usage)
     Uses,
+    /// Class/Method→Message (publishes a message type)
+    Publishes,
+    /// Class→Message (subscribes to/consumes a message type)
+    Subscribes,
+    /// Method→external service (makes HTTP calls)
+    CallsHttp,
+    /// Class→Class (references a shared contract/DTO type)
+    UsesContract,
 }
+
+/// Cross-service edge types for microservice graph traversal.
+pub const CROSS_SERVICE_EDGE_TYPES: &[&str] = &["publishes", "subscribes", "calls_http", "uses_contract"];
 
 impl EdgeType {
     pub fn as_str(&self) -> &'static str {
@@ -70,6 +85,10 @@ impl EdgeType {
             EdgeType::Inherits => "inherits",
             EdgeType::Calls => "calls",
             EdgeType::Uses => "uses",
+            EdgeType::Publishes => "publishes",
+            EdgeType::Subscribes => "subscribes",
+            EdgeType::CallsHttp => "calls_http",
+            EdgeType::UsesContract => "uses_contract",
         }
     }
 
@@ -80,8 +99,20 @@ impl EdgeType {
             "inherits" => Some(EdgeType::Inherits),
             "calls" => Some(EdgeType::Calls),
             "uses" => Some(EdgeType::Uses),
+            "publishes" => Some(EdgeType::Publishes),
+            "subscribes" => Some(EdgeType::Subscribes),
+            "calls_http" => Some(EdgeType::CallsHttp),
+            "uses_contract" => Some(EdgeType::UsesContract),
             _ => None,
         }
+    }
+
+    /// Returns true if this is a cross-service edge type.
+    pub fn is_cross_service(&self) -> bool {
+        matches!(
+            self,
+            EdgeType::Publishes | EdgeType::Subscribes | EdgeType::CallsHttp | EdgeType::UsesContract
+        )
     }
 }
 
@@ -167,6 +198,7 @@ mod tests {
             NodeType::Class,
             NodeType::Function,
             NodeType::External,
+            NodeType::Message,
         ] {
             let s = nt.as_str();
             let parsed = NodeType::parse(s);
@@ -182,10 +214,24 @@ mod tests {
             EdgeType::Inherits,
             EdgeType::Calls,
             EdgeType::Uses,
+            EdgeType::Publishes,
+            EdgeType::Subscribes,
+            EdgeType::CallsHttp,
+            EdgeType::UsesContract,
         ] {
             let s = et.as_str();
             let parsed = EdgeType::parse(s);
             assert_eq!(parsed, Some(et));
         }
+    }
+
+    #[test]
+    fn test_cross_service_edge_types() {
+        assert!(EdgeType::Publishes.is_cross_service());
+        assert!(EdgeType::Subscribes.is_cross_service());
+        assert!(EdgeType::CallsHttp.is_cross_service());
+        assert!(EdgeType::UsesContract.is_cross_service());
+        assert!(!EdgeType::Contains.is_cross_service());
+        assert!(!EdgeType::Calls.is_cross_service());
     }
 }

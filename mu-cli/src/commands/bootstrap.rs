@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use regex::Regex;
 use serde::Serialize;
 use serde_json::json;
 
@@ -429,6 +430,10 @@ fn build_graph(
         }
     );
 
+    // Detect cross-service patterns (MassTransit, HTTP, contracts) in C# code
+    spinner.set_message("Detecting cross-service patterns...");
+    detect_cross_service_edges(parse_results, &class_lookup, &mut nodes, &mut edges);
+
     (nodes, edges)
 }
 
@@ -750,6 +755,182 @@ fn resolve_all_call_sites(
 }
 
 // ============================================================================
+// Cross-Service Edge Detection (C# MassTransit, HTTP, Contracts)
+// ============================================================================
+
+/// Detect cross-service patterns in C# code and add message nodes + edges.
+///
+/// Scans parsed data (bases, body_source, referenced_types) with regex to find:
+/// - MassTransit IConsumer<T> subscribers
+/// - MassTransit Publish<T>() publishers
+/// - HttpClient usage (GetAsync, PostAsync, etc.)
+/// - Shared contract references (.Contracts., .Shared. namespaces)
+fn detect_cross_service_edges(
+    parse_results: &[mu_core::types::ParseResult],
+    class_lookup: &HashMap<String, String>,
+    nodes: &mut Vec<mu_daemon::storage::Node>,
+    edges: &mut Vec<mu_daemon::storage::Edge>,
+) {
+    let consumer_re = Regex::new(r"IConsumer<(\w+)>").unwrap();
+    let publish_re = Regex::new(r"\.Publish<(\w+)>\s*\(").unwrap();
+    let http_verb_re =
+        Regex::new(r"\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(").unwrap();
+    let http_url_re = Regex::new(r#"["'](/api/[^"']+)["']"#).unwrap();
+    let contract_ns_re = Regex::new(r"\b(\w+)\.(Contracts|Shared|Messages|Events|Commands)\.(\w+)").unwrap();
+
+    // Track created message nodes to avoid duplicates
+    let mut message_nodes: HashMap<String, String> = HashMap::new();
+
+    let mut get_or_create_message_node =
+        |type_name: &str, namespace: Option<&str>, nodes: &mut Vec<mu_daemon::storage::Node>| -> String {
+            let key = format!("{}:{}", namespace.unwrap_or(""), type_name);
+            if let Some(id) = message_nodes.get(&key) {
+                return id.clone();
+            }
+            // Check if this type already exists as a class in the graph
+            if let Some(class_id) = class_lookup.get(type_name) {
+                message_nodes.insert(key, class_id.clone());
+                return class_id.clone();
+            }
+            let node = mu_daemon::storage::Node::message(type_name, namespace);
+            let id = node.id.clone();
+            nodes.push(node);
+            message_nodes.insert(key, id.clone());
+            id
+        };
+
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        let module = match &result.module {
+            Some(m) if m.language == "csharp" => m,
+            _ => continue,
+        };
+
+        let rel_path = &module.path;
+        let module_namespace = module.namespace.as_deref();
+
+        for class in &module.classes {
+            let class_id = format!("cls:{}:{}", rel_path, class.name);
+
+            // 1. MassTransit Consumer detection: IConsumer<T> in bases
+            for base in &class.bases {
+                for cap in consumer_re.captures_iter(base) {
+                    let message_type = &cap[1];
+                    let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
+                    let edge = mu_daemon::storage::Edge::subscribes(&class_id, &msg_id)
+                        .with_properties(json!({"message_type": message_type}));
+                    edges.push(edge);
+                    tracing::debug!("Cross-service: {} subscribes to {}", class.name, message_type);
+                }
+            }
+
+            // 2. Scan method bodies for Publish<T>(), HTTP calls, contracts
+            for method in &class.methods {
+                let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                let body = match &method.body_source {
+                    Some(b) => b,
+                    None => continue,
+                };
+
+                // MassTransit Publish<T>()
+                for cap in publish_re.captures_iter(body) {
+                    let message_type = &cap[1];
+                    let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
+                    let edge = mu_daemon::storage::Edge::publishes(&method_id, &msg_id)
+                        .with_properties(json!({"message_type": message_type}));
+                    edges.push(edge);
+                    tracing::debug!(
+                        "Cross-service: {}.{} publishes {}",
+                        class.name, method.name, message_type
+                    );
+                }
+
+                // HTTP client calls
+                if http_verb_re.is_match(body) {
+                    // Extract HTTP method
+                    let http_method = http_verb_re
+                        .captures(body)
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().replace("Async", "").replace("String", ""))
+                        .unwrap_or_else(|| "UNKNOWN".to_string());
+
+                    // Try to extract URL pattern
+                    let url_pattern = http_url_re
+                        .captures(body)
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string());
+
+                    let target_id = format!("ext:http:{}", class.name);
+                    let mut props = serde_json::Map::new();
+                    props.insert("method".to_string(), json!(http_method));
+                    if let Some(ref url) = url_pattern {
+                        props.insert("url_pattern".to_string(), json!(url));
+                    }
+
+                    let edge = mu_daemon::storage::Edge::calls_http(&method_id, &target_id)
+                        .with_properties(serde_json::Value::Object(props));
+                    edges.push(edge);
+                    tracing::debug!(
+                        "Cross-service: {}.{} calls HTTP ({})",
+                        class.name, method.name, http_method
+                    );
+                }
+            }
+
+            // 3. Shared contract detection from referenced_types
+            for ref_type in &class.referenced_types {
+                for cap in contract_ns_re.captures_iter(ref_type) {
+                    let contract_ns = format!("{}.{}", &cap[1], &cap[2]);
+                    let contract_type = &cap[3];
+                    // Look up the contract class in the graph, or create a virtual ref
+                    let target_id = class_lookup
+                        .get(contract_type)
+                        .cloned()
+                        .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
+
+                    let edge = mu_daemon::storage::Edge::uses_contract(&class_id, &target_id)
+                        .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
+                    edges.push(edge);
+                    tracing::debug!(
+                        "Cross-service: {} uses contract {}.{}",
+                        class.name, contract_ns, contract_type
+                    );
+                }
+            }
+
+            // Also check bases for contract namespace references (e.g., implements IValidator<SomeContract>)
+            let bases_str = class.bases.join(", ");
+            for cap in contract_ns_re.captures_iter(&bases_str) {
+                let contract_ns = format!("{}.{}", &cap[1], &cap[2]);
+                let contract_type = &cap[3];
+                let target_id = class_lookup
+                    .get(contract_type)
+                    .cloned()
+                    .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
+
+                let edge = mu_daemon::storage::Edge::uses_contract(&class_id, &target_id)
+                    .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
+                edges.push(edge);
+            }
+        }
+    }
+
+    let msg_count = message_nodes.len();
+    let cross_edges: usize = edges
+        .iter()
+        .filter(|e| e.edge_type.is_cross_service())
+        .count();
+    if cross_edges > 0 {
+        tracing::info!(
+            "Cross-service detection: {} message nodes, {} cross-service edges",
+            msg_count, cross_edges
+        );
+    }
+}
+
+// ============================================================================
 // Embeddings
 // ============================================================================
 
@@ -796,6 +977,7 @@ fn generate_embeddings(
                     mu_daemon::storage::NodeType::Class => "class",
                     mu_daemon::storage::NodeType::Function => "function",
                     mu_daemon::storage::NodeType::External => "external",
+                    mu_daemon::storage::NodeType::Message => "message",
                 };
                 format!(
                     "{} {} {}",
@@ -1551,5 +1733,237 @@ mod tests {
     fn test_default_config_is_valid_toml() {
         let config = get_default_config();
         toml::from_str::<toml::Value>(config).expect("Default config should be valid TOML");
+    }
+
+    // ===== Cross-service edge detection tests =====
+
+    fn make_csharp_module(
+        path: &str,
+        namespace: Option<&str>,
+        classes: Vec<mu_core::types::ClassDef>,
+    ) -> mu_core::types::ParseResult {
+        mu_core::types::ParseResult {
+            success: true,
+            module: Some(mu_core::types::ModuleDef {
+                name: path.to_string(),
+                path: path.to_string(),
+                language: "csharp".to_string(),
+                imports: vec![],
+                classes,
+                functions: vec![],
+                module_docstring: None,
+                total_lines: 10,
+                namespace: namespace.map(|s| s.to_string()),
+            }),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn test_detect_masstransit_consumer() {
+        let class = mu_core::types::ClassDef {
+            name: "OrderCreatedConsumer".to_string(),
+            bases: vec!["IConsumer<OrderCreatedEvent>".to_string()],
+            methods: vec![],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Consumers/OrderCreatedConsumer.cs",
+            Some("MyService.Consumers"),
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        // Should create a message node and a subscribes edge
+        assert!(
+            nodes.iter().any(|n| n.name == "OrderCreatedEvent"
+                && n.node_type == mu_daemon::storage::NodeType::Message),
+            "Should create message node for OrderCreatedEvent"
+        );
+        assert!(
+            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::Subscribes
+                && e.source_id.contains("OrderCreatedConsumer")),
+            "Should create subscribes edge from consumer"
+        );
+    }
+
+    #[test]
+    fn test_detect_masstransit_publisher() {
+        let method = mu_core::types::FunctionDef {
+            name: "CreateOrder".to_string(),
+            is_method: true,
+            body_source: Some(
+                r#"
+                var order = new Order(request);
+                await _publishEndpoint.Publish<OrderCreatedEvent>(new { order.Id });
+                "#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let class = mu_core::types::ClassDef {
+            name: "OrderService".to_string(),
+            bases: vec![],
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let parse_results =
+            vec![make_csharp_module("src/Services/OrderService.cs", None, vec![class])];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(
+            nodes.iter().any(|n| n.name == "OrderCreatedEvent"),
+            "Should create message node for OrderCreatedEvent"
+        );
+        assert!(
+            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::Publishes
+                && e.source_id.contains("OrderService.CreateOrder")),
+            "Should create publishes edge from method"
+        );
+    }
+
+    #[test]
+    fn test_detect_http_client_calls() {
+        let method = mu_core::types::FunctionDef {
+            name: "FetchUser".to_string(),
+            is_method: true,
+            body_source: Some(
+                r#"
+                var response = await _httpClient.GetAsync("/api/users/123");
+                "#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let class = mu_core::types::ClassDef {
+            name: "UserClient".to_string(),
+            bases: vec![],
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let parse_results =
+            vec![make_csharp_module("src/Clients/UserClient.cs", None, vec![class])];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(
+            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::CallsHttp
+                && e.source_id.contains("UserClient.FetchUser")),
+            "Should create calls_http edge from method"
+        );
+        // Check properties contain URL pattern
+        let http_edge = edges
+            .iter()
+            .find(|e| e.edge_type == mu_daemon::storage::EdgeType::CallsHttp)
+            .unwrap();
+        let props = http_edge.properties.as_ref().unwrap();
+        assert_eq!(props["method"], "Get");
+        assert_eq!(props["url_pattern"], "/api/users/123");
+    }
+
+    #[test]
+    fn test_detect_shared_contracts() {
+        let class = mu_core::types::ClassDef {
+            name: "OrderHandler".to_string(),
+            bases: vec![],
+            methods: vec![],
+            referenced_types: vec!["MyApp.Contracts.OrderDto".to_string()],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Handlers/OrderHandler.cs",
+            None,
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(
+            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::UsesContract
+                && e.source_id.contains("OrderHandler")),
+            "Should create uses_contract edge"
+        );
+    }
+
+    #[test]
+    fn test_consumer_links_to_existing_class() {
+        // When the message type already exists as a class, link to it directly
+        let consumer = mu_core::types::ClassDef {
+            name: "EventConsumer".to_string(),
+            bases: vec!["IConsumer<UserCreated>".to_string()],
+            methods: vec![],
+            ..Default::default()
+        };
+
+        let parse_results =
+            vec![make_csharp_module("src/Consumer.cs", None, vec![consumer])];
+        let mut class_lookup = HashMap::new();
+        class_lookup.insert("UserCreated".to_string(), "cls:src/Events.cs:UserCreated".to_string());
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        // Should NOT create a new message node (links to existing class)
+        assert!(
+            !nodes.iter().any(|n| n.name == "UserCreated"),
+            "Should not create message node when class exists"
+        );
+        let sub_edge = edges
+            .iter()
+            .find(|e| e.edge_type == mu_daemon::storage::EdgeType::Subscribes)
+            .expect("Should create subscribes edge");
+        assert_eq!(sub_edge.target_id, "cls:src/Events.cs:UserCreated");
+    }
+
+    #[test]
+    fn test_non_csharp_modules_skipped() {
+        let class = mu_core::types::ClassDef {
+            name: "PythonConsumer".to_string(),
+            bases: vec!["IConsumer<SomeEvent>".to_string()],
+            methods: vec![],
+            ..Default::default()
+        };
+
+        // Python module with the same base pattern should be ignored
+        let parse_results = vec![mu_core::types::ParseResult {
+            success: true,
+            module: Some(mu_core::types::ModuleDef {
+                name: "consumer".to_string(),
+                path: "consumer.py".to_string(),
+                language: "python".to_string(),
+                classes: vec![class],
+                ..Default::default()
+            }),
+            error: None,
+        }];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(nodes.is_empty(), "Should not detect patterns in non-C# code");
+        assert!(edges.is_empty());
     }
 }
