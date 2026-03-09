@@ -971,6 +971,14 @@ impl MUbase {
         Ok(true)
     }
 
+    /// Run V3 three-phase search (exact -> BM25 -> importance tiebreak).
+    ///
+    /// Wraps `search::search_nodes` with the internal connection.
+    pub fn search_v3(&self, query: &str, limit: usize) -> Result<Vec<crate::search::SearchResult>> {
+        let conn = self.acquire_conn()?;
+        crate::search::search_nodes(&conn, query, limit)
+    }
+
     /// Clear all data from the database (no-op since insert functions handle this).
     pub fn clear(&self) -> Result<()> {
         // Clearing is now handled by insert_nodes and insert_edges
