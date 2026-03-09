@@ -164,6 +164,10 @@ enum Commands {
         /// Filter by edge types (e.g., imports,calls)
         #[arg(short, long, value_delimiter = ',')]
         edge_types: Option<Vec<String>>,
+
+        /// Include cross-service edges (publishes, subscribes, calls_http, uses_contract)
+        #[arg(long)]
+        cross_service: bool,
     },
 
     /// Audit codebase for code smells, complexity, missing docs, and custom rules
@@ -316,7 +320,8 @@ async fn main() -> anyhow::Result<()> {
             node,
             depth,
             edge_types,
-        } => graph::run_impact(&node, edge_types, depth, format).await,
+            cross_service,
+        } => graph::run_impact(&node, edge_types, depth, cross_service, format).await,
 
         Commands::Audit {
             min_complexity,
