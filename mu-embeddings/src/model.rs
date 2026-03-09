@@ -384,6 +384,11 @@ impl MuSigmaModel {
         &self.device
     }
 
+    /// Get a reference to the tokenizer.
+    pub fn tokenizer(&self) -> &MuTokenizer {
+        &self.tokenizer
+    }
+
     // Private helper methods
 
     fn get_device() -> Result<Device> {

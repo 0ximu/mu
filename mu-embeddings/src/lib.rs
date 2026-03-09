@@ -39,7 +39,7 @@ mod tokenizer;
 
 pub use error::{EmbeddingError, Result};
 pub use model::{ModelConfig, MuSigmaModel};
-pub use tokenizer::MuTokenizer;
+pub use tokenizer::{BudgetEncoding, MuTokenizer};
 
 /// Embedded model weights for mu-sigma-v2 (compile-time inclusion).
 pub mod embedded {
