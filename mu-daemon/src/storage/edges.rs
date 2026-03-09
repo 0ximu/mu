@@ -56,6 +56,26 @@ impl Edge {
         Self::new(from, type_ref, EdgeType::Uses)
     }
 
+    /// Create a PUBLISHES edge (class/method publishes a message type).
+    pub fn publishes(from: &str, message_node: &str) -> Self {
+        Self::new(from, message_node, EdgeType::Publishes)
+    }
+
+    /// Create a SUBSCRIBES edge (consumer class subscribes to a message type).
+    pub fn subscribes(from: &str, message_node: &str) -> Self {
+        Self::new(from, message_node, EdgeType::Subscribes)
+    }
+
+    /// Create a CALLS_HTTP edge (method makes HTTP calls).
+    pub fn calls_http(from: &str, target: &str) -> Self {
+        Self::new(from, target, EdgeType::CallsHttp)
+    }
+
+    /// Create a USES_CONTRACT edge (class references a shared contract type).
+    pub fn uses_contract(from: &str, contract_type: &str) -> Self {
+        Self::new(from, contract_type, EdgeType::UsesContract)
+    }
+
     /// Set properties on the edge.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);

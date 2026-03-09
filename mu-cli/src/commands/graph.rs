@@ -220,6 +220,7 @@ impl TableDisplay for ImpactResult {
                     "class" => "[cls]".yellow(),
                     "function" => "[fn]".green(),
                     "external" => "[ext]".magenta(),
+                    "message" => "[msg]".cyan(),
                     _ => format!("[{}]", node.node_type).normal(),
                 };
                 let path_info = node
@@ -248,6 +249,7 @@ pub async fn run_impact(
     node: &str,
     edge_types: Option<Vec<String>>,
     depth: Option<u8>,
+    cross_service: bool,
     format: OutputFormat,
 ) -> Result<()> {
     let conn = open_db()?;
@@ -260,7 +262,24 @@ pub async fn run_impact(
         return Err(anyhow::anyhow!("Node not found: {}", node));
     }
 
-    let affected_ids = graph.impact(&node_id, edge_types.as_deref(), depth);
+    // If --cross-service is set and no explicit edge_types given, include cross-service types
+    let effective_edge_types = if cross_service && edge_types.is_none() {
+        None // traverse all edges including cross-service
+    } else if let Some(mut types) = edge_types {
+        if cross_service {
+            for cs_type in mu_daemon::storage::CROSS_SERVICE_EDGE_TYPES {
+                let s = cs_type.to_string();
+                if !types.contains(&s) {
+                    types.push(s);
+                }
+            }
+        }
+        Some(types)
+    } else {
+        None
+    };
+
+    let affected_ids = graph.impact(&node_id, effective_edge_types.as_deref(), depth);
 
     let affected_nodes: Vec<AffectedNode> = affected_ids
         .iter()

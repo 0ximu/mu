@@ -127,6 +127,26 @@ impl Node {
         }
     }
 
+    /// Create a virtual message node (MassTransit command/event).
+    pub fn message(type_name: &str, namespace: Option<&str>) -> Self {
+        let id = match namespace {
+            Some(ns) => format!("msg:{}:{}", ns, type_name),
+            None => format!("msg:{}", type_name),
+        };
+        Self {
+            id,
+            node_type: NodeType::Message,
+            name: type_name.to_string(),
+            qualified_name: namespace.map(|ns| format!("{}.{}", ns, type_name)),
+            file_path: None,
+            line_start: None,
+            line_end: None,
+            complexity: 0,
+            properties: None,
+            source_text: Some(format!("message {}", type_name)),
+        }
+    }
+
     /// Set properties on the node.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);

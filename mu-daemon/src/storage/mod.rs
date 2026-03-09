@@ -20,4 +20,4 @@ pub use embeddings::{EmbeddingStats, VectorSearchResult};
 pub use graph_engine::GraphEngine;
 pub use mubase::{AccessMode, MUbase, QueryResult};
 pub use nodes::Node;
-pub use schema::{EdgeType, NodeType};
+pub use schema::{EdgeType, NodeType, CROSS_SERVICE_EDGE_TYPES};
