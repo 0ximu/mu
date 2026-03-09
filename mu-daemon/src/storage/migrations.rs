@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use duckdb::Connection;
 
 /// Target schema version for migrations.
-pub const TARGET_VERSION: &str = "1.2.0";
+pub const TARGET_VERSION: &str = "2.0.0";
 
 /// Check if migration is needed from current version to target.
 pub fn needs_migration(current: &str, target: &str) -> bool {
@@ -150,6 +150,50 @@ pub fn migrate_add_source_text(conn: &Connection) -> Result<()> {
     .context("Failed to update schema version")?;
 
     tracing::info!("Migration complete: v1.1.0 → v1.2.0");
+    Ok(())
+}
+
+/// Migrate v1.2.0 -> v2.0.0: Add V3 search columns (summary, importance, search_text).
+pub fn migrate_v1_2_to_v2(conn: &Connection) -> Result<()> {
+    tracing::info!("Starting migration: v1.2.0 → v2.0.0 (V3 search)");
+
+    let cols = [
+        ("summary_text", "ALTER TABLE nodes ADD COLUMN summary_text TEXT"),
+        ("summary_source", "ALTER TABLE nodes ADD COLUMN summary_source VARCHAR DEFAULT 'heuristic'"),
+        ("summary_code_hash", "ALTER TABLE nodes ADD COLUMN summary_code_hash VARCHAR"),
+        ("importance_score", "ALTER TABLE nodes ADD COLUMN importance_score FLOAT DEFAULT 0.0"),
+        ("search_text", "ALTER TABLE nodes ADD COLUMN search_text TEXT"),
+        ("summary_updated_at", "ALTER TABLE nodes ADD COLUMN summary_updated_at TIMESTAMP"),
+    ];
+
+    for (col_name, ddl) in &cols {
+        // Check if column already exists (idempotent)
+        let exists: bool = conn.query_row(
+            &format!(
+                "SELECT COUNT(*) > 0 FROM information_schema.columns WHERE table_name='nodes' AND column_name='{}'",
+                col_name
+            ),
+            [],
+            |row| row.get(0),
+        ).unwrap_or(false);
+
+        if !exists {
+            conn.execute(ddl, [])?;
+            tracing::info!("Added column: {}", col_name);
+        }
+    }
+
+    conn.execute_batch("
+        CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(importance_score DESC);
+        CREATE INDEX IF NOT EXISTS idx_nodes_summary_source ON nodes(summary_source);
+    ")?;
+
+    conn.execute(
+        "UPDATE metadata SET value = '2.0.0' WHERE key = 'schema_version'",
+        [],
+    )?;
+
+    tracing::info!("Migration v1.2.0 → v2.0.0 complete");
     Ok(())
 }
 

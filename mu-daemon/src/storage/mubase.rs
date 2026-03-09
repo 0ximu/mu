@@ -163,6 +163,20 @@ impl MUbase {
             super::migrations::migrate_add_source_text(&conn)?;
         }
 
+        // Check if migration from v1.2.0 → v2.0.0 is needed (V3 search columns)
+        let needs_v2_migrate = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '1.2.0'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if needs_v2_migrate {
+            tracing::info!("Adding V3 search columns to nodes table");
+            super::migrations::migrate_v1_2_to_v2(&conn)?;
+        }
+
         // Execute schema creation (CREATE TABLE IF NOT EXISTS is safe for existing tables)
         conn.execute_batch(SCHEMA_SQL)
             .context("Failed to initialize schema")?;
@@ -205,7 +219,7 @@ impl MUbase {
 
     /// Run any pending schema migrations.
     ///
-    /// Migration chain: v1.0.0 → v1.1.0 → v1.2.0
+    /// Migration chain: v1.0.0 → v1.1.0 → v1.2.0 → v2.0.0
     pub fn run_migrations(&self) -> Result<()> {
         let current_version = self.get_schema_version()?;
         if super::migrations::needs_migration(&current_version, super::migrations::TARGET_VERSION) {
@@ -227,6 +241,16 @@ impl MUbase {
                 .unwrap_or_else(|_| current_version.clone());
             if version_after == "1.1.0" {
                 super::migrations::migrate_add_source_text(&conn)?;
+            }
+            let version_after_v12 = conn
+                .query_row(
+                    "SELECT value FROM metadata WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap_or_else(|_| "unknown".to_string());
+            if version_after_v12 == "1.2.0" {
+                super::migrations::migrate_v1_2_to_v2(&conn)?;
             }
         }
         Ok(())
@@ -568,6 +592,135 @@ impl MUbase {
         Ok(results)
     }
 
+    // ========================================================================
+    // V3 Search: Summary, Importance, Search Text
+    // ========================================================================
+
+    /// Update summary fields for a node.
+    pub fn update_summary(&self, node_id: &str, summary_text: &str, summary_source: &str, code_hash: &str) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute(
+            "UPDATE nodes SET summary_text = ?, summary_source = ?, summary_code_hash = ?, summary_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            params![summary_text, summary_source, code_hash, node_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update importance score for a node.
+    pub fn update_importance(&self, node_id: &str, score: f32) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute(
+            "UPDATE nodes SET importance_score = ? WHERE id = ?",
+            params![score, node_id],
+        )?;
+        Ok(())
+    }
+
+    /// Batch update importance scores.
+    pub fn update_importance_batch(&self, scores: &[(String, f32)]) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare("UPDATE nodes SET importance_score = ? WHERE id = ?")?;
+        for (node_id, score) in scores {
+            stmt.execute(params![score, node_id])?;
+        }
+        Ok(())
+    }
+
+    /// Update search_text for a node.
+    pub fn update_search_text(&self, node_id: &str, search_text: &str) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        conn.execute(
+            "UPDATE nodes SET search_text = ? WHERE id = ?",
+            params![search_text, node_id],
+        )?;
+        Ok(())
+    }
+
+    /// Batch update search_text.
+    pub fn update_search_text_batch(&self, texts: &[(String, String)]) -> Result<()> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare("UPDATE nodes SET search_text = ? WHERE id = ?")?;
+        for (node_id, text) in texts {
+            stmt.execute(params![text, node_id])?;
+        }
+        Ok(())
+    }
+
+    /// Get nodes needing enrichment (summary_source = 'heuristic', ordered by importance).
+    pub fn get_unsummarized_nodes(&self, limit: usize) -> Result<Vec<Node>> {
+        let conn = self.acquire_conn()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+             FROM nodes
+             WHERE summary_source IS NULL OR summary_source = 'heuristic'
+             ORDER BY importance_score DESC
+             LIMIT ?",
+        )?;
+
+        let mut rows = stmt.query(params![limit as i64])?;
+        let mut nodes = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let node_type_str: String = row.get(1)?;
+            let properties_str: Option<String> = row.get(7)?;
+
+            nodes.push(Node {
+                id: row.get(0)?,
+                node_type: NodeType::parse(&node_type_str).unwrap_or(NodeType::Module),
+                name: row.get(2)?,
+                qualified_name: row.get(3)?,
+                file_path: row.get(4)?,
+                line_start: row.get(5)?,
+                line_end: row.get(6)?,
+                properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
+                complexity: row.get(8)?,
+                source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
+            });
+        }
+
+        Ok(nodes)
+    }
+
+    /// Rebuild FTS index on search_text only.
+    ///
+    /// Drops existing FTS index and recreates it targeting search_text
+    /// (plus name, qualified_name, file_path as before).
+    pub fn rebuild_fts_on_search_text(&self) -> Result<bool> {
+        let conn = self.acquire_conn()?;
+
+        // Ensure FTS extension is loaded
+        let _ = conn.execute("INSTALL fts", []);
+        let _ = conn.execute("LOAD fts", []);
+
+        // Drop existing FTS index if present
+        let _ = conn.execute("PRAGMA drop_fts_index('nodes')", []);
+
+        // Check if we have nodes to index
+        let count: usize = conn.query_row("SELECT COUNT(*) FROM nodes", [], |row| row.get(0))?;
+        if count == 0 {
+            return Ok(false);
+        }
+
+        // Recreate FTS index including search_text
+        conn.execute(
+            "PRAGMA create_fts_index('nodes', 'id', 'name', 'qualified_name', 'file_path', 'search_text', overwrite=1)",
+            [],
+        )
+        .context("Failed to create FTS index on search_text")?;
+
+        self.fts_available.store(true, Ordering::Relaxed);
+        tracing::info!("FTS index rebuilt on search_text ({} nodes)", count);
+
+        Ok(true)
+    }
+
     /// Clear all data from the database (no-op since insert functions handle this).
     pub fn clear(&self) -> Result<()> {
         // Clearing is now handled by insert_nodes and insert_edges
@@ -586,8 +739,9 @@ impl MUbase {
 
         conn.execute(
             r#"INSERT OR REPLACE INTO nodes
-               (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
+               (id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#,
             params![
                 node.id,
                 node.node_type.as_str(),
@@ -599,6 +753,12 @@ impl MUbase {
                 properties_json,
                 node.complexity,
                 node.source_text,
+                node.summary_text,
+                node.summary_source,
+                node.summary_code_hash,
+                node.importance_score,
+                node.search_text,
+                node.summary_updated_at,
             ],
         )
         .with_context(|| format!("Failed to insert node: {}", node.id))?;
@@ -650,6 +810,12 @@ impl MUbase {
                     properties_json,
                     node.complexity,
                     node.source_text,
+                    node.summary_text,
+                    node.summary_source,
+                    node.summary_code_hash,
+                    node.importance_score,
+                    node.search_text,
+                    node.summary_updated_at,
                 ])?;
             }
             appender.flush()?;
@@ -760,7 +926,8 @@ impl MUbase {
     pub fn get_node(&self, id: &str) -> Result<Option<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
              FROM nodes WHERE id = ?",
         )?;
 
@@ -781,6 +948,12 @@ impl MUbase {
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
                 source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
             }))
         } else {
             Ok(None)
@@ -791,7 +964,8 @@ impl MUbase {
     pub fn all_nodes(&self) -> Result<Vec<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
              FROM nodes",
         )?;
 
@@ -813,6 +987,12 @@ impl MUbase {
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
                 source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
             });
         }
 
@@ -823,7 +1003,8 @@ impl MUbase {
     pub fn get_nodes_by_type(&self, node_type: NodeType) -> Result<Vec<Node>> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text
+            "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
              FROM nodes WHERE type = ?",
         )?;
 
@@ -845,6 +1026,12 @@ impl MUbase {
                 properties: properties_str.and_then(|s| serde_json::from_str(&s).ok()),
                 complexity: row.get(8)?,
                 source_text: row.get(9)?,
+                summary_text: row.get(10)?,
+                summary_source: row.get(11)?,
+                summary_code_hash: row.get(12)?,
+                importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
+                search_text: row.get(14)?,
+                summary_updated_at: row.get(15)?,
             });
         }
 
