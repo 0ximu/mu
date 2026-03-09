@@ -135,7 +135,13 @@ CREATE TABLE IF NOT EXISTS nodes (
     line_end INTEGER,
     properties JSON,
     complexity INTEGER DEFAULT 0,
-    source_text TEXT
+    source_text TEXT,
+    summary_text TEXT,
+    summary_source VARCHAR DEFAULT 'heuristic',
+    summary_code_hash VARCHAR,
+    importance_score FLOAT DEFAULT 0.0,
+    search_text TEXT,
+    summary_updated_at TIMESTAMP
 );
 
 -- Edges table: relationships between nodes
@@ -161,6 +167,8 @@ CREATE INDEX IF NOT EXISTS idx_nodes_complexity ON nodes(complexity);
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
 CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
 CREATE INDEX IF NOT EXISTS idx_edges_type ON edges(type);
+CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(importance_score DESC);
+CREATE INDEX IF NOT EXISTS idx_nodes_summary_source ON nodes(summary_source);
 
 -- Embeddings table for vector storage
 -- Native FLOAT[384] arrays for efficient similarity search with array_cosine_similarity()
@@ -185,7 +193,8 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 /// - 1.0.0: Initial schema with VARCHAR JSON embeddings
 /// - 1.1.0: Native FLOAT[384] embeddings with in-SQL cosine similarity
 /// - 1.2.0: Added source_text column to nodes for rich text search
-pub const SCHEMA_VERSION: &str = "1.2.0";
+/// - 2.0.0: V3 search — summary, importance, search_text columns
+pub const SCHEMA_VERSION: &str = "2.0.0";
 
 #[cfg(test)]
 mod tests {

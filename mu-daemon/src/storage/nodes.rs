@@ -26,6 +26,18 @@ pub struct Node {
     pub properties: Option<serde_json::Value>,
     /// Source text for search (docstring + signature + body preview)
     pub source_text: Option<String>,
+    /// Heuristic or LLM-generated summary for search
+    pub summary_text: Option<String>,
+    /// Source of the summary: 'heuristic' or 'llm'
+    pub summary_source: Option<String>,
+    /// Hash of node's source_text (for staleness detection)
+    pub summary_code_hash: Option<String>,
+    /// PageRank importance score (0.0 to 1.0)
+    pub importance_score: f32,
+    /// Materialized search text: summary + name + qualified_name + file_path
+    pub search_text: Option<String>,
+    /// When the summary was last updated
+    pub summary_updated_at: Option<String>,
 }
 
 impl Node {
@@ -52,6 +64,12 @@ impl Node {
             complexity: 0,
             properties: None,
             source_text: None,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         }
     }
 
@@ -74,6 +92,12 @@ impl Node {
             complexity: 0,
             properties: None,
             source_text,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         }
     }
 
@@ -108,6 +132,12 @@ impl Node {
             complexity,
             properties: None,
             source_text,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         }
     }
 
@@ -124,6 +154,12 @@ impl Node {
             complexity: 0,
             properties: None,
             source_text: None,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         }
     }
 
@@ -144,6 +180,12 @@ impl Node {
             complexity: 0,
             properties: None,
             source_text: Some(format!("message {}", type_name)),
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         }
     }
 
