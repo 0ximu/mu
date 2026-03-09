@@ -13,4 +13,5 @@ pub mod embed;
 pub mod graph;
 pub mod grok;
 pub mod mcp;
+pub mod review;
 pub mod status;

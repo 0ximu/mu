@@ -307,42 +307,38 @@ fn diff_entities(
     changes
 }
 
-/// Run the diff command
-pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow::Result<()> {
+/// Run a semantic diff between two git refs and return the result.
+///
+/// This is the reusable core logic — called by both the CLI command and MCP tools.
+pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResult> {
     let start = Instant::now();
 
-    // Get changed files
     let changed_files = get_changed_files(base_ref, head_ref)?;
     let files_changed = changed_files.len();
 
     if changed_files.is_empty() {
-        let result = DiffResult {
+        return Ok(DiffResult {
             base_ref: base_ref.to_string(),
             head_ref: head_ref.to_string(),
             changes: Vec::new(),
             breaking_changes: Vec::new(),
             files_changed: 0,
             duration_ms: start.elapsed().as_millis() as u64,
-        };
-        return Output::new(result, format).render();
+        });
     }
 
     let mut all_changes = Vec::new();
 
-    // Process each changed file
     for file_path in &changed_files {
-        // Skip non-code files
         let Some(language) = detect_language(file_path) else {
             continue;
         };
 
-        // Get file content at base and head
         let base_content = get_file_at_ref(file_path, base_ref)?;
         let head_content = get_file_at_ref(file_path, head_ref)?;
 
         match (&base_content, &head_content) {
             (None, Some(head)) => {
-                // New file
                 let entities = extract_entities(head, file_path, language);
                 for (name, entity_type) in entities {
                     all_changes.push(SemanticChange {
@@ -356,7 +352,6 @@ pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow
                 }
             }
             (Some(_base), None) => {
-                // Deleted file - add as single removal
                 all_changes.push(SemanticChange {
                     change_type: "removed".to_string(),
                     entity_type: "module".to_string(),
@@ -367,36 +362,47 @@ pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow
                 });
             }
             (Some(base), Some(head)) => {
-                // Modified file - compare entities
                 let base_entities = extract_entities(base, file_path, language);
                 let head_entities = extract_entities(head, file_path, language);
                 let file_changes = diff_entities(&base_entities, &head_entities, file_path);
                 all_changes.extend(file_changes);
             }
-            (None, None) => {
-                // Both missing - shouldn't happen
-            }
+            (None, None) => {}
         }
     }
 
-    // Separate breaking changes
     let breaking_changes: Vec<SemanticChange> = all_changes
         .iter()
         .filter(|c| c.is_breaking)
         .cloned()
         .collect();
 
-    let duration_ms = start.elapsed().as_millis() as u64;
-
-    let result = DiffResult {
+    Ok(DiffResult {
         base_ref: base_ref.to_string(),
         head_ref: head_ref.to_string(),
         changes: all_changes,
         breaking_changes,
         files_changed,
-        duration_ms,
-    };
+        duration_ms: start.elapsed().as_millis() as u64,
+    })
+}
 
+/// Detect the default branch name from git.
+pub fn detect_default_branch() -> String {
+    let result = Command::new("git")
+        .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
+        .output();
+
+    result
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .and_then(|s| s.trim().rsplit('/').next().map(|s| s.to_string()))
+        .unwrap_or_else(|| "main".to_string())
+}
+
+/// Run the diff command (CLI entry point)
+pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow::Result<()> {
+    let result = semantic_diff(base_ref, head_ref)?;
     Output::new(result, format).render()
 }
 

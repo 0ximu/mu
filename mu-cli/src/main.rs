@@ -170,6 +170,14 @@ enum Commands {
         cross_service: bool,
     },
 
+    /// Review changes: semantic diff + impact analysis + audit findings + risk score
+    #[command(visible_alias = "rv")]
+    Review {
+        /// Base git ref to compare against (defaults to main/develop)
+        #[arg(long)]
+        base: Option<String>,
+    },
+
     /// Audit codebase for code smells, complexity, missing docs, and custom rules
     #[command(visible_alias = "lint")]
     Audit {
@@ -323,6 +331,7 @@ async fn main() -> anyhow::Result<()> {
             cross_service,
         } => graph::run_impact(&node, edge_types, depth, cross_service, format).await,
 
+        Commands::Review { base } => review::run(base.as_deref(), format).await,
         Commands::Audit {
             min_complexity,
             max_params,
