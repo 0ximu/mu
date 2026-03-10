@@ -485,12 +485,17 @@ impl MUbase {
 
     /// Execute a raw SQL query and return results.
     pub fn query(&self, sql: &str) -> Result<QueryResult> {
+        self.query_params(sql, &[])
+    }
+
+    /// Execute a parameterized SQL query and return results.
+    pub fn query_params(&self, sql: &str, params: &[&dyn duckdb::ToSql]) -> Result<QueryResult> {
         let conn = self.acquire_conn()?;
         let mut stmt = conn
             .prepare(sql)
             .with_context(|| format!("Failed to prepare query: {}", sql))?;
 
-        let mut rows = stmt.query([]).context("Failed to execute query")?;
+        let mut rows = stmt.query(params).context("Failed to execute query")?;
 
         let mut rows_data: Vec<Vec<serde_json::Value>> = Vec::new();
         let mut columns: Vec<String> = Vec::new();

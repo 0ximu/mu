@@ -262,16 +262,14 @@ pub fn build_expand_response(
         let mut next_frontier: Vec<String> = Vec::new();
 
         for nid in &frontier {
-            let escaped = nid.replace('\'', "''");
-
             if direction == "outgoing" || direction == "both" {
                 let sql = format!(
                     "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path \
                      FROM edges e JOIN nodes n ON n.id = e.target_id \
-                     WHERE e.source_id = '{}' {} LIMIT 50",
-                    escaped, edge_filter
+                     WHERE e.source_id = ?1 {} LIMIT 50",
+                    edge_filter
                 );
-                if let Ok(result) = mubase.query(&sql) {
+                if let Ok(result) = mubase.query_params(&sql, &[&nid as &dyn duckdb::ToSql]) {
                     for row in &result.rows {
                         let source_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let target_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -302,10 +300,10 @@ pub fn build_expand_response(
                 let sql = format!(
                     "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path \
                      FROM edges e JOIN nodes n ON n.id = e.source_id \
-                     WHERE e.target_id = '{}' {} LIMIT 50",
-                    escaped, edge_filter
+                     WHERE e.target_id = ?1 {} LIMIT 50",
+                    edge_filter
                 );
-                if let Ok(result) = mubase.query(&sql) {
+                if let Ok(result) = mubase.query_params(&sql, &[&nid as &dyn duckdb::ToSql]) {
                     for row in &result.rows {
                         let source_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let target_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -429,15 +427,12 @@ pub fn build_read_response(
     let mut nodes = Vec::new();
 
     for nid in node_ids {
-        let escaped = nid.replace('\'', "''");
-        let sql = format!(
+        let result = mubase.query_params(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, \
                     complexity, source_text, summary_text, summary_source, importance_score \
-             FROM nodes WHERE id = '{}'",
-            escaped
-        );
-
-        let result = mubase.query(&sql)?;
+             FROM nodes WHERE id = ?1",
+            &[&nid as &dyn duckdb::ToSql],
+        )?;
         if result.rows.is_empty() {
             continue;
         }
@@ -482,14 +477,13 @@ pub fn build_read_response(
 
         // Neighbors (only for full mode)
         let neighbors = if mode == "full" {
-            let neighbor_sql = format!(
+            if let Ok(neighbor_result) = mubase.query_params(
                 "SELECT DISTINCT n.id, n.name, n.type, n.file_path, e.type AS etype \
                  FROM edges e JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id) \
-                 WHERE (e.source_id = '{}' OR e.target_id = '{}') AND n.id != '{}' \
+                 WHERE (e.source_id = ?1 OR e.target_id = ?1) AND n.id != ?1 \
                  LIMIT 20",
-                escaped, escaped, escaped
-            );
-            if let Ok(neighbor_result) = mubase.query(&neighbor_sql) {
+                &[&nid as &dyn duckdb::ToSql],
+            ) {
                 neighbor_result.rows.iter().map(|nrow| {
                     let n_id = nrow.first().and_then(|v| v.as_str()).unwrap_or("?");
                     let n_name = nrow.get(1).and_then(|v| v.as_str()).unwrap_or("?");
@@ -584,14 +578,12 @@ pub fn pack_context_tool(
     let nodes_to_pack: Vec<PackNode> = if let Some(ids) = node_ids {
         let mut nodes = Vec::new();
         for nid in ids {
-            let escaped = nid.replace('\'', "''");
-            let sql = format!(
+            if let Ok(result) = mubase.query_params(
                 "SELECT id, type, name, file_path, line_start, line_end, \
                         source_text, summary_text, importance_score \
-                 FROM nodes WHERE id = '{}'",
-                escaped
-            );
-            if let Ok(result) = mubase.query(&sql) {
+                 FROM nodes WHERE id = ?1",
+                &[&nid as &dyn duckdb::ToSql],
+            ) {
                 if let Some(row) = result.rows.first() {
                     nodes.push(pack_node_from_row(row));
                 }
@@ -746,11 +738,10 @@ pub fn enrich_nodes_tool(
         let mut errors = Vec::new();
 
         for (node_id, summary) in summaries {
-            let hash_sql = format!(
-                "SELECT source_text FROM nodes WHERE id = '{}'",
-                node_id.replace('\'', "''")
-            );
-            let code_hash = if let Ok(result) = mubase.query(&hash_sql) {
+            let code_hash = if let Ok(result) = mubase.query_params(
+                "SELECT source_text FROM nodes WHERE id = ?1",
+                &[&node_id as &dyn duckdb::ToSql],
+            ) {
                 result.rows.first()
                     .and_then(|r| r.first())
                     .and_then(|v| v.as_str())
@@ -762,11 +753,10 @@ pub fn enrich_nodes_tool(
 
             match mubase.update_summary(node_id, summary, "llm", &code_hash) {
                 Ok(()) => {
-                    let node_sql = format!(
-                        "SELECT id, type, name, qualified_name, file_path FROM nodes WHERE id = '{}'",
-                        node_id.replace('\'', "''")
-                    );
-                    if let Ok(result) = mubase.query(&node_sql) {
+                    if let Ok(result) = mubase.query_params(
+                        "SELECT id, type, name, qualified_name, file_path FROM nodes WHERE id = ?1",
+                        &[&node_id as &dyn duckdb::ToSql],
+                    ) {
                         if let Some(row) = result.rows.first() {
                             let name = row.get(2).and_then(|v| v.as_str()).unwrap_or("");
                             let qn = row.get(3).and_then(|v| v.as_str());
@@ -933,9 +923,10 @@ fn extract_signature_line(source: &str) -> Option<String> {
 }
 
 fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Option<String>)> {
-    let escaped = node_id.replace('\'', "''");
-    let sql = format!("SELECT name, type, file_path FROM nodes WHERE id = '{}'", escaped);
-    let result = mubase.query(&sql).ok()?;
+    let result = mubase.query_params(
+        "SELECT name, type, file_path FROM nodes WHERE id = ?1",
+        &[&node_id as &dyn duckdb::ToSql],
+    ).ok()?;
     let row = result.rows.first()?;
     let name = row.first().and_then(|v| v.as_str())?.to_string();
     let ntype = row.get(1).and_then(|v| v.as_str())?.to_string();
