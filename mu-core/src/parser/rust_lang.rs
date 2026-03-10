@@ -41,30 +41,50 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         std::collections::HashMap::new();
 
     // First pass: collect all declarations
+    // Track pending attributes to attach to the next function/item
+    let mut pending_attrs: Vec<String> = Vec::new();
     let mut cursor = root.walk();
     for child in root.children(&mut cursor) {
         match child.kind() {
+            "attribute_item" => {
+                let attr_text = get_node_text(&child, source).to_string();
+                pending_attrs.push(attr_text);
+            }
             "use_declaration" => {
+                pending_attrs.clear();
                 if let Some(import) = extract_use(&child, source) {
                     module.imports.push(import);
                 }
             }
             "function_item" => {
-                module.functions.push(extract_function(&child, source));
+                let mut func = extract_function(&child, source);
+                // Attach pending attributes
+                for attr in pending_attrs.drain(..) {
+                    if is_dispatch_attribute(&attr) {
+                        func.decorators.push("dispatch:macro".to_string());
+                    }
+                    func.decorators.push(attr);
+                }
+                module.functions.push(func);
             }
             "struct_item" => {
+                pending_attrs.clear();
                 module.classes.push(extract_struct(&child, source));
             }
             "enum_item" => {
+                pending_attrs.clear();
                 module.classes.push(extract_enum(&child, source));
             }
             "trait_item" => {
+                pending_attrs.clear();
                 module.classes.push(extract_trait(&child, source));
             }
             "impl_item" => {
+                pending_attrs.clear();
                 extract_impl(&child, source, &mut impl_methods);
             }
             "mod_item" => {
+                pending_attrs.clear();
                 // Module declaration - treat as import
                 if let Some(id) = find_child_by_type(&child, "identifier") {
                     module.imports.push(ImportDef {
@@ -219,6 +239,24 @@ fn extract_use_list(node: &Node, source: &str, names: &mut Vec<String>) {
             _ => {}
         }
     }
+}
+
+/// Known proc macro attributes that indicate dispatch wiring.
+const DISPATCH_ATTRIBUTES: &[&str] = &[
+    "tool", "test", "tokio::test", "handler", "get", "post", "put", "delete", "patch",
+    "route", "endpoint", "command", "event", "query", "subscribe",
+];
+
+/// Check if an attribute name matches a known dispatch pattern.
+fn is_dispatch_attribute(attr_text: &str) -> bool {
+    // Strip outer #[ ] if present
+    let inner = attr_text
+        .trim_start_matches("#[")
+        .trim_end_matches(']')
+        .trim();
+    // Check against known patterns (ignore arguments in parens)
+    let name = inner.split('(').next().unwrap_or(inner).trim();
+    DISPATCH_ATTRIBUTES.iter().any(|&d| name == d)
 }
 
 /// Extract function item.
@@ -539,10 +577,25 @@ fn extract_trait(node: &Node, source: &str) -> ClassDef {
 
 /// Extract trait methods.
 fn extract_trait_methods(node: &Node, source: &str, methods: &mut Vec<FunctionDef>) {
+    let mut pending_attrs: Vec<String> = Vec::new();
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "function_signature_item" || child.kind() == "function_item" {
-            methods.push(extract_function(&child, source));
+        match child.kind() {
+            "attribute_item" => {
+                let attr_text = get_node_text(&child, source).to_string();
+                pending_attrs.push(attr_text);
+            }
+            "function_signature_item" | "function_item" => {
+                let mut func = extract_function(&child, source);
+                for attr in pending_attrs.drain(..) {
+                    if is_dispatch_attribute(&attr) {
+                        func.decorators.push("dispatch:macro".to_string());
+                    }
+                    func.decorators.push(attr);
+                }
+                methods.push(func);
+            }
+            _ => {}
         }
     }
 }
@@ -587,16 +640,31 @@ fn extract_impl(
 /// Extract impl methods.
 fn extract_impl_methods(node: &Node, source: &str, trait_name: Option<&str>) -> Vec<FunctionDef> {
     let mut methods = Vec::new();
+    let mut pending_attrs: Vec<String> = Vec::new();
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        if child.kind() == "function_item" {
-            let mut method = extract_function(&child, source);
-            method.is_method = true;
-            if let Some(t) = trait_name {
-                method.decorators.push(format!("impl:{}", t));
+        match child.kind() {
+            "attribute_item" => {
+                let attr_text = get_node_text(&child, source).to_string();
+                pending_attrs.push(attr_text);
             }
-            methods.push(method);
+            "function_item" => {
+                let mut method = extract_function(&child, source);
+                method.is_method = true;
+                if let Some(t) = trait_name {
+                    method.decorators.push(format!("impl:{}", t));
+                }
+                // Attach pending attributes
+                for attr in pending_attrs.drain(..) {
+                    if is_dispatch_attribute(&attr) {
+                        method.decorators.push("dispatch:macro".to_string());
+                    }
+                    method.decorators.push(attr);
+                }
+                methods.push(method);
+            }
+            _ => {}
         }
     }
 
@@ -992,5 +1060,62 @@ fn example() {
             func.call_sites.iter().any(|c| c.callee == "debug_assert!"),
             "Should find debug_assert!() macro"
         );
+    }
+
+    #[test]
+    fn test_dispatch_attribute_detection() {
+        let source = r#"
+#[test]
+fn test_something() {
+    assert!(true);
+}
+
+#[tokio::test]
+async fn test_async() {
+    assert!(true);
+}
+
+fn normal_function() {
+    do_stuff();
+}
+"#;
+        let result = parse(source, "lib.rs").unwrap();
+        assert_eq!(result.functions.len(), 3);
+
+        // #[test] function should have dispatch:macro
+        let test_fn = result.functions.iter().find(|f| f.name == "test_something").unwrap();
+        assert!(
+            test_fn.decorators.iter().any(|d| d == "dispatch:macro"),
+            "test function should have dispatch:macro, got: {:?}",
+            test_fn.decorators
+        );
+
+        // #[tokio::test] function should also have dispatch:macro
+        let async_test = result.functions.iter().find(|f| f.name == "test_async").unwrap();
+        assert!(
+            async_test.decorators.iter().any(|d| d == "dispatch:macro"),
+            "tokio::test function should have dispatch:macro, got: {:?}",
+            async_test.decorators
+        );
+
+        // normal function should NOT have dispatch:macro
+        let normal = result.functions.iter().find(|f| f.name == "normal_function").unwrap();
+        assert!(
+            !normal.decorators.iter().any(|d| d == "dispatch:macro"),
+            "normal function should not have dispatch:macro"
+        );
+    }
+
+    #[test]
+    fn test_dispatch_attribute_helper() {
+        assert!(is_dispatch_attribute("#[test]"));
+        assert!(is_dispatch_attribute("#[tokio::test]"));
+        assert!(is_dispatch_attribute("#[tool]"));
+        assert!(is_dispatch_attribute("#[handler]"));
+        assert!(is_dispatch_attribute("#[get(\"/api\")]"));
+        assert!(is_dispatch_attribute("#[post(\"/submit\")]"));
+        assert!(!is_dispatch_attribute("#[derive(Debug)]"));
+        assert!(!is_dispatch_attribute("#[allow(dead_code)]"));
+        assert!(!is_dispatch_attribute("#[cfg(test)]"));
     }
 }

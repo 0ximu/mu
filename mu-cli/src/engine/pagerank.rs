@@ -26,6 +26,8 @@ impl Default for PageRankConfig {
 /// Get the weight for an edge type.
 fn edge_weight(edge_type: &str) -> f32 {
     match edge_type {
+        // Soft edges: zero weight in PageRank (orphan detection only)
+        "macro_dispatch" | "trait_impl" | "di_registration" | "decorator_dispatch" => 0.0,
         "calls" => 1.0,
         "imports" => 0.9,
         "inherits" => 0.8,
@@ -334,6 +336,22 @@ mod tests {
             max
         );
         assert!(min >= 0.0, "min should be >= 0, got {}", min);
+    }
+
+    #[test]
+    fn soft_edges_zero_weight() {
+        // A→B via calls, A→C via macro_dispatch (soft edge).
+        // C should not get any PageRank boost from the soft edge.
+        let n = nodes(&["A", "B", "C"]);
+        let e = vec![edge("A", "B", "calls"), edge("A", "C", "macro_dispatch")];
+        let result = compute_pagerank(&n, &e, &PageRankConfig::default());
+
+        assert!(
+            result["B"] > result["C"],
+            "calls target B ({}) should outrank soft-edge target C ({})",
+            result["B"],
+            result["C"]
+        );
     }
 
     #[test]
