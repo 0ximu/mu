@@ -264,7 +264,9 @@ fn rule_orphaned_fns(
                              'deref', 'display', 'into', 'get_info', 'on_roots_list_changed')
           AND n.name NOT LIKE 'test_%'
           AND n.name NOT LIKE 'Test%'
+          AND n.name NOT LIKE 'mu_%'
           AND (n.properties IS NULL OR n.properties NOT LIKE '%dispatch_type%')
+          AND (n.source_text IS NULL OR n.source_text NOT LIKE '%#[test]%')
         ORDER BY n.file_path, n.line_start
     "#;
 
@@ -512,7 +514,9 @@ fn rule_todo_fixme(
                 .unwrap_or("TODO/FIXME");
             let trimmed = todo_line.trim();
             let preview = if trimmed.len() > 60 {
-                format!("{}...", &trimmed[..57])
+                let mut end = 57;
+                while !trimmed.is_char_boundary(end) { end -= 1; }
+                format!("{}...", &trimmed[..end])
             } else {
                 trimmed.to_string()
             };

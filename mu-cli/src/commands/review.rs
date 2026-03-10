@@ -154,7 +154,9 @@ impl TableDisplay for ReviewResult {
                     _ => si.change_type.yellow(),
                 };
                 let name_display = if si.name.len() > 28 {
-                    format!("{}...", &si.name[..25])
+                    let mut end = 25;
+                    while !si.name.is_char_boundary(end) { end -= 1; }
+                    format!("{}...", &si.name[..end])
                 } else {
                     si.name.clone()
                 };
@@ -402,15 +404,13 @@ fn lookup_impact(
     symbol_name: &str,
     _file_path: Option<&str>,
 ) -> (usize, Vec<String>) {
-    let sql = format!(
+    let result = match mubase.query_params(
         "SELECT DISTINCT n.name, n.file_path FROM edges e
          JOIN nodes n ON n.id = e.source_id
-         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = '{}')
+         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
          LIMIT 50",
-        symbol_name.replace('\'', "''")
-    );
-
-    let result = match mubase.query(&sql) {
+        &[&symbol_name as &dyn duckdb::ToSql],
+    ) {
         Ok(r) => r,
         Err(_) => return (0, Vec::new()),
     };
@@ -430,15 +430,13 @@ fn lookup_dependent_names(
     mubase: &crate::engine::storage::MUbase,
     symbol_name: &str,
 ) -> Vec<String> {
-    let sql = format!(
+    match mubase.query_params(
         "SELECT DISTINCT n.name FROM edges e
          JOIN nodes n ON n.id = e.source_id
-         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = '{}')
+         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
          LIMIT 100",
-        symbol_name.replace('\'', "''")
-    );
-
-    match mubase.query(&sql) {
+        &[&symbol_name as &dyn duckdb::ToSql],
+    ) {
         Ok(r) => r
             .rows
             .iter()
