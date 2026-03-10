@@ -133,10 +133,35 @@ fn read_source_lines(
     Some(result)
 }
 
+fn confidence_label(c: &SearchConfidence) -> &'static str {
+    match c {
+        SearchConfidence::High => "HIGH",
+        SearchConfidence::Medium => "MEDIUM",
+        SearchConfidence::Low => "LOW",
+        SearchConfidence::NoResults => "NONE",
+    }
+}
+
 pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# search: \"{}\"", resp.query);
-    let _ = writeln!(out, "# {} results\n", resp.results.len());
+
+    let label = confidence_label(&resp.confidence);
+    if matches!(resp.confidence, SearchConfidence::Low) {
+        let _ = writeln!(
+            out,
+            "# {} results | confidence: {} -- results may not be relevant\n",
+            resp.results.len(),
+            label
+        );
+    } else {
+        let _ = writeln!(
+            out,
+            "# {} results | confidence: {}\n",
+            resp.results.len(),
+            label
+        );
+    }
 
     if resp.results.is_empty() {
         let _ = writeln!(out, "No results found. Try broader terms or check `mu_compress` for available symbols.");
