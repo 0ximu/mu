@@ -307,6 +307,12 @@ impl MUbase {
         crate::engine::search::search_nodes(&conn, query, limit)
     }
 
+    /// Like `search_v3` but with configurable test dampening.
+    pub fn search_v3_with_dampening(&self, query: &str, limit: usize, dampening: f32) -> Result<Vec<crate::engine::search::SearchResult>> {
+        let conn = self.acquire_conn()?;
+        crate::engine::search::search_nodes_with_dampening(&conn, query, limit, dampening)
+    }
+
     /// Clear all data from the database (no-op since insert functions handle this).
     pub fn clear(&self) -> Result<()> {
         // Clearing is now handled by insert_nodes and insert_edges

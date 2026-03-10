@@ -20,6 +20,7 @@ use rmcp::{
 };
 use serde::Deserialize;
 use tokio::sync::{OnceCell, RwLock};
+use super::tools_v3::lenient;
 
 /// Lazily-initialized project state
 struct ProjectState {
@@ -62,6 +63,7 @@ pub struct ImpactParams {
     pub symbol: String,
     /// Include cross-service edges (MassTransit pub/sub, HTTP clients, shared contracts)
     #[schemars(description = "Include cross-service edges like MassTransit pub/sub, HTTP calls, shared contracts (default: false)")]
+    #[serde(default, deserialize_with = "lenient::option_bool")]
     pub cross_service: Option<bool>,
 }
 
@@ -83,6 +85,7 @@ pub struct WtfParams {
 pub struct SusParams {
     /// Minimum complexity threshold (default: 15)
     #[schemars(description = "Minimum complexity score to flag (default: 15)")]
+    #[serde(default, deserialize_with = "lenient::option_i64")]
     pub min_complexity: Option<i64>,
 }
 
@@ -90,6 +93,7 @@ pub struct SusParams {
 pub struct AuditParams {
     /// Minimum complexity threshold to flag (default: 30)
     #[schemars(description = "Complexity threshold (default: 30)")]
+    #[serde(default, deserialize_with = "lenient::option_u32")]
     pub min_complexity: Option<u32>,
     /// Scope audit to files changed since this git ref (e.g., "main", "HEAD~5")
     #[schemars(description = "Git ref to scope audit to changed files only")]
@@ -103,9 +107,11 @@ pub struct ReviewParams {
     pub base_ref: Option<String>,
     /// Whether to include impact analysis (default: true)
     #[schemars(description = "Include downstream impact analysis (default: true)")]
+    #[serde(default, deserialize_with = "lenient::option_bool")]
     pub include_impact: Option<bool>,
     /// Min complexity threshold for audit (default: 15, lower for review)
     #[schemars(description = "Complexity threshold for audit (default: 15)")]
+    #[serde(default, deserialize_with = "lenient::option_u32")]
     pub min_complexity: Option<u32>,
 }
 
@@ -1004,9 +1010,26 @@ impl MuMcpServer {
         Parameters(params): Parameters<tools_v3::EnrichNodesParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
-        let output = tools_v3::handle_enrich_nodes(&state.mubase, &params)
+        let output = tools_v3::handle_enrich_nodes(&state.mubase, &state.project_root, &params)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
+    /// Configure: Auto-detect codebase patterns
+    #[tool(
+        description = "Auto-detect codebase patterns and generate .mu/config.toml. Detects test patterns, generated code, frameworks, core abstractions, and service boundaries. Run once per codebase — config persists across sessions and improves all other MU tools."
+    )]
+    async fn mu_configure(&self) -> Result<CallToolResult, McpError> {
+        let state = self.ensure_state().await?;
+
+        let config = crate::engine::auto_config::AutoConfig::generate(&state.mubase)
+            .map_err(|e| McpError::internal_error(format!("config generation failed: {}", e), None))?;
+
+        config.save(&state.project_root)
+            .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+
+        let summary = crate::engine::auto_config::format_summary(&config);
+        Ok(CallToolResult::success(vec![Content::text(summary)]))
     }
 
     /// Audit: Run code quality rules and report violations
@@ -1211,7 +1234,8 @@ impl ServerHandler for MuMcpServer {
                  • mu_review: Full PR review (diff + impact + audit + risk score)\n\
                  • mu_audit: Run code quality rules\n\
                  • mu_sus: Find suspicious/complex code\n\
-                 • mu_wtf: Git archaeology for a file".into()
+                 • mu_wtf: Git archaeology for a file\n\
+                 • mu_configure: Auto-detect codebase patterns, generate .mu/config.toml".into()
             ),
         }
     }
