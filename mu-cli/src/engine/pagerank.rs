@@ -138,6 +138,92 @@ pub fn compute_pagerank(
         .collect()
 }
 
+/// Metadata needed for composite scoring (extracted from nodes table).
+pub struct NodeMeta {
+    pub complexity: u32,
+    pub loc: u32,
+    pub is_public: bool,
+    pub is_test: bool,
+}
+
+/// Compute composite importance scores combining PageRank, complexity, LOC, and visibility.
+///
+/// Formula:
+///   importance = (0.40 * pagerank + 0.30 * complexity + 0.20 * loc + 0.10 * public_boost) * test_penalty
+///
+/// - LOC: sigmoid curve saturating at 200 lines
+/// - Complexity: normalized to codebase P95
+/// - Public boost: 1.0 if public, 0.0 otherwise
+/// - Test penalty: 0.5x for test files
+pub fn compute_composite_importance(
+    pagerank_scores: &HashMap<String, f32>,
+    node_metadata: &[(String, NodeMeta)],
+) -> HashMap<String, f32> {
+    if node_metadata.is_empty() {
+        return HashMap::new();
+    }
+
+    // Compute P95 complexity from the metadata
+    let mut complexities: Vec<u32> = node_metadata
+        .iter()
+        .map(|(_, m)| m.complexity)
+        .filter(|&c| c > 0)
+        .collect();
+    complexities.sort_unstable();
+
+    let p95_complexity = if complexities.is_empty() {
+        1.0_f32
+    } else {
+        let idx = ((complexities.len() as f64 * 0.95) as usize).min(complexities.len() - 1);
+        (complexities[idx] as f32).max(1.0)
+    };
+
+    // Normalize PageRank to [0, 1] (it should already be, but be safe)
+    let pr_max = pagerank_scores
+        .values()
+        .cloned()
+        .fold(0.0_f32, f32::max)
+        .max(f32::EPSILON);
+
+    // Compute raw composite scores
+    let mut raw_scores: HashMap<String, f32> = HashMap::with_capacity(node_metadata.len());
+
+    for (node_id, meta) in node_metadata {
+        let pr = pagerank_scores
+            .get(node_id)
+            .copied()
+            .unwrap_or(0.0)
+            / pr_max;
+
+        let complexity_norm = (meta.complexity as f32).min(p95_complexity) / p95_complexity;
+        let loc_norm = (meta.loc as f32).min(200.0) / 200.0;
+        let public_boost = if meta.is_public { 1.0_f32 } else { 0.0 };
+        let test_penalty = if meta.is_test { 0.5_f32 } else { 1.0 };
+
+        let score = (0.40 * pr
+            + 0.30 * complexity_norm
+            + 0.20 * loc_norm
+            + 0.10 * public_boost)
+            * test_penalty;
+
+        raw_scores.insert(node_id.clone(), score);
+    }
+
+    // Normalize to [0, 1]
+    let max_score = raw_scores
+        .values()
+        .cloned()
+        .fold(0.0_f32, f32::max);
+
+    if max_score > 0.0 {
+        for score in raw_scores.values_mut() {
+            *score /= max_score;
+        }
+    }
+
+    raw_scores
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,5 +362,125 @@ mod tests {
         for (id, score) in &result {
             assert!(*score > 0.0, "node {} should have positive score", id);
         }
+    }
+
+    // ===== Composite importance tests =====
+
+    fn meta(complexity: u32, loc: u32, is_public: bool, is_test: bool) -> NodeMeta {
+        NodeMeta {
+            complexity,
+            loc,
+            is_public,
+            is_test,
+        }
+    }
+
+    #[test]
+    fn composite_high_complexity_beats_trivial_utility() {
+        // Simulate: "pack_context" has high complexity, large body, moderate PageRank
+        //           "get_node_text" has low complexity, small body, high PageRank
+        let mut pr = HashMap::new();
+        pr.insert("pack_context".to_string(), 0.5);
+        pr.insert("get_node_text".to_string(), 1.0);
+
+        let metadata = vec![
+            ("pack_context".to_string(), meta(15, 150, true, false)),
+            ("get_node_text".to_string(), meta(1, 7, true, false)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        assert!(
+            scores["pack_context"] > scores["get_node_text"],
+            "pack_context ({}) should outrank get_node_text ({}) despite lower PageRank",
+            scores["pack_context"],
+            scores["get_node_text"],
+        );
+    }
+
+    #[test]
+    fn composite_test_file_penalty() {
+        let mut pr = HashMap::new();
+        pr.insert("prod_fn".to_string(), 0.5);
+        pr.insert("test_fn".to_string(), 0.5);
+
+        let metadata = vec![
+            ("prod_fn".to_string(), meta(5, 50, true, false)),
+            ("test_fn".to_string(), meta(5, 50, true, true)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        // test_fn should be exactly half of prod_fn (before normalization, same components * 0.5)
+        assert!(
+            scores["prod_fn"] > scores["test_fn"],
+            "prod ({}) should outrank test ({}) due to 0.5x penalty",
+            scores["prod_fn"],
+            scores["test_fn"],
+        );
+
+        // The ratio should be 2:1
+        let ratio = scores["prod_fn"] / scores["test_fn"];
+        assert!(
+            (ratio - 2.0).abs() < 0.01,
+            "ratio should be ~2.0, got {}",
+            ratio,
+        );
+    }
+
+    #[test]
+    fn composite_normalized_zero_to_one() {
+        let mut pr = HashMap::new();
+        pr.insert("a".to_string(), 1.0);
+        pr.insert("b".to_string(), 0.5);
+        pr.insert("c".to_string(), 0.1);
+
+        let metadata = vec![
+            ("a".to_string(), meta(10, 100, true, false)),
+            ("b".to_string(), meta(5, 50, false, false)),
+            ("c".to_string(), meta(1, 10, false, true)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        let max = scores.values().cloned().fold(0.0_f32, f32::max);
+        let min = scores.values().cloned().fold(f32::MAX, f32::min);
+
+        assert!(
+            (max - 1.0).abs() < 1e-5,
+            "max should be ~1.0, got {}",
+            max,
+        );
+        assert!(min >= 0.0, "min should be >= 0, got {}", min);
+    }
+
+    #[test]
+    fn composite_empty_metadata() {
+        let pr = HashMap::new();
+        let metadata: Vec<(String, NodeMeta)> = vec![];
+        let scores = compute_composite_importance(&pr, &metadata);
+        assert!(scores.is_empty());
+    }
+
+    #[test]
+    fn composite_loc_saturates_at_200() {
+        // A 500-line function should score the same LOC component as a 200-line one
+        let mut pr = HashMap::new();
+        pr.insert("big".to_string(), 0.5);
+        pr.insert("medium".to_string(), 0.5);
+
+        let metadata = vec![
+            ("big".to_string(), meta(5, 500, true, false)),
+            ("medium".to_string(), meta(5, 200, true, false)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        assert!(
+            (scores["big"] - scores["medium"]).abs() < 1e-5,
+            "500 LOC ({}) should score same as 200 LOC ({})",
+            scores["big"],
+            scores["medium"],
+        );
     }
 }
