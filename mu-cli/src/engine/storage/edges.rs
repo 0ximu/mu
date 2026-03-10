@@ -82,16 +82,19 @@ impl Edge {
     }
 
     /// Create a TRAIT_IMPL soft edge (trait method implementation).
+    #[allow(dead_code)]
     pub fn trait_impl(impl_fn: &str, trait_fn: &str) -> Self {
         Self::new(impl_fn, trait_fn, EdgeType::TraitImpl)
     }
 
     /// Create a DI_REGISTRATION soft edge (dependency injection wiring).
+    #[allow(dead_code)]
     pub fn di_registration(registrar: &str, service: &str) -> Self {
         Self::new(registrar, service, EdgeType::DiRegistration)
     }
 
     /// Create a DECORATOR_DISPATCH soft edge (Python/JS decorator wiring).
+    #[allow(dead_code)]
     pub fn decorator_dispatch(decorator: &str, target: &str) -> Self {
         Self::new(decorator, target, EdgeType::DecoratorDispatch)
     }

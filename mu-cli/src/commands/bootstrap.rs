@@ -661,6 +661,11 @@ fn build_module_graph(
             let method_id = method_node.id.clone();
             nodes.push(method_node);
             edges.push(crate::engine::storage::Edge::contains(&class_id, &method_id));
+
+            // Emit macro_dispatch soft edge for dispatch-marked methods
+            if method.decorators.iter().any(|d| d == "dispatch:macro") {
+                edges.push(crate::engine::storage::Edge::macro_dispatch(&module_id, &method_id));
+            }
         }
     }
 
@@ -696,6 +701,11 @@ fn build_module_graph(
         let func_id = func_node.id.clone();
         nodes.push(func_node);
         edges.push(crate::engine::storage::Edge::contains(&module_id, &func_id));
+
+        // Emit macro_dispatch soft edge for dispatch-marked functions
+        if func.decorators.iter().any(|d| d == "dispatch:macro") {
+            edges.push(crate::engine::storage::Edge::macro_dispatch(&module_id, &func_id));
+        }
     }
 
     // Import edges

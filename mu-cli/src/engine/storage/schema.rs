@@ -126,6 +126,7 @@ impl EdgeType {
 
     /// Returns true if this is a soft edge — participates in orphan detection
     /// but has zero weight in PageRank.
+    #[allow(dead_code)]
     pub fn is_soft_edge(&self) -> bool {
         matches!(
             self,

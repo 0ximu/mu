@@ -5,10 +5,11 @@
 use crate::mubase::find_project_root;
 use std::fs;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
+use super::responses::{NodeResult, EdgeResult, ImpactResponse, format_impact_response};
 use super::tools_v3;
 
 use rmcp::{
@@ -414,38 +415,93 @@ impl MuMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        let mut output = String::new();
-        output.push_str(&format!("# Impact Analysis: {}\n\n", params.symbol));
-
-        // First, try the graph-based approach
-        let result = state
+        // Find the target node
+        let target_result = state
             .mubase
             .query_params(
-                "SELECT DISTINCT n.name, n.type, n.file_path FROM edges e
+                "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text
+                 FROM nodes WHERE name = ?1 LIMIT 1",
+                &[&params.symbol as &dyn duckdb::ToSql],
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        let target = target_result.rows.first().map(|row| {
+            NodeResult {
+                node_id: row.first().and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                name: row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                kind: row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                score: None,
+                match_type: None,
+                importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
+            }
+        }).unwrap_or_else(|| NodeResult {
+            node_id: String::new(),
+            name: params.symbol.clone(),
+            kind: "unknown".to_string(),
+            file_path: String::new(),
+            line_start: 0,
+            line_end: 0,
+            score: None,
+            match_type: None,
+            importance: 0.0,
+            summary: None,
+        });
+
+        // Find dependents with edge info
+        let dep_result = state
+            .mubase
+            .query_params(
+                "SELECT DISTINCT n.id, n.name, n.type, n.file_path, n.line_start, n.line_end,
+                        n.importance_score, n.summary_text, e.type AS edge_type
+                 FROM edges e
                  JOIN nodes n ON n.id = e.source_id
                  WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
+                 ORDER BY n.importance_score DESC
                  LIMIT 50",
                 &[&params.symbol as &dyn duckdb::ToSql],
             )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let graph_count = result.rows.len();
+        let mut dependents = Vec::new();
+        let mut edges = Vec::new();
 
-        if graph_count > 0 {
-            output.push_str(&format!("## Graph Dependencies ({} found)\n", graph_count));
-            for row in &result.rows {
-                let name = row.first().and_then(|v| v.as_str()).unwrap_or("?");
-                let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-                output.push_str(&format!("  {} [{}] — {}\n", name, node_type, file_path));
-            }
-            output.push('\n');
+        for row in &dep_result.rows {
+            let dep_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let dep_name = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let dep_kind = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let edge_type = row.get(8).and_then(|v| v.as_str()).unwrap_or("calls").to_string();
+
+            dependents.push(NodeResult {
+                node_id: dep_id.clone(),
+                name: dep_name.clone(),
+                kind: dep_kind,
+                file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                score: None,
+                match_type: None,
+                importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
+            });
+
+            edges.push(EdgeResult {
+                source_id: dep_id,
+                source_name: dep_name,
+                target_id: target.node_id.clone(),
+                target_name: target.name.clone(),
+                edge_type,
+            });
         }
 
-        // Cross-service edges (MassTransit pub/sub, HTTP, contracts)
+        // Cross-service edges
         if params.cross_service.unwrap_or(false) {
             if let Ok(cs_result) = state.mubase.query_params(
-                "SELECT DISTINCT e.type, n2.name, n2.type, n2.file_path, e.properties
+                "SELECT DISTINCT e.type, n2.id, n2.name, n2.type, n2.file_path,
+                        n2.line_start, n2.line_end, n2.importance_score
                  FROM edges e
                  JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id
                  JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id
@@ -454,29 +510,47 @@ impl MuMcpServer {
                  LIMIT 30",
                 &[&params.symbol as &dyn duckdb::ToSql],
             ) {
-                if !cs_result.rows.is_empty() {
-                    output.push_str(&format!(
-                        "## Cross-Service Edges ({} found)\n",
-                        cs_result.rows.len()
-                    ));
-                    for row in &cs_result.rows {
-                        let edge_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
-                        let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                        let node_type = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-                        let file_path = row.get(3).and_then(|v| v.as_str()).unwrap_or("?");
-                        output.push_str(&format!(
-                            "  {} {} [{}] — {}\n",
-                            edge_type, name, node_type, file_path
-                        ));
-                    }
-                    output.push('\n');
+                for row in &cs_result.rows {
+                    let cs_edge_type = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let cs_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let cs_name = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+                    dependents.push(NodeResult {
+                        node_id: cs_id.clone(),
+                        name: cs_name.clone(),
+                        kind: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        file_path: row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        line_start: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        line_end: row.get(6).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        score: None,
+                        match_type: None,
+                        importance: row.get(7).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                        summary: None,
+                    });
+
+                    edges.push(EdgeResult {
+                        source_id: cs_id,
+                        source_name: cs_name,
+                        target_id: target.node_id.clone(),
+                        target_name: target.name.clone(),
+                        edge_type: cs_edge_type,
+                    });
                 }
             }
         }
 
+        let response = ImpactResponse {
+            target: target.clone(),
+            dependents,
+            edges,
+        };
+
+        // Format structured response
+        let mut output = format_impact_response(&response);
+
         // If graph is sparse, supplement with grep
-        if graph_count < 5 {
-            output.push_str("## Text References (grep)\n");
+        if response.dependents.len() < 5 {
+            output.push_str("\n## Text References (grep)\n");
 
             let grep_result = Command::new("grep")
                 .args([
@@ -501,11 +575,10 @@ impl MuMcpServer {
                     output.push_str("  No text references found.\n");
                 } else {
                     output.push_str(&format!("  Found in {} files:\n", file_list.len()));
-                    for file in file_list {
+                    for file in &file_list {
                         output.push_str(&format!("    {}\n", file));
                     }
 
-                    // Show a sample of actual usages
                     output.push_str("\n## Sample Usages\n");
                     let context_result = Command::new("grep")
                         .args([
@@ -1108,96 +1181,6 @@ impl MuMcpServer {
             .filter(|w| !TASK_WORDS.contains(&w.to_lowercase().as_str()))
             .map(|w| w.to_string())
             .collect()
-    }
-
-    /// Get function signature (first line of definition)
-    #[allow(clippy::ptr_arg)]
-    fn get_function_signature(
-        &self,
-        project_root: &Path,
-        file_path: &str,
-        line_start: Option<i64>,
-        _line_end: Option<i64>,
-    ) -> Option<String> {
-        let full_path = project_root.join(file_path);
-        let content = fs::read_to_string(&full_path).ok()?;
-        let lines: Vec<&str> = content.lines().collect();
-
-        let start = line_start.unwrap_or(1) as usize;
-        if start > 0 && start <= lines.len() {
-            let first_line = lines[start - 1].trim();
-            // Truncate long signatures
-            if first_line.len() > 80 {
-                Some(format!("{}...", &first_line[..77]))
-            } else {
-                Some(first_line.to_string())
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Extract a code snippet around a symbol
-    fn extract_snippet(&self, content: &str, name: &str, node_type: &str) -> Option<String> {
-        let lines: Vec<&str> = content.lines().collect();
-
-        // Find the line containing the symbol definition
-        let patterns: Vec<String> = match node_type {
-            "function" => vec![
-                format!("fn {}", name),
-                format!("def {}(", name),
-                format!("func {}", name),
-                format!("function {}", name),
-                format!("{} = function", name),
-                format!("{} = (", name),
-                format!("{} = async", name),
-            ],
-            "class" => vec![
-                format!("class {}", name),
-                format!("struct {}", name),
-                format!("interface {}", name),
-                format!("type {} ", name),
-            ],
-            _ => vec![name.to_string()],
-        };
-
-        for (i, line) in lines.iter().enumerate() {
-            for pattern in &patterns {
-                if line.contains(pattern.as_str()) {
-                    // Found it, extract context
-                    let start = i;
-                    let mut end = i + 1;
-
-                    // Try to find the end of the block (simple heuristic)
-                    let mut brace_count = 0;
-                    let mut found_open = false;
-                    for (offset, l) in lines.iter().skip(i).take(50).enumerate() {
-                        for c in l.chars() {
-                            if c == '{' || c == '(' && !found_open {
-                                brace_count += 1;
-                                found_open = true;
-                            } else if c == '}' || (c == ')' && found_open && brace_count == 1) {
-                                brace_count -= 1;
-                            }
-                        }
-                        end = i + offset + 1;
-                        if found_open && brace_count <= 0 {
-                            break;
-                        }
-                    }
-
-                    // Limit to 25 lines
-                    let snippet_end = end.min(start + 25);
-                    let mut snippet = lines[start..snippet_end].join("\n");
-                    if end > snippet_end {
-                        snippet.push_str("\n  // ... (truncated)");
-                    }
-                    return Some(snippet);
-                }
-            }
-        }
-
-        None
     }
 
 }
