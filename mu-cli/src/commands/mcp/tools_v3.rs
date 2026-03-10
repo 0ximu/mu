@@ -11,6 +11,10 @@ use super::responses::{
     ExpandResponse, ReadResponse, ReadNodeResult,
     format_search_response, format_expand_response, format_read_response,
 };
+use crate::engine::search::{
+    SearchConfidence as EngineConfidence,
+    compute_confidence,
+};
 use rmcp::schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -178,14 +182,12 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
         })
         .collect();
 
-    let confidence = if nodes.is_empty() {
-        SearchConfidence::NoResults
-    } else if nodes.iter().any(|n| n.match_type.as_deref() == Some("exact") || n.match_type.as_deref() == Some("exact-qn")) {
-        SearchConfidence::High
-    } else if nodes.first().map(|n| n.score.unwrap_or(0.0) > 0.5).unwrap_or(false) {
-        SearchConfidence::Medium
-    } else {
-        SearchConfidence::Low
+    let engine_confidence = compute_confidence(&results);
+    let confidence = match engine_confidence {
+        EngineConfidence::High => SearchConfidence::High,
+        EngineConfidence::Medium => SearchConfidence::Medium,
+        EngineConfidence::Low => SearchConfidence::Low,
+        EngineConfidence::NoResults => SearchConfidence::NoResults,
     };
 
     let enrichment_opportunity = if enrichment_ids.is_empty() {
