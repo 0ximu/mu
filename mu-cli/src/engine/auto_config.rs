@@ -611,14 +611,31 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
                 }
             }
         }
+        let total_services = config.codebase.services.len();
         for (word, svcs) in &word_to_services {
-            if svcs.len() >= 2 {
-                questions.push(format!(
-                    "I found '{}' in multiple services: {}. Are these separate domains or the same concept?",
-                    word,
-                    svcs.join(", ")
-                ));
+            if svcs.len() < 2 {
+                continue;
             }
+
+            // Skip namespace prefixes: keyword in >80% of services is just a shared prefix
+            if total_services >= 3 && svcs.len() as f64 / total_services as f64 > 0.8 {
+                continue;
+            }
+
+            // Skip test-project siblings: "src/foo" + "tests/foo.Tests" are the same domain
+            let is_test_sibling = svcs.len() == 2 && svcs.iter().any(|s| {
+                let lower = s.to_lowercase();
+                lower.contains("/test") || lower.ends_with(".tests") || lower.ends_with(".test")
+            });
+            if is_test_sibling {
+                continue;
+            }
+
+            questions.push(format!(
+                "I found '{}' in multiple services: {}. Are these separate domains or the same concept?",
+                word,
+                svcs.join(", ")
+            ));
         }
     }
 
