@@ -308,7 +308,7 @@ pub fn format_as_markdown(result: &ReviewResult) -> String {
 ///
 /// Shared between CLI and MCP.
 pub fn run_review(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     project_root: &std::path::Path,
     base_ref: &str,
     include_impact: bool,
@@ -398,7 +398,7 @@ pub fn run_review(
 
 /// Look up how many dependents a symbol has and which files they're in.
 fn lookup_impact(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     symbol_name: &str,
     _file_path: Option<&str>,
 ) -> (usize, Vec<String>) {
@@ -427,7 +427,7 @@ fn lookup_impact(
 
 /// Get names of dependent nodes.
 fn lookup_dependent_names(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     symbol_name: &str,
 ) -> Vec<String> {
     let sql = format!(
@@ -511,7 +511,7 @@ pub async fn run(base_ref: Option<&str>, format: OutputFormat) -> anyhow::Result
     let project_root = mubase::find_project_root(&cwd)
         .ok_or_else(|| anyhow::anyhow!("Could not determine project root."))?;
 
-    let db = mu_daemon::storage::MUbase::open_read_only(&mubase_path)?;
+    let db = crate::engine::storage::MUbase::open_read_only(&mubase_path)?;
 
     let result = run_review(&db, &project_root, &base, true, None)
         .map_err(|e| anyhow::anyhow!(e))?;

@@ -15,8 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # Internal crates
 mu-core = { workspace = true }
-mu-daemon = { workspace = true }
-mu-embeddings = { workspace = true }
+mu-embeddings = { workspace = true, optional = true }
 
 # Progress bars
 indicatif = "0.17"
@@ -44,14 +43,10 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# HTTP client
-reqwest = { workspace = true }
-
 # Utilities
 chrono = { workspace = true }
 dirs = "5"
 regex = "1.10"
-urlencoding = "2.1"
 
 # Database (for direct MUbase access)
 duckdb = { version = "1.1", features = ["bundled"] }
@@ -59,12 +54,12 @@ duckdb = { version = "1.1", features = ["bundled"] }
 # Graph algorithms
 petgraph = "0.6"
 
-# Content hashing
-blake3 = "1.5"
-
 # MCP server (Model Context Protocol)
 rmcp = { version = "0.3", features = ["server", "transport-io"] }
 schemars = "1.0.0-alpha.17"
+
+[features]
+legacy-embeddings = ["dep:mu-embeddings"]
 
 [dev-dependencies]
 tempfile = "3"

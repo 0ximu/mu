@@ -7,10 +7,8 @@
 use anyhow::{Context, Result};
 use duckdb::Connection;
 
-/// Target schema version for migrations.
-pub const TARGET_VERSION: &str = "2.0.0";
-
 /// Check if migration is needed from current version to target.
+#[cfg(test)]
 pub fn needs_migration(current: &str, target: &str) -> bool {
     current != target && current < target
 }

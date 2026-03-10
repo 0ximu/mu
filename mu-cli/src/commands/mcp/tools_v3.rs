@@ -4,11 +4,135 @@
 //! Called from the tool handlers in server.rs.
 
 use anyhow::Result;
-use mu_daemon::storage::{MUbase, Node};
+use crate::engine::storage::{MUbase, Node};
+use rmcp::schemars::JsonSchema;
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::fs;
 use std::path::Path;
+
+// ============================================================================
+// MCP parameter structs
+// ============================================================================
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchNodesParams {
+    /// Search query (natural language or symbol name)
+    #[schemars(description = "Search query — natural language question or symbol name")]
+    pub query: String,
+    /// Max results (default: 10)
+    #[schemars(description = "Maximum number of results (default: 10)")]
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExpandNodesParams {
+    /// Node IDs to expand from
+    #[schemars(description = "Node IDs to use as seeds (e.g., ['fn:src/main.rs:main'])")]
+    pub node_ids: Vec<String>,
+    /// Traversal depth (default: 1)
+    #[schemars(description = "How many hops to traverse (default: 1)")]
+    pub depth: Option<u8>,
+    /// Filter by edge types
+    #[schemars(description = "Edge types to follow (e.g., ['calls', 'imports']). All if omitted.")]
+    pub edge_types: Option<Vec<String>>,
+    /// Direction: outgoing, incoming, or both (default: both)
+    #[schemars(description = "Direction: 'outgoing', 'incoming', or 'both' (default: 'both')")]
+    pub direction: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadNodesParams {
+    /// Node IDs to read
+    #[schemars(description = "Node IDs to read (e.g., ['fn:src/main.rs:main'])")]
+    pub node_ids: Vec<String>,
+    /// Read mode: signature, summary, source, full (default: source)
+    #[schemars(description = "Detail level: 'signature', 'summary', 'source', or 'full' (default: 'source')")]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PackContextParams {
+    /// Optional task description for context-aware packing
+    #[schemars(description = "Task description (e.g., 'fix the login bug'). If omitted, returns top nodes by importance.")]
+    pub task: Option<String>,
+    /// Specific node IDs to pack
+    #[schemars(description = "Specific node IDs to include. If omitted with task, searches for relevant nodes.")]
+    pub node_ids: Option<Vec<String>>,
+    /// Token budget (default: 4000)
+    #[schemars(description = "Maximum approximate tokens to return (default: 4000)")]
+    pub budget: Option<usize>,
+    /// Grouping style: grouped (by file) or flat (default: grouped)
+    #[schemars(description = "Output style: 'grouped' (by file) or 'flat' (default: 'grouped')")]
+    pub style: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EnrichNodesParams {
+    /// Node IDs to get enrichment candidates for
+    #[schemars(description = "Filter to specific node IDs (optional)")]
+    pub node_ids: Option<Vec<String>>,
+    /// Summaries to store (node_id + summary pairs)
+    #[schemars(description = "Summaries to store: [{node_id: '...', summary: '...'}]")]
+    pub summaries: Option<Vec<EnrichSummary>>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct EnrichSummary {
+    pub node_id: String,
+    pub summary: String,
+}
+
+// ============================================================================
+// Handler wrappers (called from server.rs)
+// ============================================================================
+
+pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &SearchNodesParams) -> Result<String> {
+    let limit = params.limit.unwrap_or(10);
+    search_nodes_tool(mubase, project_root, &params.query, limit)
+}
+
+pub fn handle_expand_nodes(mubase: &MUbase, params: &ExpandNodesParams) -> Result<String> {
+    let depth = params.depth.unwrap_or(1);
+    let direction = params.direction.as_deref().unwrap_or("both");
+    let edge_types = params.edge_types.as_deref();
+    expand_nodes_tool(mubase, &params.node_ids, depth, edge_types, direction)
+}
+
+pub fn handle_read_nodes(mubase: &MUbase, project_root: &Path, params: &ReadNodesParams) -> Result<String> {
+    let mode = params.mode.as_deref().unwrap_or("source");
+    read_nodes_tool(mubase, project_root, &params.node_ids, mode)
+}
+
+pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackContextParams) -> Result<String> {
+    let budget = params.budget.unwrap_or(4000);
+    let style = params.style.as_deref().unwrap_or("grouped");
+
+    // If task is provided but no node_ids, search for relevant nodes first
+    if let Some(ref task) = params.task {
+        if params.node_ids.is_none() {
+            let search_results = mubase.search_v3(task, 20)?;
+            let ids: Vec<String> = search_results.iter().map(|r| r.node_id.clone()).collect();
+            if ids.is_empty() {
+                return pack_context_tool(mubase, project_root, None, budget, style);
+            }
+            return pack_context_tool(mubase, project_root, Some(&ids), budget, style);
+        }
+    }
+
+    let node_ids = params.node_ids.as_deref();
+    pack_context_tool(mubase, project_root, node_ids, budget, style)
+}
+
+pub fn handle_enrich_nodes(mubase: &MUbase, params: &EnrichNodesParams) -> Result<String> {
+    let node_ids = params.node_ids.as_deref();
+    let summaries: Option<Vec<(String, String)>> = params.summaries.as_ref().map(|s| {
+        s.iter().map(|es| (es.node_id.clone(), es.summary.clone())).collect()
+    });
+    let summary_refs: Option<&[(String, String)]> = summaries.as_deref();
+    enrich_nodes_tool(mubase, node_ids, summary_refs)
+}
 
 // ============================================================================
 // 1. search_nodes_tool
@@ -32,9 +156,9 @@ pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limi
     for (i, r) in results.iter().enumerate() {
         let sigil = type_sigil(&r.node_type);
         let match_label = match r.match_type {
-            mu_daemon::search::MatchType::ExactName => "exact",
-            mu_daemon::search::MatchType::ExactQualifiedName => "exact-qn",
-            mu_daemon::search::MatchType::Bm25 => "bm25",
+            crate::engine::search::MatchType::ExactName => "exact",
+            crate::engine::search::MatchType::ExactQualifiedName => "exact-qn",
+            crate::engine::search::MatchType::Bm25 => "bm25",
         };
 
         let location = match (&r.file_path, r.line_start) {
@@ -55,7 +179,7 @@ pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limi
         }
 
         // Show source snippet for exact matches
-        if r.match_type != mu_daemon::search::MatchType::Bm25 {
+        if r.match_type != crate::engine::search::MatchType::Bm25 {
             if let Some(ref fp) = r.file_path {
                 let full_path = project_root.join(fp);
                 if let Some(snippet) = read_source_lines(&full_path, r.line_start, r.line_end, 15) {
@@ -608,7 +732,7 @@ pub fn enrich_nodes_tool(
                 result.rows.first()
                     .and_then(|r| r.first())
                     .and_then(|v| v.as_str())
-                    .map(mu_daemon::summary::compute_code_hash)
+                    .map(crate::engine::summary::compute_code_hash)
                     .unwrap_or_else(|| "unknown".to_string())
             } else {
                 "unknown".to_string()

@@ -4,8 +4,8 @@
 //! No LLM calls — uses only tree-sitter data + edge relationships.
 //! The key insight: encoding callers/callees as text makes graph info BM25-searchable.
 
-use crate::storage::Node;
-use crate::storage::NodeType;
+use super::storage::Node;
+use super::storage::NodeType;
 
 /// Generate a heuristic summary from parsed node data + graph edges.
 /// No LLM calls. Uses only what tree-sitter extracted + edge relationships.
@@ -368,7 +368,7 @@ fn extract_signature(source: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::Node;
+    use crate::engine::storage::Node;
 
     fn edge(src: &str, tgt: &str, kind: &str) -> (String, String, String) {
         (src.to_string(), tgt.to_string(), kind.to_string())
@@ -428,6 +428,12 @@ mod tests {
             complexity: 0,
             properties: None,
             source_text: None,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         };
 
         let summary = generate_heuristic_summary(&node, &[]);
@@ -472,6 +478,12 @@ mod tests {
             complexity: 0,
             properties: None,
             source_text: None,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         };
 
         let summary = generate_heuristic_summary(&node, &[]);
@@ -505,6 +517,12 @@ mod tests {
             complexity: 0,
             properties: None,
             source_text: None,
+            summary_text: None,
+            summary_source: None,
+            summary_code_hash: None,
+            importance_score: 0.0,
+            search_text: None,
+            summary_updated_at: None,
         };
 
         let summary = generate_heuristic_summary(&node, &[]);

@@ -4,7 +4,6 @@
 //! - Database existence and integrity
 //! - Schema version compatibility
 //! - Graph statistics
-//! - Embeddings coverage
 //! - MCP configuration
 
 use std::path::Path;
@@ -198,35 +197,6 @@ fn get_edge_count(conn: &Connection) -> usize {
         .unwrap_or(0)
 }
 
-/// Get embeddings stats
-fn get_embeddings_stats(conn: &Connection) -> Option<(usize, usize)> {
-    // Check if embeddings table exists
-    let table_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = 'embeddings'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(false);
-
-    if !table_exists {
-        return None;
-    }
-
-    let embedding_count: usize = conn
-        .query_row("SELECT COUNT(*) FROM embeddings", [], |row| row.get(0))
-        .unwrap_or(0);
-
-    let node_count: usize = conn
-        .query_row(
-            "SELECT COUNT(*) FROM nodes WHERE type != 'external'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap_or(0);
-
-    Some((embedding_count, node_count))
-}
 
 /// Run the doctor command
 pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
@@ -313,41 +283,6 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
                     checks.push(CheckItem::warning("Edge count", "0"));
                 }
 
-                // Check 5: Embeddings
-                match get_embeddings_stats(&conn) {
-                    Some((embedding_count, node_count)) => {
-                        if node_count > 0 {
-                            let percentage =
-                                (embedding_count as f64 / node_count as f64 * 100.0) as usize;
-                            if percentage >= 100 {
-                                checks.push(CheckItem::ok(
-                                    "Embeddings",
-                                    format!("{} (100%)", embedding_count),
-                                ));
-                            } else if percentage > 0 {
-                                checks.push(CheckItem::warning(
-                                    "Embeddings",
-                                    format!("{} ({}%)", embedding_count, percentage),
-                                ));
-                                recommendations.push(
-                                    "Generate missing embeddings: mu bootstrap --force".to_string(),
-                                );
-                            } else {
-                                checks.push(CheckItem::warning("Embeddings", "0 (not generated)"));
-                                recommendations.push(
-                                    "Enable semantic search: mu bootstrap --force".to_string(),
-                                );
-                            }
-                        } else {
-                            checks.push(CheckItem::warning("Embeddings", "no nodes to embed"));
-                        }
-                    }
-                    None => {
-                        checks.push(CheckItem::warning("Embeddings", "not configured"));
-                        recommendations
-                            .push("Enable semantic search: mu bootstrap --force".to_string());
-                    }
-                }
             }
             Err(e) => {
                 checks.push(CheckItem::error(

@@ -245,7 +245,7 @@ fn format_violation(output: &mut String, v: &Violation) {
 
 /// R1: Orphaned functions — functions with no incoming call edges
 fn rule_orphaned_fns(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
     // Find functions that have no incoming 'calls' edges and aren't entry points
@@ -270,7 +270,7 @@ fn rule_orphaned_fns(
 
 /// R3: High cyclomatic complexity
 fn rule_high_complexity(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     threshold: u32,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
@@ -325,7 +325,7 @@ fn rule_high_complexity(
 
 /// R5: Missing docstrings on public classes/functions
 fn rule_missing_docstrings(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
     // Check the properties JSON for docstring field, and source_text for doc comments
@@ -394,7 +394,7 @@ fn rule_missing_docstrings(
 
 /// R9: Hardcoded secrets — patterns that look like API keys, passwords, tokens
 fn rule_secrets(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
     let sql = r#"
@@ -462,7 +462,7 @@ fn rule_secrets(
 
 /// R10: TODO/FIXME without assignee
 fn rule_todo_fixme(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
     let sql = r#"
@@ -529,7 +529,7 @@ fn rule_todo_fixme(
 
 /// R12: .unwrap()/.expect() in high-complexity functions
 fn rule_unwrap_abuse(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
     let sql = r#"
@@ -589,7 +589,7 @@ fn rule_unwrap_abuse(
 
 /// R14: Long parameter lists (>threshold params)
 fn rule_long_params(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     max_params: usize,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
@@ -781,7 +781,7 @@ fn load_audit_config(rules_dir: &Path) -> AuditConfig {
 
 /// Run project-local pattern rules against the codebase.
 fn run_project_rules(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     rules: &[ProjectRule],
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
@@ -880,7 +880,7 @@ fn get_diff_files(diff_base: &str) -> anyhow::Result<HashSet<String>> {
 /// Run a SQL query and convert results to violations. The query must return
 /// (name, file_path, line_start) as the first three columns.
 fn query_to_violations(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     sql: &str,
     scope_files: &Option<HashSet<String>>,
     rule_id: &str,
@@ -921,7 +921,7 @@ fn query_to_violations(
 }
 
 /// Count total nodes for stats.
-fn count_nodes(mubase: &mu_daemon::storage::MUbase) -> usize {
+fn count_nodes(mubase: &crate::engine::storage::MUbase) -> usize {
     mubase
         .query("SELECT COUNT(*) FROM nodes WHERE type IN ('function', 'class', 'module')")
         .ok()
@@ -952,7 +952,7 @@ pub async fn run(
     let project_root = mubase::find_project_root(&cwd)
         .ok_or_else(|| anyhow::anyhow!("Could not determine project root."))?;
 
-    let mubase = mu_daemon::storage::MUbase::open_read_only(&mubase_path)?;
+    let mubase = crate::engine::storage::MUbase::open_read_only(&mubase_path)?;
 
     // Load project-local config + rules
     let rules_path = match rules_dir {
@@ -1040,7 +1040,7 @@ pub async fn run(
 
 /// Run audit and return structured results (for MCP tool).
 pub fn run_audit_for_mcp(
-    mubase: &mu_daemon::storage::MUbase,
+    mubase: &crate::engine::storage::MUbase,
     project_root: &Path,
     min_complexity: Option<u32>,
     diff_base: Option<&str>,
