@@ -115,6 +115,13 @@ pub struct ReviewParams {
     pub min_complexity: Option<u32>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ConfigureParams {
+    /// JSON corrections to apply to the draft config. Omit for discovery mode.
+    #[schemars(description = "JSON object with corrections: service_classifications, domain_concepts, add_priority_nodes, remove_priority_nodes, test_handling. Omit to get the draft config with review questions.")]
+    pub corrections: Option<String>,
+}
+
 
 #[tool_router]
 impl MuMcpServer {
@@ -1015,21 +1022,55 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Configure: Auto-detect codebase patterns
+    /// Configure: Auto-detect codebase patterns (interactive)
     #[tool(
-        description = "Auto-detect codebase patterns and generate configuration. Detects test directories, generated code, frameworks, services, and core abstractions. Run once per codebase — config persists and improves all other tools. Returns a draft config for review."
+        description = "Interactive codebase configuration. Two modes: (1) Discovery — call with no args to auto-detect patterns, get a draft config, review questions, and enrichment suggestions. (2) Corrections — call with a `corrections` JSON to refine the config: classify services as auxiliary, add domain concepts for disambiguation, adjust priority nodes, change test handling. The corrected config is saved and improves all future tool calls."
     )]
-    async fn mu_configure(&self) -> Result<CallToolResult, McpError> {
+    async fn mu_configure(
+        &self,
+        Parameters(params): Parameters<ConfigureParams>,
+    ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        let config = crate::engine::auto_config::AutoConfig::generate(&state.mubase)
-            .map_err(|e| McpError::internal_error(format!("config generation failed: {}", e), None))?;
+        if let Some(ref corrections_json) = params.corrections {
+            // Correction mode: load existing config (or generate fresh), apply corrections, save
+            let mut config = crate::engine::auto_config::AutoConfig::load(&state.project_root)
+                .unwrap_or_else(|| {
+                    crate::engine::auto_config::AutoConfig::generate(&state.mubase)
+                        .unwrap_or_default()
+                });
 
-        config.save(&state.project_root)
-            .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+            let result = crate::engine::auto_config::apply_corrections(
+                &mut config, corrections_json, &state.mubase,
+            ).map_err(|e| McpError::internal_error(format!("corrections failed: {}", e), None))?;
 
-        let summary = crate::engine::auto_config::format_summary(&config);
-        Ok(CallToolResult::success(vec![Content::text(summary)]))
+            config.save(&state.project_root)
+                .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+
+            let mut output = result;
+            output.push_str("\n\n");
+            output.push_str(&crate::engine::auto_config::format_summary(&config));
+            Ok(CallToolResult::success(vec![Content::text(output)]))
+        } else {
+            // Discovery mode: generate draft, questions, enrichment suggestions
+            let config = crate::engine::auto_config::AutoConfig::generate(&state.mubase)
+                .map_err(|e| McpError::internal_error(format!("config generation failed: {}", e), None))?;
+
+            // Save the draft so tools can use it immediately
+            config.save(&state.project_root)
+                .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+
+            let questions = crate::engine::auto_config::generate_questions(&config, &state.mubase)
+                .unwrap_or_default();
+
+            let enrichment_ids = crate::engine::auto_config::suggest_enrichment_nodes(&state.mubase)
+                .unwrap_or_default();
+
+            let summary = crate::engine::auto_config::format_discovery_summary(
+                &config, &questions, &enrichment_ids,
+            );
+            Ok(CallToolResult::success(vec![Content::text(summary)]))
+        }
     }
 
     /// Audit: Run code quality rules and report violations

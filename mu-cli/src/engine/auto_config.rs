@@ -21,6 +21,8 @@ pub struct AutoConfig {
     pub codebase: CodebaseConfig,
     pub enrichment: EnrichmentConfig,
     pub oracle: OracleConfig,
+    #[serde(default)]
+    pub domain_concepts: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +30,11 @@ pub struct FilterConfig {
     pub test_patterns: Vec<String>,
     pub generated_patterns: Vec<String>,
     pub search_test_dampening: f32,
+    #[serde(default = "default_auxiliary_dampening")]
+    pub auxiliary_dampening: f32,
 }
+
+fn default_auxiliary_dampening() -> f32 { 0.7 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodebaseConfig {
@@ -36,6 +42,8 @@ pub struct CodebaseConfig {
     pub frameworks: Vec<String>,
     pub services: Vec<String>,
     pub estimated_size: String,
+    #[serde(default)]
+    pub auxiliary_services: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,12 +77,14 @@ impl Default for AutoConfig {
                     "*/bin/*".into(),
                 ],
                 search_test_dampening: 0.3,
+                auxiliary_dampening: 0.7,
             },
             codebase: CodebaseConfig {
                 primary_language: "unknown".into(),
                 frameworks: Vec::new(),
                 services: Vec::new(),
                 estimated_size: "unknown".into(),
+                auxiliary_services: Vec::new(),
             },
             enrichment: EnrichmentConfig {
                 priority_nodes: Vec::new(),
@@ -88,6 +98,7 @@ impl Default for AutoConfig {
                 ],
                 test_budget_cap: 0.1,
             },
+            domain_concepts: HashMap::new(),
         }
     }
 }
@@ -133,12 +144,14 @@ impl AutoConfig {
                 test_patterns,
                 generated_patterns,
                 search_test_dampening: 0.3,
+                auxiliary_dampening: 0.7,
             },
             codebase: CodebaseConfig {
                 primary_language,
                 frameworks,
                 services,
                 estimated_size: size,
+                auxiliary_services: Vec::new(),
             },
             enrichment: EnrichmentConfig {
                 priority_nodes: core_nodes,
@@ -148,6 +161,7 @@ impl AutoConfig {
                 exclude_patterns,
                 test_budget_cap: 0.1,
             },
+            domain_concepts: HashMap::new(),
         })
     }
 }
@@ -565,10 +579,276 @@ pub fn is_excluded_path(path: &str, patterns: &[String]) -> bool {
 }
 
 // ============================================================================
+// Question generation (discovery mode)
+// ============================================================================
+
+/// Generate data-driven questions by analyzing the config and graph structure.
+pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<String>> {
+    let mut questions = Vec::new();
+
+    // 1. Services with ambiguous/auxiliary-sounding names
+    let aux_hints = ["chatagent", "tool", "script", "util", "helper", "sample", "demo", "example"];
+    for service in &config.codebase.services {
+        let lower = service.to_lowercase();
+        if aux_hints.iter().any(|h| lower.contains(h)) {
+            questions.push(format!(
+                "Is '{}' a core service or auxiliary/experimental? This affects search ranking.",
+                service
+            ));
+        }
+    }
+
+    // 2. Services sharing a keyword — possible disambiguation needed
+    if config.codebase.services.len() >= 2 {
+        let mut word_to_services: HashMap<String, Vec<&str>> = HashMap::new();
+        for service in &config.codebase.services {
+            // Extract meaningful words from service path (skip common prefixes like src/)
+            let name = service.rsplit('/').next().unwrap_or(service);
+            for word in name.split(&['-', '_', '.'][..]) {
+                let w = word.to_lowercase();
+                if w.len() >= 4 && !["src", "main", "test", "core"].contains(&w.as_str()) {
+                    word_to_services.entry(w).or_default().push(service.as_str());
+                }
+            }
+        }
+        for (word, svcs) in &word_to_services {
+            if svcs.len() >= 2 {
+                questions.push(format!(
+                    "I found '{}' in multiple services: {}. Are these separate domains or the same concept?",
+                    word,
+                    svcs.join(", ")
+                ));
+            }
+        }
+    }
+
+    // 3. Top priority nodes dominated by a single file
+    let mut file_counts: HashMap<String, usize> = HashMap::new();
+    for nid in config.enrichment.priority_nodes.iter().take(20) {
+        // node_ids look like "fn:path/to/file.rs:func_name" — extract the file part
+        if let Some(rest) = nid.split_once(':').map(|(_, r)| r) {
+            if let Some(file) = rest.rsplit_once(':').map(|(f, _)| f) {
+                *file_counts.entry(file.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    for (file, count) in &file_counts {
+        if *count > 3 {
+            questions.push(format!(
+                "Top priority nodes are dominated by {} ({} of top 20). Are there other critical files I'm missing?",
+                file, count
+            ));
+        }
+    }
+
+    // 4. High in-degree nodes not in priority list
+    let high_dep_result = mubase.query(
+        "SELECT n.name, COUNT(*) as dep_count
+         FROM edges e
+         JOIN nodes n ON e.target_id = n.id
+         WHERE n.type IN ('class', 'function', 'interface')
+           AND n.file_path NOT LIKE '%/test/%'
+           AND n.file_path NOT LIKE '%/tests/%'
+           AND n.file_path NOT LIKE '%Test.cs'
+           AND n.file_path NOT LIKE '%Tests.cs'
+         GROUP BY n.name, n.id
+         ORDER BY dep_count DESC
+         LIMIT 10",
+    );
+
+    if let Ok(result) = high_dep_result {
+        let priority_names: Vec<String> = config.enrichment.priority_nodes.iter()
+            .filter_map(|nid| nid.rsplit(':').next().map(|s| s.to_string()))
+            .collect();
+
+        let mut missing: Vec<String> = Vec::new();
+        for row in &result.rows {
+            if let (Some(name), Some(count)) = (
+                row.first().and_then(|v| v.as_str()),
+                row.get(1).and_then(|v| v.as_i64()),
+            ) {
+                if !priority_names.iter().any(|pn| pn == name) {
+                    missing.push(format!("{} ({} deps)", name, count));
+                }
+            }
+        }
+        if !missing.is_empty() {
+            let display: Vec<&str> = missing.iter().take(5).map(|s| s.as_str()).collect();
+            questions.push(format!(
+                "These types have the most dependents but aren't in the priority list: {}. Should any be added?",
+                display.join(", ")
+            ));
+        }
+    }
+
+    // 5. Ask about test handling
+    questions.push(
+        "Should test projects be completely excluded from search or just dampened (current: dampened 0.3x)?".to_string()
+    );
+
+    Ok(questions)
+}
+
+/// Find high-importance nodes that would benefit from enrichment (no summary yet).
+pub fn suggest_enrichment_nodes(mubase: &MUbase) -> Result<Vec<String>> {
+    let result = mubase.query(
+        "SELECT id FROM nodes
+         WHERE type IN ('class', 'function', 'interface')
+           AND importance_score > 0
+           AND (summary_text IS NULL OR summary_text = '')
+           AND file_path NOT LIKE '%/test/%'
+           AND file_path NOT LIKE '%/tests/%'
+           AND file_path NOT LIKE '%Test.cs'
+           AND file_path NOT LIKE '%Tests.cs'
+           AND file_path NOT LIKE '%/Migrations/%'
+           AND file_path NOT LIKE '%/obj/%'
+         ORDER BY importance_score DESC
+         LIMIT 30",
+    )?;
+
+    Ok(result.rows.iter()
+        .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .collect())
+}
+
+// ============================================================================
+// Corrections (interactive mode)
+// ============================================================================
+
+/// Apply LLM corrections to an existing config.
+///
+/// Parses a JSON corrections object and merges into the config.
+/// Supported keys:
+/// - `service_classifications`: `{"svc": "auxiliary"|"core"}` — moves services to auxiliary list
+/// - `domain_concepts`: `{"keyword": "description"}` — adds domain disambiguation
+/// - `add_priority_nodes`: `["Name1", "Name2"]` — resolves names to node_ids and appends
+/// - `remove_priority_nodes`: `["Name1"]` — removes matching entries
+/// - `test_handling`: `"dampen"` | `"exclude"` — adjusts test dampening (0.3 vs 0.0)
+/// - `auxiliary_dampening`: float — override the auxiliary service dampening factor
+pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase: &MUbase) -> Result<String> {
+    let corrections: serde_json::Value = serde_json::from_str(corrections_json)
+        .map_err(|e| anyhow::anyhow!("invalid corrections JSON: {}", e))?;
+
+    let mut applied = Vec::new();
+
+    // service_classifications
+    if let Some(obj) = corrections.get("service_classifications").and_then(|v| v.as_object()) {
+        for (svc, classification) in obj {
+            let class_str = classification.as_str().unwrap_or("core");
+            if class_str == "auxiliary" {
+                if !config.codebase.auxiliary_services.contains(svc) {
+                    config.codebase.auxiliary_services.push(svc.clone());
+                }
+                applied.push(format!("Classified '{}' as auxiliary", svc));
+            } else {
+                // Remove from auxiliary if reclassified as core
+                config.codebase.auxiliary_services.retain(|s| s != svc);
+                applied.push(format!("Classified '{}' as core", svc));
+            }
+        }
+    }
+
+    // domain_concepts
+    if let Some(obj) = corrections.get("domain_concepts").and_then(|v| v.as_object()) {
+        for (keyword, description) in obj {
+            let desc = description.as_str().unwrap_or("");
+            config.domain_concepts.insert(keyword.clone(), desc.to_string());
+            applied.push(format!("Added domain concept: '{}'", keyword));
+        }
+    }
+
+    // add_priority_nodes — resolve names to full node_ids
+    if let Some(arr) = corrections.get("add_priority_nodes").and_then(|v| v.as_array()) {
+        for name_val in arr {
+            if let Some(name) = name_val.as_str() {
+                // Look up the node by name to get the full node_id
+                let lookup = mubase.query_params(
+                    "SELECT id FROM nodes
+                     WHERE name = ?1
+                       AND type IN ('class', 'function', 'interface')
+                       AND file_path NOT LIKE '%/test/%'
+                       AND file_path NOT LIKE '%/tests/%'
+                     ORDER BY importance_score DESC
+                     LIMIT 1",
+                    &[&name as &dyn duckdb::ToSql],
+                );
+                if let Ok(result) = lookup {
+                    if let Some(node_id) = result.rows.first()
+                        .and_then(|r| r.first().and_then(|v| v.as_str()))
+                    {
+                        if !config.enrichment.priority_nodes.contains(&node_id.to_string()) {
+                            config.enrichment.priority_nodes.push(node_id.to_string());
+                            applied.push(format!("Added priority node: {} ({})", name, node_id));
+                        }
+                    } else {
+                        applied.push(format!("Could not find node for '{}'", name));
+                    }
+                }
+            }
+        }
+    }
+
+    // remove_priority_nodes
+    if let Some(arr) = corrections.get("remove_priority_nodes").and_then(|v| v.as_array()) {
+        for name_val in arr {
+            if let Some(name) = name_val.as_str() {
+                let before = config.enrichment.priority_nodes.len();
+                config.enrichment.priority_nodes.retain(|nid| {
+                    !nid.rsplit(':').next().map_or(false, |n| n == name)
+                });
+                let removed = before - config.enrichment.priority_nodes.len();
+                if removed > 0 {
+                    applied.push(format!("Removed priority node: {}", name));
+                }
+            }
+        }
+    }
+
+    // test_handling
+    if let Some(handling) = corrections.get("test_handling").and_then(|v| v.as_str()) {
+        match handling {
+            "exclude" => {
+                config.filters.search_test_dampening = 0.0;
+                applied.push("Test handling: exclude (dampening=0.0)".to_string());
+            }
+            "dampen" | _ => {
+                config.filters.search_test_dampening = 0.3;
+                applied.push("Test handling: dampen (dampening=0.3)".to_string());
+            }
+        }
+    }
+
+    // auxiliary_dampening override
+    if let Some(val) = corrections.get("auxiliary_dampening").and_then(|v| v.as_f64()) {
+        config.filters.auxiliary_dampening = val as f32;
+        applied.push(format!("Auxiliary dampening set to {}", val));
+    }
+
+    if applied.is_empty() {
+        Ok("No corrections applied — check the JSON format.".to_string())
+    } else {
+        Ok(format!("Applied {} corrections:\n{}", applied.len(), applied.iter()
+            .map(|a| format!("- {}", a))
+            .collect::<Vec<_>>()
+            .join("\n")))
+    }
+}
+
+// ============================================================================
+// Auxiliary service helpers
+// ============================================================================
+
+/// Check if a file path belongs to an auxiliary service.
+pub fn is_auxiliary_service(file_path: &str, auxiliary_services: &[String]) -> bool {
+    let lower = file_path.to_lowercase();
+    auxiliary_services.iter().any(|svc| lower.starts_with(&svc.to_lowercase()))
+}
+
+// ============================================================================
 // Summary formatter
 // ============================================================================
 
-/// Human-readable summary of the auto-detected config.
+/// Human-readable summary of the auto-detected config (post-save).
 pub fn format_summary(config: &AutoConfig) -> String {
     let mut out = String::new();
 
@@ -584,11 +864,24 @@ pub fn format_summary(config: &AutoConfig) -> String {
     if !config.codebase.services.is_empty() {
         out.push_str(&format!("- Services: {}\n", config.codebase.services.join(", ")));
     }
+    if !config.codebase.auxiliary_services.is_empty() {
+        out.push_str(&format!("- Auxiliary services: {}\n", config.codebase.auxiliary_services.join(", ")));
+    }
     out.push('\n');
+
+    // Domain concepts
+    if !config.domain_concepts.is_empty() {
+        out.push_str("## Domain Concepts\n");
+        for (keyword, desc) in &config.domain_concepts {
+            out.push_str(&format!("- **{}**: {}\n", keyword, desc));
+        }
+        out.push('\n');
+    }
 
     // Filters section
     out.push_str("## Filters\n");
     out.push_str(&format!("- Test dampening: {}\n", config.filters.search_test_dampening));
+    out.push_str(&format!("- Auxiliary dampening: {}\n", config.filters.auxiliary_dampening));
     if !config.filters.test_patterns.is_empty() {
         out.push_str(&format!("- Test patterns ({}): {}\n",
             config.filters.test_patterns.len(),
@@ -626,6 +919,81 @@ pub fn format_summary(config: &AutoConfig) -> String {
     }
 
     out.push_str("\nConfig saved to `.mu/config.toml`\n");
+    out
+}
+
+/// Format the discovery-mode output: draft config + questions + enrichment suggestions.
+///
+/// This is returned when mu_configure is called with no corrections.
+pub fn format_discovery_summary(
+    config: &AutoConfig,
+    questions: &[String],
+    enrichment_ids: &[String],
+) -> String {
+    let mut out = String::new();
+
+    out.push_str("# MU Auto-Configuration (DRAFT — review and correct)\n\n");
+
+    // Detected structure (same as format_summary minus the "saved" footer)
+    out.push_str("## Detected Structure\n");
+    out.push_str(&format!("- Language: {}\n", config.codebase.primary_language));
+    out.push_str(&format!("- Size: {}\n", config.codebase.estimated_size));
+    if !config.codebase.frameworks.is_empty() {
+        out.push_str(&format!("- Frameworks: {}\n", config.codebase.frameworks.join(", ")));
+    }
+    if !config.codebase.services.is_empty() {
+        out.push_str(&format!("- Services ({}): {}\n",
+            config.codebase.services.len(),
+            config.codebase.services.join(", ")));
+    }
+    out.push_str(&format!("- Test dampening: {}\n", config.filters.search_test_dampening));
+    out.push_str(&format!("- Priority nodes: {}\n", config.enrichment.priority_nodes.len()));
+    if !config.enrichment.priority_nodes.is_empty() {
+        for nid in config.enrichment.priority_nodes.iter().take(10) {
+            out.push_str(&format!("  - {}\n", nid));
+        }
+        if config.enrichment.priority_nodes.len() > 10 {
+            out.push_str(&format!("  - ... and {} more\n",
+                config.enrichment.priority_nodes.len() - 10));
+        }
+    }
+    out.push('\n');
+
+    // Questions for review
+    if !questions.is_empty() {
+        out.push_str("## Questions for Review\n");
+        for (i, q) in questions.iter().enumerate() {
+            out.push_str(&format!("{}. {}\n", i + 1, q));
+        }
+        out.push('\n');
+    }
+
+    // Enrichment suggestions
+    if !enrichment_ids.is_empty() {
+        out.push_str("## Suggested Enrichment Targets\n");
+        out.push_str("These high-importance nodes have no summary yet. Run `mu_enrich` to improve search quality.\n");
+        for nid in enrichment_ids.iter().take(15) {
+            out.push_str(&format!("- {}\n", nid));
+        }
+        if enrichment_ids.len() > 15 {
+            out.push_str(&format!("- ... and {} more\n", enrichment_ids.len() - 15));
+        }
+        out.push('\n');
+    }
+
+    // Correction instructions
+    out.push_str("## To apply corrections\n");
+    out.push_str("Call `mu_configure` with a `corrections` parameter (JSON):\n");
+    out.push_str("```json\n");
+    out.push_str("{\n");
+    out.push_str("  \"service_classifications\": {\"service-name\": \"auxiliary\"},\n");
+    out.push_str("  \"domain_concepts\": {\"keyword\": \"disambiguation description\"},\n");
+    out.push_str("  \"add_priority_nodes\": [\"ClassName\", \"function_name\"],\n");
+    out.push_str("  \"remove_priority_nodes\": [\"OldName\"],\n");
+    out.push_str("  \"test_handling\": \"dampen\"\n");
+    out.push_str("}\n");
+    out.push_str("```\n");
+
     out
 }
 
@@ -696,8 +1064,11 @@ mod tests {
     fn test_default_config_has_sane_values() {
         let cfg = AutoConfig::default();
         assert_eq!(cfg.filters.search_test_dampening, 0.3);
+        assert_eq!(cfg.filters.auxiliary_dampening, 0.7);
         assert_eq!(cfg.oracle.test_budget_cap, 0.1);
         assert!(!cfg.filters.test_patterns.is_empty());
+        assert!(cfg.codebase.auxiliary_services.is_empty());
+        assert!(cfg.domain_concepts.is_empty());
     }
 
     #[test]
@@ -743,7 +1114,79 @@ mod tests {
         cfg.save(tmp.path()).unwrap();
         let loaded = AutoConfig::load(tmp.path()).unwrap();
         assert_eq!(loaded.filters.search_test_dampening, 0.3);
+        assert_eq!(loaded.filters.auxiliary_dampening, 0.7);
         assert_eq!(loaded.codebase.primary_language, "unknown");
+        assert!(loaded.codebase.auxiliary_services.is_empty());
+        assert!(loaded.domain_concepts.is_empty());
+    }
+
+    #[test]
+    fn test_save_and_load_with_new_fields() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".mu")).unwrap();
+        let mut cfg = AutoConfig::default();
+        cfg.codebase.auxiliary_services = vec!["src/chatagent".into()];
+        cfg.domain_concepts.insert("compliance".into(), "Two domains: KYC and NAV".into());
+        cfg.save(tmp.path()).unwrap();
+        let loaded = AutoConfig::load(tmp.path()).unwrap();
+        assert_eq!(loaded.codebase.auxiliary_services, vec!["src/chatagent"]);
+        assert_eq!(loaded.domain_concepts.get("compliance").unwrap(), "Two domains: KYC and NAV");
+    }
+
+    #[test]
+    fn test_backward_compat_load_without_new_fields() {
+        // Config files from before this change won't have domain_concepts etc.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".mu")).unwrap();
+        let old_toml = r#"
+[filters]
+test_patterns = ["*/test/*"]
+generated_patterns = ["*.Designer.cs"]
+search_test_dampening = 0.3
+
+[codebase]
+primary_language = "csharp"
+frameworks = ["ef-core"]
+services = ["src/api"]
+estimated_size = "large"
+
+[enrichment]
+priority_nodes = ["class:src/Foo.cs:Foo"]
+auto_enrich_top_n = 50
+
+[oracle]
+exclude_patterns = ["*/obj/*"]
+test_budget_cap = 0.1
+"#;
+        std::fs::write(tmp.path().join(".mu/config.toml"), old_toml).unwrap();
+        let loaded = AutoConfig::load(tmp.path()).unwrap();
+        assert_eq!(loaded.filters.auxiliary_dampening, 0.7); // default
+        assert!(loaded.codebase.auxiliary_services.is_empty()); // default
+        assert!(loaded.domain_concepts.is_empty()); // default
+    }
+
+    #[test]
+    fn test_is_auxiliary_service() {
+        let aux = vec!["src/gateway-chatagent".into(), "tools/scripts".into()];
+        assert!(is_auxiliary_service("src/gateway-chatagent/main.py", &aux));
+        assert!(is_auxiliary_service("tools/scripts/build.sh", &aux));
+        assert!(!is_auxiliary_service("src/gateway-api/Program.cs", &aux));
+    }
+
+    #[test]
+    fn test_discovery_summary_format() {
+        let cfg = AutoConfig::default();
+        let questions = vec![
+            "Is 'chatagent' core or auxiliary?".into(),
+            "Should test files be excluded?".into(),
+        ];
+        let enrichment = vec!["fn:src/main.rs:main".into()];
+        let summary = format_discovery_summary(&cfg, &questions, &enrichment);
+        assert!(summary.contains("DRAFT"));
+        assert!(summary.contains("Questions for Review"));
+        assert!(summary.contains("chatagent"));
+        assert!(summary.contains("Suggested Enrichment"));
+        assert!(summary.contains("corrections"));
     }
 
     #[test]
