@@ -164,6 +164,18 @@ pub fn search_nodes(conn: &Connection, query: &str, limit: usize) -> Result<Vec<
 
 /// Like `search_nodes` but with a configurable test dampening factor.
 pub fn search_nodes_with_dampening(conn: &Connection, query: &str, limit: usize, test_dampening: f32) -> Result<Vec<SearchResult>> {
+    search_nodes_with_config(conn, query, limit, test_dampening, &[], 1.0)
+}
+
+/// Full-config search: test dampening + auxiliary service dampening.
+pub fn search_nodes_with_config(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+    test_dampening: f32,
+    auxiliary_services: &[String],
+    auxiliary_dampening: f32,
+) -> Result<Vec<SearchResult>> {
     let mut results: HashMap<String, SearchResult> = HashMap::new();
 
     // -- Phase 1: Exact Match (highest priority) --
@@ -231,6 +243,15 @@ pub fn search_nodes_with_dampening(conn: &Connection, query: &str, limit: usize,
         // Dampen test/migration results so production code ranks higher
         if is_test_or_migration(result.file_path.as_deref()) {
             final_score *= test_dampening;
+        }
+
+        // Dampen auxiliary service results (e.g. chatagent, scripts)
+        if !auxiliary_services.is_empty() {
+            if let Some(ref fp) = result.file_path {
+                if crate::engine::auto_config::is_auxiliary_service(fp, auxiliary_services) {
+                    final_score *= auxiliary_dampening;
+                }
+            }
         }
 
         result.score = final_score;

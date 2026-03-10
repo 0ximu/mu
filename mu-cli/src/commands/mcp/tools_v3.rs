@@ -248,10 +248,29 @@ pub struct EnrichSummary {
 pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &SearchNodesParams) -> Result<String> {
     let limit = params.limit.unwrap_or(10);
     let config = crate::engine::auto_config::AutoConfig::load(project_root);
-    let dampening = config.as_ref()
+
+    let test_dampening = config.as_ref()
         .map(|c| c.filters.search_test_dampening)
         .unwrap_or(0.3);
-    let resp = build_search_response_with_dampening(mubase, &params.query, limit, dampening)?;
+    let aux_services = config.as_ref()
+        .map(|c| c.codebase.auxiliary_services.as_slice())
+        .unwrap_or(&[]);
+    let aux_dampening = config.as_ref()
+        .map(|c| c.filters.auxiliary_dampening)
+        .unwrap_or(1.0);
+
+    // Domain concept boosting: if query matches a concept keyword, expand search
+    let mut query = params.query.clone();
+    if let Some(ref cfg) = config {
+        if let Some(boost_terms) = domain_concept_boost(&query, &cfg.domain_concepts) {
+            query = format!("{} {}", query, boost_terms);
+        }
+    }
+
+    let results = mubase.search_v3_with_config(
+        &query, limit, test_dampening, aux_services, aux_dampening,
+    )?;
+    let resp = build_search_response_from_results(results, &params.query)?;
     Ok(format_search_response(&resp, project_root))
 }
 
@@ -275,10 +294,27 @@ pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackCo
     // If task is provided but no node_ids, search for relevant nodes first
     if let Some(ref task) = params.task {
         if params.node_ids.is_none() {
-            let dampening = config.as_ref()
+            let test_dampening = config.as_ref()
                 .map(|c| c.filters.search_test_dampening)
                 .unwrap_or(0.3);
-            let search_results = mubase.search_v3_with_dampening(task, 20, dampening)?;
+            let aux_services = config.as_ref()
+                .map(|c| c.codebase.auxiliary_services.as_slice())
+                .unwrap_or(&[]);
+            let aux_dampening = config.as_ref()
+                .map(|c| c.filters.auxiliary_dampening)
+                .unwrap_or(1.0);
+
+            // Domain concept boosting for oracle task descriptions
+            let mut search_query = task.clone();
+            if let Some(ref cfg) = config {
+                if let Some(boost_terms) = domain_concept_boost(&search_query, &cfg.domain_concepts) {
+                    search_query = format!("{} {}", search_query, boost_terms);
+                }
+            }
+
+            let search_results = mubase.search_v3_with_config(
+                &search_query, 20, test_dampening, aux_services, aux_dampening,
+            )?;
             let ids: Vec<String> = search_results.iter().map(|r| r.node_id.clone()).collect();
             if ids.is_empty() {
                 return pack_context_tool(mubase, project_root, None, budget, style, config.as_ref());
@@ -373,10 +409,60 @@ pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limi
     Ok(format_search_response(&resp, project_root))
 }
 
-/// Like `build_search_response` but with configurable test dampening.
-fn build_search_response_with_dampening(mubase: &MUbase, query: &str, limit: usize, dampening: f32) -> Result<SearchResponse> {
-    let results = mubase.search_v3_with_dampening(query, limit, dampening)?;
+/// Extract path-hint terms from domain concepts that match the query.
+///
+/// If the query contains a domain concept keyword, extracts path hints from the
+/// concept description to bias search toward the right codebase area.
+/// E.g., concept "compliance" = "KYC in gateway-compliance, NAV in invoices-connector"
+/// + query "NAV compliance" → returns "invoices-connector" to boost search.
+fn domain_concept_boost(query: &str, concepts: &HashMap<String, String>) -> Option<String> {
+    let query_lower = query.to_lowercase();
+    let mut boost_terms = Vec::new();
 
+    for (keyword, description) in concepts {
+        if !query_lower.contains(&keyword.to_lowercase()) {
+            continue;
+        }
+        // Extract path-like tokens from the description
+        // Look for words that look like service/path names (contain - or /)
+        let desc_lower = description.to_lowercase();
+        for word in desc_lower.split_whitespace() {
+            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '/' && c != '_');
+            if clean.contains('-') || clean.contains('/') {
+                // Check if any OTHER query word biases toward this specific path
+                // e.g., "NAV" in query + "invoices-connector" in NAV context
+                let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+                let desc_words: Vec<&str> = desc_lower.split_whitespace().collect();
+
+                // Find which description segments mention this path
+                // If a query term (other than the keyword) appears near this path in the description,
+                // boost that path specifically
+                let should_boost = query_words.iter().any(|qw| {
+                    *qw != keyword.to_lowercase() && desc_words.iter().any(|dw| dw.contains(qw))
+                });
+
+                if should_boost {
+                    boost_terms.push(clean.to_string());
+                }
+            }
+        }
+
+        // If no specific path was biased by query context, don't add anything
+        // (let the keyword itself do the work)
+    }
+
+    if boost_terms.is_empty() {
+        None
+    } else {
+        Some(boost_terms.join(" "))
+    }
+}
+
+/// Build a SearchResponse from pre-computed search results.
+fn build_search_response_from_results(
+    results: Vec<crate::engine::search::SearchResult>,
+    original_query: &str,
+) -> Result<SearchResponse> {
     let mut enrichment_ids = Vec::new();
     let nodes: Vec<NodeResult> = results
         .iter()
@@ -404,7 +490,7 @@ fn build_search_response_with_dampening(mubase: &MUbase, query: &str, limit: usi
         })
         .collect();
 
-    let engine_confidence = compute_confidence(&results, query);
+    let engine_confidence = compute_confidence(&results, original_query);
     let confidence = match engine_confidence {
         EngineConfidence::High => SearchConfidence::High,
         EngineConfidence::Medium => SearchConfidence::Medium,
@@ -424,11 +510,12 @@ fn build_search_response_with_dampening(mubase: &MUbase, query: &str, limit: usi
 
     Ok(SearchResponse {
         results: nodes,
-        query: query.to_string(),
+        query: original_query.to_string(),
         confidence,
         enrichment_opportunity,
     })
 }
+
 
 // ============================================================================
 // 2. expand_nodes_tool
