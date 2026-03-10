@@ -225,6 +225,45 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
     out
 }
 
+pub fn format_impact_response(resp: &ImpactResponse) -> String {
+    let mut out = String::new();
+    let sigil = type_sigil(&resp.target.kind);
+    let _ = writeln!(out, "# Impact Analysis: {}{}", sigil, resp.target.name);
+
+    if !resp.target.node_id.is_empty() {
+        let _ = writeln!(out, "id: {}", resp.target.node_id);
+        if !resp.target.file_path.is_empty() {
+            let _ = writeln!(out, "location: {}:{}", resp.target.file_path, resp.target.line_start);
+        }
+    }
+    let _ = writeln!(out);
+
+    if resp.dependents.is_empty() {
+        let _ = writeln!(out, "No graph dependencies found.");
+        return out;
+    }
+
+    let _ = writeln!(out, "## Dependents ({} found)\n", resp.dependents.len());
+
+    for (i, dep) in resp.dependents.iter().enumerate() {
+        let dep_sigil = type_sigil(&dep.kind);
+        let edge_label = resp.edges.get(i)
+            .map(|e| e.edge_type.as_str())
+            .unwrap_or("calls");
+        let _ = writeln!(
+            out,
+            "  {}{} [{}] --[{}]--> {} | importance={:.2}",
+            dep_sigil, dep.name, dep.kind, edge_label, resp.target.name, dep.importance,
+        );
+        let _ = writeln!(out, "    id: {}", dep.node_id);
+        if !dep.file_path.is_empty() {
+            let _ = writeln!(out, "    {}", dep.file_path);
+        }
+    }
+
+    out
+}
+
 pub fn format_expand_response(resp: &ExpandResponse) -> String {
     let mut out = String::new();
     let _ = writeln!(
