@@ -1068,6 +1068,12 @@ pub async fn run(
     let pr_config = crate::engine::pagerank::PageRankConfig::default();
     let pagerank_scores = crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
 
+    // Compute in-degree per node from edges
+    let mut in_degree_map: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
+    for (_, tgt, _) in &edge_tuples {
+        *in_degree_map.entry(tgt.as_str()).or_insert(0) += 1;
+    }
+
     // Gather metadata for composite scoring
     let node_metadata: Vec<(String, crate::engine::pagerank::NodeMeta)> = nodes
         .iter()
@@ -1093,6 +1099,8 @@ pub async fn run(
                 })
                 .unwrap_or(false);
 
+            let in_degree = in_degree_map.get(n.id.as_str()).copied().unwrap_or(0);
+
             (
                 n.id.clone(),
                 crate::engine::pagerank::NodeMeta {
@@ -1100,6 +1108,7 @@ pub async fn run(
                     loc,
                     is_public,
                     is_test,
+                    in_degree,
                 },
             )
         })

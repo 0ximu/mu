@@ -146,17 +146,21 @@ pub struct NodeMeta {
     pub loc: u32,
     pub is_public: bool,
     pub is_test: bool,
+    pub in_degree: u32,
 }
 
 /// Compute composite importance scores combining PageRank, complexity, LOC, and visibility.
 ///
 /// Formula:
-///   importance = (0.40 * pagerank + 0.30 * complexity + 0.20 * loc + 0.10 * public_boost) * test_penalty
+///   importance = (0.40 * pagerank + 0.30 * complexity + 0.20 * loc + 0.10 * public_boost)
+///                * trivial_penalty * test_penalty
 ///
-/// - LOC: sigmoid curve saturating at 200 lines
-/// - Complexity: normalized to codebase P95
-/// - Public boost: 1.0 if public, 0.0 otherwise
-/// - Test penalty: 0.5x for test files
+/// Key design choices for scale independence:
+/// - PageRank normalized to [0,1] within this codebase (max PR -> 1.0)
+/// - Complexity normalized to codebase max (not P95)
+/// - LOC: sigmoid saturation at 200 lines
+/// - Public boost: 1.0 if public, 0.8 if private (not zero)
+/// - No final [0,1] normalization -- scores spread naturally
 pub fn compute_composite_importance(
     pagerank_scores: &HashMap<String, f32>,
     node_metadata: &[(String, NodeMeta)],
@@ -165,30 +169,21 @@ pub fn compute_composite_importance(
         return HashMap::new();
     }
 
-    // Compute P95 complexity from the metadata
-    let mut complexities: Vec<u32> = node_metadata
+    // Use max complexity (not P95) for normalization -- avoids compressing high-complexity outliers
+    let max_complexity = node_metadata
         .iter()
-        .map(|(_, m)| m.complexity)
-        .filter(|&c| c > 0)
-        .collect();
-    complexities.sort_unstable();
+        .map(|(_, m)| m.complexity as f32)
+        .fold(0.0_f32, f32::max)
+        .max(1.0);
 
-    let p95_complexity = if complexities.is_empty() {
-        1.0_f32
-    } else {
-        let idx = ((complexities.len() as f64 * 0.95) as usize).min(complexities.len() - 1);
-        (complexities[idx] as f32).max(1.0)
-    };
-
-    // Normalize PageRank to [0, 1] (it should already be, but be safe)
+    // Normalize PageRank to [0, 1] within this codebase
     let pr_max = pagerank_scores
         .values()
         .cloned()
         .fold(0.0_f32, f32::max)
         .max(f32::EPSILON);
 
-    // Compute raw composite scores
-    let mut raw_scores: HashMap<String, f32> = HashMap::with_capacity(node_metadata.len());
+    let mut scores: HashMap<String, f32> = HashMap::with_capacity(node_metadata.len());
 
     for (node_id, meta) in node_metadata {
         let pr = pagerank_scores
@@ -197,33 +192,29 @@ pub fn compute_composite_importance(
             .unwrap_or(0.0)
             / pr_max;
 
-        let complexity_norm = (meta.complexity as f32).min(p95_complexity) / p95_complexity;
+        let complexity_norm = (meta.complexity as f32 / max_complexity).min(1.0);
         let loc_norm = (meta.loc as f32).min(200.0) / 200.0;
-        let public_boost = if meta.is_public { 1.0_f32 } else { 0.0 };
-        let test_penalty = if meta.is_test { 0.5_f32 } else { 1.0 };
+        let public_boost = if meta.is_public { 1.0_f32 } else { 0.8 };
 
-        let score = (0.40 * pr
+        let mut score = 0.40 * pr
             + 0.30 * complexity_norm
             + 0.20 * loc_norm
-            + 0.10 * public_boost)
-            * test_penalty;
+            + 0.10 * public_boost;
 
-        raw_scores.insert(node_id.clone(), score);
-    }
-
-    // Normalize to [0, 1]
-    let max_score = raw_scores
-        .values()
-        .cloned()
-        .fold(0.0_f32, f32::max);
-
-    if max_score > 0.0 {
-        for score in raw_scores.values_mut() {
-            *score /= max_score;
+        // Dampen trivial high-fan-in utilities (tiny body + many callers = helper, not core)
+        if meta.loc < 10 && meta.in_degree > 20 {
+            score *= 0.3;
         }
+
+        // Test file penalty
+        if meta.is_test {
+            score *= 0.5;
+        }
+
+        scores.insert(node_id.clone(), score);
     }
 
-    raw_scores
+    scores
 }
 
 #[cfg(test)]
@@ -390,6 +381,17 @@ mod tests {
             loc,
             is_public,
             is_test,
+            in_degree: 0,
+        }
+    }
+
+    fn meta_with_indegree(complexity: u32, loc: u32, is_public: bool, is_test: bool, in_degree: u32) -> NodeMeta {
+        NodeMeta {
+            complexity,
+            loc,
+            is_public,
+            is_test,
+            in_degree,
         }
     }
 
@@ -447,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn composite_normalized_zero_to_one() {
+    fn composite_scores_spread_meaningfully() {
         let mut pr = HashMap::new();
         pr.insert("a".to_string(), 1.0);
         pr.insert("b".to_string(), 0.5);
@@ -461,15 +463,33 @@ mod tests {
 
         let scores = compute_composite_importance(&pr, &metadata);
 
+        // All scores should be positive
+        for (id, score) in &scores {
+            assert!(*score > 0.0, "node {} should have positive score, got {}", id, score);
+        }
+
+        // Scores should be ordered: a > b > c
+        assert!(
+            scores["a"] > scores["b"],
+            "a ({}) should outrank b ({})",
+            scores["a"],
+            scores["b"],
+        );
+        assert!(
+            scores["b"] > scores["c"],
+            "b ({}) should outrank c ({})",
+            scores["b"],
+            scores["c"],
+        );
+
+        // Score range should be meaningful (not all clustered near 0)
         let max = scores.values().cloned().fold(0.0_f32, f32::max);
         let min = scores.values().cloned().fold(f32::MAX, f32::min);
-
         assert!(
-            (max - 1.0).abs() < 1e-5,
-            "max should be ~1.0, got {}",
-            max,
+            max - min > 0.1,
+            "scores should spread meaningfully, range = {}",
+            max - min,
         );
-        assert!(min >= 0.0, "min should be >= 0, got {}", min);
     }
 
     #[test]
@@ -499,6 +519,71 @@ mod tests {
             "500 LOC ({}) should score same as 200 LOC ({})",
             scores["big"],
             scores["medium"],
+        );
+    }
+
+    #[test]
+    fn composite_trivial_utility_dampening() {
+        let mut pr = HashMap::new();
+        pr.insert("utility".to_string(), 0.8);
+        pr.insert("normal".to_string(), 0.8);
+
+        let metadata = vec![
+            ("utility".to_string(), meta_with_indegree(2, 5, true, false, 30)),
+            ("normal".to_string(), meta_with_indegree(2, 5, true, false, 5)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        assert!(
+            scores["normal"] > scores["utility"],
+            "normal ({}) should outrank utility ({}) due to trivial dampening",
+            scores["normal"],
+            scores["utility"],
+        );
+
+        // Ratio should be ~3.33 (dampened by 0.3x)
+        let ratio = scores["normal"] / scores["utility"];
+        assert!(
+            (ratio - (1.0 / 0.3)).abs() < 0.1,
+            "ratio should be ~3.33, got {}",
+            ratio,
+        );
+    }
+
+    #[test]
+    fn composite_private_gets_partial_boost() {
+        // Private nodes get 0.8 boost, not 0.0
+        let mut pr = HashMap::new();
+        pr.insert("pub_fn".to_string(), 0.5);
+        pr.insert("priv_fn".to_string(), 0.5);
+
+        let metadata = vec![
+            ("pub_fn".to_string(), meta(5, 50, true, false)),
+            ("priv_fn".to_string(), meta(5, 50, false, false)),
+        ];
+
+        let scores = compute_composite_importance(&pr, &metadata);
+
+        // Public should score higher than private
+        assert!(
+            scores["pub_fn"] > scores["priv_fn"],
+            "public ({}) should outrank private ({})",
+            scores["pub_fn"],
+            scores["priv_fn"],
+        );
+
+        // But private should NOT be zero — difference should be small (only 10% weight * 0.2 diff)
+        let diff = scores["pub_fn"] - scores["priv_fn"];
+        assert!(
+            diff < 0.05,
+            "difference should be small (only 10% * 0.2 = 0.02), got {}",
+            diff,
+        );
+        assert!(
+            diff > 0.0,
+            "difference should be positive, got {}",
+            diff,
         );
     }
 }
