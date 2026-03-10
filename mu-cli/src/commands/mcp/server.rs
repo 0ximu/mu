@@ -49,8 +49,8 @@ pub struct MuMcpServer {
 // Tool parameter structs
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindParams {
-    /// Exact symbol name to find (function, class, module)
-    #[schemars(description = "Exact symbol name to find (e.g., 'parse_config', 'UserService')")]
+    /// Exact symbol name or node ID to find
+    #[schemars(description = "Symbol name (e.g., 'parse_config') or node ID (e.g., 'fn:src/main.rs:main')")]
     pub symbol: String,
 }
 
@@ -204,27 +204,43 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// Find: Exact symbol lookup with code
+    /// Find: Exact symbol lookup with code (accepts symbol names or node IDs)
     #[tool(
-        description = "Find a specific symbol by exact name. Use this when you know the function/class name you're looking for."
+        description = "Find a specific symbol by exact name or node ID. Use this when you know the function/class name (e.g., 'parse_config') or have a node ID from other tools (e.g., 'fn:src/main.rs:main')."
     )]
     async fn mu_find(
         &self,
         Parameters(params): Parameters<FindParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
+        let symbol = &params.symbol;
 
-        let like_pattern = format!("%.{}", params.symbol);
-        let result = state
-            .mubase
-            .query_params(
-                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = ?1 OR name LIKE ?2 LIMIT 10",
-                &[&params.symbol as &dyn duckdb::ToSql, &like_pattern],
+        // Detect if input is a node ID (has known prefix)
+        let is_node_id = symbol.starts_with("fn:")
+            || symbol.starts_with("cls:")
+            || symbol.starts_with("mod:")
+            || symbol.starts_with("ext:")
+            || symbol.starts_with("msg:");
+
+        let result = if is_node_id {
+            state.mubase.query_params(
+                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE id = ?1 LIMIT 1",
+                &[&symbol.as_str()],
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        } else {
+            state.mubase.query_params(
+                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = ?1 OR qualified_name LIKE '%.' || ?1 LIMIT 10",
+                &[&symbol.as_str()],
+            )
+        }
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let mut output = String::new();
-        output.push_str(&format!("# find: \"{}\"\n", params.symbol));
+        if is_node_id {
+            output.push_str(&format!("# find: \"{}\" (node ID lookup)\n", symbol));
+        } else {
+            output.push_str(&format!("# find: \"{}\"\n", symbol));
+        }
         output.push_str(&format!("# {} matches\n\n", result.rows.len()));
 
         for row in &result.rows {
