@@ -20,20 +20,16 @@ pub enum SearchConfidence {
     NoResults,
 }
 
-/// Compute confidence from search result scores and match types.
+/// Compute confidence from search result scores using distribution analysis.
 ///
-/// Rules (in priority order):
-/// 1. Empty results -> NoResults
-/// 2. Any exact match -> High
-/// 3. Top score < 0.10 -> Low (barely beat random)
-/// 4. Gap between #1 and #2 > 0.15 -> High (clear winner)
-/// 5. Top score > 0.30 -> Medium
-/// 6. Otherwise -> Low
+/// Uses score spread (top vs median) and coefficient of variation instead
+/// of absolute thresholds — works identically on small and large codebases.
 pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
     if results.is_empty() {
         return SearchConfidence::NoResults;
     }
 
+    // Exact match always HIGH
     if results
         .iter()
         .any(|r| r.match_type == MatchType::ExactName || r.match_type == MatchType::ExactQualifiedName)
@@ -41,24 +37,58 @@ pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
         return SearchConfidence::High;
     }
 
-    let top_score = results[0].score;
+    let scores: Vec<f32> = results.iter().map(|r| r.score).collect();
+    let top = scores[0];
+    let count = scores.len();
 
-    if top_score < 0.10 {
-        return SearchConfidence::Low;
+    // If only 1-2 results, use simple threshold
+    if count <= 2 {
+        return if top > 0.10 {
+            SearchConfidence::Medium
+        } else {
+            SearchConfidence::Low
+        };
     }
 
-    if results.len() >= 2 {
-        let gap = results[0].score - results[1].score;
-        if gap > 0.15 {
-            return SearchConfidence::High;
-        }
-    }
+    // Distribution-based confidence:
+    // Compare top score to the MEDIAN score, not to absolute thresholds
+    let median = scores[count / 2];
+    let mean: f32 = scores.iter().sum::<f32>() / count as f32;
 
-    if top_score > 0.30 {
-        return SearchConfidence::Medium;
-    }
+    // Score spread: how much does the top result stand out?
+    let spread = if median > 0.001 {
+        top / median
+    } else {
+        top * 100.0
+    };
 
-    SearchConfidence::Low
+    // Variance: are scores clustered or spread out?
+    let variance: f32 = scores.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / count as f32;
+    let cv = if mean > 0.001 {
+        variance.sqrt() / mean
+    } else {
+        0.0
+    };
+
+    // Decision matrix:
+    // High spread (top >> median) + any variance = the query found something specific
+    // Low spread (top ≈ median) + low variance = flat results, probably noise
+
+    if top < 0.08 {
+        // Absolute floor — even relative scoring can't save truly terrible matches
+        SearchConfidence::Low
+    } else if spread > 2.0 {
+        // Top result is 2x+ the median — clear winner
+        SearchConfidence::High
+    } else if spread > 1.3 && cv > 0.2 {
+        // Moderate separation with meaningful score variance
+        SearchConfidence::Medium
+    } else if cv < 0.1 {
+        // Very flat distribution — scores are all the same, nothing stood out
+        SearchConfidence::Low
+    } else {
+        SearchConfidence::Medium
+    }
 }
 
 /// How a result was matched.
@@ -557,6 +587,13 @@ mod tests {
         }
     }
 
+    fn make_results(scores: &[f32]) -> Vec<SearchResult> {
+        scores
+            .iter()
+            .map(|&s| make_result(s, MatchType::Bm25))
+            .collect()
+    }
+
     #[test]
     fn test_confidence_empty_results() {
         assert_eq!(compute_confidence(&[]), SearchConfidence::NoResults);
@@ -575,45 +612,64 @@ mod tests {
     }
 
     #[test]
-    fn test_confidence_low_top_score() {
+    fn test_confidence_single_low_score_is_low() {
+        // count <= 2, top <= 0.10
         let results = vec![make_result(0.05, MatchType::Bm25)];
         assert_eq!(compute_confidence(&results), SearchConfidence::Low);
     }
 
     #[test]
-    fn test_confidence_clear_gap_is_high() {
-        let results = vec![
-            make_result(0.50, MatchType::Bm25),
-            make_result(0.20, MatchType::Bm25),
-        ];
-        // gap = 0.30 > 0.15
+    fn test_confidence_single_decent_score_is_medium() {
+        // count <= 2, top > 0.10
+        let results = vec![make_result(0.50, MatchType::Bm25)];
+        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+    }
+
+    #[test]
+    fn test_confidence_clear_winner_high_spread() {
+        // Top result is 2x+ the median → HIGH
+        // scores: 0.50, 0.25, 0.20, 0.15, 0.10
+        // median (index 2) = 0.20, spread = 0.50/0.20 = 2.5
+        let results = make_results(&[0.50, 0.25, 0.20, 0.15, 0.10]);
         assert_eq!(compute_confidence(&results), SearchConfidence::High);
     }
 
     #[test]
-    fn test_confidence_strong_score_no_gap_is_medium() {
-        let results = vec![
-            make_result(0.40, MatchType::Bm25),
-            make_result(0.35, MatchType::Bm25),
-        ];
-        // gap = 0.05, not > 0.15; top_score > 0.30
-        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
-    }
-
-    #[test]
-    fn test_confidence_weak_scores_close_together_is_low() {
-        let results = vec![
-            make_result(0.15, MatchType::Bm25),
-            make_result(0.12, MatchType::Bm25),
-        ];
-        // gap = 0.03, not > 0.15; top_score = 0.15 not > 0.30
+    fn test_confidence_flat_distribution_is_low() {
+        // All scores similar → low CV → LOW
+        // scores: 0.12, 0.11, 0.11, 0.10, 0.10
+        // spread = 0.12/0.11 ≈ 1.09, cv very small
+        let results = make_results(&[0.12, 0.11, 0.11, 0.10, 0.10]);
         assert_eq!(compute_confidence(&results), SearchConfidence::Low);
     }
 
     #[test]
-    fn test_confidence_single_strong_result_is_medium() {
-        // Only one result, score > 0.30, no gap check possible
-        let results = vec![make_result(0.50, MatchType::Bm25)];
+    fn test_confidence_moderate_spread_with_variance_is_medium() {
+        // spread 1.3-2.0 with cv > 0.2 → MEDIUM
+        // scores: 0.40, 0.35, 0.25, 0.15, 0.10
+        // median = 0.25, spread = 0.40/0.25 = 1.6, decent variance
+        let results = make_results(&[0.40, 0.35, 0.25, 0.15, 0.10]);
         assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+    }
+
+    #[test]
+    fn test_confidence_absolute_floor() {
+        // Even with some spread, top < 0.08 → LOW
+        let results = make_results(&[0.06, 0.03, 0.02, 0.01, 0.01]);
+        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+    }
+
+    #[test]
+    fn test_confidence_two_results_above_threshold() {
+        // count <= 2, top > 0.10
+        let results = make_results(&[0.40, 0.35]);
+        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+    }
+
+    #[test]
+    fn test_confidence_two_results_below_threshold() {
+        // count <= 2, top <= 0.10
+        let results = make_results(&[0.08, 0.05]);
+        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
     }
 }
