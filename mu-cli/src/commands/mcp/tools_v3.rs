@@ -1,10 +1,16 @@
 //! V3 MCP tool implementations.
 //!
 //! Pure functions that take a MUbase and return formatted strings.
-//! Called from the tool handlers in server.rs.
+//! Each tool builds a structured response (from super::responses) first,
+//! then formats it into markdown. Called from the tool handlers in server.rs.
 
 use anyhow::Result;
 use crate::engine::storage::{MUbase, Node};
+use super::responses::{
+    NodeResult, EdgeResult, SearchResponse, SearchConfidence, EnrichmentHint,
+    ExpandResponse, ReadResponse, ReadNodeResult,
+    format_search_response, format_expand_response, format_read_response,
+};
 use rmcp::schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -138,102 +144,92 @@ pub fn handle_enrich_nodes(mubase: &MUbase, params: &EnrichNodesParams) -> Resul
 // 1. search_nodes_tool
 // ============================================================================
 
-/// Search the code graph using the V3 three-phase cascade.
-pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limit: usize) -> Result<String> {
+/// Build a structured SearchResponse from search results.
+pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Result<SearchResponse> {
     let results = mubase.search_v3(query, limit)?;
 
-    let mut out = String::new();
-    writeln!(out, "# search: \"{}\"", query)?;
-    writeln!(out, "# {} results\n", results.len())?;
+    let mut enrichment_ids = Vec::new();
 
-    if results.is_empty() {
-        writeln!(out, "No results found. Try broader terms or check `mu_compress` for available symbols.")?;
-        return Ok(out);
-    }
+    let nodes: Vec<NodeResult> = results
+        .iter()
+        .map(|r| {
+            let match_label = match r.match_type {
+                crate::engine::search::MatchType::ExactName => "exact",
+                crate::engine::search::MatchType::ExactQualifiedName => "exact-qn",
+                crate::engine::search::MatchType::Bm25 => "bm25",
+            };
 
-    let mut has_enrichment_opportunity = false;
-
-    for (i, r) in results.iter().enumerate() {
-        let sigil = type_sigil(&r.node_type);
-        let match_label = match r.match_type {
-            crate::engine::search::MatchType::ExactName => "exact",
-            crate::engine::search::MatchType::ExactQualifiedName => "exact-qn",
-            crate::engine::search::MatchType::Bm25 => "bm25",
-        };
-
-        let location = match (&r.file_path, r.line_start) {
-            (Some(fp), Some(ls)) => format!("{}:{}", fp, ls),
-            (Some(fp), None) => fp.clone(),
-            _ => "unknown".to_string(),
-        };
-
-        writeln!(
-            out,
-            "{}. {}{} [{}] -- {} | score={:.2} ({}) | importance={:.2}",
-            i + 1, sigil, r.name, r.node_type, location, r.score, match_label, r.importance_score,
-        )?;
-
-        if let Some(ref summary) = r.summary_text {
-            let snippet = truncate_str(summary, 200);
-            writeln!(out, "   {}", snippet)?;
-        }
-
-        // Show source snippet for exact matches
-        if r.match_type != crate::engine::search::MatchType::Bm25 {
-            if let Some(ref fp) = r.file_path {
-                let full_path = project_root.join(fp);
-                if let Some(snippet) = read_source_lines(&full_path, r.line_start, r.line_end, 15) {
-                    writeln!(out, "   ```")?;
-                    for line in snippet.lines() {
-                        writeln!(out, "   {}", line)?;
-                    }
-                    writeln!(out, "   ```")?;
-                }
+            if r.importance_score > 0.3 && r.summary_text.is_none() {
+                enrichment_ids.push(r.node_id.clone());
             }
-        }
 
-        if r.importance_score > 0.3 && r.summary_text.is_none() {
-            has_enrichment_opportunity = true;
-        }
+            NodeResult {
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                kind: r.node_type.clone(),
+                file_path: r.file_path.clone().unwrap_or_default(),
+                line_start: r.line_start.unwrap_or(0),
+                line_end: r.line_end.unwrap_or(0),
+                score: Some(r.score),
+                match_type: Some(match_label.to_string()),
+                importance: r.importance_score,
+                summary: r.summary_text.clone(),
+            }
+        })
+        .collect();
 
-        writeln!(out)?;
-    }
+    let confidence = if nodes.is_empty() {
+        SearchConfidence::NoResults
+    } else if nodes.iter().any(|n| n.match_type.as_deref() == Some("exact") || n.match_type.as_deref() == Some("exact-qn")) {
+        SearchConfidence::High
+    } else if nodes.first().map(|n| n.score.unwrap_or(0.0) > 0.5).unwrap_or(false) {
+        SearchConfidence::Medium
+    } else {
+        SearchConfidence::Low
+    };
 
-    if has_enrichment_opportunity {
-        writeln!(out, "---")?;
-        writeln!(
-            out,
-            "hint: Some high-importance results lack LLM summaries. \
-             Use `mu_enrich` to improve search quality."
-        )?;
-    }
+    let enrichment_opportunity = if enrichment_ids.is_empty() {
+        None
+    } else {
+        Some(EnrichmentHint {
+            node_ids: enrichment_ids,
+            message: "Some high-importance results lack LLM summaries. \
+                      Use `mu_enrich` to improve search quality.".to_string(),
+        })
+    };
 
-    Ok(out)
+    Ok(SearchResponse {
+        results: nodes,
+        query: query.to_string(),
+        confidence,
+        enrichment_opportunity,
+    })
+}
+
+/// Search the code graph using the V3 three-phase cascade.
+pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limit: usize) -> Result<String> {
+    let resp = build_search_response(mubase, query, limit)?;
+    Ok(format_search_response(&resp, project_root))
 }
 
 // ============================================================================
 // 2. expand_nodes_tool
 // ============================================================================
 
-/// Expand the graph neighborhood around seed nodes.
-pub fn expand_nodes_tool(
+/// Build a structured ExpandResponse from graph traversal.
+pub fn build_expand_response(
     mubase: &MUbase,
     node_ids: &[String],
     depth: u8,
     edge_types: Option<&[String]>,
     direction: &str,
-) -> Result<String> {
-    let mut out = String::new();
-    writeln!(out, "# expand: {} seed(s), depth={}, direction={}", node_ids.len(), depth, direction)?;
-
+) -> Result<ExpandResponse> {
     if node_ids.is_empty() {
-        writeln!(out, "No seed nodes provided.")?;
-        return Ok(out);
-    }
-
-    if !["outgoing", "incoming", "both"].contains(&direction) {
-        writeln!(out, "Invalid direction '{}'. Use: outgoing, incoming, both", direction)?;
-        return Ok(out);
+        return Ok(ExpandResponse {
+            seed_nodes: Vec::new(),
+            neighbors: Vec::new(),
+            edges: Vec::new(),
+        });
     }
 
     let edge_filter = edge_types
@@ -246,7 +242,9 @@ pub fn expand_nodes_tool(
 
     let mut visited: HashSet<String> = HashSet::new();
     let mut frontier: Vec<String> = node_ids.to_vec();
-    let mut all_edges: Vec<(String, String, String, String)> = Vec::new();
+    // (source_id, source_name, target_id, target_name, edge_type)
+    let mut all_edges: Vec<(String, String, String, String, String)> = Vec::new();
+    // node_id -> (name, type, file_path)
     let mut node_info: HashMap<String, (String, String, Option<String>)> = HashMap::new();
 
     for nid in &frontier {
@@ -256,7 +254,7 @@ pub fn expand_nodes_tool(
         visited.insert(nid.clone());
     }
 
-    for current_depth in 0..depth {
+    for _current_depth in 0..depth {
         if frontier.is_empty() {
             break;
         }
@@ -287,7 +285,7 @@ pub fn expand_nodes_tool(
                             .map(|(n, _, _)| n.clone())
                             .unwrap_or_else(|| source_id.clone());
 
-                        all_edges.push((source_name, target_name.clone(), etype, target_id.clone()));
+                        all_edges.push((source_id.clone(), source_name, target_id.clone(), target_name.clone(), etype));
                         node_info
                             .entry(target_id.clone())
                             .or_insert((target_name, target_ntype, target_file));
@@ -321,7 +319,7 @@ pub fn expand_nodes_tool(
                             .map(|(n, _, _)| n.clone())
                             .unwrap_or_else(|| target_id.clone());
 
-                        all_edges.push((source_name.clone(), target_name, etype, source_id.clone()));
+                        all_edges.push((source_id.clone(), source_name.clone(), target_id.clone(), target_name, etype));
                         node_info
                             .entry(source_id.clone())
                             .or_insert((source_name, source_ntype, source_file));
@@ -336,58 +334,99 @@ pub fn expand_nodes_tool(
         }
 
         frontier = next_frontier;
-        writeln!(out, "# depth {} -> {} new nodes discovered", current_depth + 1, frontier.len())?;
     }
 
-    writeln!(out)?;
+    // Build structured response
+    let seed_set: HashSet<&String> = node_ids.iter().collect();
 
-    writeln!(out, "## Nodes ({})", node_info.len())?;
-    let mut sorted_nodes: Vec<_> = node_info.iter().collect();
-    sorted_nodes.sort_by(|(a, _), (b, _)| a.cmp(b));
-    for (id, (name, ntype, file_path)) in &sorted_nodes {
-        let sigil = type_sigil(ntype);
-        let loc = file_path.as_deref().unwrap_or("");
-        let seed_marker = if node_ids.contains(id) { " [seed]" } else { "" };
-        writeln!(out, "  {}{} [{}] -- {}{}", sigil, name, ntype, loc, seed_marker)?;
-    }
+    let mut seed_nodes = Vec::new();
+    let mut neighbors = Vec::new();
 
-    writeln!(out)?;
+    let mut sorted_ids: Vec<_> = node_info.keys().cloned().collect();
+    sorted_ids.sort();
 
-    writeln!(out, "## Edges ({})", all_edges.len())?;
-    let mut seen_edges: HashSet<String> = HashSet::new();
-    for (src, tgt, etype, _) in &all_edges {
-        let key = format!("{}->{}->{}", src, etype, tgt);
-        if seen_edges.insert(key) {
-            writeln!(out, "  {} --[{}]--> {}", src, etype, tgt)?;
+    for id in sorted_ids {
+        let (name, ntype, file_path) = node_info.get(&id).unwrap();
+        let node = NodeResult {
+            node_id: id.clone(),
+            name: name.clone(),
+            kind: ntype.clone(),
+            file_path: file_path.clone().unwrap_or_default(),
+            line_start: 0,
+            line_end: 0,
+            score: None,
+            match_type: None,
+            importance: 0.0,
+            summary: None,
+        };
+        if seed_set.contains(&id) {
+            seed_nodes.push(node);
+        } else {
+            neighbors.push(node);
         }
     }
 
-    Ok(out)
+    // Dedup edges
+    let mut seen_edges: HashSet<String> = HashSet::new();
+    let edges: Vec<EdgeResult> = all_edges
+        .into_iter()
+        .filter(|(src_id, _, tgt_id, _, etype)| {
+            let key = format!("{}->{}->{}", src_id, etype, tgt_id);
+            seen_edges.insert(key)
+        })
+        .map(|(source_id, source_name, target_id, target_name, edge_type)| EdgeResult {
+            source_id,
+            source_name,
+            target_id,
+            target_name,
+            edge_type,
+        })
+        .collect();
+
+    Ok(ExpandResponse {
+        seed_nodes,
+        neighbors,
+        edges,
+    })
+}
+
+/// Expand the graph neighborhood around seed nodes.
+pub fn expand_nodes_tool(
+    mubase: &MUbase,
+    node_ids: &[String],
+    depth: u8,
+    edge_types: Option<&[String]>,
+    direction: &str,
+) -> Result<String> {
+    if node_ids.is_empty() {
+        let mut out = String::new();
+        writeln!(out, "# expand: 0 seed(s), depth={}, direction={}", depth, direction)?;
+        writeln!(out, "No seed nodes provided.")?;
+        return Ok(out);
+    }
+
+    if !["outgoing", "incoming", "both"].contains(&direction) {
+        let mut out = String::new();
+        writeln!(out, "Invalid direction '{}'. Use: outgoing, incoming, both", direction)?;
+        return Ok(out);
+    }
+
+    let resp = build_expand_response(mubase, node_ids, depth, edge_types, direction)?;
+    Ok(format_expand_response(&resp))
 }
 
 // ============================================================================
 // 3. read_nodes_tool
 // ============================================================================
 
-/// Read detailed information about specific nodes.
-pub fn read_nodes_tool(
+/// Build a structured ReadResponse from node lookups.
+pub fn build_read_response(
     mubase: &MUbase,
     project_root: &Path,
     node_ids: &[String],
     mode: &str,
-) -> Result<String> {
-    let mut out = String::new();
-    writeln!(out, "# read: {} node(s), mode={}\n", node_ids.len(), mode)?;
-
-    if node_ids.is_empty() {
-        writeln!(out, "No node IDs provided.")?;
-        return Ok(out);
-    }
-
-    if !["signature", "summary", "source", "full"].contains(&mode) {
-        writeln!(out, "Invalid mode '{}'. Use: signature, summary, source, full", mode)?;
-        return Ok(out);
-    }
+) -> Result<ReadResponse> {
+    let mut nodes = Vec::new();
 
     for nid in node_ids {
         let escaped = nid.replace('\'', "''");
@@ -400,145 +439,128 @@ pub fn read_nodes_tool(
 
         let result = mubase.query(&sql)?;
         if result.rows.is_empty() {
-            writeln!(out, "## {} -- NOT FOUND\n", nid)?;
             continue;
         }
 
         let row = &result.rows[0];
         let node_type = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
         let name = row.get(2).and_then(|v| v.as_str()).unwrap_or("?");
-        let qualified_name = row.get(3).and_then(|v| v.as_str());
         let file_path = row.get(4).and_then(|v| v.as_str());
         let line_start = row.get(5).and_then(|v| v.as_i64()).map(|v| v as u32);
         let line_end = row.get(6).and_then(|v| v.as_i64()).map(|v| v as u32);
-        let complexity = row.get(7).and_then(|v| v.as_i64()).unwrap_or(0);
-        let source_text = row.get(8).and_then(|v| v.as_str());
+        let source_text_db = row.get(8).and_then(|v| v.as_str());
         let summary_text = row.get(9).and_then(|v| v.as_str());
-        let summary_source = row.get(10).and_then(|v| v.as_str());
         let importance = row.get(11).and_then(|v| v.as_f64()).unwrap_or(0.0);
 
-        let sigil = type_sigil(node_type);
-        let location = match (file_path, line_start, line_end) {
-            (Some(fp), Some(ls), Some(le)) => format!("{}:{}-{}", fp, ls, le),
-            (Some(fp), Some(ls), None) => format!("{}:{}", fp, ls),
-            (Some(fp), _, _) => fp.to_string(),
-            _ => "unknown".to_string(),
+        let node = NodeResult {
+            node_id: nid.clone(),
+            name: name.to_string(),
+            kind: node_type.to_string(),
+            file_path: file_path.unwrap_or("").to_string(),
+            line_start: line_start.unwrap_or(0),
+            line_end: line_end.unwrap_or(0),
+            score: None,
+            match_type: None,
+            importance: importance as f32,
+            summary: summary_text.map(|s| s.to_string()),
         };
 
-        writeln!(out, "## {}{} [{}]", sigil, name, node_type)?;
-        writeln!(out, "id: {}", nid)?;
-        if let Some(qn) = qualified_name {
-            writeln!(out, "qualified: {}", qn)?;
-        }
-        writeln!(out, "location: {}", location)?;
-        writeln!(out, "complexity: {} | importance: {:.2}", complexity, importance)?;
-        if let Some(ss) = summary_source {
-            writeln!(out, "summary_source: {}", ss)?;
-        }
-
-        match mode {
-            "signature" => {
-                if let Some(src) = source_text {
-                    if let Some(sig) = extract_signature_line(src) {
-                        writeln!(out, "\n```")?;
-                        writeln!(out, "{}", sig)?;
-                        writeln!(out, "```")?;
-                    }
-                } else if let Some(fp) = file_path {
-                    let full_path = project_root.join(fp);
-                    if let Some(snippet) = read_source_lines(&full_path, line_start, line_start.map(|s| s + 1), 2) {
-                        writeln!(out, "\n```")?;
-                        writeln!(out, "{}", snippet.trim_end())?;
-                        writeln!(out, "```")?;
-                    }
-                }
-            }
-            "summary" => {
-                if let Some(summary) = summary_text {
-                    writeln!(out, "\n{}", summary)?;
-                } else {
-                    writeln!(out, "\nNo summary available. Use `mu_enrich` to generate one.")?;
-                }
-            }
-            "source" => {
-                let source = if let Some(src) = source_text {
-                    Some(src.to_string())
-                } else if let Some(fp) = file_path {
+        // Resolve source text
+        let source = source_text_db
+            .map(|s| s.to_string())
+            .or_else(|| {
+                file_path.and_then(|fp| {
                     let full_path = project_root.join(fp);
                     read_source_lines(&full_path, line_start, line_end, 100)
-                } else {
-                    None
-                };
+                })
+            });
 
-                if let Some(src) = source {
-                    writeln!(out, "\n```")?;
-                    for line in src.lines().take(100) {
-                        writeln!(out, "{}", line)?;
-                    }
-                    writeln!(out, "```")?;
-                } else {
-                    writeln!(out, "\nSource not available.")?;
-                }
+        // Extract signature
+        let signature = source_text_db
+            .and_then(extract_signature_line)
+            .or_else(|| source.as_deref().and_then(extract_signature_line));
+
+        // Neighbors (only for full mode)
+        let neighbors = if mode == "full" {
+            let neighbor_sql = format!(
+                "SELECT DISTINCT n.id, n.name, n.type, n.file_path, e.type AS etype \
+                 FROM edges e JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id) \
+                 WHERE (e.source_id = '{}' OR e.target_id = '{}') AND n.id != '{}' \
+                 LIMIT 20",
+                escaped, escaped, escaped
+            );
+            if let Ok(neighbor_result) = mubase.query(&neighbor_sql) {
+                neighbor_result.rows.iter().map(|nrow| {
+                    let n_id = nrow.first().and_then(|v| v.as_str()).unwrap_or("?");
+                    let n_name = nrow.get(1).and_then(|v| v.as_str()).unwrap_or("?");
+                    let n_type = nrow.get(2).and_then(|v| v.as_str()).unwrap_or("?");
+                    let n_file = nrow.get(3).and_then(|v| v.as_str()).unwrap_or("");
+                    let edge_type = nrow.get(4).and_then(|v| v.as_str()).unwrap_or("related");
+
+                    (edge_type.to_string(), NodeResult {
+                        node_id: n_id.to_string(),
+                        name: n_name.to_string(),
+                        kind: n_type.to_string(),
+                        file_path: n_file.to_string(),
+                        line_start: 0,
+                        line_end: 0,
+                        score: None,
+                        match_type: None,
+                        importance: 0.0,
+                        summary: None,
+                    })
+                }).collect()
+            } else {
+                Vec::new()
             }
-            "full" => {
-                let source = if let Some(src) = source_text {
-                    Some(src.to_string())
-                } else if let Some(fp) = file_path {
-                    let full_path = project_root.join(fp);
-                    read_source_lines(&full_path, line_start, line_end, 100)
-                } else {
-                    None
-                };
+        } else {
+            Vec::new()
+        };
 
-                if let Some(ref src) = source {
-                    writeln!(out, "\n```")?;
-                    for line in src.lines().take(100) {
-                        writeln!(out, "{}", line)?;
-                    }
-                    writeln!(out, "```")?;
-                }
+        nodes.push(ReadNodeResult {
+            node,
+            source_text: source,
+            signature,
+            neighbors,
+        });
+    }
 
-                if let Some(summary) = summary_text {
-                    writeln!(out, "\nSummary: {}", summary)?;
-                }
+    Ok(ReadResponse {
+        nodes,
+        mode: mode.to_string(),
+    })
+}
 
-                let neighbor_sql = format!(
-                    "SELECT DISTINCT n.name, n.type, n.file_path, n.source_text, e.type AS etype \
-                     FROM edges e JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id) \
-                     WHERE (e.source_id = '{}' OR e.target_id = '{}') AND n.id != '{}' \
-                     LIMIT 20",
-                    escaped, escaped, escaped
-                );
-                if let Ok(neighbors) = mubase.query(&neighbor_sql) {
-                    if !neighbors.rows.is_empty() {
-                        writeln!(out, "\n### Neighbors")?;
-                        for nrow in &neighbors.rows {
-                            let n_name = nrow.first().and_then(|v| v.as_str()).unwrap_or("?");
-                            let n_type = nrow.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                            let n_file = nrow.get(2).and_then(|v| v.as_str()).unwrap_or("");
-                            let n_source = nrow.get(3).and_then(|v| v.as_str());
-                            let edge_type = nrow.get(4).and_then(|v| v.as_str()).unwrap_or("related");
+/// Read detailed information about specific nodes.
+pub fn read_nodes_tool(
+    mubase: &MUbase,
+    project_root: &Path,
+    node_ids: &[String],
+    mode: &str,
+) -> Result<String> {
+    if node_ids.is_empty() {
+        let mut out = String::new();
+        writeln!(out, "# read: 0 node(s), mode={}\n", mode)?;
+        writeln!(out, "No node IDs provided.")?;
+        return Ok(out);
+    }
 
-                            let n_sigil = type_sigil(n_type);
-                            write!(out, "  {} {}{} [{}]", edge_type, n_sigil, n_name, n_type)?;
-                            if !n_file.is_empty() {
-                                write!(out, " -- {}", n_file)?;
-                            }
-                            writeln!(out)?;
+    if !["signature", "summary", "source", "full"].contains(&mode) {
+        let mut out = String::new();
+        writeln!(out, "Invalid mode '{}'. Use: signature, summary, source, full", mode)?;
+        return Ok(out);
+    }
 
-                            if let Some(src) = n_source {
-                                if let Some(sig) = extract_signature_line(src) {
-                                    writeln!(out, "    `{}`", truncate_str(&sig, 100))?;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => unreachable!(),
+    let resp = build_read_response(mubase, project_root, node_ids, mode)?;
+
+    // Check for not-found nodes
+    let found_ids: HashSet<&str> = resp.nodes.iter().map(|rn| rn.node.node_id.as_str()).collect();
+    let mut out = format_read_response(&resp, project_root);
+
+    for nid in node_ids {
+        if !found_ids.contains(nid.as_str()) {
+            let _ = writeln!(out, "## {} -- NOT FOUND\n", nid);
         }
-
-        writeln!(out)?;
     }
 
     Ok(out)
@@ -650,8 +672,8 @@ pub fn pack_context_tool(
 
             if let Some(ref src) = source {
                 let full_block = format!(
-                    "### {}{} [{}]\n```\n{}\n```\n",
-                    sigil, node.name, node.node_type, src
+                    "### {}{} [{}]\nid: {}\n```\n{}\n```\n",
+                    sigil, node.name, node.node_type, node.id, src
                 );
                 let block_tokens = approx_tokens(&full_block);
 
@@ -671,8 +693,8 @@ pub fn pack_context_tool(
             let summary = node.summary_text.as_deref().unwrap_or("(no summary)");
 
             let degraded_block = format!(
-                "### {}{} [{}]\n`{}`\n{}\n",
-                sigil, node.name, node.node_type, sig, summary
+                "### {}{} [{}]\nid: {}\n`{}`\n{}\n",
+                sigil, node.name, node.node_type, node.id, sig, summary
             );
             let block_tokens = approx_tokens(&degraded_block);
 
