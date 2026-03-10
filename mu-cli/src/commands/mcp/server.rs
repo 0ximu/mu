@@ -8,7 +8,6 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
-use std::time::Instant;
 
 use super::tools_v3;
 
@@ -215,15 +214,13 @@ impl MuMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        let sql = format!(
-            "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = '{}' OR name LIKE '%.{}' LIMIT 10",
-            params.symbol.replace('\'', "''"),
-            params.symbol.replace('\'', "''")
-        );
-
+        let like_pattern = format!("%.{}", params.symbol);
         let result = state
             .mubase
-            .query(&sql)
+            .query_params(
+                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = ?1 OR name LIKE ?2 LIMIT 10",
+                &[&params.symbol as &dyn duckdb::ToSql, &like_pattern],
+            )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let mut output = String::new();
@@ -405,17 +402,15 @@ impl MuMcpServer {
         output.push_str(&format!("# Impact Analysis: {}\n\n", params.symbol));
 
         // First, try the graph-based approach
-        let sql = format!(
-            "SELECT DISTINCT n.name, n.type, n.file_path FROM edges e
-             JOIN nodes n ON n.id = e.source_id
-             WHERE e.target_id IN (SELECT id FROM nodes WHERE name = '{}')
-             LIMIT 50",
-            params.symbol.replace('\'', "''")
-        );
-
         let result = state
             .mubase
-            .query(&sql)
+            .query_params(
+                "SELECT DISTINCT n.name, n.type, n.file_path FROM edges e
+                 JOIN nodes n ON n.id = e.source_id
+                 WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
+                 LIMIT 50",
+                &[&params.symbol as &dyn duckdb::ToSql],
+            )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let graph_count = result.rows.len();
@@ -433,18 +428,16 @@ impl MuMcpServer {
 
         // Cross-service edges (MassTransit pub/sub, HTTP, contracts)
         if params.cross_service.unwrap_or(false) {
-            let cs_sql = format!(
+            if let Ok(cs_result) = state.mubase.query_params(
                 "SELECT DISTINCT e.type, n2.name, n2.type, n2.file_path, e.properties
                  FROM edges e
                  JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id
                  JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id
-                 WHERE n.name = '{}'
+                 WHERE n.name = ?1
                  AND e.type IN ('publishes', 'subscribes', 'calls_http', 'uses_contract')
                  LIMIT 30",
-                params.symbol.replace('\'', "''")
-            );
-
-            if let Ok(cs_result) = state.mubase.query(&cs_sql) {
+                &[&params.symbol as &dyn duckdb::ToSql],
+            ) {
                 if !cs_result.rows.is_empty() {
                     output.push_str(&format!(
                         "## Cross-Service Edges ({} found)\n",
@@ -638,15 +631,14 @@ impl MuMcpServer {
         output.push_str("# Suspicious Code Report\n\n");
 
         // High complexity
-        let complex_sql = format!(
-            "SELECT name, type, file_path, complexity FROM nodes
-             WHERE complexity >= {} AND type = 'function'
-             ORDER BY complexity DESC LIMIT 15",
-            min_complexity
-        );
         let complex = state
             .mubase
-            .query(&complex_sql)
+            .query_params(
+                "SELECT name, type, file_path, complexity FROM nodes
+                 WHERE complexity >= ?1 AND type = 'function'
+                 ORDER BY complexity DESC LIMIT 15",
+                &[&min_complexity as &dyn duckdb::ToSql],
+            )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !complex.rows.is_empty() {
@@ -842,11 +834,10 @@ impl MuMcpServer {
         }
 
         // Database info
-        let sql = format!(
-            "SELECT type, name, complexity FROM nodes WHERE file_path = '{}' ORDER BY line_start",
-            file_path.replace('\'', "''")
-        );
-        if let Ok(nodes) = state.mubase.query(&sql) {
+        if let Ok(nodes) = state.mubase.query_params(
+            "SELECT type, name, complexity FROM nodes WHERE file_path = ?1 ORDER BY line_start",
+            &[&file_path as &dyn duckdb::ToSql],
+        ) {
             if !nodes.rows.is_empty() {
                 output.push_str("\n## Symbols in file\n");
                 for row in &nodes.rows {
