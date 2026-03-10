@@ -248,19 +248,23 @@ fn rule_orphaned_fns(
     mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
-    // Find functions that have no incoming 'calls' edges and aren't entry points
+    // Find functions that have no incoming call/dispatch edges and aren't entry points
     let sql = r#"
         SELECT n.name, n.file_path, n.line_start
         FROM nodes n
         WHERE n.type = 'function'
           AND n.id NOT IN (
-            SELECT DISTINCT e.target_id FROM edges e WHERE e.type = 'calls'
+            SELECT DISTINCT e.target_id FROM edges e
+            WHERE e.type IN ('calls', 'macro_dispatch', 'trait_impl', 'di_registration', 'decorator_dispatch')
           )
           AND n.name NOT IN ('main', '__init__', '__new__', 'setup', 'teardown',
                              'setUp', 'tearDown', 'test', 'configure', 'run',
-                             'build', 'create', 'init', 'new', 'default')
+                             'build', 'create', 'init', 'new', 'default',
+                             'to_table', 'fmt', 'from', 'from_str', 'clone', 'drop',
+                             'deref', 'display', 'into', 'get_info', 'on_roots_list_changed')
           AND n.name NOT LIKE 'test_%'
           AND n.name NOT LIKE 'Test%'
+          AND (n.properties IS NULL OR n.properties NOT LIKE '%dispatch_type%')
         ORDER BY n.file_path, n.line_start
     "#;
 
