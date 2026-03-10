@@ -3,6 +3,7 @@
 //! Exposes MU capabilities as MCP tools that AI assistants like Claude can use
 //! to understand and query codebases.
 
+pub mod responses;
 mod server;
 mod tools_v3;
 
