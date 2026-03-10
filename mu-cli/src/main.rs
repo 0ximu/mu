@@ -9,6 +9,7 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 mod cache;
 mod commands;
 mod config;
+mod engine;
 mod mubase;
 mod output;
 mod tsconfig;
@@ -37,8 +38,7 @@ use output::OutputFormat;
   mu deps MyClass   Show dependencies of MyClass
 
 Examples:
-  mu impact Parser  What breaks if I change Parser?
-  mu grok \"auth\"    Semantic search with context")]
+  mu impact Parser  What breaks if I change Parser?")]
 pub struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -97,31 +97,6 @@ enum Commands {
         /// Path to check (defaults to current directory)
         #[arg(default_value = ".")]
         path: String,
-    },
-
-    /// Generate or update embeddings (incremental by default)
-    Embed {
-        /// Path to analyze (defaults to current directory)
-        #[arg(default_value = ".")]
-        path: String,
-
-        /// Force regenerate all embeddings (not incremental)
-        #[arg(short, long)]
-        force: bool,
-
-        /// Show embedding status without updating
-        #[arg(long)]
-        status: bool,
-    },
-
-    /// Find relevant code context for a question (semantic search)
-    Grok {
-        /// Question or topic to find context for
-        question: String,
-
-        /// Number of context chunks to retrieve (1-3)
-        #[arg(short, long, default_value = "2")]
-        depth: u8,
     },
 
     /// Show dependencies of a node (what this node depends on)
@@ -230,7 +205,7 @@ fn setup_logging(verbose: bool, quiet: bool) {
     let filter = if quiet {
         "error"
     } else if verbose {
-        "debug,mu_embeddings=info"
+        "debug"
     } else {
         "warn"
     };
@@ -251,8 +226,7 @@ fn print_verbose_version() {
     println!("mu {}", cli_version);
     println!("  {:<14} {}", "mu-cli:".cyan(), cli_version);
     println!("  {:<14} {}", "mu-core:".cyan(), cli_version);
-    println!("  {:<14} {}", "mu-daemon:".cyan(), cli_version);
-    println!("  {:<14} {}", "mu-embeddings:".cyan(), cli_version);
+    println!("  {:<14} {}", "engine:".cyan(), cli_version);
     println!("  {:<14} {}", "Platform:".cyan(), platform);
 }
 
@@ -305,18 +279,6 @@ async fn main() -> anyhow::Result<()> {
             detail,
         } => compress::run(&path, output.as_deref(), &detail, format).await,
         Commands::Status { path } => status::run(&path, format).await,
-        Commands::Embed {
-            path,
-            force,
-            status,
-        } => {
-            if status {
-                embed::run_status(&path, format).await
-            } else {
-                embed::run_incremental(&path, force, format).await
-            }
-        }
-        Commands::Grok { question, depth } => grok::run(&question, depth, format).await,
         Commands::Deps {
             node,
             reverse,

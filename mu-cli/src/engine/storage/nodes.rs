@@ -142,6 +142,7 @@ impl Node {
     }
 
     /// Create an external dependency node.
+    #[cfg(test)]
     pub fn external(module_name: &str) -> Self {
         Self {
             id: format!("ext:{}", module_name),

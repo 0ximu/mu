@@ -5,6 +5,51 @@ All notable changes to MU will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - Unreleased
+
+### Architecture
+
+- **MCP-first design** — MU is now primarily an MCP server. Most functionality moved from CLI commands to 13 MCP tools.
+- **Removed `mu-daemon` crate** — storage, search, and graph engine consolidated into `mu-cli/src/engine/`.
+- **Lean CLI** — 11 commands (bootstrap, compress, status, deps, diff, impact, review, audit, mcp, doctor, completions). Query, search, path, export, and other analysis tools are now MCP-only.
+
+### Added
+
+- **13 MCP tools** for AI assistant integration:
+  - `mu_oracle` — task-aware context retrieval (the go-to tool)
+  - `mu_grok` — BM25 search + code snippets
+  - `mu_find` — exact symbol lookup
+  - `mu_expand` — graph traversal from seed nodes
+  - `mu_read` — bulk source code retrieval
+  - `mu_impact` — downstream impact analysis
+  - `mu_diff` — semantic diff between git refs
+  - `mu_review` — full PR review (diff + impact + audit + risk score)
+  - `mu_audit` — code quality rules
+  - `mu_sus` — suspicious/complex code detection
+  - `mu_wtf` — git archaeology
+  - `mu_enrich` — LLM summary enrichment flywheel
+  - `mu_compress` — token-efficient codebase overview
+
+- **V3 search pipeline** — three-phase cascade: exact name match, BM25 full-text search, PageRank importance tiebreak (85% BM25 + 15% PageRank)
+
+- **Bootstrap post-processing** — PageRank importance scores, heuristic summaries (with caller/callee context from edges), BM25 full-text index on search_text
+
+- **Enrichment flywheel** — `mu_enrich` returns candidates needing better summaries, LLM writes them, stores back. Each cycle improves future search.
+
+### Removed
+
+- CLI commands: `search`, `query`, `path`, `why`, `ancestors`, `cycles`, `coverage`, `export`, `patterns`, `read`, `history`, `embed`, `omg`, `yolo`, `vibe`, `zen`, `grok`, `usedby`
+- Embedding-based semantic search (replaced by BM25 + importance scoring)
+- Parser modules: C, C++, Kotlin, PHP, Ruby, Swift (may return later)
+- `mu-daemon` crate (consolidated into `mu-cli`)
+
+### Fixed
+
+- MCP server now opens DuckDB in read-write mode, unblocking `mu_enrich` write-back
+- Zero compiler warnings (cleaned up dead code from daemon removal)
+
+---
+
 ## [0.0.2] - 2025-12-19
 
 ### Added
@@ -12,110 +57,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`mu coverage`** — Dead code detection
   - `--orphans`: Find functions with no callers (excluding entry points)
   - `--untested`: Find public functions not called by test functions
-  - Results grouped by directory, sorted by staleness (oldest first via git)
-  - Excludes lifecycle hooks (\_\_init\_\_, setup, teardown) and entry points (main, run, start)
 
 - **`mu why <from> <to>`** — Path explanation between nodes
-  - Shows connection paths with edge types at each hop (calls, uses, imports, inherits)
+  - Shows connection paths with edge types at each hop
   - `--all`: Show all paths, not just shortest
-  - `--max-paths`: Limit number of paths returned
-  - Human-readable verdict explaining the relationship
 
-- **`mu review`** — Intelligent PR review (flagship feature)
-  - Risk scoring: `risk = (caller_count × 2) + (transitive_dependents × 0.5) + (complexity_delta × 3)`
+- **`mu review`** — PR review with risk scoring
+  - Risk formula: `(caller_count * 2) + (transitive_dependents * 0.5) + (complexity_delta * 3)`
   - Risk levels: CRITICAL (>100), HIGH (>50), MEDIUM (>20), LOW
-  - Test coverage gap detection (checks for corresponding test file changes)
-  - Suggested reviewers based on code ownership (via git shortlog)
-  - Recommendations for test coverage and complexity reduction
-  - Supports: `mu review` (uncommitted), `mu review HEAD~3..HEAD`, `mu review main..feature`
-  - `--format json` for CI integration
+  - Test coverage gap detection, suggested reviewers
 
-- **`uses` edges in graph** — Composition detection
-  - Detects struct/class field types and creates `uses` edges
-  - Enables `mu ancestors` to show composition relationships
-  - Currently supports Rust structs; Python/TypeScript planned
+- **`uses` edges** — Composition detection (struct/class field types)
 
-- **MCP Server** — AI assistant integration
-  - `mu_oracle` tool for task-aware context retrieval
-  - BM25 hybrid search for improved accuracy
+- **MCP Server** — Initial `mu_oracle` tool
 
 ### Improved
 
 - Graph now includes 5 edge types: `contains`, `calls`, `imports`, `inherits`, `uses`
-- Better path finding with edge type annotations
 
 ---
 
 ## [0.1.0-alpha.1] - 2024-12-14
 
 ### Added
-- **Core Commands**
-  - `mu bootstrap` - Initialize and build code graph in one step
-  - `mu status` - Show project status and statistics
-  - `mu doctor` - Health checks for MU installation
-  - `mu compress` - Compress codebase into hierarchical MU sigil format (92-98% compression)
-
-- **Graph Analysis**
-  - `mu deps <node>` - Show dependencies of a node
-  - `mu usedby <node>` - Show what depends on a node (reverse dependencies)
-  - `mu impact <node>` - Find downstream impact (what breaks if this changes)
-  - `mu ancestors <node>` - Find upstream ancestors
-  - `mu cycles` - Detect circular dependencies
-  - `mu path <from> <to>` - Find shortest path between nodes
-  - Added `--depth` flag to `impact` and `ancestors` commands
-
-- **Search & Discovery**
-  - `mu search <query>` - Semantic search across the codebase
-  - `mu grok <question>` - Extract relevant context for a question
-  - `mu patterns` - Detect code patterns (naming conventions, architecture)
-  - `mu read <file>` - Read files with MU context
-
-- **MUQL Query Language**
-  - SQL-like syntax: `SELECT * FROM functions WHERE complexity > 10`
-  - Terse syntax: `fn c>50 sort c- 10` (60-85% fewer tokens)
-  - Interactive REPL with `mu query -i`
-
-- **Semantic Diff**
-  - `mu diff <ref1> <ref2>` - Semantic diff between git refs
-  - Breaking change detection
-  - `mu history <node>` - Change history for a node
-
-- **Export Formats**
-  - MU format (LLM-optimized)
-  - JSON, Mermaid, D2, Cytoscape
-
-- **Vibes (Fun Commands)**
-  - `mu yolo <node>` - Impact analysis with flair
-  - `mu sus` - Find suspicious code patterns
-  - `mu wtf <file>` - Git archaeology
-  - `mu omg` - OMEGA compressed overview
-  - `mu vibe` - Naming convention check
-  - `mu zen` - Clear caches
-
-- **Embedding Model**
-  - MU-SIGMA-V2: BERT model trained on code
-  - 384 dimensions, 512 max tokens
-  - No API keys required - runs locally
-
-- **Language Support**
-  - Python, TypeScript, JavaScript, Go, Rust, Java, C#
-  - TypeScript path alias resolution (`@/*`, `~/*`)
-
-### Improved
-- Ambiguous node resolution now shows helpful suggestions
-- Better error messages throughout
+- **Core Commands**: `bootstrap`, `status`, `doctor`, `compress`
+- **Graph Analysis**: `deps`, `usedby`, `impact`, `ancestors`, `cycles`, `path`
+- **Search**: `search`, `grok`, `patterns`, `read`
+- **MUQL**: SQL and terse query syntax
+- **Semantic Diff**: `diff`, `history`
+- **Export**: JSON, Mermaid, D2, Cytoscape
+- **Embeddings**: MU-SIGMA-V2 BERT model (384d, local inference via Candle)
+- **Language Support**: Python, TypeScript, JavaScript, Go, Rust, Java, C#
 
 ### Technical
-- Pure Rust implementation
-- DuckDB for graph storage
-- Tree-sitter for multi-language parsing
-- Candle for local ML inference
-
----
-
-## [Unreleased]
-
-### Planned
-- `mu-viz`: Interactive graph visualization
-- IDE integrations (VS Code, JetBrains)
-- MCP server for AI assistants (Claude Code)
+- Pure Rust, DuckDB storage, tree-sitter parsing, Candle ML inference

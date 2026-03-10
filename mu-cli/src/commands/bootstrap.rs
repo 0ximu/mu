@@ -125,8 +125,12 @@ impl TableDisplay for BootstrapResult {
 
         output.push_str(&format!("\n{}\n", "Next Steps".cyan().bold()));
         output.push_str("  mu status              # Check status\n");
-        output.push_str("  mu grok 'auth'         # Semantic search\n");
         output.push_str("  mu compress            # Codebase overview\n");
+        output.push_str("  mu impact MyClass      # What breaks if I change it?\n");
+        output.push_str(&format!(
+            "\n  {}\n",
+            "Ask your LLM to call mu_enrich to improve search quality.".dimmed()
+        ));
 
         output
     }
@@ -370,7 +374,7 @@ fn build_graph(
     parse_results: &[mu_core::types::ParseResult],
     root: &Path,
     spinner: &ProgressBar,
-) -> (Vec<mu_daemon::storage::Node>, Vec<mu_daemon::storage::Edge>) {
+) -> (Vec<crate::engine::storage::Node>, Vec<crate::engine::storage::Edge>) {
     spinner.set_message("Building graph...");
 
     // Load path alias resolver for TS/JS
@@ -455,10 +459,10 @@ fn build_class_lookup(parse_results: &[mu_core::types::ParseResult]) -> HashMap<
 }
 
 /// Build function name -> node ID lookup for call resolution.
-fn build_function_lookup(nodes: &[mu_daemon::storage::Node]) -> HashMap<String, String> {
+fn build_function_lookup(nodes: &[crate::engine::storage::Node]) -> HashMap<String, String> {
     let mut func_lookup = HashMap::new();
     for node in nodes {
-        if node.node_type == mu_daemon::storage::NodeType::Function {
+        if node.node_type == crate::engine::storage::NodeType::Function {
             func_lookup.insert(node.id.clone(), node.id.clone());
             func_lookup.insert(node.name.clone(), node.id.clone());
             if let Some(ref qname) = node.qualified_name {
@@ -520,13 +524,13 @@ fn build_module_graph(
     class_lookup: &HashMap<String, String>,
     path_alias_resolver: Option<&PathAliasResolver>,
     csharp_namespace_map: &HashMap<String, Vec<String>>,
-    nodes: &mut Vec<mu_daemon::storage::Node>,
-    edges: &mut Vec<mu_daemon::storage::Edge>,
+    nodes: &mut Vec<crate::engine::storage::Node>,
+    edges: &mut Vec<crate::engine::storage::Edge>,
 ) {
     let rel_path = &module.path;
 
     // Create module node with source_text
-    let mut module_node = mu_daemon::storage::Node::module(rel_path);
+    let mut module_node = crate::engine::storage::Node::module(rel_path);
     {
         let mut parts = Vec::new();
         if let Some(ref docstring) = module.module_docstring {
@@ -567,7 +571,7 @@ fn build_module_graph(
             Some(parts.join("\n"))
         };
 
-        let mut class_node = mu_daemon::storage::Node::class(
+        let mut class_node = crate::engine::storage::Node::class(
             rel_path,
             &class.name,
             class.start_line,
@@ -598,7 +602,7 @@ fn build_module_graph(
 
         let class_id = class_node.id.clone();
         nodes.push(class_node);
-        edges.push(mu_daemon::storage::Edge::contains(&module_id, &class_id));
+        edges.push(crate::engine::storage::Edge::contains(&module_id, &class_id));
 
         // Inheritance edges
         for base in &class.bases {
@@ -606,14 +610,14 @@ fn build_module_graph(
                 .get(base)
                 .cloned()
                 .unwrap_or_else(|| format!("ext:{}", base));
-            edges.push(mu_daemon::storage::Edge::inherits(&class_id, &base_id));
+            edges.push(crate::engine::storage::Edge::inherits(&class_id, &base_id));
         }
 
         // Composition edges (uses) - from struct/class fields and method type references
         for ref_type in &class.referenced_types {
             // Only create edges for types that exist in our codebase
             if let Some(target_id) = class_lookup.get(ref_type) {
-                edges.push(mu_daemon::storage::Edge::uses(&class_id, target_id));
+                edges.push(crate::engine::storage::Edge::uses(&class_id, target_id));
             }
             // Skip external types - they don't add value to the graph
         }
@@ -621,7 +625,7 @@ fn build_module_graph(
         // Method nodes
         for method in &class.methods {
             let method_source_text = build_function_source_text(method);
-            let mut method_node = mu_daemon::storage::Node::function(
+            let mut method_node = crate::engine::storage::Node::function(
                 rel_path,
                 &method.name,
                 Some(&class.name),
@@ -652,14 +656,14 @@ fn build_module_graph(
 
             let method_id = method_node.id.clone();
             nodes.push(method_node);
-            edges.push(mu_daemon::storage::Edge::contains(&class_id, &method_id));
+            edges.push(crate::engine::storage::Edge::contains(&class_id, &method_id));
         }
     }
 
     // Module-level function nodes
     for func in &module.functions {
         let func_source_text = build_function_source_text(func);
-        let mut func_node = mu_daemon::storage::Node::function(
+        let mut func_node = crate::engine::storage::Node::function(
             rel_path,
             &func.name,
             None,
@@ -683,7 +687,7 @@ fn build_module_graph(
 
         let func_id = func_node.id.clone();
         nodes.push(func_node);
-        edges.push(mu_daemon::storage::Edge::contains(&module_id, &func_id));
+        edges.push(crate::engine::storage::Edge::contains(&module_id, &func_id));
     }
 
     // Import edges
@@ -695,7 +699,7 @@ fn build_module_graph(
             path_alias_resolver,
             Some(csharp_namespace_map),
         );
-        edges.push(mu_daemon::storage::Edge::imports(&module_id, &target_id));
+        edges.push(crate::engine::storage::Edge::imports(&module_id, &target_id));
     }
 }
 
@@ -703,7 +707,7 @@ fn build_module_graph(
 fn resolve_all_call_sites(
     parse_results: &[mu_core::types::ParseResult],
     func_lookup: &HashMap<String, String>,
-    edges: &mut Vec<mu_daemon::storage::Edge>,
+    edges: &mut Vec<crate::engine::storage::Edge>,
 ) -> (usize, usize) {
     let mut total = 0usize;
     let mut resolved = 0usize;
@@ -728,7 +732,7 @@ fn resolve_all_call_sites(
                             func_lookup,
                             &module.imports,
                         ) {
-                            edges.push(mu_daemon::storage::Edge::calls(&method_id, &target_id));
+                            edges.push(crate::engine::storage::Edge::calls(&method_id, &target_id));
                             resolved += 1;
                         }
                     }
@@ -743,7 +747,7 @@ fn resolve_all_call_sites(
                     if let Some(target_id) =
                         resolve_call_site(call, rel_path, None, func_lookup, &module.imports)
                     {
-                        edges.push(mu_daemon::storage::Edge::calls(&func_id, &target_id));
+                        edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
                     }
                 }
@@ -768,8 +772,8 @@ fn resolve_all_call_sites(
 fn detect_cross_service_edges(
     parse_results: &[mu_core::types::ParseResult],
     class_lookup: &HashMap<String, String>,
-    nodes: &mut Vec<mu_daemon::storage::Node>,
-    edges: &mut Vec<mu_daemon::storage::Edge>,
+    nodes: &mut Vec<crate::engine::storage::Node>,
+    edges: &mut Vec<crate::engine::storage::Edge>,
 ) {
     let consumer_re = Regex::new(r"IConsumer<(\w+)>").unwrap();
     let publish_re = Regex::new(r"\.Publish<(\w+)>\s*\(").unwrap();
@@ -782,7 +786,7 @@ fn detect_cross_service_edges(
     let mut message_nodes: HashMap<String, String> = HashMap::new();
 
     let mut get_or_create_message_node =
-        |type_name: &str, namespace: Option<&str>, nodes: &mut Vec<mu_daemon::storage::Node>| -> String {
+        |type_name: &str, namespace: Option<&str>, nodes: &mut Vec<crate::engine::storage::Node>| -> String {
             let key = format!("{}:{}", namespace.unwrap_or(""), type_name);
             if let Some(id) = message_nodes.get(&key) {
                 return id.clone();
@@ -792,7 +796,7 @@ fn detect_cross_service_edges(
                 message_nodes.insert(key, class_id.clone());
                 return class_id.clone();
             }
-            let node = mu_daemon::storage::Node::message(type_name, namespace);
+            let node = crate::engine::storage::Node::message(type_name, namespace);
             let id = node.id.clone();
             nodes.push(node);
             message_nodes.insert(key, id.clone());
@@ -819,7 +823,7 @@ fn detect_cross_service_edges(
                 for cap in consumer_re.captures_iter(base) {
                     let message_type = &cap[1];
                     let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
-                    let edge = mu_daemon::storage::Edge::subscribes(&class_id, &msg_id)
+                    let edge = crate::engine::storage::Edge::subscribes(&class_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
                     tracing::debug!("Cross-service: {} subscribes to {}", class.name, message_type);
@@ -838,7 +842,7 @@ fn detect_cross_service_edges(
                 for cap in publish_re.captures_iter(body) {
                     let message_type = &cap[1];
                     let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
-                    let edge = mu_daemon::storage::Edge::publishes(&method_id, &msg_id)
+                    let edge = crate::engine::storage::Edge::publishes(&method_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
                     tracing::debug!(
@@ -869,7 +873,7 @@ fn detect_cross_service_edges(
                         props.insert("url_pattern".to_string(), json!(url));
                     }
 
-                    let edge = mu_daemon::storage::Edge::calls_http(&method_id, &target_id)
+                    let edge = crate::engine::storage::Edge::calls_http(&method_id, &target_id)
                         .with_properties(serde_json::Value::Object(props));
                     edges.push(edge);
                     tracing::debug!(
@@ -890,7 +894,7 @@ fn detect_cross_service_edges(
                         .cloned()
                         .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
 
-                    let edge = mu_daemon::storage::Edge::uses_contract(&class_id, &target_id)
+                    let edge = crate::engine::storage::Edge::uses_contract(&class_id, &target_id)
                         .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
                     edges.push(edge);
                     tracing::debug!(
@@ -910,7 +914,7 @@ fn detect_cross_service_edges(
                     .cloned()
                     .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
 
-                let edge = mu_daemon::storage::Edge::uses_contract(&class_id, &target_id)
+                let edge = crate::engine::storage::Edge::uses_contract(&class_id, &target_id)
                     .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
                 edges.push(edge);
             }
@@ -981,7 +985,7 @@ pub async fn run(
 
     // Check if rebuild is needed
     if mubase_path.exists() && !force {
-        let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
+        let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
         let stats = mubase.stats()?;
         println!(
             "{} MU already initialized. Use --force to rebuild.",
@@ -1016,7 +1020,21 @@ pub async fn run(
 
     // Step 3: Write to database
     spinner.set_message("Writing database...");
-    let mubase = mu_daemon::storage::MUbase::open(&mubase_path)?;
+    let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
+
+    // Snapshot existing summary info BEFORE clearing, for staleness detection later.
+    let prior_summaries: std::collections::HashMap<String, (Option<String>, Option<String>, Option<String>)> =
+        mubase.all_nodes().unwrap_or_default()
+            .into_iter()
+            .filter_map(|n| {
+                if n.summary_code_hash.is_some() {
+                    Some((n.id, (n.summary_code_hash, n.summary_source, n.summary_text)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
     mubase.clear()?;
     mubase.insert_nodes(&nodes)?;
     mubase.insert_edges(&edges)?;
@@ -1029,24 +1047,44 @@ pub async fn run(
         .iter()
         .map(|e| (e.source_id.clone(), e.target_id.clone(), e.edge_type.to_string()))
         .collect();
-    let pr_config = mu_daemon::pagerank::PageRankConfig::default();
-    let importance_scores = mu_daemon::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
+    let pr_config = crate::engine::pagerank::PageRankConfig::default();
+    let importance_scores = crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
     let score_pairs: Vec<(String, f32)> = importance_scores.into_iter().collect();
     mubase.update_importance_batch(&score_pairs)?;
     let importance_scores_computed = score_pairs.len();
     tracing::info!("Updated {} importance scores", importance_scores_computed);
 
     // Step 5: Generate heuristic summaries (needs edges for callers/callees)
+    // Staleness check: preserve LLM-enriched summaries when code hasn't changed.
+    // Hash is node-level (hash of node's own source_text), NOT file-level.
+    // Uses prior_summaries snapshot taken BEFORE clear().
     spinner.set_message("Generating heuristic summaries...");
     let mut summaries_generated = 0;
+    let mut summaries_preserved = 0;
     for node in &nodes {
         let source_text = node.source_text.as_deref().unwrap_or("");
-        let code_hash = mu_daemon::summary::compute_code_hash(source_text);
-        let summary = mu_daemon::summary::generate_heuristic_summary(node, &edge_tuples);
+        let code_hash = crate::engine::summary::compute_code_hash(source_text);
+
+        // If code hasn't changed, restore the prior summary (preserves LLM enrichments)
+        if let Some((Some(ref old_hash), Some(ref old_source), Some(ref old_text))) =
+            prior_summaries.get(&node.id)
+        {
+            if old_hash == &code_hash {
+                mubase.update_summary(&node.id, old_text, old_source, &code_hash)?;
+                summaries_preserved += 1;
+                continue;
+            }
+        }
+
+        // Source changed or new node — generate fresh heuristic
+        let summary = crate::engine::summary::generate_heuristic_summary(node, &edge_tuples);
         mubase.update_summary(&node.id, &summary, "heuristic", &code_hash)?;
         summaries_generated += 1;
     }
-    tracing::info!("Generated {} heuristic summaries", summaries_generated);
+    tracing::info!(
+        "Summaries: {} generated, {} preserved (unchanged code)",
+        summaries_generated, summaries_preserved
+    );
 
     // Step 6: Build search_text from summaries + identity fields
     spinner.set_message("Building search text...");
@@ -1054,7 +1092,7 @@ pub async fn run(
     let search_texts: Vec<(String, String)> = updated_nodes
         .iter()
         .map(|n| {
-            let search_text = mu_daemon::summary::build_search_text(n, n.summary_text.as_deref());
+            let search_text = crate::engine::summary::build_search_text(n, n.summary_text.as_deref());
             (n.id.clone(), search_text)
         })
         .collect();
@@ -1695,11 +1733,11 @@ mod tests {
         // Should create a message node and a subscribes edge
         assert!(
             nodes.iter().any(|n| n.name == "OrderCreatedEvent"
-                && n.node_type == mu_daemon::storage::NodeType::Message),
+                && n.node_type == crate::engine::storage::NodeType::Message),
             "Should create message node for OrderCreatedEvent"
         );
         assert!(
-            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::Subscribes
+            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes
                 && e.source_id.contains("OrderCreatedConsumer")),
             "Should create subscribes edge from consumer"
         );
@@ -1740,7 +1778,7 @@ mod tests {
             "Should create message node for OrderCreatedEvent"
         );
         assert!(
-            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::Publishes
+            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Publishes
                 && e.source_id.contains("OrderService.CreateOrder")),
             "Should create publishes edge from method"
         );
@@ -1776,14 +1814,14 @@ mod tests {
         detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
 
         assert!(
-            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::CallsHttp
+            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp
                 && e.source_id.contains("UserClient.FetchUser")),
             "Should create calls_http edge from method"
         );
         // Check properties contain URL pattern
         let http_edge = edges
             .iter()
-            .find(|e| e.edge_type == mu_daemon::storage::EdgeType::CallsHttp)
+            .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp)
             .unwrap();
         let props = http_edge.properties.as_ref().unwrap();
         assert_eq!(props["method"], "Get");
@@ -1812,7 +1850,7 @@ mod tests {
         detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
 
         assert!(
-            edges.iter().any(|e| e.edge_type == mu_daemon::storage::EdgeType::UsesContract
+            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::UsesContract
                 && e.source_id.contains("OrderHandler")),
             "Should create uses_contract edge"
         );
@@ -1844,7 +1882,7 @@ mod tests {
         );
         let sub_edge = edges
             .iter()
-            .find(|e| e.edge_type == mu_daemon::storage::EdgeType::Subscribes)
+            .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes)
             .expect("Should create subscribes edge");
         assert_eq!(sub_edge.target_id, "cls:src/Events.cs:UserCreated");
     }

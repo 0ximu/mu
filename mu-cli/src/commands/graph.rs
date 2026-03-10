@@ -267,7 +267,7 @@ pub async fn run_impact(
         None // traverse all edges including cross-service
     } else if let Some(mut types) = edge_types {
         if cross_service {
-            for cs_type in mu_daemon::storage::CROSS_SERVICE_EDGE_TYPES {
+            for cs_type in crate::engine::storage::CROSS_SERVICE_EDGE_TYPES {
                 let s = cs_type.to_string();
                 if !types.contains(&s) {
                     types.push(s);

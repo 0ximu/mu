@@ -4,20 +4,15 @@
 //! - Schema management
 //! - Node and edge CRUD operations
 //! - Graph loading into petgraph
-//! - Embedding storage and vector search
 //! - Database migrations between schema versions
 
 mod edges;
-mod embeddings;
-mod graph_engine;
 pub mod migrations;
 mod mubase;
 mod nodes;
-mod schema;
+pub(crate) mod schema;
 
 pub use edges::Edge;
-pub use embeddings::{EmbeddingStats, VectorSearchResult};
-pub use graph_engine::GraphEngine;
-pub use mubase::{AccessMode, MUbase, QueryResult};
+pub use mubase::MUbase;
 pub use nodes::Node;
-pub use schema::{EdgeType, NodeType, CROSS_SERVICE_EDGE_TYPES};
+pub use schema::{NodeType, CROSS_SERVICE_EDGE_TYPES};

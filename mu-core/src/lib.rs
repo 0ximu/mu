@@ -13,8 +13,6 @@
 
 pub mod differ;
 pub mod exporter;
-pub mod graph;
-pub mod incremental;
 pub mod parser;
 pub mod reducer;
 pub mod scanner;

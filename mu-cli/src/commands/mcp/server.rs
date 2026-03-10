@@ -4,9 +4,13 @@
 
 use crate::mubase::find_project_root;
 use std::fs;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
+
+use super::tools_v3;
 
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Parameters},
@@ -19,7 +23,7 @@ use tokio::sync::{OnceCell, RwLock};
 
 /// Lazily-initialized project state
 struct ProjectState {
-    mubase: mu_daemon::storage::MUbase,
+    mubase: crate::engine::storage::MUbase,
     project_root: PathBuf,
 }
 
@@ -163,7 +167,7 @@ impl MuMcpServer {
 
                 let mubase_path = project_root.join(".mu").join("mubase");
                 let mubase =
-                    mu_daemon::storage::MUbase::open_read_only(&mubase_path).map_err(|e| {
+                    crate::engine::storage::MUbase::open_read_only(&mubase_path).map_err(|e| {
                         McpError::internal_error(format!("Failed to open mubase: {}", e), None)
                     })?;
 
@@ -177,7 +181,7 @@ impl MuMcpServer {
 
     /// Get the mubase, ensuring lazy initialization
     #[allow(dead_code)]
-    async fn mubase(&self) -> Result<&mu_daemon::storage::MUbase, McpError> {
+    async fn mubase(&self) -> Result<&crate::engine::storage::MUbase, McpError> {
         Ok(&self.ensure_state().await?.mubase)
     }
 
@@ -975,7 +979,7 @@ impl MuMcpServer {
     }
 }
 
-// Helper methods (V2 cruft removed — search logic now in tools_v3 + mu-daemon/search)
+// Helper methods (V2 cruft removed — search logic now in tools_v3 + engine/search)
 impl MuMcpServer {
     #[allow(dead_code)]
     fn extract_task_keywords(&self, task: &str) -> Vec<String> {

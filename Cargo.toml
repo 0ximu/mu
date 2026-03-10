@@ -3,8 +3,6 @@ resolver = "2"
 members = [
     "mu-cli",
     "mu-core",
-    "mu-daemon",
-    "mu-embeddings",
 ]
 
 [workspace.package]
@@ -17,7 +15,6 @@ repository = "https://github.com/0ximu/mu"
 [workspace.dependencies]
 # Internal crates
 mu-core = { path = "mu-core", default-features = false }
-mu-daemon = { path = "mu-daemon" }
 mu-embeddings = { path = "mu-embeddings" }
 
 # Async runtime
@@ -26,7 +23,6 @@ tokio = { version = "1.35", features = ["full"] }
 # CLI
 clap = { version = "4", features = ["derive", "env", "wrap_help"] }
 colored = "2"
-tabled = "0.16"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -39,9 +35,6 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# HTTP client
-reqwest = { version = "0.12", features = ["json"] }
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }

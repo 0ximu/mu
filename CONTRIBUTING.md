@@ -1,7 +1,5 @@
 # Contributing to MU
 
-Thanks for your interest in contributing to MU! This document provides guidelines for contributing.
-
 ## Development Setup
 
 ### Prerequisites
@@ -11,47 +9,41 @@ Thanks for your interest in contributing to MU! This document provides guideline
 ### Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/0ximu/mu.git
 cd mu
-
-# Build
 cargo build
-
-# Run tests
 cargo test
-
-# Verify setup
-./target/debug/mu --version
 ```
 
 ## Project Structure
 
 ```
 mu/
-├── mu-cli/              # CLI application (clap-based)
+├── mu-cli/                # CLI + MCP server
 │   ├── src/
-│   │   ├── main.rs      # Entry point
-│   │   └── commands/    # CLI command implementations
+│   │   ├── main.rs        # Entry point, clap commands
+│   │   ├── commands/      # CLI command implementations
+│   │   │   ├── mcp/       # MCP server + tool implementations
+│   │   │   │   ├── server.rs    # rmcp server, tool dispatch
+│   │   │   │   └── tools_v3.rs  # Tool logic (search, expand, read, enrich, etc.)
+│   │   │   ├── bootstrap.rs     # Graph building pipeline
+│   │   │   ├── compress/        # Codebase compression
+│   │   │   ├── review.rs        # PR review with risk scoring
+│   │   │   └── audit.rs         # Code quality rules
+│   │   └── engine/        # Storage + search engine
+│   │       ├── storage/   # DuckDB storage (MUbase)
+│   │       ├── search.rs  # BM25 + importance search
+│   │       ├── pagerank.rs # Node importance scoring
+│   │       └── summary.rs # Heuristic summary generation
 │   └── Cargo.toml
-├── mu-core/             # Parser, scanner, graph algorithms
+├── mu-core/               # Parser + scanner (no storage dependency)
 │   ├── src/
-│   │   ├── parser/      # Tree-sitter language extractors
-│   │   ├── scanner/     # Filesystem scanning
-│   │   ├── graph/       # Graph algorithms
-│   │   ├── diff/        # Semantic diff
-│   │   └── types.rs     # Core types (ModuleDef, etc.)
+│   │   ├── parser/        # Tree-sitter language extractors
+│   │   ├── scanner.rs     # Filesystem scanning
+│   │   ├── reducer/       # Complexity analysis
+│   │   └── types.rs       # Core types (ModuleDef, etc.)
 │   └── Cargo.toml
-├── mu-daemon/           # Storage layer (DuckDB)
-│   ├── src/
-│   │   ├── storage/     # DuckDB storage
-│   │   └── embedding.rs # Embedding trait
-│   └── Cargo.toml
-├── mu-embeddings/       # MU-SIGMA-V2 model (Candle)
-│   ├── src/
-│   │   └── lib.rs       # BERT inference
-│   └── models/          # Model weights
-└── models/              # Trained model weights
+└── mu-embeddings/         # MU-SIGMA-V2 model (Candle, optional)
 ```
 
 ## Making Changes
@@ -64,46 +56,30 @@ git checkout -b feature/your-feature-name
 git checkout -b fix/bug-description
 ```
 
-### 2. Make Your Changes
+### 2. Follow Existing Patterns
 
-Follow existing code patterns:
-- Use Rust idioms (Result, Option, iterators)
-- Follow the existing module structure
-- Keep functions focused and small
+- Parsers: `parse(source, path) -> Result<ModuleDef, String>`, register in `mod.rs` dispatcher
+- CLI commands: create `commands/foo.rs`, add to `Commands` enum in `main.rs`
+- MCP tools: add `#[tool(...)]` method in `server.rs`, implement logic in `tools_v3.rs`
+- Storage: methods on `MUbase` in `engine/storage/mubase.rs`
 
 ### 3. Write Tests
 
-All new features should have tests:
-
 ```bash
-# Run all tests
-cargo test
-
-# Run specific crate tests
-cargo test -p mu-core
-
-# Run with output
-cargo test -- --nocapture
-
-# Run a specific test
-cargo test test_name
+cargo test                    # All tests
+cargo test -p mu-core         # Core only
+cargo test -p mu-cli          # CLI only
+cargo test test_name          # Specific test
+cargo test -- --nocapture     # With stdout
 ```
 
 ### 4. Check Code Quality
 
 ```bash
-# Check compilation
-cargo check
-
-# Lint (fix all warnings)
-cargo clippy
-
-# Format
-cargo fmt
-
-# All three (recommended before commit)
 cargo fmt && cargo clippy && cargo test
 ```
+
+Zero warnings policy — `cargo clippy` must be clean.
 
 ### 5. Commit
 
@@ -113,165 +89,108 @@ Add Go language support to parser
 
 - Implement Go extractor using tree-sitter-go
 - Add tests for Go parsing
-- Update supported languages in README
+- Register in parser dispatcher
 ```
-
-### 6. Open a Pull Request
-
-- Describe what your PR does
-- Link any related issues
-- Include test results
 
 ## Adding a New Language
 
-To add support for a new programming language:
+### 1. Add Grammar Dependency
 
-### 1. Add the Tree-sitter Grammar
-
-Add to `mu-core/Cargo.toml`:
+In `mu-core/Cargo.toml`:
 ```toml
-[dependencies]
-tree-sitter-kotlin = "0.3"  # Example for Kotlin
+tree-sitter-newlang = "0.23"
 ```
 
-### 2. Create the Extractor
+### 2. Create Extractor
 
-Create `mu-core/src/parser/kotlin.rs`:
+Create `mu-core/src/parser/newlang.rs`:
 
 ```rust
-//! Kotlin-specific AST extractor using Tree-sitter.
+use std::path::Path;
+use tree_sitter::Parser;
+use crate::types::ModuleDef;
+use super::helpers::{get_node_text, find_child_by_type, get_start_line, get_end_line, count_lines};
 
-use tree_sitter::Node;
-use crate::types::{ModuleDef, ClassDef, FunctionDef, ImportDef};
+pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
+    let mut parser = Parser::new();
+    parser.set_language(&tree_sitter_newlang::LANGUAGE.into())
+        .map_err(|e| format!("Failed to set language: {}", e))?;
 
-pub struct KotlinExtractor;
+    let tree = parser.parse(source, None)
+        .ok_or("Failed to parse source")?;
 
-impl KotlinExtractor {
-    pub fn extract(&self, root: Node, source: &[u8], file_path: &str) -> ModuleDef {
-        // Implement extraction logic
-        todo!()
-    }
+    let name = Path::new(file_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let mut module = ModuleDef {
+        name,
+        path: file_path.to_string(),
+        language: "newlang".to_string(),
+        total_lines: count_lines(source),
+        ..Default::default()
+    };
+
+    // Extract imports, classes, functions from AST
+    // See existing extractors for patterns
+
+    Ok(module)
 }
 ```
 
-### 3. Register in Parser Module
+### 3. Register
 
-Update `mu-core/src/parser/mod.rs`:
-
+In `mu-core/src/parser/mod.rs`:
 ```rust
-mod kotlin;
-pub use kotlin::KotlinExtractor;
+pub mod newlang;
 
-pub fn get_extractor(lang: &str) -> Option<Box<dyn LanguageExtractor>> {
-    match lang {
-        // ... existing languages
-        "kotlin" => Some(Box::new(KotlinExtractor)),
-        _ => None,
-    }
-}
+// In parse_source():
+"newlang" | "nl" => newlang::parse(source, path),
+
+// In supported_languages():
+"newlang", "nl",
 ```
 
-### 4. Add Language Detection
+### 4. Add Complexity Decision Points
 
-Update `mu-core/src/scanner/mod.rs`:
-
+In `mu-core/src/reducer/complexity.rs`, add to `DECISION_POINTS`:
 ```rust
-pub fn detect_language(path: &Path) -> Option<&'static str> {
-    match path.extension()?.to_str()? {
-        // ... existing extensions
-        "kt" | "kts" => Some("kotlin"),
-        _ => None,
-    }
-}
+("newlang", hashset![
+    "if_statement",
+    "for_statement",
+    "while_statement",
+    // ... language-specific branching constructs
+])
 ```
 
-### 5. Add Tests
+### 5. Add Scanner Detection
 
-Create `mu-core/src/parser/tests/kotlin_tests.rs` with tests for:
-- Function parsing
-- Class/data class parsing
-- Import parsing
-- Method parsing
+In `mu-core/src/scanner.rs`, add the file extension mapping.
 
-## Code Style
+### 6. Add Tests
 
-### Rust Style
+Test at minimum: function extraction, class extraction, import extraction, and edge cases (empty files, syntax errors).
 
-- Use `Result<T, E>` for fallible operations
-- Use `Option<T>` for optional values
-- Prefer iterators over explicit loops
-- Use `thiserror` for library errors, `anyhow` for application code
-- Follow [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
-
-### Error Handling
-
-```rust
-// Library code (mu-core)
-#[derive(thiserror::Error, Debug)]
-pub enum ParseError {
-    #[error("unsupported language: {0}")]
-    UnsupportedLanguage(String),
-
-    #[error("syntax error at line {line}: {message}")]
-    SyntaxError { line: usize, message: String },
-}
-
-// Application code (mu-cli)
-fn main() -> anyhow::Result<()> {
-    // anyhow for CLI error handling
-    Ok(())
-}
-```
-
-### Documentation
-
-- Add doc comments to public functions
-- Update README if adding features
-- Keep CLAUDE.md in sync with changes
-
-### Testing
-
-- Unit tests for individual functions
-- Integration tests for full pipelines
-- Use `#[test]` for unit tests
-- Use `tests/` directory for integration tests
-
-## Architecture Decisions
+## Architecture Notes
 
 ### Why Tree-sitter?
-- Language-agnostic parsing
-- Excellent error recovery
-- Active community with many grammars
-- Incremental parsing support
+Language-agnostic parsing with error recovery. Active community with grammar support for most languages.
 
 ### Why DuckDB?
-- Embedded database (no server)
-- Fast analytical queries
-- SQL interface for MUQL
-- Good Rust bindings
+Embedded database, fast analytical queries, SQL interface, FTS extension for BM25 search.
 
-### Why Candle for Embeddings?
-- Pure Rust (no Python dependency)
-- Compiles model into binary
-- Fast inference on CPU
-- No external dependencies
+### Why MCP-first?
+Most MU functionality is consumed by AI assistants, not humans typing CLI commands. MCP tools are the primary interface; CLI commands are for bootstrapping and direct analysis.
 
 ## Pre-PR Checklist
 
-Before submitting:
-
 - [ ] `cargo fmt` applied
-- [ ] `cargo clippy` passes with no warnings
+- [ ] `cargo clippy` passes with zero warnings
 - [ ] `cargo test` passes all tests
-- [ ] New code has corresponding tests
-- [ ] No `#[allow(...)]` without justification
-- [ ] README updated if adding features
-
-## Getting Help
-
-- **Questions:** Open a GitHub Discussion
-- **Bugs:** Open a GitHub Issue
-- **Features:** Open an Issue to discuss first
+- [ ] New code has tests
+- [ ] README updated if adding user-facing features
 
 ## License
 
