@@ -19,10 +19,11 @@ use rmcp::{
     tool, tool_handler, tool_router, ServerHandler,
 };
 use serde::Deserialize;
-use tokio::sync::{OnceCell, RwLock};
+use tokio::sync::RwLock;
 use super::tools_v3::lenient;
 
-/// Lazily-initialized project state
+/// Lazily-initialized project state (cloneable for RwLock hand-off)
+#[derive(Clone)]
 struct ProjectState {
     mubase: crate::engine::storage::MUbase,
     project_root: PathBuf,
@@ -37,9 +38,10 @@ struct ProjectState {
 /// use the client's working directory instead of its own CWD.
 #[derive(Clone)]
 pub struct MuMcpServer {
-    /// Lazily-initialized project state (mubase + project_root)
-    /// Initialized on first tool call using client roots or fallback directory
-    state: Arc<OnceCell<ProjectState>>,
+    /// Resettable project state (mubase + project_root).
+    /// Wrapped in RwLock<Option<_>> so mu_bootstrap can drop the connection,
+    /// rebuild the database, then let the next tool call reinitialize.
+    state: Arc<RwLock<Option<ProjectState>>>,
     /// Client roots received during MCP initialization
     /// Used to determine which project the client is working in
     client_roots: Arc<RwLock<Option<Vec<Root>>>>,
@@ -122,6 +124,16 @@ pub struct ConfigureParams {
     pub corrections: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BootstrapParams {
+    /// Project directory to bootstrap. Omit to use the current project root.
+    #[schemars(description = "Project directory path. Omit to use the current project root.")]
+    pub path: Option<String>,
+    /// Force rebuild even if mubase already exists (default: true for MCP usage).
+    #[schemars(description = "Force rebuild (default: true)")]
+    #[serde(default, deserialize_with = "lenient::option_bool")]
+    pub force: Option<bool>,
+}
 
 #[tool_router]
 impl MuMcpServer {
@@ -132,76 +144,101 @@ impl MuMcpServer {
     /// or fall back to the provided directory.
     pub fn new(fallback_dir: PathBuf) -> Self {
         Self {
-            state: Arc::new(OnceCell::new()),
+            state: Arc::new(RwLock::new(None)),
             client_roots: Arc::new(RwLock::new(None)),
             fallback_dir,
             tool_router: Self::tool_router(),
         }
     }
 
-    /// Ensure the project state is initialized, using client roots if available.
+    /// Resolve the starting directory from client roots or fallback.
+    async fn start_dir(&self) -> PathBuf {
+        let roots = self.client_roots.read().await;
+        if let Some(ref root_list) = *roots {
+            if let Some(first_root) = root_list.first() {
+                let uri = &first_root.uri;
+                if let Some(path) = uri.strip_prefix("file://") {
+                    return PathBuf::from(path);
+                }
+                return PathBuf::from(uri);
+            }
+        }
+        self.fallback_dir.clone()
+    }
+
+    /// Resolve a project directory, optionally from an explicit path.
+    /// Does NOT require an existing mubase (used by mu_bootstrap).
+    async fn resolve_project_dir(&self, path: Option<&str>) -> Result<PathBuf, McpError> {
+        let dir = match path {
+            Some(p) => {
+                let pb = PathBuf::from(p);
+                pb.canonicalize().unwrap_or(pb)
+            }
+            None => {
+                let start = self.start_dir().await;
+                // Try to find existing .mu, otherwise use start_dir directly
+                find_project_root(&start).unwrap_or(start)
+            }
+        };
+        if !dir.is_dir() {
+            return Err(McpError::internal_error(
+                format!("Not a directory: '{}'", dir.display()),
+                None,
+            ));
+        }
+        Ok(dir)
+    }
+
+    /// Ensure the project state is initialized. Returns an owned clone.
     ///
-    /// This is called lazily on the first tool invocation.
-    async fn ensure_state(&self) -> Result<&ProjectState, McpError> {
-        self.state
-            .get_or_try_init(|| async {
-                // Determine the starting directory for project search
-                let start_dir = {
-                    let roots = self.client_roots.read().await;
-                    if let Some(ref root_list) = *roots {
-                        if let Some(first_root) = root_list.first() {
-                            // Client provided roots - use the first one
-                            // Root URI is typically "file:///path/to/dir"
-                            let uri = &first_root.uri;
-                            if let Some(path) = uri.strip_prefix("file://") {
-                                PathBuf::from(path)
-                            } else {
-                                // Try as plain path
-                                PathBuf::from(uri)
-                            }
-                        } else {
-                            self.fallback_dir.clone()
-                        }
-                    } else {
-                        self.fallback_dir.clone()
-                    }
-                };
+    /// Fast path: read lock, clone if Some.
+    /// Slow path: write lock, double-check, initialize, clone.
+    async fn ensure_state(&self) -> Result<ProjectState, McpError> {
+        // Fast path
+        {
+            let guard = self.state.read().await;
+            if let Some(ref s) = *guard {
+                return Ok(s.clone());
+            }
+        }
+        // Slow path
+        let mut guard = self.state.write().await;
+        if let Some(ref s) = *guard {
+            return Ok(s.clone());
+        }
 
-                // Find .mu directory from start_dir
-                let project_root = find_project_root(&start_dir).ok_or_else(|| {
-                    McpError::internal_error(
-                        format!(
-                            "No .mu directory found starting from '{}'. Run 'mu bootstrap' first.",
-                            start_dir.display()
-                        ),
-                        None,
-                    )
-                })?;
+        let start_dir = self.start_dir().await;
 
-                let mubase_path = project_root.join(".mu").join("mubase");
-                let mubase =
-                    crate::engine::storage::MUbase::open_read_only(&mubase_path).map_err(|e| {
-                        McpError::internal_error(format!("Failed to open mubase: {}", e), None)
-                    })?;
+        let project_root = find_project_root(&start_dir).ok_or_else(|| {
+            McpError::internal_error(
+                format!(
+                    "No .mu directory found starting from '{}'. Run mu_bootstrap or 'mu bootstrap' first.",
+                    start_dir.display()
+                ),
+                None,
+            )
+        })?;
 
-                Ok(ProjectState {
-                    mubase,
-                    project_root,
-                })
-            })
-            .await
+        let mubase_path = project_root.join(".mu").join("mubase");
+        let mubase =
+            crate::engine::storage::MUbase::open(&mubase_path).map_err(|e| {
+                McpError::internal_error(format!("Failed to open mubase: {}", e), None)
+            })?;
+
+        let state = ProjectState {
+            mubase,
+            project_root,
+        };
+        let cloned = state.clone();
+        *guard = Some(state);
+        Ok(cloned)
     }
 
-    /// Get the mubase, ensuring lazy initialization
-    #[allow(dead_code)]
-    async fn mubase(&self) -> Result<&crate::engine::storage::MUbase, McpError> {
-        Ok(&self.ensure_state().await?.mubase)
-    }
-
-    /// Get the project root, ensuring lazy initialization
-    #[allow(dead_code)]
-    async fn project_root(&self) -> Result<&PathBuf, McpError> {
-        Ok(&self.ensure_state().await?.project_root)
+    /// Drop the current state (closes the DuckDB connection).
+    /// The next tool call will reinitialize via `ensure_state`.
+    async fn reset_state(&self) {
+        let mut guard = self.state.write().await;
+        *guard = None;
     }
 
     /// Grok: Search + code snippets (V3: BM25 + importance, no embeddings)
@@ -1073,6 +1110,62 @@ impl MuMcpServer {
         }
     }
 
+    /// Bootstrap: Build or rebuild the MU code graph from within MCP
+    #[tool(
+        description = "Build or rebuild the MU code graph without leaving the MCP session. Use this instead of asking the user to run 'mu bootstrap' in a terminal. Drops the current database connection, rebuilds the graph, then the next tool call reconnects automatically. Defaults to force=true (full rebuild). Use after code changes to refresh the index, or on first setup."
+    )]
+    async fn mu_bootstrap(
+        &self,
+        Parameters(params): Parameters<BootstrapParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let dir = self.resolve_project_dir(params.path.as_deref()).await?;
+        let force = params.force.unwrap_or(true);
+
+        // Drop existing connection so bootstrap can write
+        self.reset_state().await;
+
+        let result = crate::commands::bootstrap::bootstrap_pipeline(&dir, force, None)
+            .map_err(|e| McpError::internal_error(format!("bootstrap failed: {}", e), None))?;
+
+        // Format result as markdown
+        let mut output = String::new();
+        if result.already_existed {
+            output.push_str("# Bootstrap: Already Initialized\n\n");
+            output.push_str(&format!("Nodes: {} | Edges: {}\n", result.node_count, result.edge_count));
+            output.push_str("\nPass `force: true` to rebuild.\n");
+        } else if result.files_scanned == 0 {
+            output.push_str("# Bootstrap: No Files Found\n\n");
+            output.push_str(&format!("No supported source files in `{}`.\n", dir.display()));
+        } else {
+            output.push_str("# Bootstrap Complete\n\n");
+            output.push_str(&format!(
+                "Scanned {} files, parsed {} ({} cached) in {}ms\n",
+                result.files_scanned, result.files_parsed, result.files_cached, result.duration_ms
+            ));
+            output.push_str(&format!(
+                "Graph: {} nodes, {} edges\n",
+                result.node_count, result.edge_count
+            ));
+            if result.importance_scores_computed > 0 {
+                output.push_str(&format!(
+                    "PageRank: {} scores | Summaries: {} | FTS: {}\n",
+                    result.importance_scores_computed,
+                    result.summaries_generated,
+                    if result.fts_index_created { "rebuilt" } else { "skipped" }
+                ));
+            }
+            if result.config_created || result.gitignore_updated {
+                output.push_str("\nSetup: ");
+                if result.config_created { output.push_str(".murc.toml created "); }
+                if result.gitignore_updated { output.push_str(".gitignore updated"); }
+                output.push('\n');
+            }
+        }
+
+        // State will auto-reinitialize on the next tool call
+        Ok(CallToolResult::success(vec![Content::text(output)]))
+    }
+
     /// Audit: Run code quality rules and report violations
     #[tool(
         description = "Code quality rules — finds complexity violations, missing docs, code smells, hardcoded secrets, TODO/FIXMEs, and suspicious patterns. Supports scoping to changed files via diff_base. NOT for: finding the riskiest functions globally (use mu_sus), or full PR review with impact analysis (use mu_review)."
@@ -1262,7 +1355,7 @@ impl ServerHandler for MuMcpServer {
                 version: env!("CARGO_PKG_VERSION").into(),
             },
             instructions: Some(
-                "MU gives you deep codebase understanding through 14 tools. Here's how to pick the right one:\n\
+                "MU gives you deep codebase understanding through 15 tools. Here's how to pick the right one:\n\
                  \n\
                  FINDING CODE:\n\
                  • Know the exact name? → mu_find (fastest, most precise)\n\
@@ -1283,7 +1376,8 @@ impl ServerHandler for MuMcpServer {
                  • What changed in a branch? → mu_diff\n\
                  \n\
                  SETUP & IMPROVEMENT:\n\
-                 • First time on a codebase? Run mu_configure then mu_enrich\n\
+                 • First time on a codebase? Run mu_bootstrap then mu_configure then mu_enrich\n\
+                 • Need to rebuild the index? → mu_bootstrap (rebuilds without leaving the session)\n\
                  • Improve search quality? → mu_enrich\n\
                  \n\
                  TIPS:\n\

@@ -21,6 +21,16 @@ pub struct MUbase {
     fts_available: AtomicBool,
 }
 
+impl Clone for MUbase {
+    fn clone(&self) -> Self {
+        Self {
+            conn: Arc::clone(&self.conn),
+            path: self.path.clone(),
+            fts_available: AtomicBool::new(self.fts_available.load(Ordering::Relaxed)),
+        }
+    }
+}
+
 impl MUbase {
     /// Open or create a MUbase database in read-write mode.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {

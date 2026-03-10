@@ -40,11 +40,24 @@ pub struct BootstrapResult {
     pub importance_scores_computed: usize,
     pub summaries_generated: usize,
     pub fts_index_created: bool,
+    /// True when mubase already existed and force was not set (early return, no rebuild).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub already_existed: bool,
 }
 
 impl TableDisplay for BootstrapResult {
     fn to_table(&self) -> String {
         let mut output = String::new();
+
+        if self.already_existed {
+            output.push_str(&format!(
+                "{} MU already initialized. Use --force to rebuild.\n",
+                "INFO:".yellow().bold()
+            ));
+            output.push_str(&format!("  Nodes: {}\n", self.node_count));
+            output.push_str(&format!("  Edges: {}\n", self.edge_count));
+            return output;
+        }
 
         if self.success {
             output.push_str(&format!(
@@ -234,14 +247,21 @@ struct ParsedCodebase {
     files_cached: usize,
 }
 
+/// Set spinner message if spinner is present.
+fn spin(spinner: Option<&ProgressBar>, msg: impl Into<std::borrow::Cow<'static, str>>) {
+    if let Some(s) = spinner {
+        s.set_message(msg);
+    }
+}
+
 /// Scan the codebase and parse all source files, using cache when available.
 fn scan_and_parse(
     root: &Path,
     config: &MuConfig,
-    spinner: &ProgressBar,
+    spinner: Option<&ProgressBar>,
 ) -> anyhow::Result<ParsedCodebase> {
     // Step 1: Scan codebase
-    spinner.set_message("Scanning codebase...");
+    spin(spinner, "Scanning codebase...");
     let root_str = root.to_str().unwrap_or(".");
     let cache_enabled = config.cache_enabled();
     let ignore_patterns = config.ignore_patterns();
@@ -263,7 +283,7 @@ fn scan_and_parse(
         .map_err(|e| anyhow::anyhow!(e))?;
 
     let files_scanned = scan_result.files.len();
-    spinner.set_message(format!("Found {} files", files_scanned));
+    spin(spinner, format!("Found {} files", files_scanned));
 
     if files_scanned == 0 {
         return Ok(ParsedCodebase {
@@ -275,7 +295,7 @@ fn scan_and_parse(
     }
 
     // Step 2: Load cache and determine what needs parsing
-    spinner.set_message("Loading cache...");
+    spin(spinner, "Loading cache...");
     let mut cache = if cache_enabled {
         ParseCache::load(config.cache_directory(), root)
     } else {
@@ -292,7 +312,7 @@ fn scan_and_parse(
     }
 
     // Separate files into cached vs needs-parsing
-    spinner.set_message("Checking cache...");
+    spin(spinner, "Checking cache...");
     let mut cached_modules: Vec<mu_core::types::ParseResult> = Vec::new();
     let mut files_to_parse: Vec<(mu_core::scanner::ScannedFile, String)> = Vec::new();
 
@@ -318,7 +338,7 @@ fn scan_and_parse(
     }
 
     // Parse files that weren't in cache
-    spinner.set_message(format!(
+    spin(spinner, format!(
         "Parsing {} files ({} cached)...",
         files_to_parse.len(),
         cache_stats.hits
@@ -346,7 +366,7 @@ fn scan_and_parse(
                 }
             }
         }
-        spinner.set_message("Saving cache...");
+        spin(spinner, "Saving cache...");
         if let Err(e) = cache.save(config.cache_directory(), root) {
             tracing::warn!("Failed to save parse cache: {}", e);
         }
@@ -373,9 +393,9 @@ fn scan_and_parse(
 fn build_graph(
     parse_results: &[mu_core::types::ParseResult],
     root: &Path,
-    spinner: &ProgressBar,
+    spinner: Option<&ProgressBar>,
 ) -> (Vec<crate::engine::storage::Node>, Vec<crate::engine::storage::Edge>) {
-    spinner.set_message("Building graph...");
+    spin(spinner, "Building graph...");
 
     // Load path alias resolver for TS/JS
     let path_alias_resolver = PathAliasResolver::from_project(root);
@@ -421,7 +441,7 @@ fn build_graph(
     tracing::debug!("Built function lookup with {} entries", func_lookup.len());
 
     // Resolve call sites
-    spinner.set_message("Resolving call sites...");
+    spin(spinner, "Resolving call sites...");
     let (total, resolved) = resolve_all_call_sites(parse_results, &func_lookup, &mut edges);
     tracing::info!(
         "Call sites: {} found, {} resolved ({:.1}%)",
@@ -435,7 +455,7 @@ fn build_graph(
     );
 
     // Detect cross-service patterns (MassTransit, HTTP, contracts) in C# code
-    spinner.set_message("Detecting cross-service patterns...");
+    spin(spinner, "Detecting cross-service patterns...");
     detect_cross_service_edges(parse_results, &class_lookup, &mut nodes, &mut edges);
 
     (nodes, edges)
@@ -971,32 +991,23 @@ fn create_spinner() -> ProgressBar {
     spinner
 }
 
-/// Run the bootstrap command
-pub async fn run(
-    path: &str,
+/// Headless bootstrap pipeline — core logic without CLI output rendering.
+///
+/// Called by both the CLI `run()` and the MCP `mu_bootstrap` tool.
+/// When `spinner` is None, progress messages are silently skipped.
+pub fn bootstrap_pipeline(
+    root: &Path,
     force: bool,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
+    spinner: Option<&ProgressBar>,
+) -> anyhow::Result<BootstrapResult> {
     let start = Instant::now();
 
-    // Resolve and validate path
-    let root = Path::new(path)
-        .canonicalize()
-        .unwrap_or_else(|_| Path::new(path).to_path_buf());
-
-    if !root.exists() {
-        anyhow::bail!("Path does not exist: {}", root.display());
-    }
-    if !root.is_dir() {
-        anyhow::bail!("Path is not a directory: {}", root.display());
-    }
-
     // Setup: config and gitignore
-    let config_created = ensure_config(&root);
-    let gitignore_updated = update_gitignore(&root);
+    let config_created = ensure_config(root);
+    let gitignore_updated = update_gitignore(root);
 
     // Load configuration (strict mode: fail on config errors)
-    let config = MuConfig::load_strict(&root)?;
+    let config = MuConfig::load_strict(root)?;
     tracing::debug!("Loaded ignore patterns: {:?}", config.ignore_patterns());
 
     // Determine mubase path
@@ -1007,13 +1018,24 @@ pub async fn run(
     if mubase_path.exists() && !force {
         let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
         let stats = mubase.stats()?;
-        println!(
-            "{} MU already initialized. Use --force to rebuild.",
-            "INFO:".yellow().bold()
-        );
-        println!("  Nodes: {}", stats.node_count);
-        println!("  Edges: {}", stats.edge_count);
-        return Ok(());
+        return Ok(BootstrapResult {
+            success: true,
+            root_path: root.to_string_lossy().to_string(),
+            mubase_path: mubase_path.to_string_lossy().to_string(),
+            node_count: stats.node_count,
+            edge_count: stats.edge_count,
+            nodes_by_type: stats.type_counts,
+            already_existed: true,
+            files_scanned: 0,
+            files_parsed: 0,
+            files_cached: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
+            config_created: false,
+            gitignore_updated: false,
+            importance_scores_computed: 0,
+            summaries_generated: 0,
+            fts_index_created: false,
+        });
     }
 
     // Create .mu directory
@@ -1021,25 +1043,34 @@ pub async fn run(
         fs::create_dir_all(&mu_dir)?;
     }
 
-    let spinner = create_spinner();
-
     // Step 1: Scan and parse
-    let parsed = scan_and_parse(&root, &config, &spinner)?;
+    let parsed = scan_and_parse(root, &config, spinner)?;
     if parsed.files_scanned == 0 {
-        spinner.finish_and_clear();
-        println!(
-            "{} No supported files found in {}",
-            "WARNING:".yellow().bold(),
-            root.display()
-        );
-        return Ok(());
+        return Ok(BootstrapResult {
+            success: true,
+            root_path: root.to_string_lossy().to_string(),
+            mubase_path: mubase_path.to_string_lossy().to_string(),
+            files_scanned: 0,
+            files_parsed: 0,
+            files_cached: 0,
+            node_count: 0,
+            edge_count: 0,
+            nodes_by_type: HashMap::new(),
+            duration_ms: start.elapsed().as_millis() as u64,
+            config_created,
+            gitignore_updated,
+            importance_scores_computed: 0,
+            summaries_generated: 0,
+            fts_index_created: false,
+            already_existed: false,
+        });
     }
 
     // Step 2: Build graph
-    let (nodes, edges) = build_graph(&parsed.parse_results, &root, &spinner);
+    let (nodes, edges) = build_graph(&parsed.parse_results, root, spinner);
 
     // Step 3: Write to database
-    spinner.set_message("Writing database...");
+    spin(spinner, "Writing database...");
     let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
 
     // Snapshot existing summary info BEFORE clearing, for staleness detection later.
@@ -1061,7 +1092,7 @@ pub async fn run(
     let stats = mubase.stats()?;
 
     // Step 4: Compute composite importance scores (PageRank + complexity + LOC + visibility)
-    spinner.set_message("Computing importance scores...");
+    spin(spinner, "Computing importance scores...");
     let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
     let edge_tuples: Vec<(String, String, String)> = edges
         .iter()
@@ -1127,7 +1158,7 @@ pub async fn run(
     // Staleness check: preserve LLM-enriched summaries when code hasn't changed.
     // Hash is node-level (hash of node's own source_text), NOT file-level.
     // Uses prior_summaries snapshot taken BEFORE clear().
-    spinner.set_message("Generating heuristic summaries...");
+    spin(spinner, "Generating heuristic summaries...");
     let mut summaries_generated = 0;
     let mut summaries_preserved = 0;
     for node in &nodes {
@@ -1156,7 +1187,7 @@ pub async fn run(
     );
 
     // Step 6: Build search_text from summaries + identity fields
-    spinner.set_message("Building search text...");
+    spin(spinner, "Building search text...");
     let updated_nodes = mubase.all_nodes()?;
     let search_texts: Vec<(String, String)> = updated_nodes
         .iter()
@@ -1168,7 +1199,7 @@ pub async fn run(
     mubase.update_search_text_batch(&search_texts)?;
 
     // Step 7: Rebuild FTS index on search_text
-    spinner.set_message("Building FTS index...");
+    spin(spinner, "Building FTS index...");
     let fts_index_created = match mubase.rebuild_fts_on_search_text() {
         Ok(created) => {
             if created {
@@ -1182,10 +1213,7 @@ pub async fn run(
         }
     };
 
-    spinner.finish_and_clear();
-
-    // Output result
-    let result = BootstrapResult {
+    Ok(BootstrapResult {
         success: true,
         root_path: root.to_string_lossy().to_string(),
         mubase_path: mubase_path.to_string_lossy().to_string(),
@@ -1201,7 +1229,42 @@ pub async fn run(
         importance_scores_computed,
         summaries_generated,
         fts_index_created,
-    };
+        already_existed: false,
+    })
+}
+
+/// Run the bootstrap command (CLI entry point)
+pub async fn run(
+    path: &str,
+    force: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    // Resolve and validate path
+    let root = Path::new(path)
+        .canonicalize()
+        .unwrap_or_else(|_| Path::new(path).to_path_buf());
+
+    if !root.exists() {
+        anyhow::bail!("Path does not exist: {}", root.display());
+    }
+    if !root.is_dir() {
+        anyhow::bail!("Path is not a directory: {}", root.display());
+    }
+
+    let spinner = create_spinner();
+    let result = bootstrap_pipeline(&root, force, Some(&spinner))?;
+    spinner.finish_and_clear();
+
+    if result.already_existed {
+        // Print inline for backwards compat (no-force case)
+    } else if result.files_scanned == 0 {
+        println!(
+            "{} No supported files found in {}",
+            "WARNING:".yellow().bold(),
+            root.display()
+        );
+        return Ok(());
+    }
 
     Output::new(result, format).render()
 }

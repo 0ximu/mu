@@ -27,7 +27,7 @@
 //! directory = ".mu/cache"
 //! ```
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -147,19 +147,35 @@ pub struct ScannerConfig {
 pub struct ParserConfig {
     /// Languages to parse.
     ///
-    /// Can be:
-    /// - Empty/None: Parse all supported languages (default)
-    /// - List of language names: Only parse specified languages
+    /// Accepts:
+    /// - Omitted or `"auto"`: Parse all supported languages (default)
+    /// - A single string: `languages = "python"` → `["python"]`
+    /// - An array: `languages = ["python", "typescript"]`
     ///
     /// Supported languages: `python`, `typescript`, `javascript`, `tsx`, `jsx`,
     /// `rust`, `go`, `java`, `csharp`
-    ///
-    /// # Example
-    /// ```toml
-    /// languages = ["python", "typescript"]
-    /// ```
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_languages")]
     pub languages: Option<Vec<String>>,
+}
+
+/// Lenient deserializer: accepts "auto" (→ None), a single string (→ vec), or an array.
+fn deserialize_languages<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        Single(String),
+        Multiple(Vec<String>),
+    }
+
+    match Option::<StringOrVec>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(StringOrVec::Single(s)) if s.eq_ignore_ascii_case("auto") => Ok(None),
+        Some(StringOrVec::Single(s)) => Ok(Some(vec![s])),
+        Some(StringOrVec::Multiple(v)) => Ok(Some(v)),
+    }
 }
 
 /// Output formatting preferences.
@@ -554,12 +570,12 @@ enabled = false
     }
 
     #[test]
-    fn test_load_strict_type_error() {
-        let temp_dir = std::env::temp_dir().join("mu_test_type_error_config");
+    fn test_languages_string_accepted() {
+        // languages = "python" (bare string) should parse as vec!["python"]
+        let temp_dir = std::env::temp_dir().join("mu_test_languages_string");
         let _ = std::fs::create_dir_all(&temp_dir);
 
         let config_path = temp_dir.join(".murc.toml");
-        // languages should be an array, not a string
         std::fs::write(
             &config_path,
             r#"
@@ -569,24 +585,30 @@ languages = "python"
         )
         .unwrap();
 
-        let result = MuConfig::load_strict(&temp_dir);
-        assert!(result.is_err());
-
-        let err = result.unwrap_err();
-        let err_msg = err.to_string();
-        assert!(err_msg.contains("Failed to parse"));
-        // Should suggest array syntax
-        assert!(err_msg.contains("array"));
+        let config = MuConfig::load_strict(&temp_dir).expect("string language should parse");
+        assert_eq!(
+            config.parser.languages,
+            Some(vec!["python".to_string()])
+        );
     }
 
     #[test]
-    fn test_suggest_config_fix_array_error() {
-        // Create a fake toml parse error for array
-        let bad_toml = r#"languages = "python""#;
-        let err: Result<ParserConfig, _> = toml::from_str(bad_toml);
-        if let Err(e) = err {
-            let suggestion = suggest_config_fix(&e);
-            assert!(suggestion.contains("array"));
-        }
+    fn test_languages_auto_string() {
+        // languages = "auto" should parse as None (all languages)
+        let parsed: ParserConfig = toml::from_str(r#"languages = "auto""#).unwrap();
+        assert!(parsed.languages.is_none());
+
+        let parsed: ParserConfig = toml::from_str(r#"languages = "AUTO""#).unwrap();
+        assert!(parsed.languages.is_none());
+    }
+
+    #[test]
+    fn test_languages_array_still_works() {
+        let parsed: ParserConfig =
+            toml::from_str(r#"languages = ["python", "rust"]"#).unwrap();
+        assert_eq!(
+            parsed.languages,
+            Some(vec!["python".to_string(), "rust".to_string()])
+        );
     }
 }
