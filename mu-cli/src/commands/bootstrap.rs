@@ -1040,7 +1040,7 @@ pub async fn run(
     mubase.insert_edges(&edges)?;
     let stats = mubase.stats()?;
 
-    // Step 4: Compute PageRank importance scores
+    // Step 4: Compute composite importance scores (PageRank + complexity + LOC + visibility)
     spinner.set_message("Computing importance scores...");
     let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
     let edge_tuples: Vec<(String, String, String)> = edges
@@ -1048,11 +1048,51 @@ pub async fn run(
         .map(|e| (e.source_id.clone(), e.target_id.clone(), e.edge_type.to_string()))
         .collect();
     let pr_config = crate::engine::pagerank::PageRankConfig::default();
-    let importance_scores = crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
+    let pagerank_scores = crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
+
+    // Gather metadata for composite scoring
+    let node_metadata: Vec<(String, crate::engine::pagerank::NodeMeta)> = nodes
+        .iter()
+        .map(|n| {
+            let loc = match (n.line_start, n.line_end) {
+                (Some(start), Some(end)) if end >= start => end - start,
+                _ => 0,
+            };
+            let is_public = n
+                .source_text
+                .as_deref()
+                .map(|s| s.contains("pub ") || s.contains("pub(") || s.contains("export "))
+                .unwrap_or(false);
+            let is_test = n
+                .file_path
+                .as_deref()
+                .map(|p| {
+                    p.contains("/tests/")
+                        || p.contains("/test/")
+                        || p.contains("_test.")
+                        || p.contains(".test.")
+                        || p.contains("test_")
+                })
+                .unwrap_or(false);
+
+            (
+                n.id.clone(),
+                crate::engine::pagerank::NodeMeta {
+                    complexity: n.complexity,
+                    loc,
+                    is_public,
+                    is_test,
+                },
+            )
+        })
+        .collect();
+
+    let importance_scores =
+        crate::engine::pagerank::compute_composite_importance(&pagerank_scores, &node_metadata);
     let score_pairs: Vec<(String, f32)> = importance_scores.into_iter().collect();
     mubase.update_importance_batch(&score_pairs)?;
     let importance_scores_computed = score_pairs.len();
-    tracing::info!("Updated {} importance scores", importance_scores_computed);
+    tracing::info!("Updated {} composite importance scores", importance_scores_computed);
 
     // Step 5: Generate heuristic summaries (needs edges for callers/callees)
     // Staleness check: preserve LLM-enriched summaries when code hasn't changed.
