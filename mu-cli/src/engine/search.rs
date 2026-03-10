@@ -11,6 +11,56 @@ use anyhow::Result;
 use duckdb::{params, Connection};
 use serde::Serialize;
 
+/// Confidence in search results based on score distribution.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum SearchConfidence {
+    High,
+    Medium,
+    Low,
+    NoResults,
+}
+
+/// Compute confidence from search result scores and match types.
+///
+/// Rules (in priority order):
+/// 1. Empty results -> NoResults
+/// 2. Any exact match -> High
+/// 3. Top score < 0.10 -> Low (barely beat random)
+/// 4. Gap between #1 and #2 > 0.15 -> High (clear winner)
+/// 5. Top score > 0.30 -> Medium
+/// 6. Otherwise -> Low
+pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
+    if results.is_empty() {
+        return SearchConfidence::NoResults;
+    }
+
+    if results
+        .iter()
+        .any(|r| r.match_type == MatchType::ExactName || r.match_type == MatchType::ExactQualifiedName)
+    {
+        return SearchConfidence::High;
+    }
+
+    let top_score = results[0].score;
+
+    if top_score < 0.10 {
+        return SearchConfidence::Low;
+    }
+
+    if results.len() >= 2 {
+        let gap = results[0].score - results[1].score;
+        if gap > 0.15 {
+            return SearchConfidence::High;
+        }
+    }
+
+    if top_score > 0.30 {
+        return SearchConfidence::Medium;
+    }
+
+    SearchConfidence::Low
+}
+
 /// How a result was matched.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub enum MatchType {
@@ -486,5 +536,84 @@ mod tests {
     fn test_search_nodes_dedup_exact_over_bm25() {
         // Would test: node appears in both exact and BM25 results,
         // verify it keeps the exact match (score=1.0) and is not duplicated
+    }
+
+    // -- confidence model tests --
+
+    fn make_result(score: f32, match_type: MatchType) -> SearchResult {
+        SearchResult {
+            node_id: "n".to_string(),
+            name: "n".to_string(),
+            qualified_name: None,
+            node_type: "function".to_string(),
+            file_path: None,
+            line_start: None,
+            line_end: None,
+            importance_score: 0.0,
+            summary_text: None,
+            source_text: None,
+            score,
+            match_type,
+        }
+    }
+
+    #[test]
+    fn test_confidence_empty_results() {
+        assert_eq!(compute_confidence(&[]), SearchConfidence::NoResults);
+    }
+
+    #[test]
+    fn test_confidence_exact_name_is_high() {
+        let results = vec![make_result(1.0, MatchType::ExactName)];
+        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_exact_qualified_name_is_high() {
+        let results = vec![make_result(1.0, MatchType::ExactQualifiedName)];
+        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_low_top_score() {
+        let results = vec![make_result(0.05, MatchType::Bm25)];
+        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+    }
+
+    #[test]
+    fn test_confidence_clear_gap_is_high() {
+        let results = vec![
+            make_result(0.50, MatchType::Bm25),
+            make_result(0.20, MatchType::Bm25),
+        ];
+        // gap = 0.30 > 0.15
+        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_strong_score_no_gap_is_medium() {
+        let results = vec![
+            make_result(0.40, MatchType::Bm25),
+            make_result(0.35, MatchType::Bm25),
+        ];
+        // gap = 0.05, not > 0.15; top_score > 0.30
+        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+    }
+
+    #[test]
+    fn test_confidence_weak_scores_close_together_is_low() {
+        let results = vec![
+            make_result(0.15, MatchType::Bm25),
+            make_result(0.12, MatchType::Bm25),
+        ];
+        // gap = 0.03, not > 0.15; top_score = 0.15 not > 0.30
+        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+    }
+
+    #[test]
+    fn test_confidence_single_strong_result_is_medium() {
+        // Only one result, score > 0.30, no gap check possible
+        let results = vec![make_result(0.50, MatchType::Bm25)];
+        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
     }
 }
