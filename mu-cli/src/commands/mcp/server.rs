@@ -199,7 +199,7 @@ impl MuMcpServer {
 
     /// Grok: Search + code snippets (V3: BM25 + importance, no embeddings)
     #[tool(
-        description = "Find and show relevant code for a question. Returns actual code snippets, not just locations. Use this to understand how something works."
+        description = "Keyword search across the codebase. Best for: finding functions by name or concept when you know roughly what you're looking for. Returns ranked results with confidence level. NOT for: tracing dependencies (use mu_impact), understanding code flow (use mu_expand then mu_read), or getting a project overview (use mu_compress). If confidence is LOW, try more specific terms or use mu_find for exact symbol lookup."
     )]
     async fn mu_grok(
         &self,
@@ -213,7 +213,7 @@ impl MuMcpServer {
 
     /// Find: Exact symbol lookup with code (accepts symbol names or node IDs)
     #[tool(
-        description = "Find a specific symbol by exact name or node ID. Use this when you know the function/class name (e.g., 'parse_config') or have a node ID from other tools (e.g., 'fn:src/main.rs:main')."
+        description = "Exact symbol lookup by name or full node ID. Use when you know the exact function/class name or have a node_id from another tool's output. Returns full source code. This is the fastest, most precise tool — prefer it over mu_grok when you have a specific symbol name."
     )]
     async fn mu_find(
         &self,
@@ -297,7 +297,7 @@ impl MuMcpServer {
 
     /// Compress: Token-efficient codebase overview
     #[tool(
-        description = "Get a compressed overview of the entire codebase structure. Use this first to understand what's in the project."
+        description = "Token-efficient overview of the entire codebase structure. Shows all modules, classes, and functions with importance markers. Use for initial orientation on an unfamiliar codebase or to answer 'what services/modules exist?' NOT for: finding specific code (use mu_grok or mu_find)."
     )]
     async fn mu_compress(&self) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
@@ -413,7 +413,7 @@ impl MuMcpServer {
 
     /// Impact: What depends on this symbol (with grep fallback)
     #[tool(
-        description = "Find what code depends on a symbol. Shows what might break if you change it."
+        description = "Find everything that depends on a symbol — the blast radius. Use when asking 'what breaks if I change X?' Returns all downstream dependents across the entire codebase including cross-service dependencies. This is MU's strongest tool for understanding change risk. NOT for: finding code (use mu_grok), understanding what a function calls (use mu_expand with direction='outgoing')."
     )]
     async fn mu_impact(
         &self,
@@ -620,7 +620,7 @@ impl MuMcpServer {
 
     /// Diff: Real semantic diff showing what symbols changed
     #[tool(
-        description = "See what symbols changed between git refs. Parses both versions and compares at the entity level — shows functions/classes added, modified, or removed with breaking change detection."
+        description = "Semantic diff between git refs. Shows what changed structurally between branches or commits — new functions, removed classes, changed signatures, breaking changes. Use for understanding what changed in a branch. NOT for: full PR review with risk scoring (use mu_review)."
     )]
     async fn mu_diff(
         &self,
@@ -713,7 +713,7 @@ impl MuMcpServer {
 
     /// Sus: Find suspicious code with categories
     #[tool(
-        description = "Find suspicious code: high complexity, security-sensitive names, large functions. Good for code review."
+        description = "Find suspicious, risky, or complex code. Returns high-complexity functions, security-sensitive code, and large functions. Use for code review, pre-release audits, or finding refactoring targets. Respects config filters — run mu_configure first for best results. NOT for: reviewing a specific PR (use mu_review), or checking code quality rules (use mu_audit)."
     )]
     async fn mu_sus(
         &self,
@@ -812,7 +812,7 @@ impl MuMcpServer {
 
     /// WTF: Git archaeology with context
     #[tool(
-        description = "Understand why code exists. Shows git history, recent changes, and who works on a file."
+        description = "Git archaeology — who wrote this, how it evolved, co-changed files. Use when you need to understand a file's history: who last changed it, when it was created, and what commits touched it. NOT for: understanding what code does (use mu_find or mu_read), or checking code quality (use mu_audit)."
     )]
     async fn mu_wtf(
         &self,
@@ -961,7 +961,7 @@ impl MuMcpServer {
 
     /// Oracle: Task-aware context retrieval (V3: search + expand + pack)
     #[tool(
-        description = "Get exactly what you need to accomplish a task. Returns must-read code, supporting context, and relevant patterns. Use this when you have a specific task like 'fix bug X' or 'add feature Y'."
+        description = "Context assembly for a specific task. Give it a task description and a token budget, and it packs the most relevant source code for that task. Best for: 'I need to understand how X works — give me all the relevant code' or 'give me context to fix bug Y'. NOT for: general questions about the codebase (use mu_grok), dependency questions (use mu_impact), or project overview (use mu_compress)."
     )]
     async fn mu_oracle(
         &self,
@@ -975,7 +975,7 @@ impl MuMcpServer {
 
     /// Expand: Graph traversal from seed nodes
     #[tool(
-        description = "Explore the dependency graph around specific nodes. Returns neighbors with edge types (calls, imports, uses, inherits). Use after search to understand how code connects."
+        description = "Explore the dependency graph around a node. Use to understand what a function calls, what calls it, what it inherits from, and what it contains. Start with a node_id from mu_grok or mu_find, then expand to see its neighborhood. Use depth=1 for immediate neighbors, depth=2 for the extended graph. Best for: understanding how code connects, tracing call chains, finding related code. For full impact analysis across the whole codebase, use mu_impact instead."
     )]
     async fn mu_expand(
         &self,
@@ -989,7 +989,7 @@ impl MuMcpServer {
 
     /// Read: Bulk node content retrieval with mode control
     #[tool(
-        description = "Read source code for specific nodes by ID. Modes: 'signature' (declaration only), 'summary' (what it does), 'source' (full code), 'full' (code + neighbor signatures). Use node IDs from search/expand results."
+        description = "Read the full source code of specific nodes by ID. Use after mu_grok or mu_expand to see the actual implementation. Modes: 'source' for full code, 'signature' for just the function signature, 'summary' for the description, 'full' for source + neighbor signatures. Requires node_ids from a previous tool call."
     )]
     async fn mu_read(
         &self,
@@ -1003,7 +1003,7 @@ impl MuMcpServer {
 
     /// Enrich: Discover or store LLM-quality summaries
     #[tool(
-        description = "Improve search quality by enriching node summaries. Without arguments: returns high-importance nodes needing better summaries. With summaries: stores them for future search. The enrichment flywheel."
+        description = "Improve search quality by writing better summaries for important nodes. Call with no args to get the highest-priority nodes that need enrichment. Call with summaries to store them. Each enrichment cycle makes future mu_grok searches more accurate. Use after mu_configure for best results."
     )]
     async fn mu_enrich(
         &self,
@@ -1017,7 +1017,7 @@ impl MuMcpServer {
 
     /// Configure: Auto-detect codebase patterns
     #[tool(
-        description = "Auto-detect codebase patterns and generate .mu/config.toml. Detects test patterns, generated code, frameworks, core abstractions, and service boundaries. Run once per codebase — config persists across sessions and improves all other MU tools."
+        description = "Auto-detect codebase patterns and generate configuration. Detects test directories, generated code, frameworks, services, and core abstractions. Run once per codebase — config persists and improves all other tools. Returns a draft config for review."
     )]
     async fn mu_configure(&self) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
@@ -1034,7 +1034,7 @@ impl MuMcpServer {
 
     /// Audit: Run code quality rules and report violations
     #[tool(
-        description = "Run code quality audit on the codebase. Finds dead code, high complexity, missing docs, hardcoded secrets, TODO/FIXMEs, unwrap abuse, and long parameter lists. Supports project-local custom rules from .mu/rules/."
+        description = "Code quality rules — finds complexity violations, missing docs, code smells, hardcoded secrets, TODO/FIXMEs, and suspicious patterns. Supports scoping to changed files via diff_base. NOT for: finding the riskiest functions globally (use mu_sus), or full PR review with impact analysis (use mu_review)."
     )]
     async fn mu_audit(
         &self,
@@ -1056,7 +1056,7 @@ impl MuMcpServer {
 
     /// Review: Full PR risk analysis combining diff + impact + audit
     #[tool(
-        description = "Full PR review: semantic diff, downstream impact analysis, code audit, and risk scoring. Use this before merging to understand what changed, what might break, and how risky the changes are."
+        description = "Full PR/code review combining diff + impact + audit + risk scoring. Use before merging to understand what changed, what might break, and how risky the changes are. This is the all-in-one tool for PR review — it runs mu_diff, mu_impact, and mu_audit together. NOT for: just seeing what changed (use mu_diff), or just checking quality rules (use mu_audit)."
     )]
     async fn mu_review(
         &self,
@@ -1221,21 +1221,35 @@ impl ServerHandler for MuMcpServer {
                 version: env!("CARGO_PKG_VERSION").into(),
             },
             instructions: Some(
-                "MU - semantic code intelligence. Tools:\n\
-                 • mu_oracle: THE divine tool - get exactly what you need for a task (must-read code, context, patterns)\n\
-                 • mu_grok: Understand code (semantic search + snippets)\n\
-                 • mu_find: Find exact symbol by name\n\
-                 • mu_expand: Explore dependency graph around nodes\n\
-                 • mu_read: Read source code for specific nodes by ID\n\
-                 • mu_enrich: Improve search quality with better summaries\n\
-                 • mu_compress: Get codebase overview\n\
-                 • mu_impact: What depends on a symbol\n\
-                 • mu_diff: What changed between git refs\n\
-                 • mu_review: Full PR review (diff + impact + audit + risk score)\n\
-                 • mu_audit: Run code quality rules\n\
-                 • mu_sus: Find suspicious/complex code\n\
-                 • mu_wtf: Git archaeology for a file\n\
-                 • mu_configure: Auto-detect codebase patterns, generate .mu/config.toml".into()
+                "MU gives you deep codebase understanding through 14 tools. Here's how to pick the right one:\n\
+                 \n\
+                 FINDING CODE:\n\
+                 • Know the exact name? → mu_find (fastest, most precise)\n\
+                 • Know roughly what you want? → mu_grok (keyword search, ranked results)\n\
+                 • Need the full source after find/grok? → mu_read (pass node_ids from previous results)\n\
+                 \n\
+                 UNDERSTANDING STRUCTURE:\n\
+                 • What does this function call / what calls it? → mu_expand (graph neighbors)\n\
+                 • What breaks if I change this? → mu_impact (full downstream blast radius)\n\
+                 • Give me all context for a task → mu_oracle (packs relevant code within a token budget)\n\
+                 • What services/modules exist? → mu_compress (codebase overview)\n\
+                 \n\
+                 CODE QUALITY:\n\
+                 • Risky/complex code? → mu_sus\n\
+                 • Full PR review? → mu_review (diff + impact + audit + risk score)\n\
+                 • Quality rules only? → mu_audit\n\
+                 • Git history of a file? → mu_wtf\n\
+                 • What changed in a branch? → mu_diff\n\
+                 \n\
+                 SETUP & IMPROVEMENT:\n\
+                 • First time on a codebase? Run mu_configure then mu_enrich\n\
+                 • Improve search quality? → mu_enrich\n\
+                 \n\
+                 TIPS:\n\
+                 • Chain tools: mu_grok to find → mu_expand to understand neighbors → mu_read for source\n\
+                 • If mu_grok returns LOW confidence, try mu_find with a specific name instead\n\
+                 • For 'how does X flow work', use mu_oracle with a task description\n\
+                 • For 'what depends on X', always use mu_impact, not mu_grok".into()
             ),
         }
     }
