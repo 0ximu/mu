@@ -24,7 +24,10 @@ pub enum SearchConfidence {
 ///
 /// Uses score spread (top vs median) and coefficient of variation instead
 /// of absolute thresholds — works identically on small and large codebases.
-pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
+///
+/// When `query` is non-empty, also checks if the top result's name contains
+/// significant query terms — a strong signal of a direct hit.
+pub fn compute_confidence(results: &[SearchResult], query: &str) -> SearchConfidence {
     if results.is_empty() {
         return SearchConfidence::NoResults;
     }
@@ -35,6 +38,30 @@ pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
         .any(|r| r.match_type == MatchType::ExactName || r.match_type == MatchType::ExactQualifiedName)
     {
         return SearchConfidence::High;
+    }
+
+    // Check if top result name contains significant query terms.
+    // Uses a 5-char prefix check as poor-man's stemming so "validation" matches "Validate".
+    if !query.is_empty() && !results.is_empty() {
+        let query_terms: Vec<&str> = query
+            .split_whitespace()
+            .filter(|t| t.len() > 3) // skip short words like "how", "does", "the"
+            .collect();
+
+        if query_terms.len() >= 2 {
+            let top_name = results[0].name.to_lowercase();
+            let matching_terms = query_terms
+                .iter()
+                .filter(|t| {
+                    let tl = t.to_lowercase();
+                    top_name.contains(&tl)
+                        || (tl.len() >= 5 && top_name.contains(&tl[..5]))
+                })
+                .count();
+            if matching_terms >= 2 {
+                return SearchConfidence::High;
+            }
+        }
     }
 
     let scores: Vec<f32> = results.iter().map(|r| r.score).collect();
@@ -128,8 +155,15 @@ pub struct SearchResult {
 /// Phase 2: BM25 on search_text (normalized to 0-1)
 /// Phase 3: Importance tiebreak (85% BM25 + 15% PageRank)
 ///
+/// `test_dampening` controls the score multiplier for test/migration files (default: 0.3).
+///
 /// All results are deduped by node_id (never by name -- the name-collision bug is dead).
 pub fn search_nodes(conn: &Connection, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
+    search_nodes_with_dampening(conn, query, limit, 0.3)
+}
+
+/// Like `search_nodes` but with a configurable test dampening factor.
+pub fn search_nodes_with_dampening(conn: &Connection, query: &str, limit: usize, test_dampening: f32) -> Result<Vec<SearchResult>> {
     let mut results: HashMap<String, SearchResult> = HashMap::new();
 
     // -- Phase 1: Exact Match (highest priority) --
@@ -192,7 +226,12 @@ pub fn search_nodes(conn: &Connection, query: &str, limit: usize) -> Result<Vec<
 
         // -- Phase 3: Importance Tiebreak --
         // 85% BM25, 15% PageRank
-        let final_score = 0.85 * bm25_score + 0.15 * result.importance_score;
+        let mut final_score = 0.85 * bm25_score + 0.15 * result.importance_score;
+
+        // Dampen test/migration results so production code ranks higher
+        if is_test_or_migration(result.file_path.as_deref()) {
+            final_score *= test_dampening;
+        }
 
         result.score = final_score;
         result.match_type = MatchType::Bm25;
@@ -327,6 +366,24 @@ fn fallback_keyword_search(
         ));
     }
     Ok(results)
+}
+
+/// Check if a file path belongs to test or migration code.
+///
+/// Used to dampen search scores — these results stay in the list but
+/// rank below production code at the same BM25 relevance.
+pub fn is_test_or_migration(file_path: Option<&str>) -> bool {
+    let Some(path) = file_path else { return false };
+    let lower = path.to_lowercase();
+    let file_name = path.rsplit('/').next().unwrap_or("");
+    let file_name_lower = file_name.to_lowercase();
+
+    // Match /test/, /tests/, or paths starting with test(s)/
+    lower.contains("/test/") || lower.starts_with("test/")
+        || lower.contains("/tests/") || lower.starts_with("tests/")
+        || file_name_lower.ends_with("tests.cs")
+        || file_name_lower.starts_with("test_")
+        || lower.contains("/migrations/") || lower.starts_with("migrations/")
 }
 
 /// Sort results by score descending and take top N.
@@ -602,33 +659,33 @@ mod tests {
 
     #[test]
     fn test_confidence_empty_results() {
-        assert_eq!(compute_confidence(&[]), SearchConfidence::NoResults);
+        assert_eq!(compute_confidence(&[], ""), SearchConfidence::NoResults);
     }
 
     #[test]
     fn test_confidence_exact_name_is_high() {
         let results = vec![make_result(1.0, MatchType::ExactName)];
-        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::High);
     }
 
     #[test]
     fn test_confidence_exact_qualified_name_is_high() {
         let results = vec![make_result(1.0, MatchType::ExactQualifiedName)];
-        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::High);
     }
 
     #[test]
     fn test_confidence_single_low_score_is_low() {
         // count <= 2, top <= 0.10
         let results = vec![make_result(0.05, MatchType::Bm25)];
-        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Low);
     }
 
     #[test]
     fn test_confidence_single_decent_score_is_medium() {
         // count <= 2, top > 0.10
         let results = vec![make_result(0.50, MatchType::Bm25)];
-        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
 
     #[test]
@@ -637,7 +694,7 @@ mod tests {
         // scores: 0.50, 0.25, 0.20, 0.15, 0.10
         // median (index 2) = 0.20, spread = 0.50/0.20 = 2.5
         let results = make_results(&[0.50, 0.25, 0.20, 0.15, 0.10]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::High);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::High);
     }
 
     #[test]
@@ -646,7 +703,7 @@ mod tests {
         // scores: 0.09, 0.09, 0.08, 0.08, 0.08
         // only 0 above 0.10, so above_floor < 3
         let results = make_results(&[0.09, 0.09, 0.08, 0.08, 0.08]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Low);
     }
 
     #[test]
@@ -654,7 +711,7 @@ mod tests {
         // Flat scores but 3+ results above floor → topic match → MEDIUM
         // scores: 0.22, 0.22, 0.21 — the "search ranking" pattern
         let results = make_results(&[0.22, 0.22, 0.21]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
 
     #[test]
@@ -663,27 +720,130 @@ mod tests {
         // scores: 0.40, 0.35, 0.25, 0.15, 0.10
         // median = 0.25, spread = 0.40/0.25 = 1.6, decent variance
         let results = make_results(&[0.40, 0.35, 0.25, 0.15, 0.10]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
 
     #[test]
     fn test_confidence_absolute_floor() {
         // Even with some spread, top < 0.08 → LOW
         let results = make_results(&[0.06, 0.03, 0.02, 0.01, 0.01]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Low);
     }
 
     #[test]
     fn test_confidence_two_results_above_threshold() {
         // count <= 2, top > 0.10
         let results = make_results(&[0.40, 0.35]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
 
     #[test]
     fn test_confidence_two_results_below_threshold() {
         // count <= 2, top <= 0.10
         let results = make_results(&[0.08, 0.05]);
-        assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Low);
+    }
+
+    // -- substring match confidence tests --
+
+    fn make_named_result(name: &str, score: f32) -> SearchResult {
+        SearchResult {
+            node_id: name.to_string(),
+            name: name.to_string(),
+            qualified_name: None,
+            node_type: "function".to_string(),
+            file_path: None,
+            line_start: None,
+            line_end: None,
+            importance_score: 0.0,
+            summary_text: None,
+            source_text: None,
+            score,
+            match_type: MatchType::Bm25,
+        }
+    }
+
+    #[test]
+    fn test_confidence_substring_match_promotes_to_high() {
+        // "webhook signature validation" → ValidateSignature contains "validate" + "signature"
+        let results = vec![
+            make_named_result("ValidateSignature", 0.35),
+            make_named_result("OtherThing", 0.30),
+            make_named_result("Random", 0.25),
+        ];
+        assert_eq!(
+            compute_confidence(&results, "webhook signature validation"),
+            SearchConfidence::High
+        );
+    }
+
+    #[test]
+    fn test_confidence_substring_match_single_term_no_promote() {
+        // Only 1 significant term ("rate" is 4 chars, "limiting" is 8) but if the name
+        // only matches one term, it should NOT promote
+        let results = vec![
+            make_named_result("RateController", 0.35),
+            make_named_result("OtherThing", 0.30),
+            make_named_result("Random", 0.25),
+        ];
+        // "rate limiting" → RateController has "rate" but not "limit" → no promote
+        // Still goes through normal distribution logic → MEDIUM (spread ~1.4, cv decent)
+        let conf = compute_confidence(&results, "rate limiting");
+        assert_ne!(conf, SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_substring_match_short_words_skipped() {
+        // "how does the search work" → only "search" and "work" are >3 chars
+        let results = vec![
+            make_named_result("SearchEngine", 0.35),
+            make_named_result("Other", 0.30),
+            make_named_result("Random", 0.25),
+        ];
+        // "search" matches but "work" doesn't → only 1 match → no promote
+        let conf = compute_confidence(&results, "how does the search work");
+        assert_ne!(conf, SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_no_query_no_substring_check() {
+        // Empty query should behave the same as before
+        let results = make_results(&[0.40, 0.35, 0.25, 0.15, 0.10]);
+        assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
+    }
+
+    // -- test/migration dampening tests --
+
+    #[test]
+    fn test_is_test_or_migration_test_dir() {
+        assert!(is_test_or_migration(Some("src/tests/foo.rs")));
+        assert!(is_test_or_migration(Some("tests/unit/bar.rs")));
+        assert!(is_test_or_migration(Some("src/test/helpers.rs")));
+    }
+
+    #[test]
+    fn test_is_test_or_migration_cs_test_suffix() {
+        assert!(is_test_or_migration(Some("src/Services/PaymentServiceTests.cs")));
+        assert!(is_test_or_migration(Some("tests/MyTests.cs")));
+    }
+
+    #[test]
+    fn test_is_test_or_migration_test_prefix() {
+        assert!(is_test_or_migration(Some("src/test_search.py")));
+        assert!(is_test_or_migration(Some("lib/test_utils.rs")));
+    }
+
+    #[test]
+    fn test_is_test_or_migration_migrations() {
+        assert!(is_test_or_migration(Some("src/Migrations/20240101_Init.cs")));
+        assert!(is_test_or_migration(Some("db/migrations/001_create.sql")));
+    }
+
+    #[test]
+    fn test_is_test_or_migration_production_code() {
+        assert!(!is_test_or_migration(Some("src/engine/search.rs")));
+        assert!(!is_test_or_migration(Some("src/Services/PaymentService.cs")));
+        assert!(!is_test_or_migration(Some("src/main.rs")));
+        assert!(!is_test_or_migration(None));
     }
 }

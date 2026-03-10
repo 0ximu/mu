@@ -23,6 +23,145 @@ use std::fs;
 use std::path::Path;
 
 // ============================================================================
+// Lenient serde deserializers for MCP parameter tolerance
+//
+// MCP clients (Claude Code, etc.) sometimes send numbers as strings ("3"
+// instead of 3) and arrays as JSON-encoded strings ("[\"a\"]" instead of
+// ["a"]). These deserializers accept both forms.
+// ============================================================================
+
+pub mod lenient {
+    use serde::{Deserialize, Deserializer, de};
+
+    /// Accepts both `3` and `"3"` → `Option<usize>`
+    pub fn option_usize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<usize>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Num(usize),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Num(n)) => Ok(Some(n)),
+            Some(Val::Str(s)) => s.parse().map(Some).map_err(de::Error::custom),
+        }
+    }
+
+    /// Accepts both `1` and `"1"` → `Option<u8>`
+    pub fn option_u8<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Num(u8),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Num(n)) => Ok(Some(n)),
+            Some(Val::Str(s)) => s.parse().map(Some).map_err(de::Error::custom),
+        }
+    }
+
+    /// Accepts both `15` and `"15"` → `Option<i64>`
+    pub fn option_i64<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Num(i64),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Num(n)) => Ok(Some(n)),
+            Some(Val::Str(s)) => s.parse().map(Some).map_err(de::Error::custom),
+        }
+    }
+
+    /// Accepts both `30` and `"30"` → `Option<u32>`
+    pub fn option_u32<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u32>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Num(u32),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Num(n)) => Ok(Some(n)),
+            Some(Val::Str(s)) => s.parse().map(Some).map_err(de::Error::custom),
+        }
+    }
+
+    /// Accepts both `true` and `"true"` → `Option<bool>`
+    pub fn option_bool<'de, D: Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Bool(bool),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Bool(b)) => Ok(Some(b)),
+            Some(Val::Str(s)) => match s.as_str() {
+                "true" | "1" | "yes" => Ok(Some(true)),
+                "false" | "0" | "no" => Ok(Some(false)),
+                _ => Err(de::Error::custom(format!("invalid bool string: {}", s))),
+            },
+        }
+    }
+
+    /// Accepts `["a","b"]`, `"[\"a\",\"b\"]"`, or single `"a"` → `Vec<String>`
+    pub fn vec_string<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Arr(Vec<String>),
+            Str(String),
+        }
+        match Val::deserialize(d)? {
+            Val::Arr(v) => Ok(v),
+            Val::Str(s) => {
+                // Try JSON-encoded array first, then treat as single element
+                if s.starts_with('[') {
+                    serde_json::from_str::<Vec<String>>(&s).map_err(de::Error::custom)
+                } else {
+                    Ok(vec![s])
+                }
+            }
+        }
+    }
+
+    /// Same as `vec_string` but for `Option<Vec<String>>`
+    pub fn option_vec_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Val {
+            Arr(Vec<String>),
+            Str(String),
+            Null,
+        }
+        match Option::<Val>::deserialize(d)? {
+            None | Some(Val::Null) => Ok(None),
+            Some(Val::Arr(v)) => Ok(Some(v)),
+            Some(Val::Str(s)) => {
+                if s.starts_with('[') {
+                    serde_json::from_str::<Vec<String>>(&s).map(Some).map_err(de::Error::custom)
+                } else {
+                    Ok(Some(vec![s]))
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // MCP parameter structs
 // ============================================================================
 
@@ -33,6 +172,7 @@ pub struct SearchNodesParams {
     pub query: String,
     /// Max results (default: 10)
     #[schemars(description = "Maximum number of results (default: 10)")]
+    #[serde(default, deserialize_with = "lenient::option_usize")]
     pub limit: Option<usize>,
 }
 
@@ -40,12 +180,15 @@ pub struct SearchNodesParams {
 pub struct ExpandNodesParams {
     /// Node IDs to expand from
     #[schemars(description = "Node IDs to use as seeds (e.g., ['fn:src/main.rs:main'])")]
+    #[serde(deserialize_with = "lenient::vec_string")]
     pub node_ids: Vec<String>,
     /// Traversal depth (default: 1)
     #[schemars(description = "How many hops to traverse (default: 1)")]
+    #[serde(default, deserialize_with = "lenient::option_u8")]
     pub depth: Option<u8>,
     /// Filter by edge types
     #[schemars(description = "Edge types to follow (e.g., ['calls', 'imports']). All if omitted.")]
+    #[serde(default, deserialize_with = "lenient::option_vec_string")]
     pub edge_types: Option<Vec<String>>,
     /// Direction: outgoing, incoming, or both (default: both)
     #[schemars(description = "Direction: 'outgoing', 'incoming', or 'both' (default: 'both')")]
@@ -56,6 +199,7 @@ pub struct ExpandNodesParams {
 pub struct ReadNodesParams {
     /// Node IDs to read
     #[schemars(description = "Node IDs to read (e.g., ['fn:src/main.rs:main'])")]
+    #[serde(deserialize_with = "lenient::vec_string")]
     pub node_ids: Vec<String>,
     /// Read mode: signature, summary, source, full (default: source)
     #[schemars(description = "Detail level: 'signature', 'summary', 'source', or 'full' (default: 'source')")]
@@ -69,9 +213,11 @@ pub struct PackContextParams {
     pub task: Option<String>,
     /// Specific node IDs to pack
     #[schemars(description = "Specific node IDs to include. If omitted with task, searches for relevant nodes.")]
+    #[serde(default, deserialize_with = "lenient::option_vec_string")]
     pub node_ids: Option<Vec<String>>,
     /// Token budget (default: 4000)
     #[schemars(description = "Maximum approximate tokens to return (default: 4000)")]
+    #[serde(default, deserialize_with = "lenient::option_usize")]
     pub budget: Option<usize>,
     /// Grouping style: grouped (by file) or flat (default: grouped)
     #[schemars(description = "Output style: 'grouped' (by file) or 'flat' (default: 'grouped')")]
@@ -82,6 +228,7 @@ pub struct PackContextParams {
 pub struct EnrichNodesParams {
     /// Node IDs to get enrichment candidates for
     #[schemars(description = "Filter to specific node IDs (optional)")]
+    #[serde(default, deserialize_with = "lenient::option_vec_string")]
     pub node_ids: Option<Vec<String>>,
     /// Summaries to store (node_id + summary pairs)
     #[schemars(description = "Summaries to store: [{node_id: '...', summary: '...'}]")]
@@ -100,7 +247,12 @@ pub struct EnrichSummary {
 
 pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &SearchNodesParams) -> Result<String> {
     let limit = params.limit.unwrap_or(10);
-    search_nodes_tool(mubase, project_root, &params.query, limit)
+    let config = crate::engine::auto_config::AutoConfig::load(project_root);
+    let dampening = config.as_ref()
+        .map(|c| c.filters.search_test_dampening)
+        .unwrap_or(0.3);
+    let resp = build_search_response_with_dampening(mubase, &params.query, limit, dampening)?;
+    Ok(format_search_response(&resp, project_root))
 }
 
 pub fn handle_expand_nodes(mubase: &MUbase, params: &ExpandNodesParams) -> Result<String> {
@@ -118,30 +270,35 @@ pub fn handle_read_nodes(mubase: &MUbase, project_root: &Path, params: &ReadNode
 pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackContextParams) -> Result<String> {
     let budget = params.budget.unwrap_or(4000);
     let style = params.style.as_deref().unwrap_or("grouped");
+    let config = crate::engine::auto_config::AutoConfig::load(project_root);
 
     // If task is provided but no node_ids, search for relevant nodes first
     if let Some(ref task) = params.task {
         if params.node_ids.is_none() {
-            let search_results = mubase.search_v3(task, 20)?;
+            let dampening = config.as_ref()
+                .map(|c| c.filters.search_test_dampening)
+                .unwrap_or(0.3);
+            let search_results = mubase.search_v3_with_dampening(task, 20, dampening)?;
             let ids: Vec<String> = search_results.iter().map(|r| r.node_id.clone()).collect();
             if ids.is_empty() {
-                return pack_context_tool(mubase, project_root, None, budget, style);
+                return pack_context_tool(mubase, project_root, None, budget, style, config.as_ref());
             }
-            return pack_context_tool(mubase, project_root, Some(&ids), budget, style);
+            return pack_context_tool(mubase, project_root, Some(&ids), budget, style, config.as_ref());
         }
     }
 
     let node_ids = params.node_ids.as_deref();
-    pack_context_tool(mubase, project_root, node_ids, budget, style)
+    pack_context_tool(mubase, project_root, node_ids, budget, style, config.as_ref())
 }
 
-pub fn handle_enrich_nodes(mubase: &MUbase, params: &EnrichNodesParams) -> Result<String> {
+pub fn handle_enrich_nodes(mubase: &MUbase, project_root: &Path, params: &EnrichNodesParams) -> Result<String> {
+    let config = crate::engine::auto_config::AutoConfig::load(project_root);
     let node_ids = params.node_ids.as_deref();
     let summaries: Option<Vec<(String, String)>> = params.summaries.as_ref().map(|s| {
         s.iter().map(|es| (es.node_id.clone(), es.summary.clone())).collect()
     });
     let summary_refs: Option<&[(String, String)]> = summaries.as_deref();
-    enrich_nodes_tool(mubase, node_ids, summary_refs)
+    enrich_nodes_tool(mubase, node_ids, summary_refs, config.as_ref())
 }
 
 // ============================================================================
@@ -149,6 +306,7 @@ pub fn handle_enrich_nodes(mubase: &MUbase, params: &EnrichNodesParams) -> Resul
 // ============================================================================
 
 /// Build a structured SearchResponse from search results.
+#[allow(dead_code)]
 pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Result<SearchResponse> {
     let results = mubase.search_v3(query, limit)?;
 
@@ -182,7 +340,7 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
         })
         .collect();
 
-    let engine_confidence = compute_confidence(&results);
+    let engine_confidence = compute_confidence(&results, query);
     let confidence = match engine_confidence {
         EngineConfidence::High => SearchConfidence::High,
         EngineConfidence::Medium => SearchConfidence::Medium,
@@ -209,9 +367,67 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
 }
 
 /// Search the code graph using the V3 three-phase cascade.
+#[allow(dead_code)]
 pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limit: usize) -> Result<String> {
     let resp = build_search_response(mubase, query, limit)?;
     Ok(format_search_response(&resp, project_root))
+}
+
+/// Like `build_search_response` but with configurable test dampening.
+fn build_search_response_with_dampening(mubase: &MUbase, query: &str, limit: usize, dampening: f32) -> Result<SearchResponse> {
+    let results = mubase.search_v3_with_dampening(query, limit, dampening)?;
+
+    let mut enrichment_ids = Vec::new();
+    let nodes: Vec<NodeResult> = results
+        .iter()
+        .map(|r| {
+            let match_label = match r.match_type {
+                crate::engine::search::MatchType::ExactName => "exact",
+                crate::engine::search::MatchType::ExactQualifiedName => "exact-qn",
+                crate::engine::search::MatchType::Bm25 => "bm25",
+            };
+            if r.importance_score > 0.3 && r.summary_text.is_none() {
+                enrichment_ids.push(r.node_id.clone());
+            }
+            NodeResult {
+                node_id: r.node_id.clone(),
+                name: r.name.clone(),
+                kind: r.node_type.clone(),
+                file_path: r.file_path.clone().unwrap_or_default(),
+                line_start: r.line_start.unwrap_or(0),
+                line_end: r.line_end.unwrap_or(0),
+                score: Some(r.score),
+                match_type: Some(match_label.to_string()),
+                importance: r.importance_score,
+                summary: r.summary_text.clone(),
+            }
+        })
+        .collect();
+
+    let engine_confidence = compute_confidence(&results, query);
+    let confidence = match engine_confidence {
+        EngineConfidence::High => SearchConfidence::High,
+        EngineConfidence::Medium => SearchConfidence::Medium,
+        EngineConfidence::Low => SearchConfidence::Low,
+        EngineConfidence::NoResults => SearchConfidence::NoResults,
+    };
+
+    let enrichment_opportunity = if enrichment_ids.is_empty() {
+        None
+    } else {
+        Some(EnrichmentHint {
+            node_ids: enrichment_ids,
+            message: "Some high-importance results lack LLM summaries. \
+                      Use `mu_enrich` to improve search quality.".to_string(),
+        })
+    };
+
+    Ok(SearchResponse {
+        results: nodes,
+        query: query.to_string(),
+        confidence,
+        enrichment_opportunity,
+    })
 }
 
 // ============================================================================
@@ -573,6 +789,7 @@ pub fn pack_context_tool(
     node_ids: Option<&[String]>,
     budget: usize,
     style: &str,
+    config: Option<&crate::engine::auto_config::AutoConfig>,
 ) -> Result<String> {
     let mut out = String::new();
     let approx_tokens = |s: &str| s.len() / 4;
@@ -606,6 +823,51 @@ pub fn pack_context_tool(
             .map(|row| pack_node_from_row(row))
             .collect()
     };
+
+    // Exclude migration/generated files — they waste token budget
+    let nodes_to_pack: Vec<PackNode> = nodes_to_pack
+        .into_iter()
+        .filter(|n| {
+            if let Some(cfg) = config {
+                !crate::engine::auto_config::is_excluded_path(
+                    n.file_path.as_deref().unwrap_or(""),
+                    &cfg.oracle.exclude_patterns,
+                )
+            } else {
+                !is_oracle_excluded(n.file_path.as_deref())
+            }
+        })
+        .collect();
+
+    // Apply test budget cap: limit test nodes to a fraction of total budget
+    let test_budget_cap = config.map(|c| c.oracle.test_budget_cap).unwrap_or(1.0);
+    let test_patterns = config.map(|c| &c.filters.test_patterns);
+    let max_test_nodes = if test_budget_cap < 1.0 {
+        (nodes_to_pack.len() as f32 * test_budget_cap).ceil() as usize
+    } else {
+        nodes_to_pack.len()
+    };
+
+    let mut test_count = 0usize;
+    let nodes_to_pack: Vec<PackNode> = nodes_to_pack
+        .into_iter()
+        .filter(|n| {
+            let is_test = if let Some(patterns) = test_patterns {
+                crate::engine::auto_config::is_test_path(
+                    n.file_path.as_deref().unwrap_or(""),
+                    patterns,
+                )
+            } else {
+                crate::engine::search::is_test_or_migration(n.file_path.as_deref())
+            };
+            if is_test {
+                test_count += 1;
+                test_count <= max_test_nodes
+            } else {
+                true
+            }
+        })
+        .collect();
 
     let is_overview = node_ids.is_none();
     if is_overview {
@@ -730,6 +992,7 @@ pub fn enrich_nodes_tool(
     mubase: &MUbase,
     node_ids: Option<&[String]>,
     summaries: Option<&[(String, String)]>,
+    config: Option<&crate::engine::auto_config::AutoConfig>,
 ) -> Result<String> {
     let mut out = String::new();
 
@@ -792,16 +1055,35 @@ pub fn enrich_nodes_tool(
             Err(e) => writeln!(out, "\nFTS rebuild failed: {}", e)?,
         }
     } else {
-        let limit = 20;
+        let top_n = config.map(|c| c.enrichment.auto_enrich_top_n).unwrap_or(20);
+        let limit = top_n.min(50);
         let filter_ids: Option<HashSet<&str>> = node_ids.map(|ids| ids.iter().map(|s| s.as_str()).collect());
 
         let unsummarized = mubase.get_unsummarized_nodes(if filter_ids.is_some() { 200 } else { limit })?;
 
-        let candidates: Vec<&Node> = if let Some(ref filter) = filter_ids {
+        let priority_ids: Option<HashSet<&str>> = config
+            .filter(|c| !c.enrichment.priority_nodes.is_empty())
+            .map(|c| c.enrichment.priority_nodes.iter().map(|s| s.as_str()).collect());
+
+        let mut candidates: Vec<&Node> = if let Some(ref filter) = filter_ids {
             unsummarized.iter().filter(|n| filter.contains(n.id.as_str())).collect()
         } else {
             unsummarized.iter().take(limit).collect()
         };
+
+        // Sort: priority nodes first, then by importance
+        if let Some(ref pids) = priority_ids {
+            candidates.sort_by(|a, b| {
+                let a_pri = pids.contains(a.id.as_str());
+                let b_pri = pids.contains(b.id.as_str());
+                match (a_pri, b_pri) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => b.importance_score.partial_cmp(&a.importance_score)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                }
+            });
+        }
 
         writeln!(out, "# enrich: {} candidates for enrichment\n", candidates.len())?;
 
@@ -872,7 +1154,9 @@ fn truncate_str(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max.min(s.len())])
+        let mut end = max;
+        while !s.is_char_boundary(end) { end -= 1; }
+        format!("{}...", &s[..end])
     }
 }
 
@@ -922,6 +1206,19 @@ fn extract_signature_line(source: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Check if a file path should be excluded from oracle context packing.
+///
+/// Migration files, obj output, and generated code are never useful for
+/// understanding architecture and waste token budget.
+fn is_oracle_excluded(file_path: Option<&str>) -> bool {
+    let Some(path) = file_path else { return false };
+    let lower = path.to_lowercase();
+
+    (lower.contains("/migrations/") && lower.ends_with(".cs"))
+        || lower.contains("/obj/")
+        || lower.ends_with(".generated.cs")
 }
 
 fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Option<String>)> {
@@ -975,4 +1272,115 @@ fn group_by_file<'a>(nodes: &'a [PackNode]) -> Vec<(String, Vec<&'a PackNode>)> 
         }
     }
     groups
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn search_params_limit_as_number() {
+        let v = json!({"query": "test", "limit": 5});
+        let p: SearchNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.limit, Some(5));
+    }
+
+    #[test]
+    fn search_params_limit_as_string() {
+        let v = json!({"query": "test", "limit": "5"});
+        let p: SearchNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.limit, Some(5));
+    }
+
+    #[test]
+    fn search_params_limit_absent() {
+        let v = json!({"query": "test"});
+        let p: SearchNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.limit, None);
+    }
+
+    #[test]
+    fn expand_params_node_ids_as_array() {
+        let v = json!({"node_ids": ["fn:a", "fn:b"], "depth": 2});
+        let p: ExpandNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.node_ids, vec!["fn:a", "fn:b"]);
+        assert_eq!(p.depth, Some(2));
+    }
+
+    #[test]
+    fn expand_params_node_ids_as_json_string() {
+        let v = json!({"node_ids": "[\"fn:a\",\"fn:b\"]", "depth": "2"});
+        let p: ExpandNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.node_ids, vec!["fn:a", "fn:b"]);
+        assert_eq!(p.depth, Some(2));
+    }
+
+    #[test]
+    fn expand_params_single_node_id_string() {
+        let v = json!({"node_ids": "fn:src/main.rs:main"});
+        let p: ExpandNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.node_ids, vec!["fn:src/main.rs:main"]);
+    }
+
+    #[test]
+    fn read_params_node_ids_as_json_string() {
+        let v = json!({"node_ids": "[\"fn:a\"]"});
+        let p: ReadNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.node_ids, vec!["fn:a"]);
+    }
+
+    #[test]
+    fn pack_params_budget_as_string() {
+        let v = json!({"budget": "4000"});
+        let p: PackContextParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.budget, Some(4000));
+    }
+
+    #[test]
+    fn pack_params_optional_node_ids_as_json_string() {
+        let v = json!({"node_ids": "[\"fn:a\"]", "budget": 2000});
+        let p: PackContextParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.node_ids, Some(vec!["fn:a".to_string()]));
+        assert_eq!(p.budget, Some(2000));
+    }
+
+    #[test]
+    fn edge_types_as_json_string() {
+        let v = json!({"node_ids": ["fn:a"], "edge_types": "[\"calls\",\"imports\"]"});
+        let p: ExpandNodesParams = serde_json::from_value(v).unwrap();
+        assert_eq!(p.edge_types, Some(vec!["calls".to_string(), "imports".to_string()]));
+    }
+
+    // -- oracle exclusion tests --
+
+    #[test]
+    fn oracle_excludes_migration_cs_files() {
+        assert!(is_oracle_excluded(Some("src/Migrations/20240101_Init.cs")));
+        assert!(is_oracle_excluded(Some("src/Migrations/20240101_Init.Designer.cs")));
+    }
+
+    #[test]
+    fn oracle_excludes_obj_dir() {
+        assert!(is_oracle_excluded(Some("src/obj/Debug/net10.0/foo.dll")));
+        assert!(is_oracle_excluded(Some("project/obj/Release/something.cs")));
+    }
+
+    #[test]
+    fn oracle_excludes_generated_cs() {
+        assert!(is_oracle_excluded(Some("src/Models/MyModel.generated.cs")));
+    }
+
+    #[test]
+    fn oracle_keeps_production_code() {
+        assert!(!is_oracle_excluded(Some("src/Services/PaymentService.cs")));
+        assert!(!is_oracle_excluded(Some("src/engine/search.rs")));
+        assert!(!is_oracle_excluded(None));
+    }
+
+    #[test]
+    fn oracle_keeps_migration_non_cs() {
+        // Non-.cs files in Migrations/ are fine (e.g., SQL scripts)
+        assert!(!is_oracle_excluded(Some("db/Migrations/README.md")));
+    }
 }
