@@ -74,6 +74,9 @@ pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
     // High spread (top >> median) + any variance = the query found something specific
     // Low spread (top ≈ median) + low variance = flat results, probably noise
 
+    // Count how many results clear the "decent match" floor
+    let above_floor = scores.iter().filter(|&&s| s > 0.10).count();
+
     if top < 0.08 {
         // Absolute floor — even relative scoring can't save truly terrible matches
         SearchConfidence::Low
@@ -83,8 +86,11 @@ pub fn compute_confidence(results: &[SearchResult]) -> SearchConfidence {
     } else if spread > 1.3 && cv > 0.2 {
         // Moderate separation with meaningful score variance
         SearchConfidence::Medium
+    } else if cv < 0.1 && above_floor >= 3 {
+        // Flat but multiple results above floor — topic query hitting a real subsystem
+        SearchConfidence::Medium
     } else if cv < 0.1 {
-        // Very flat distribution — scores are all the same, nothing stood out
+        // Flat and few decent matches — likely noise
         SearchConfidence::Low
     } else {
         SearchConfidence::Medium
@@ -636,11 +642,19 @@ mod tests {
 
     #[test]
     fn test_confidence_flat_distribution_is_low() {
-        // All scores similar → low CV → LOW
-        // scores: 0.12, 0.11, 0.11, 0.10, 0.10
-        // spread = 0.12/0.11 ≈ 1.09, cv very small
-        let results = make_results(&[0.12, 0.11, 0.11, 0.10, 0.10]);
+        // Flat scores with few above floor → noise → LOW
+        // scores: 0.09, 0.09, 0.08, 0.08, 0.08
+        // only 0 above 0.10, so above_floor < 3
+        let results = make_results(&[0.09, 0.09, 0.08, 0.08, 0.08]);
         assert_eq!(compute_confidence(&results), SearchConfidence::Low);
+    }
+
+    #[test]
+    fn test_confidence_flat_but_decent_is_medium() {
+        // Flat scores but 3+ results above floor → topic match → MEDIUM
+        // scores: 0.22, 0.22, 0.21 — the "search ranking" pattern
+        let results = make_results(&[0.22, 0.22, 0.21]);
+        assert_eq!(compute_confidence(&results), SearchConfidence::Medium);
     }
 
     #[test]

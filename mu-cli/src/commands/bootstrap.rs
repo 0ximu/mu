@@ -508,7 +508,9 @@ fn build_function_source_text(func: &mu_core::types::FunctionDef) -> Option<Stri
     // Body preview (truncated to 500 chars)
     if let Some(ref body) = func.body_source {
         let preview = if body.len() > 500 {
-            format!("{}...", &body[..500])
+            let mut end = 500;
+            while !body.is_char_boundary(end) { end -= 1; }
+            format!("{}...", &body[..end])
         } else {
             body.clone()
         };
