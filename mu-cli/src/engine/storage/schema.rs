@@ -72,6 +72,14 @@ pub enum EdgeType {
     CallsHttp,
     /// Class→Class (references a shared contract/DTO type)
     UsesContract,
+    /// Proc macro wiring (e.g., #[tool] handler)
+    MacroDispatch,
+    /// Trait method implementation
+    TraitImpl,
+    /// Dependency injection wiring (C#, Java)
+    DiRegistration,
+    /// Python/JS decorator wiring
+    DecoratorDispatch,
 }
 
 /// Cross-service edge types for microservice graph traversal.
@@ -89,6 +97,10 @@ impl EdgeType {
             EdgeType::Subscribes => "subscribes",
             EdgeType::CallsHttp => "calls_http",
             EdgeType::UsesContract => "uses_contract",
+            EdgeType::MacroDispatch => "macro_dispatch",
+            EdgeType::TraitImpl => "trait_impl",
+            EdgeType::DiRegistration => "di_registration",
+            EdgeType::DecoratorDispatch => "decorator_dispatch",
         }
     }
 
@@ -104,8 +116,24 @@ impl EdgeType {
             "subscribes" => Some(EdgeType::Subscribes),
             "calls_http" => Some(EdgeType::CallsHttp),
             "uses_contract" => Some(EdgeType::UsesContract),
+            "macro_dispatch" => Some(EdgeType::MacroDispatch),
+            "trait_impl" => Some(EdgeType::TraitImpl),
+            "di_registration" => Some(EdgeType::DiRegistration),
+            "decorator_dispatch" => Some(EdgeType::DecoratorDispatch),
             _ => None,
         }
+    }
+
+    /// Returns true if this is a soft edge — participates in orphan detection
+    /// but has zero weight in PageRank.
+    pub fn is_soft_edge(&self) -> bool {
+        matches!(
+            self,
+            EdgeType::MacroDispatch
+                | EdgeType::TraitImpl
+                | EdgeType::DiRegistration
+                | EdgeType::DecoratorDispatch
+        )
     }
 
     /// Returns true if this is a cross-service edge type.
@@ -228,6 +256,10 @@ mod tests {
             EdgeType::Subscribes,
             EdgeType::CallsHttp,
             EdgeType::UsesContract,
+            EdgeType::MacroDispatch,
+            EdgeType::TraitImpl,
+            EdgeType::DiRegistration,
+            EdgeType::DecoratorDispatch,
         ] {
             let s = et.as_str();
             let parsed = EdgeType::parse(s);
@@ -243,5 +275,16 @@ mod tests {
         assert!(EdgeType::UsesContract.is_cross_service());
         assert!(!EdgeType::Contains.is_cross_service());
         assert!(!EdgeType::Calls.is_cross_service());
+    }
+
+    #[test]
+    fn test_soft_edge_types() {
+        assert!(EdgeType::MacroDispatch.is_soft_edge());
+        assert!(EdgeType::TraitImpl.is_soft_edge());
+        assert!(EdgeType::DiRegistration.is_soft_edge());
+        assert!(EdgeType::DecoratorDispatch.is_soft_edge());
+        assert!(!EdgeType::Calls.is_soft_edge());
+        assert!(!EdgeType::Contains.is_soft_edge());
+        assert!(!EdgeType::Imports.is_soft_edge());
     }
 }

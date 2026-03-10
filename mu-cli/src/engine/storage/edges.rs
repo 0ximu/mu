@@ -76,6 +76,26 @@ impl Edge {
         Self::new(from, contract_type, EdgeType::UsesContract)
     }
 
+    /// Create a MACRO_DISPATCH soft edge (proc macro wiring, e.g. #[tool]).
+    pub fn macro_dispatch(caller: &str, callee: &str) -> Self {
+        Self::new(caller, callee, EdgeType::MacroDispatch)
+    }
+
+    /// Create a TRAIT_IMPL soft edge (trait method implementation).
+    pub fn trait_impl(impl_fn: &str, trait_fn: &str) -> Self {
+        Self::new(impl_fn, trait_fn, EdgeType::TraitImpl)
+    }
+
+    /// Create a DI_REGISTRATION soft edge (dependency injection wiring).
+    pub fn di_registration(registrar: &str, service: &str) -> Self {
+        Self::new(registrar, service, EdgeType::DiRegistration)
+    }
+
+    /// Create a DECORATOR_DISPATCH soft edge (Python/JS decorator wiring).
+    pub fn decorator_dispatch(decorator: &str, target: &str) -> Self {
+        Self::new(decorator, target, EdgeType::DecoratorDispatch)
+    }
+
     /// Set properties on the edge.
     pub fn with_properties(mut self, properties: serde_json::Value) -> Self {
         self.properties = Some(properties);

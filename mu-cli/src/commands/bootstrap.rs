@@ -641,6 +641,10 @@ fn build_module_graph(
                 method_props.insert("docstring".to_string(), json!(docstring));
             }
             if !method.decorators.is_empty() {
+                // Check for dispatch markers
+                if let Some(dt) = method.decorators.iter().find_map(|d| d.strip_prefix("dispatch:")) {
+                    method_props.insert("dispatch_type".to_string(), json!(dt));
+                }
                 method_props.insert("decorators".to_string(), json!(method.decorators));
             }
             if method.is_property {
@@ -679,6 +683,10 @@ fn build_module_graph(
             func_props.insert("docstring".to_string(), json!(docstring));
         }
         if !func.decorators.is_empty() {
+            // Check for dispatch markers
+            if let Some(dt) = func.decorators.iter().find_map(|d| d.strip_prefix("dispatch:")) {
+                func_props.insert("dispatch_type".to_string(), json!(dt));
+            }
             func_props.insert("decorators".to_string(), json!(func.decorators));
         }
         if !func_props.is_empty() {
