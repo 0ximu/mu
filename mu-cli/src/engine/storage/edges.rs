@@ -82,7 +82,6 @@ impl Edge {
     }
 
     /// Create a TRAIT_IMPL soft edge (trait method implementation).
-    #[allow(dead_code)]
     pub fn trait_impl(impl_fn: &str, trait_fn: &str) -> Self {
         Self::new(impl_fn, trait_fn, EdgeType::TraitImpl)
     }
