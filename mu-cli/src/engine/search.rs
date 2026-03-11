@@ -145,49 +145,43 @@ pub struct SearchResult {
     pub importance_score: f32,
     pub summary_text: Option<String>,
     pub source_text: Option<String>,
+    pub node_category: String,
     pub score: f32,
     pub match_type: MatchType,
 }
 
-/// Search nodes using the three-phase cascade.
-///
-/// Phase 1: Exact match on name or qualified_name (score = 1.0)
-/// Phase 2: BM25 on search_text (normalized to 0-1)
-/// Phase 3: Importance tiebreak (85% BM25 + 15% PageRank)
-///
-/// `test_dampening` controls the score multiplier for test/migration files (default: 0.3).
-///
-/// All results are deduped by node_id (never by name -- the name-collision bug is dead).
+/// Search with default production-only filter.
 pub fn search_nodes(conn: &Connection, query: &str, limit: usize) -> Result<Vec<SearchResult>> {
-    search_nodes_with_dampening(conn, query, limit, 0.3)
+    search_nodes_with_categories(conn, query, limit, &["production"])
 }
 
-/// Like `search_nodes` but with a configurable test dampening factor.
-pub fn search_nodes_with_dampening(conn: &Connection, query: &str, limit: usize, test_dampening: f32) -> Result<Vec<SearchResult>> {
-    search_nodes_with_config(conn, query, limit, test_dampening, &[], 1.0)
-}
-
-/// Full-config search: test dampening + auxiliary service dampening.
-pub fn search_nodes_with_config(
+/// Search with explicit category filter.
+pub fn search_nodes_with_categories(
     conn: &Connection,
     query: &str,
     limit: usize,
-    test_dampening: f32,
-    auxiliary_services: &[String],
-    auxiliary_dampening: f32,
+    categories: &[&str],
 ) -> Result<Vec<SearchResult>> {
+    let category_filter = if categories.is_empty() {
+        String::new()
+    } else {
+        let quoted: Vec<String> = categories.iter().map(|c| format!("'{}'", c)).collect();
+        format!(" AND node_category IN ({})", quoted.join(", "))
+    };
+
     let mut results: HashMap<String, SearchResult> = HashMap::new();
 
     // -- Phase 1: Exact Match (highest priority) --
-    // Parameterized query -- no SQL injection
-    let mut stmt = conn.prepare(
+    let sql = format!(
         "SELECT id, type, name, qualified_name, file_path, line_start, line_end,
-                importance_score, summary_text, source_text
+                importance_score, summary_text, source_text, node_category
          FROM nodes
-         WHERE name = ?1
+         WHERE (name = ?1
             OR qualified_name = ?1
-            OR name LIKE '%.' || ?1",
-    )?;
+            OR name LIKE '%.' || ?1){}",
+        category_filter
+    );
+    let mut stmt = conn.prepare(&sql)?;
 
     let mut rows = stmt.query(params![query])?;
 
@@ -195,7 +189,6 @@ pub fn search_nodes_with_config(
         let node_id: String = row.get(0)?;
         let qualified_name: Option<String> = row.get(3)?;
 
-        // Determine exact match type
         let match_type = if qualified_name.as_deref() == Some(query) {
             MatchType::ExactQualifiedName
         } else {
@@ -213,6 +206,7 @@ pub fn search_nodes_with_config(
             importance_score: row.get::<_, f64>(7).unwrap_or(0.0) as f32,
             summary_text: row.get(8)?,
             source_text: row.get(9)?,
+            node_category: row.get(10)?,
             score: 1.0,
             match_type,
         };
@@ -226,11 +220,11 @@ pub fn search_nodes_with_config(
 
     // -- Phase 2: BM25 on search_text --
     let remaining = limit - results.len();
-    let bm25_results = bm25_search_v3(conn, query, remaining * 3)?;
+    let bm25_results = bm25_search_v3(conn, query, remaining * 3, &category_filter)?;
 
     for (node_id, raw_score, mut result) in bm25_results {
         if results.contains_key(&node_id) {
-            continue; // Already found via exact match
+            continue;
         }
 
         // Normalize BM25 to 0-1: score / (score + k), k=10
@@ -238,23 +232,7 @@ pub fn search_nodes_with_config(
 
         // -- Phase 3: Importance Tiebreak --
         // 85% BM25, 15% PageRank
-        let mut final_score = 0.85 * bm25_score + 0.15 * result.importance_score;
-
-        // Dampen test/migration results so production code ranks higher
-        if is_test_or_migration(result.file_path.as_deref()) {
-            final_score *= test_dampening;
-        }
-
-        // Dampen auxiliary service results (e.g. chatagent, scripts)
-        if !auxiliary_services.is_empty() {
-            if let Some(ref fp) = result.file_path {
-                if crate::engine::auto_config::is_auxiliary_service(fp, auxiliary_services) {
-                    final_score *= auxiliary_dampening;
-                }
-            }
-        }
-
-        result.score = final_score;
+        result.score = 0.85 * bm25_score + 0.15 * result.importance_score;
         result.match_type = MatchType::Bm25;
         results.insert(node_id, result);
     }
@@ -268,17 +246,20 @@ fn bm25_search_v3(
     conn: &Connection,
     query: &str,
     limit: usize,
+    category_filter: &str,
 ) -> Result<Vec<(String, f32, SearchResult)>> {
     // Try FTS first
-    let fts_result = conn.prepare(
+    let sql = format!(
         "SELECT id, type, name, qualified_name, file_path, line_start, line_end,
-                importance_score, summary_text, source_text,
+                importance_score, summary_text, source_text, node_category,
                 fts_main_nodes.match_bm25(id, ?1) AS bm25_score
          FROM nodes
-         WHERE bm25_score IS NOT NULL
+         WHERE bm25_score IS NOT NULL{}
          ORDER BY bm25_score DESC
          LIMIT ?2",
+        category_filter
     );
+    let fts_result = conn.prepare(&sql);
 
     match fts_result {
         Ok(mut stmt) => {
@@ -287,7 +268,7 @@ fn bm25_search_v3(
 
             while let Some(row) = rows.next()? {
                 let node_id: String = row.get(0)?;
-                let bm25_score: f64 = row.get(10)?;
+                let bm25_score: f64 = row.get(11)?;
 
                 results.push((
                     node_id.clone(),
@@ -303,6 +284,7 @@ fn bm25_search_v3(
                         importance_score: row.get::<_, f64>(7).unwrap_or(0.0) as f32,
                         summary_text: row.get(8)?,
                         source_text: row.get(9)?,
+                        node_category: row.get(10)?,
                         score: 0.0,
                         match_type: MatchType::Bm25,
                     },
@@ -312,7 +294,7 @@ fn bm25_search_v3(
         }
         Err(_) => {
             // FTS not available, fall back to LIKE search
-            fallback_keyword_search(conn, query, limit)
+            fallback_keyword_search(conn, query, limit, category_filter)
         }
     }
 }
@@ -322,6 +304,7 @@ fn fallback_keyword_search(
     conn: &Connection,
     query: &str,
     limit: usize,
+    category_filter: &str,
 ) -> Result<Vec<(String, f32, SearchResult)>> {
     let keywords: Vec<&str> = query.split_whitespace().collect();
     if keywords.is_empty() {
@@ -344,9 +327,9 @@ fn fallback_keyword_search(
     let where_clause = conditions.join(" AND ");
     let sql = format!(
         "SELECT id, type, name, qualified_name, file_path, line_start, line_end,
-                importance_score, summary_text, source_text
+                importance_score, summary_text, source_text, node_category
          FROM nodes
-         WHERE {where_clause}
+         WHERE {where_clause}{category_filter}
          ORDER BY importance_score DESC
          LIMIT ?{limit_param}"
     );
@@ -381,30 +364,13 @@ fn fallback_keyword_search(
                 importance_score: row.get::<_, f64>(7).unwrap_or(0.0) as f32,
                 summary_text: row.get(8)?,
                 source_text: row.get(9)?,
+                node_category: row.get(10)?,
                 score: 0.0,
                 match_type: MatchType::Bm25,
             },
         ));
     }
     Ok(results)
-}
-
-/// Check if a file path belongs to test or migration code.
-///
-/// Used to dampen search scores — these results stay in the list but
-/// rank below production code at the same BM25 relevance.
-pub fn is_test_or_migration(file_path: Option<&str>) -> bool {
-    let Some(path) = file_path else { return false };
-    let lower = path.to_lowercase();
-    let file_name = path.rsplit('/').next().unwrap_or("");
-    let file_name_lower = file_name.to_lowercase();
-
-    // Match /test/, /tests/, or paths starting with test(s)/
-    lower.contains("/test/") || lower.starts_with("test/")
-        || lower.contains("/tests/") || lower.starts_with("tests/")
-        || file_name_lower.ends_with("tests.cs")
-        || file_name_lower.starts_with("test_")
-        || lower.contains("/migrations/") || lower.starts_with("migrations/")
 }
 
 /// Sort results by score descending and take top N.
@@ -440,6 +406,7 @@ mod tests {
                     importance_score: 0.0,
                     summary_text: None,
                     source_text: None,
+                    node_category: "production".to_string(),
                     score,
                     match_type: MatchType::Bm25,
                 },
@@ -469,6 +436,7 @@ mod tests {
                 importance_score: 0.5,
                 summary_text: None,
                 source_text: None,
+                node_category: "production".to_string(),
                 score: 0.8,
                 match_type: MatchType::ExactName,
             },
@@ -518,6 +486,7 @@ mod tests {
             importance_score: 0.42,
             summary_text: Some("Does stuff".to_string()),
             source_text: Some("fn foo() {}".to_string()),
+            node_category: "production".to_string(),
             score: 0.95,
             match_type: MatchType::ExactName,
         };
@@ -571,6 +540,7 @@ mod tests {
                 importance_score: 0.0,
                 summary_text: None,
                 source_text: None,
+                node_category: "production".to_string(),
                 score: 1.0,
                 match_type: MatchType::ExactName,
             },
@@ -588,6 +558,7 @@ mod tests {
                 importance_score: 1.0,
                 summary_text: None,
                 source_text: None,
+                node_category: "production".to_string(),
                 // Best possible BM25: 0.85 * (huge/(huge+10)) + 0.15 * 1.0 < 1.0
                 score: 0.85 * 0.999 + 0.15 * 1.0,
                 match_type: MatchType::Bm25,
@@ -612,6 +583,7 @@ mod tests {
             importance_score: 0.7,
             summary_text: None,
             source_text: None,
+            node_category: "production".to_string(),
             score: 0.88,
             match_type: MatchType::Bm25,
         };
@@ -666,6 +638,7 @@ mod tests {
             importance_score: 0.0,
             summary_text: None,
             source_text: None,
+            node_category: "production".to_string(),
             score,
             match_type,
         }
@@ -779,6 +752,7 @@ mod tests {
             importance_score: 0.0,
             summary_text: None,
             source_text: None,
+            node_category: "production".to_string(),
             score,
             match_type: MatchType::Bm25,
         }
@@ -833,38 +807,4 @@ mod tests {
         assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
 
-    // -- test/migration dampening tests --
-
-    #[test]
-    fn test_is_test_or_migration_test_dir() {
-        assert!(is_test_or_migration(Some("src/tests/foo.rs")));
-        assert!(is_test_or_migration(Some("tests/unit/bar.rs")));
-        assert!(is_test_or_migration(Some("src/test/helpers.rs")));
-    }
-
-    #[test]
-    fn test_is_test_or_migration_cs_test_suffix() {
-        assert!(is_test_or_migration(Some("src/Services/PaymentServiceTests.cs")));
-        assert!(is_test_or_migration(Some("tests/MyTests.cs")));
-    }
-
-    #[test]
-    fn test_is_test_or_migration_test_prefix() {
-        assert!(is_test_or_migration(Some("src/test_search.py")));
-        assert!(is_test_or_migration(Some("lib/test_utils.rs")));
-    }
-
-    #[test]
-    fn test_is_test_or_migration_migrations() {
-        assert!(is_test_or_migration(Some("src/Migrations/20240101_Init.cs")));
-        assert!(is_test_or_migration(Some("db/migrations/001_create.sql")));
-    }
-
-    #[test]
-    fn test_is_test_or_migration_production_code() {
-        assert!(!is_test_or_migration(Some("src/engine/search.rs")));
-        assert!(!is_test_or_migration(Some("src/Services/PaymentService.cs")));
-        assert!(!is_test_or_migration(Some("src/main.rs")));
-        assert!(!is_test_or_migration(None));
-    }
 }

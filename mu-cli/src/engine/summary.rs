@@ -434,6 +434,7 @@ mod tests {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         };
 
         let summary = generate_heuristic_summary(&node, &[]);
@@ -484,6 +485,7 @@ mod tests {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         };
 
         let summary = generate_heuristic_summary(&node, &[]);
@@ -523,6 +525,7 @@ mod tests {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         };
 
         let summary = generate_heuristic_summary(&node, &[]);

@@ -195,6 +195,16 @@ pub fn migrate_v1_2_to_v2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Migrate v2.0.0 → v2.1.0: Add node_category column for classify-once-at-bootstrap.
+pub fn migrate_v2_to_v2_1(conn: &Connection) -> Result<()> {
+    tracing::info!("Starting migration: v2.0.0 → v2.1.0 (add node_category)");
+    conn.execute_batch("ALTER TABLE nodes ADD COLUMN node_category VARCHAR DEFAULT 'production'")?;
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_category ON nodes(node_category)")?;
+    conn.execute("UPDATE metadata SET value = '2.1.0' WHERE key = 'schema_version'", [])?;
+    tracing::info!("Migration v2.0.0 → v2.1.0 complete");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -38,6 +38,8 @@ pub struct Node {
     pub search_text: Option<String>,
     /// When the summary was last updated
     pub summary_updated_at: Option<String>,
+    /// Classification: 'production', 'test', 'generated', 'infrastructure'
+    pub node_category: String,
 }
 
 impl Node {
@@ -70,6 +72,7 @@ impl Node {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         }
     }
 
@@ -98,6 +101,7 @@ impl Node {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         }
     }
 
@@ -138,6 +142,7 @@ impl Node {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         }
     }
 
@@ -161,6 +166,7 @@ impl Node {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         }
     }
 
@@ -187,6 +193,7 @@ impl Node {
             importance_score: 0.0,
             search_text: None,
             summary_updated_at: None,
+            node_category: "production".to_string(),
         }
     }
 

@@ -154,6 +154,20 @@ impl MUbase {
             super::migrations::migrate_v1_2_to_v2(&conn)?;
         }
 
+        // Check if migration from v2.0.0 → v2.1.0 is needed (add node_category)
+        let needs_v2_1_migrate = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '2.0.0'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if needs_v2_1_migrate {
+            tracing::info!("Adding node_category column to nodes table");
+            super::migrations::migrate_v2_to_v2_1(&conn)?;
+        }
+
         // Execute schema creation (CREATE TABLE IF NOT EXISTS is safe for existing tables)
         conn.execute_batch(SCHEMA_SQL)
             .context("Failed to initialize schema")?;
@@ -239,7 +253,7 @@ impl MUbase {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
-                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at, node_category
              FROM nodes
              WHERE summary_source IS NULL OR summary_source = 'heuristic'
              ORDER BY importance_score DESC
@@ -270,6 +284,7 @@ impl MUbase {
                 importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
                 search_text: row.get(14)?,
                 summary_updated_at: row.get::<_, Option<String>>(15).unwrap_or(None),
+                node_category: row.get(16)?,
             });
         }
 
@@ -322,13 +337,11 @@ impl MUbase {
         &self,
         query: &str,
         limit: usize,
-        test_dampening: f32,
-        auxiliary_services: &[String],
-        auxiliary_dampening: f32,
+        categories: &[&str],
     ) -> Result<Vec<crate::engine::search::SearchResult>> {
         let conn = self.acquire_conn()?;
-        crate::engine::search::search_nodes_with_config(
-            &conn, query, limit, test_dampening, auxiliary_services, auxiliary_dampening,
+        crate::engine::search::search_nodes_with_categories(
+            &conn, query, limit, categories,
         )
     }
 
@@ -389,6 +402,7 @@ impl MUbase {
                     node.importance_score,
                     node.search_text,
                     node.summary_updated_at,
+                    node.node_category,
                 ])?;
             }
             appender.flush()?;
@@ -474,7 +488,7 @@ impl MUbase {
         let conn = self.acquire_conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
-                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at
+                    summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at, node_category
              FROM nodes",
         )?;
 
@@ -502,6 +516,7 @@ impl MUbase {
                 importance_score: row.get::<_, Option<f32>>(13)?.unwrap_or(0.0),
                 search_text: row.get(14)?,
                 summary_updated_at: row.get::<_, Option<String>>(15).unwrap_or(None),
+                node_category: row.get(16)?,
             });
         }
 

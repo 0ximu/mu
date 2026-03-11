@@ -29,7 +29,10 @@ pub struct AutoConfig {
 pub struct FilterConfig {
     pub test_patterns: Vec<String>,
     pub generated_patterns: Vec<String>,
+    // Deprecated: node_category replaces query-time dampening.
+    // Kept for backward compat with existing .mu/config.toml files.
     pub search_test_dampening: f32,
+    // Deprecated: node_category replaces query-time dampening.
     #[serde(default = "default_auxiliary_dampening")]
     pub auxiliary_dampening: f32,
 }
@@ -167,6 +170,64 @@ impl AutoConfig {
 }
 
 // ============================================================================
+// Node classification
+// ============================================================================
+
+/// Classify a node's file path into a category.
+/// Priority: generated > test > infrastructure > production.
+/// Uses config patterns if available, falls back to hardcoded patterns.
+pub fn classify_node(file_path: Option<&str>, config: Option<&AutoConfig>) -> &'static str {
+    let Some(path) = file_path else { return "production" };
+    let lower = path.to_lowercase();
+
+    // 1. Generated (most specific — check first)
+    if let Some(cfg) = config {
+        if is_excluded_path(path, &cfg.oracle.exclude_patterns) {
+            return "generated";
+        }
+    } else {
+        // Hardcoded fallbacks
+        if (lower.contains("/migrations/") && lower.ends_with(".cs"))
+            || lower.contains("/obj/")
+            || lower.ends_with(".designer.cs")
+            || lower.contains(".generated.")
+        {
+            return "generated";
+        }
+    }
+
+    // 2. Test
+    if let Some(cfg) = config {
+        if is_test_path(path, &cfg.filters.test_patterns) {
+            return "test";
+        }
+    }
+    // Always check hardcoded test patterns as fallback
+    if lower.contains("/test/") || lower.contains("/tests/")
+        || lower.starts_with("tests/")
+        || lower.contains(".tests/") || lower.contains(".tests.")
+        || lower.contains("/__tests__/") || lower.contains("/spec/")
+        || lower.ends_with("tests.cs") || lower.ends_with("test.cs")
+        || lower.ends_with("_test.py") || lower.ends_with("_test.go")
+        || lower.ends_with("_test.rs") || lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx") || lower.ends_with(".test.js")
+        || lower.ends_with(".spec.ts") || lower.ends_with(".spec.js")
+        || path.rsplit('/').next().map_or(false, |f| f.starts_with("test_") && f.ends_with(".py"))
+    {
+        return "test";
+    }
+
+    // 3. Infrastructure (auxiliary services)
+    if let Some(cfg) = config {
+        if is_auxiliary_service(path, &cfg.codebase.auxiliary_services) {
+            return "infrastructure";
+        }
+    }
+
+    "production"
+}
+
+// ============================================================================
 // Detection functions
 // ============================================================================
 
@@ -183,6 +244,8 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
     let pattern_checks: &[(&str, fn(&str) -> bool)] = &[
         ("*/test/*", |p: &str| p.to_lowercase().contains("/test/")),
         ("*/tests/*", |p: &str| p.to_lowercase().contains("/tests/")),
+        ("tests/*", |p: &str| p.to_lowercase().starts_with("tests/")),
+        ("*.Tests/*", |p: &str| { let l = p.to_lowercase(); l.contains(".tests/") || l.contains(".tests.") }),
         ("*/spec/*", |p: &str| p.to_lowercase().contains("/spec/")),
         ("*/specs/*", |p: &str| p.to_lowercase().contains("/specs/")),
         ("*/__tests__/*", |p: &str| p.contains("/__tests__/")),
@@ -489,14 +552,7 @@ pub fn detect_core_abstractions(mubase: &MUbase) -> Result<Vec<String>> {
         "SELECT id FROM nodes
          WHERE type IN ('class', 'function')
            AND importance_score > 0
-           AND file_path NOT LIKE '%/test/%'
-           AND file_path NOT LIKE '%/tests/%'
-           AND file_path NOT LIKE '%Test.cs'
-           AND file_path NOT LIKE '%Tests.cs'
-           AND file_path NOT LIKE '%_test.%'
-           AND file_path NOT LIKE '%/Migrations/%'
-           AND file_path NOT LIKE '%/obj/%'
-           AND file_path NOT LIKE '%.Designer.cs'
+           AND node_category = 'production'
          ORDER BY importance_score DESC
          LIMIT 20",
     )?;
@@ -664,10 +720,7 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
          FROM edges e
          JOIN nodes n ON e.target_id = n.id
          WHERE n.type IN ('class', 'function', 'interface')
-           AND n.file_path NOT LIKE '%/test/%'
-           AND n.file_path NOT LIKE '%/tests/%'
-           AND n.file_path NOT LIKE '%Test.cs'
-           AND n.file_path NOT LIKE '%Tests.cs'
+           AND n.node_category = 'production'
          GROUP BY n.name, n.id
          ORDER BY dep_count DESC
          LIMIT 10",
@@ -713,12 +766,7 @@ pub fn suggest_enrichment_nodes(mubase: &MUbase) -> Result<Vec<String>> {
          WHERE type IN ('class', 'function', 'interface')
            AND importance_score > 0
            AND (summary_text IS NULL OR summary_text = '')
-           AND file_path NOT LIKE '%/test/%'
-           AND file_path NOT LIKE '%/tests/%'
-           AND file_path NOT LIKE '%Test.cs'
-           AND file_path NOT LIKE '%Tests.cs'
-           AND file_path NOT LIKE '%/Migrations/%'
-           AND file_path NOT LIKE '%/obj/%'
+           AND node_category = 'production'
          ORDER BY importance_score DESC
          LIMIT 30",
     )?;
@@ -783,8 +831,7 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
                     "SELECT id FROM nodes
                      WHERE name = ?1
                        AND type IN ('class', 'function', 'interface')
-                       AND file_path NOT LIKE '%/test/%'
-                       AND file_path NOT LIKE '%/tests/%'
+                       AND node_category = 'production'
                      ORDER BY importance_score DESC
                      LIMIT 1",
                     &[&name as &dyn duckdb::ToSql],

@@ -174,6 +174,10 @@ pub struct SearchNodesParams {
     #[schemars(description = "Maximum number of results (default: 10)")]
     #[serde(default, deserialize_with = "lenient::option_usize")]
     pub limit: Option<usize>,
+    /// Include test code in results (default: false)
+    #[schemars(description = "Include test code in results (default: false)")]
+    #[serde(default, deserialize_with = "lenient::option_bool")]
+    pub include_tests: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -249,16 +253,6 @@ pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &Search
     let limit = params.limit.unwrap_or(10);
     let config = crate::engine::auto_config::AutoConfig::load(project_root);
 
-    let test_dampening = config.as_ref()
-        .map(|c| c.filters.search_test_dampening)
-        .unwrap_or(0.3);
-    let aux_services = config.as_ref()
-        .map(|c| c.codebase.auxiliary_services.as_slice())
-        .unwrap_or(&[]);
-    let aux_dampening = config.as_ref()
-        .map(|c| c.filters.auxiliary_dampening)
-        .unwrap_or(1.0);
-
     // Domain concept boosting: if query matches a concept keyword, expand search
     let mut query = params.query.clone();
     if let Some(ref cfg) = config {
@@ -267,9 +261,28 @@ pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &Search
         }
     }
 
-    let results = mubase.search_v3_with_config(
-        &query, limit, test_dampening, aux_services, aux_dampening,
-    )?;
+    let categories: &[&str] = if params.include_tests.unwrap_or(false) {
+        &["production", "test"]
+    } else {
+        &["production"]
+    };
+    let mut results = mubase.search_v3_with_config(&query, limit, categories)?;
+
+    // Auxiliary service dampening: push non-core services down in ranking
+    if let Some(ref cfg) = config {
+        if !cfg.codebase.auxiliary_services.is_empty() {
+            let dampening = cfg.filters.auxiliary_dampening;
+            for r in &mut results {
+                if let Some(ref fp) = r.file_path {
+                    if crate::engine::auto_config::is_auxiliary_service(fp, &cfg.codebase.auxiliary_services) {
+                        r.score *= dampening;
+                    }
+                }
+            }
+            results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        }
+    }
+
     let resp = build_search_response_from_results(results, &params.query)?;
     Ok(format_search_response(&resp, project_root))
 }
@@ -294,16 +307,6 @@ pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackCo
     // If task is provided but no node_ids, search for relevant nodes first
     if let Some(ref task) = params.task {
         if params.node_ids.is_none() {
-            let test_dampening = config.as_ref()
-                .map(|c| c.filters.search_test_dampening)
-                .unwrap_or(0.3);
-            let aux_services = config.as_ref()
-                .map(|c| c.codebase.auxiliary_services.as_slice())
-                .unwrap_or(&[]);
-            let aux_dampening = config.as_ref()
-                .map(|c| c.filters.auxiliary_dampening)
-                .unwrap_or(1.0);
-
             // Domain concept boosting for oracle task descriptions
             let mut search_query = task.clone();
             if let Some(ref cfg) = config {
@@ -313,7 +316,7 @@ pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackCo
             }
 
             let search_results = mubase.search_v3_with_config(
-                &search_query, 20, test_dampening, aux_services, aux_dampening,
+                &search_query, 20, &["production"],
             )?;
             let ids: Vec<String> = search_results.iter().map(|r| r.node_id.clone()).collect();
             if ids.is_empty() {
@@ -372,6 +375,7 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
                 match_type: Some(match_label.to_string()),
                 importance: r.importance_score,
                 summary: r.summary_text.clone(),
+                node_category: r.node_category.clone(),
             }
         })
         .collect();
@@ -486,6 +490,7 @@ fn build_search_response_from_results(
                 match_type: Some(match_label.to_string()),
                 importance: r.importance_score,
                 summary: r.summary_text.clone(),
+                node_category: r.node_category.clone(),
             }
         })
         .collect();
@@ -549,8 +554,8 @@ pub fn build_expand_response(
     let mut frontier: Vec<String> = node_ids.to_vec();
     // (source_id, source_name, target_id, target_name, edge_type)
     let mut all_edges: Vec<(String, String, String, String, String)> = Vec::new();
-    // node_id -> (name, type, file_path)
-    let mut node_info: HashMap<String, (String, String, Option<String>)> = HashMap::new();
+    // node_id -> (name, type, file_path, node_category)
+    let mut node_info: HashMap<String, (String, String, Option<String>, String)> = HashMap::new();
 
     for nid in &frontier {
         if let Some(info) = fetch_node_info(mubase, nid) {
@@ -569,7 +574,7 @@ pub fn build_expand_response(
         for nid in &frontier {
             if direction == "outgoing" || direction == "both" {
                 let sql = format!(
-                    "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path \
+                    "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path, n.node_category \
                      FROM edges e JOIN nodes n ON n.id = e.target_id \
                      WHERE e.source_id = ?1 {} LIMIT 50",
                     edge_filter
@@ -582,16 +587,17 @@ pub fn build_expand_response(
                         let target_name = row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let target_ntype = row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let target_file = row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let target_cat = row.get(6).and_then(|v| v.as_str()).unwrap_or("production").to_string();
 
                         let source_name = node_info
                             .get(&source_id)
-                            .map(|(n, _, _)| n.clone())
+                            .map(|(n, _, _, _)| n.clone())
                             .unwrap_or_else(|| source_id.clone());
 
                         all_edges.push((source_id.clone(), source_name, target_id.clone(), target_name.clone(), etype));
                         node_info
                             .entry(target_id.clone())
-                            .or_insert((target_name, target_ntype, target_file));
+                            .or_insert((target_name, target_ntype, target_file, target_cat));
 
                         if !visited.contains(&target_id) {
                             visited.insert(target_id.clone());
@@ -603,7 +609,7 @@ pub fn build_expand_response(
 
             if direction == "incoming" || direction == "both" {
                 let sql = format!(
-                    "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path \
+                    "SELECT e.source_id, e.target_id, e.type, n.name, n.type AS ntype, n.file_path, n.node_category \
                      FROM edges e JOIN nodes n ON n.id = e.source_id \
                      WHERE e.target_id = ?1 {} LIMIT 50",
                     edge_filter
@@ -616,16 +622,17 @@ pub fn build_expand_response(
                         let source_name = row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let source_ntype = row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string();
                         let source_file = row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let source_cat = row.get(6).and_then(|v| v.as_str()).unwrap_or("production").to_string();
 
                         let target_name = node_info
                             .get(&target_id)
-                            .map(|(n, _, _)| n.clone())
+                            .map(|(n, _, _, _)| n.clone())
                             .unwrap_or_else(|| target_id.clone());
 
                         all_edges.push((source_id.clone(), source_name.clone(), target_id.clone(), target_name, etype));
                         node_info
                             .entry(source_id.clone())
-                            .or_insert((source_name, source_ntype, source_file));
+                            .or_insert((source_name, source_ntype, source_file, source_cat));
 
                         if !visited.contains(&source_id) {
                             visited.insert(source_id.clone());
@@ -649,7 +656,7 @@ pub fn build_expand_response(
     sorted_ids.sort();
 
     for id in sorted_ids {
-        let (name, ntype, file_path) = node_info.get(&id).unwrap();
+        let (name, ntype, file_path, category) = node_info.get(&id).unwrap();
         let node = NodeResult {
             node_id: id.clone(),
             name: name.clone(),
@@ -661,6 +668,7 @@ pub fn build_expand_response(
             match_type: None,
             importance: 0.0,
             summary: None,
+            node_category: category.clone(),
         };
         if seed_set.contains(&id) {
             seed_nodes.push(node);
@@ -734,7 +742,7 @@ pub fn build_read_response(
     for nid in node_ids {
         let result = mubase.query_params(
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, \
-                    complexity, source_text, summary_text, summary_source, importance_score \
+                    complexity, source_text, summary_text, summary_source, importance_score, node_category \
              FROM nodes WHERE id = ?1",
             &[&nid as &dyn duckdb::ToSql],
         )?;
@@ -751,6 +759,7 @@ pub fn build_read_response(
         let source_text_db = row.get(8).and_then(|v| v.as_str());
         let summary_text = row.get(9).and_then(|v| v.as_str());
         let importance = row.get(11).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let category = row.get(12).and_then(|v| v.as_str()).unwrap_or("production");
 
         let node = NodeResult {
             node_id: nid.clone(),
@@ -763,6 +772,7 @@ pub fn build_read_response(
             match_type: None,
             importance: importance as f32,
             summary: summary_text.map(|s| s.to_string()),
+            node_category: category.to_string(),
         };
 
         // Resolve source text
@@ -783,7 +793,7 @@ pub fn build_read_response(
         // Neighbors (only for full mode)
         let neighbors = if mode == "full" {
             if let Ok(neighbor_result) = mubase.query_params(
-                "SELECT DISTINCT n.id, n.name, n.type, n.file_path, e.type AS etype \
+                "SELECT DISTINCT n.id, n.name, n.type, n.file_path, e.type AS etype, n.node_category \
                  FROM edges e JOIN nodes n ON (n.id = e.target_id OR n.id = e.source_id) \
                  WHERE (e.source_id = ?1 OR e.target_id = ?1) AND n.id != ?1 \
                  LIMIT 20",
@@ -795,6 +805,7 @@ pub fn build_read_response(
                     let n_type = nrow.get(2).and_then(|v| v.as_str()).unwrap_or("?");
                     let n_file = nrow.get(3).and_then(|v| v.as_str()).unwrap_or("");
                     let edge_type = nrow.get(4).and_then(|v| v.as_str()).unwrap_or("related");
+                    let n_cat = nrow.get(5).and_then(|v| v.as_str()).unwrap_or("production");
 
                     (edge_type.to_string(), NodeResult {
                         node_id: n_id.to_string(),
@@ -807,6 +818,7 @@ pub fn build_read_response(
                         match_type: None,
                         importance: 0.0,
                         summary: None,
+                        node_category: n_cat.to_string(),
                     })
                 }).collect()
             } else {
@@ -886,7 +898,7 @@ pub fn pack_context_tool(
         for nid in ids {
             if let Ok(result) = mubase.query_params(
                 "SELECT id, type, name, file_path, line_start, line_end, \
-                        source_text, summary_text, importance_score \
+                        source_text, summary_text, importance_score, node_category \
                  FROM nodes WHERE id = ?1",
                 &[&nid as &dyn duckdb::ToSql],
             ) {
@@ -898,7 +910,7 @@ pub fn pack_context_tool(
         nodes
     } else {
         let sql = "SELECT id, type, name, file_path, line_start, line_end, \
-                          source_text, summary_text, importance_score \
+                          source_text, summary_text, importance_score, node_category \
                    FROM nodes \
                    WHERE type IN ('class', 'function') \
                    ORDER BY importance_score DESC \
@@ -911,24 +923,14 @@ pub fn pack_context_tool(
             .collect()
     };
 
-    // Exclude migration/generated files — they waste token budget
+    // Exclude generated files — they waste token budget
     let nodes_to_pack: Vec<PackNode> = nodes_to_pack
         .into_iter()
-        .filter(|n| {
-            if let Some(cfg) = config {
-                !crate::engine::auto_config::is_excluded_path(
-                    n.file_path.as_deref().unwrap_or(""),
-                    &cfg.oracle.exclude_patterns,
-                )
-            } else {
-                !is_oracle_excluded(n.file_path.as_deref())
-            }
-        })
+        .filter(|n| n.node_category != "generated")
         .collect();
 
     // Apply test budget cap: limit test nodes to a fraction of total budget
-    let test_budget_cap = config.map(|c| c.oracle.test_budget_cap).unwrap_or(1.0);
-    let test_patterns = config.map(|c| &c.filters.test_patterns);
+    let test_budget_cap = config.map(|c| c.oracle.test_budget_cap).unwrap_or(0.1);
     let max_test_nodes = if test_budget_cap < 1.0 {
         (nodes_to_pack.len() as f32 * test_budget_cap).ceil() as usize
     } else {
@@ -939,15 +941,7 @@ pub fn pack_context_tool(
     let nodes_to_pack: Vec<PackNode> = nodes_to_pack
         .into_iter()
         .filter(|n| {
-            let is_test = if let Some(patterns) = test_patterns {
-                crate::engine::auto_config::is_test_path(
-                    n.file_path.as_deref().unwrap_or(""),
-                    patterns,
-                )
-            } else {
-                crate::engine::search::is_test_or_migration(n.file_path.as_deref())
-            };
-            if is_test {
+            if n.node_category == "test" {
                 test_count += 1;
                 test_count <= max_test_nodes
             } else {
@@ -1295,36 +1289,24 @@ fn extract_signature_line(source: &str) -> Option<String> {
     None
 }
 
-/// Check if a file path should be excluded from oracle context packing.
-///
-/// Migration files, obj output, and generated code are never useful for
-/// understanding architecture and waste token budget.
-fn is_oracle_excluded(file_path: Option<&str>) -> bool {
-    let Some(path) = file_path else { return false };
-    let lower = path.to_lowercase();
-
-    (lower.contains("/migrations/") && lower.ends_with(".cs"))
-        || lower.contains("/obj/")
-        || lower.ends_with(".generated.cs")
-}
-
-fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Option<String>)> {
+fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Option<String>, String)> {
     let result = mubase.query_params(
-        "SELECT name, type, file_path FROM nodes WHERE id = ?1",
+        "SELECT name, type, file_path, node_category FROM nodes WHERE id = ?1",
         &[&node_id as &dyn duckdb::ToSql],
     ).ok()?;
     let row = result.rows.first()?;
     let name = row.first().and_then(|v| v.as_str())?.to_string();
     let ntype = row.get(1).and_then(|v| v.as_str())?.to_string();
     let file_path = row.get(2).and_then(|v| v.as_str()).map(|s| s.to_string());
-    Some((name, ntype, file_path))
+    let category = row.get(3).and_then(|v| v.as_str()).unwrap_or("production").to_string();
+    Some((name, ntype, file_path, category))
 }
 
 struct PackNode {
-    #[allow(dead_code)]
     id: String,
     name: String,
     node_type: String,
+    node_category: String,
     file_path: Option<String>,
     line_start: Option<u32>,
     line_end: Option<u32>,
@@ -1345,6 +1327,7 @@ fn pack_node_from_row(row: &[serde_json::Value]) -> PackNode {
         source_text: row.get(6).and_then(|v| v.as_str()).map(|s| s.to_string()),
         summary_text: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
         importance_score: row.get(8).and_then(|v| v.as_f64()).unwrap_or(0.0),
+        node_category: row.get(9).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
     }
 }
 
@@ -1439,35 +1422,4 @@ mod tests {
         assert_eq!(p.edge_types, Some(vec!["calls".to_string(), "imports".to_string()]));
     }
 
-    // -- oracle exclusion tests --
-
-    #[test]
-    fn oracle_excludes_migration_cs_files() {
-        assert!(is_oracle_excluded(Some("src/Migrations/20240101_Init.cs")));
-        assert!(is_oracle_excluded(Some("src/Migrations/20240101_Init.Designer.cs")));
-    }
-
-    #[test]
-    fn oracle_excludes_obj_dir() {
-        assert!(is_oracle_excluded(Some("src/obj/Debug/net10.0/foo.dll")));
-        assert!(is_oracle_excluded(Some("project/obj/Release/something.cs")));
-    }
-
-    #[test]
-    fn oracle_excludes_generated_cs() {
-        assert!(is_oracle_excluded(Some("src/Models/MyModel.generated.cs")));
-    }
-
-    #[test]
-    fn oracle_keeps_production_code() {
-        assert!(!is_oracle_excluded(Some("src/Services/PaymentService.cs")));
-        assert!(!is_oracle_excluded(Some("src/engine/search.rs")));
-        assert!(!is_oracle_excluded(None));
-    }
-
-    #[test]
-    fn oracle_keeps_migration_non_cs() {
-        // Non-.cs files in Migrations/ are fine (e.g., SQL scripts)
-        assert!(!is_oracle_excluded(Some("db/Migrations/README.md")));
-    }
 }

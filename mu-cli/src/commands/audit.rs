@@ -262,11 +262,9 @@ fn rule_orphaned_fns(
                              'build', 'create', 'init', 'new', 'default',
                              'to_table', 'fmt', 'from', 'from_str', 'clone', 'drop',
                              'deref', 'display', 'into', 'get_info', 'on_roots_list_changed')
-          AND n.name NOT LIKE 'test_%'
-          AND n.name NOT LIKE 'Test%'
+          AND n.node_category = 'production'
           AND n.name NOT LIKE 'mu_%'
           AND (n.properties IS NULL OR n.properties NOT LIKE '%dispatch_type%')
-          AND (n.source_text IS NULL OR n.source_text NOT LIKE '%#[test]%')
         ORDER BY n.file_path, n.line_start
     "#;
 
@@ -339,8 +337,8 @@ fn rule_missing_docstrings(
         SELECT n.name, n.type, n.file_path, n.line_start, n.properties, n.source_text
         FROM nodes n
         WHERE n.type IN ('function', 'class')
+          AND n.node_category = 'production'
           AND n.name NOT LIKE '_%'
-          AND n.name NOT LIKE 'test_%'
         ORDER BY n.file_path, n.line_start
     "#;
 

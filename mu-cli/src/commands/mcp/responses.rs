@@ -20,6 +20,7 @@ pub struct NodeResult {
     pub match_type: Option<String>,
     pub importance: f32,
     pub summary: Option<String>,
+    pub node_category: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +98,16 @@ fn type_sigil(kind: &str) -> &'static str {
         "function" => "#",
         "message" => "@",
         _ => "@",
+    }
+}
+
+fn category_tag(cat: &str) -> &'static str {
+    match cat {
+        "production" | "" => "",
+        "test" => " [test]",
+        "generated" => " [generated]",
+        "infrastructure" | "infra" => " [infra]",
+        _ => " [other]",
     }
 }
 
@@ -180,13 +191,15 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
             "unknown".to_string()
         };
 
+        let cat_tag = category_tag(&r.node_category);
         let _ = writeln!(
             out,
-            "{}. {}{} [{}] -- {} | score={:.2} ({}) | importance={:.2}",
+            "{}. {}{} [{}]{} -- {} | score={:.2} ({}) | importance={:.2}",
             i + 1,
             sigil,
             r.name,
             r.kind,
+            cat_tag,
             location,
             r.score.unwrap_or(0.0),
             match_label,
@@ -243,11 +256,26 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
         return out;
     }
 
-    let _ = writeln!(out, "## Dependents ({} found)\n", resp.dependents.len());
-
+    // Split dependents into production vs non-production, preserving edge alignment
+    let mut prod: Vec<(usize, &NodeResult)> = Vec::new();
+    let mut non_prod: Vec<(usize, &NodeResult)> = Vec::new();
     for (i, dep) in resp.dependents.iter().enumerate() {
+        if dep.node_category == "production" || dep.node_category.is_empty() {
+            prod.push((i, dep));
+        } else {
+            non_prod.push((i, dep));
+        }
+    }
+
+    let _ = writeln!(
+        out,
+        "## Dependents ({} found — {} production, {} test/other)\n",
+        resp.dependents.len(), prod.len(), non_prod.len(),
+    );
+
+    for (i, dep) in &prod {
         let dep_sigil = type_sigil(&dep.kind);
-        let edge_label = resp.edges.get(i)
+        let edge_label = resp.edges.get(*i)
             .map(|e| e.edge_type.as_str())
             .unwrap_or("calls");
         let _ = writeln!(
@@ -258,6 +286,27 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
         let _ = writeln!(out, "    id: {}", dep.node_id);
         if !dep.file_path.is_empty() {
             let _ = writeln!(out, "    {}", dep.file_path);
+        }
+    }
+
+    if !non_prod.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "### Tests & Other ({})\n", non_prod.len());
+        for (i, dep) in &non_prod {
+            let dep_sigil = type_sigil(&dep.kind);
+            let edge_label = resp.edges.get(*i)
+                .map(|e| e.edge_type.as_str())
+                .unwrap_or("calls");
+            let dep_cat = category_tag(&dep.node_category);
+            let _ = writeln!(
+                out,
+                "  {}{} [{}]{} --[{}]--> {} | importance={:.2}",
+                dep_sigil, dep.name, dep.kind, dep_cat, edge_label, resp.target.name, dep.importance,
+            );
+            let _ = writeln!(out, "    id: {}", dep.node_id);
+            if !dep.file_path.is_empty() {
+                let _ = writeln!(out, "    {}", dep.file_path);
+            }
         }
     }
 
@@ -281,13 +330,15 @@ pub fn format_expand_response(resp: &ExpandResponse) -> String {
 
     for n in &resp.seed_nodes {
         let sigil = type_sigil(&n.kind);
-        let _ = writeln!(out, "  {}{} [{}] -- {} [seed]", sigil, n.name, n.kind, n.file_path);
+        let cat = category_tag(&n.node_category);
+        let _ = writeln!(out, "  {}{} [{}]{} -- {} [seed]", sigil, n.name, n.kind, cat, n.file_path);
         let _ = writeln!(out, "    id: {}", n.node_id);
     }
 
     for n in &resp.neighbors {
         let sigil = type_sigil(&n.kind);
-        let _ = writeln!(out, "  {}{} [{}] -- {}", sigil, n.name, n.kind, n.file_path);
+        let cat = category_tag(&n.node_category);
+        let _ = writeln!(out, "  {}{} [{}]{} -- {}", sigil, n.name, n.kind, cat, n.file_path);
         let _ = writeln!(out, "    id: {}", n.node_id);
     }
 
@@ -318,7 +369,8 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
             "unknown".to_string()
         };
 
-        let _ = writeln!(out, "## {}{} [{}]", sigil, n.name, n.kind);
+        let cat = category_tag(&n.node_category);
+        let _ = writeln!(out, "## {}{} [{}]{}", sigil, n.name, n.kind, cat);
         let _ = writeln!(out, "id: {}", n.node_id);
         let _ = writeln!(out, "location: {}", location);
         let _ = writeln!(out, "importance: {:.2}", n.importance);

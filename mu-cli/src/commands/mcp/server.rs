@@ -275,12 +275,12 @@ impl MuMcpServer {
 
         let result = if is_node_id {
             state.mubase.query_params(
-                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE id = ?1 LIMIT 1",
+                "SELECT type, name, file_path, line_start, line_end, node_category FROM nodes WHERE id = ?1 LIMIT 1",
                 &[&symbol.as_str()],
             )
         } else {
             state.mubase.query_params(
-                "SELECT type, name, file_path, line_start, line_end FROM nodes WHERE name = ?1 OR qualified_name LIKE '%.' || ?1 LIMIT 10",
+                "SELECT type, name, file_path, line_start, line_end, node_category FROM nodes WHERE name = ?1 OR qualified_name LIKE '%.' || ?1 LIMIT 10",
                 &[&symbol.as_str()],
             )
         }
@@ -307,8 +307,16 @@ impl MuMcpServer {
                 "function" => "#",
                 _ => "@",
             };
+            let category = row.get(5).and_then(|v| v.as_str()).unwrap_or("production");
+            let cat_tag = match category {
+                "production" | "" => "",
+                "test" => " [test]",
+                "generated" => " [generated]",
+                "infrastructure" | "infra" => " [infra]",
+                _ => " [other]",
+            };
 
-            output.push_str(&format!("## {}{} [{}]\n", sigil, name, node_type));
+            output.push_str(&format!("## {}{} [{}]{}\n", sigil, name, node_type, cat_tag));
             output.push_str(&format!("{}:{}-{}\n", file_path, start_line, end_line));
 
             // Show the actual code
@@ -469,7 +477,7 @@ impl MuMcpServer {
         let target_result = state
             .mubase
             .query_params(
-                "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text
+                "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text, node_category
                  FROM nodes WHERE name = ?1 LIMIT 1",
                 &[&params.symbol as &dyn duckdb::ToSql],
             )
@@ -487,6 +495,7 @@ impl MuMcpServer {
                 match_type: None,
                 importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                 summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                node_category: row.get(8).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
             }
         }).unwrap_or_else(|| NodeResult {
             node_id: String::new(),
@@ -499,6 +508,7 @@ impl MuMcpServer {
             match_type: None,
             importance: 0.0,
             summary: None,
+            node_category: "production".to_string(),
         });
 
         // Find dependents with edge info
@@ -506,7 +516,7 @@ impl MuMcpServer {
             .mubase
             .query_params(
                 "SELECT DISTINCT n.id, n.name, n.type, n.file_path, n.line_start, n.line_end,
-                        n.importance_score, n.summary_text, e.type AS edge_type
+                        n.importance_score, n.summary_text, e.type AS edge_type, n.node_category
                  FROM edges e
                  JOIN nodes n ON n.id = e.source_id
                  WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
@@ -536,6 +546,7 @@ impl MuMcpServer {
                 match_type: None,
                 importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                 summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                node_category: row.get(9).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
             });
 
             edges.push(EdgeResult {
@@ -576,6 +587,7 @@ impl MuMcpServer {
                         match_type: None,
                         importance: row.get(7).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                         summary: None,
+                        node_category: "production".to_string(),
                     });
 
                     edges.push(EdgeResult {
@@ -775,6 +787,7 @@ impl MuMcpServer {
             .query_params(
                 "SELECT name, type, file_path, complexity FROM nodes
                  WHERE complexity >= ?1 AND type = 'function'
+                   AND node_category = 'production'
                  ORDER BY complexity DESC LIMIT 15",
                 &[&min_complexity as &dyn duckdb::ToSql],
             )
@@ -798,13 +811,14 @@ impl MuMcpServer {
 
         // Security-sensitive
         let security_sql = "SELECT name, type, file_path FROM nodes
-            WHERE LOWER(name) LIKE '%auth%'
+            WHERE node_category = 'production'
+              AND (LOWER(name) LIKE '%auth%'
                OR LOWER(name) LIKE '%token%'
                OR LOWER(name) LIKE '%password%'
                OR LOWER(name) LIKE '%secret%'
                OR LOWER(name) LIKE '%crypt%'
                OR LOWER(name) LIKE '%credential%'
-               OR LOWER(name) LIKE '%api_key%'
+               OR LOWER(name) LIKE '%api_key%')
             ORDER BY file_path LIMIT 20";
         let security = state
             .mubase
@@ -834,6 +848,7 @@ impl MuMcpServer {
         // Large functions (by line count if available)
         let large_sql = "SELECT name, file_path, (line_end - line_start) as lines FROM nodes
             WHERE type = 'function' AND line_end > line_start
+              AND node_category = 'production'
             ORDER BY lines DESC LIMIT 10";
         if let Ok(large) = state.mubase.query(large_sql) {
             if !large.rows.is_empty() {

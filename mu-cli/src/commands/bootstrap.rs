@@ -1067,7 +1067,16 @@ pub fn bootstrap_pipeline(
     }
 
     // Step 2: Build graph
-    let (nodes, edges) = build_graph(&parsed.parse_results, root, spinner);
+    let (mut nodes, edges) = build_graph(&parsed.parse_results, root, spinner);
+
+    // Classify nodes before insertion
+    let auto_config = crate::engine::auto_config::AutoConfig::load(root);
+    for node in &mut nodes {
+        node.node_category = crate::engine::auto_config::classify_node(
+            node.file_path.as_deref(),
+            auto_config.as_ref(),
+        ).to_string();
+    }
 
     // Step 3: Write to database
     spin(spinner, "Writing database...");
@@ -1120,17 +1129,7 @@ pub fn bootstrap_pipeline(
                 .as_deref()
                 .map(|s| s.contains("pub ") || s.contains("pub(") || s.contains("export "))
                 .unwrap_or(false);
-            let is_test = n
-                .file_path
-                .as_deref()
-                .map(|p| {
-                    p.contains("/tests/")
-                        || p.contains("/test/")
-                        || p.contains("_test.")
-                        || p.contains(".test.")
-                        || p.contains("test_")
-                })
-                .unwrap_or(false);
+            let is_test = n.node_category == "test";
 
             let in_degree = in_degree_map.get(n.id.as_str()).copied().unwrap_or(0);
 
