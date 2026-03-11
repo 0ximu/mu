@@ -122,6 +122,9 @@ pub struct ConfigureParams {
     /// JSON corrections to apply to the draft config. Omit for discovery mode.
     #[schemars(description = "JSON object with corrections: service_classifications, domain_concepts, add_priority_nodes, remove_priority_nodes, test_handling. Omit to get the draft config with review questions.")]
     pub corrections: Option<String>,
+    /// Action: omit for normal flow, "enrich_more" for next enrichment batch.
+    #[schemars(description = "Action: omit for normal flow, 'enrich_more' to get the next batch of enrichment candidates.")]
+    pub action: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -601,6 +604,46 @@ impl MuMcpServer {
             }
         }
 
+        // If the symbol didn't match any node, suggest similar names via fuzzy LIKE
+        if target.node_id.is_empty() && dependents.is_empty() {
+            // Try full name first, then strip last PascalCase word to find core concept
+            // "CreditNoteService" → try "%CreditNoteService%", then "%CreditNote%"
+            let mut patterns = vec![format!("%{}%", params.symbol)];
+            let core = strip_trailing_pascal_word(&params.symbol);
+            if core.len() >= 3 && core != params.symbol {
+                patterns.push(format!("%{}%", core));
+            }
+
+            for like_pattern in &patterns {
+                let suggestions = state.mubase.query_params(
+                    "SELECT name, type, file_path FROM nodes
+                     WHERE name LIKE ?1 AND node_category = 'production'
+                     ORDER BY importance_score DESC LIMIT 5",
+                    &[like_pattern as &dyn duckdb::ToSql],
+                ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+                if !suggestions.rows.is_empty() {
+                    let names: Vec<String> = suggestions.rows.iter()
+                        .map(|row| {
+                            let name = row.first().and_then(|v| v.as_str()).unwrap_or("");
+                            let kind = row.get(1).and_then(|v| v.as_str()).unwrap_or("");
+                            let file = row.get(2).and_then(|v| v.as_str())
+                                .and_then(|p| p.rsplit('/').next()).unwrap_or("");
+                            format!("  - {} ({}, {})", name, kind, file)
+                        })
+                        .collect();
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "No symbol '{}' found. Did you mean:\n{}\n\nTry mu_impact with one of these exact names.",
+                        params.symbol, names.join("\n")
+                    ))]));
+                }
+            }
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "No symbol '{}' found, and no similar names in the codebase.",
+                params.symbol
+            ))]));
+        }
+
         let response = ImpactResponse {
             target: target.clone(),
             dependents,
@@ -1076,7 +1119,7 @@ impl MuMcpServer {
 
     /// Configure: Auto-detect codebase patterns (interactive)
     #[tool(
-        description = "Interactive codebase configuration. Two modes: (1) Discovery — call with no args to auto-detect patterns, get a draft config, review questions, and enrichment suggestions. (2) Corrections — call with a `corrections` JSON to refine the config: classify services as auxiliary, add domain concepts for disambiguation, adjust priority nodes, change test handling. The corrected config is saved and improves all future tool calls."
+        description = "Interactive codebase configuration. Three modes: (1) Discovery — call with no args to auto-detect patterns, get a draft config with review questions. (2) Corrections — call with `corrections` JSON to refine the config; returns confirmation plus enrichment candidates to summarize inline. (3) Enrich more — call with action='enrich_more' to get the next batch of enrichment candidates."
     )]
     async fn mu_configure(
         &self,
@@ -1085,7 +1128,7 @@ impl MuMcpServer {
         let state = self.ensure_state().await?;
 
         if let Some(ref corrections_json) = params.corrections {
-            // Correction mode: load existing config (or generate fresh), apply corrections, save
+            // Correction mode: apply corrections, save, then append enrichment candidates
             let mut config = crate::engine::auto_config::AutoConfig::load(&state.project_root)
                 .unwrap_or_else(|| {
                     crate::engine::auto_config::AutoConfig::generate(&state.mubase)
@@ -1102,6 +1145,29 @@ impl MuMcpServer {
             let mut output = result;
             output.push_str("\n\n");
             output.push_str(&crate::engine::auto_config::format_summary(&config));
+
+            // Append enrichment candidates so the LLM can write summaries inline
+            output.push_str("\n\n---\n\n## Enrichment — Phase 1\n\n");
+            let candidates = tools_v3::format_enrichment_candidates(
+                &state.mubase, Some(&config), None, Some(20),
+            ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            output.push_str(&candidates);
+            output.push_str("\n\nAfter writing summaries, call `mu_enrich` to store them, \
+                then `mu_configure(action=\"enrich_more\")` for the next batch.");
+
+            Ok(CallToolResult::success(vec![Content::text(output)]))
+        } else if params.action.as_deref() == Some("enrich_more") {
+            // Enrich-more mode: load config, return next batch of candidates
+            let config = crate::engine::auto_config::AutoConfig::load(&state.project_root);
+            let candidates = tools_v3::format_enrichment_candidates(
+                &state.mubase, config.as_ref(), None, Some(20),
+            ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+            let mut output = String::from("## Enrichment — Next Batch\n\n");
+            output.push_str(&candidates);
+            output.push_str("\n\nAfter writing summaries, call `mu_enrich` to store them, \
+                then `mu_configure(action=\"enrich_more\")` for more.");
+
             Ok(CallToolResult::success(vec![Content::text(output)]))
         } else {
             // Discovery mode: generate draft, questions, enrichment suggestions
@@ -1391,7 +1457,7 @@ impl ServerHandler for MuMcpServer {
                  • What changed in a branch? → mu_diff\n\
                  \n\
                  SETUP & IMPROVEMENT:\n\
-                 • First time on a codebase? Run mu_bootstrap then mu_configure then mu_enrich\n\
+                 • First time? Run mu_bootstrap then mu_configure. After corrections, MU suggests nodes to enrich — write summaries, call mu_enrich. Use mu_configure(action=\"enrich_more\") for more batches.\n\
                  • Need to rebuild the index? → mu_bootstrap (rebuilds without leaving the session)\n\
                  • Improve search quality? → mu_enrich\n\
                  \n\
@@ -1419,4 +1485,17 @@ impl ServerHandler for MuMcpServer {
             *client_roots = Some(roots_result.roots);
         }
     }
+}
+
+/// Strip the last PascalCase word from a symbol name.
+/// "CreditNoteService" → "CreditNote", "PaymentProcessor" → "Payment"
+fn strip_trailing_pascal_word(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    // Walk backwards to find the last uppercase letter that starts a word
+    for i in (1..bytes.len()).rev() {
+        if bytes[i].is_ascii_uppercase() {
+            return &s[..i];
+        }
+    }
+    s
 }

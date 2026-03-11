@@ -248,7 +248,9 @@ fn rule_orphaned_fns(
     mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
-    // Find functions that have no incoming call/dispatch edges and aren't entry points
+    // Find functions that have no incoming call/dispatch edges and aren't entry points.
+    // Exclude interface methods whose interface is implemented (inherits edge exists) —
+    // these are invoked via DI, not direct calls.
     let sql = r#"
         SELECT n.name, n.file_path, n.line_start
         FROM nodes n

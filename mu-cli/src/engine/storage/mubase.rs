@@ -255,7 +255,8 @@ impl MUbase {
             "SELECT id, type, name, qualified_name, file_path, line_start, line_end, properties, complexity, source_text,
                     summary_text, summary_source, summary_code_hash, importance_score, search_text, summary_updated_at, node_category
              FROM nodes
-             WHERE summary_source IS NULL OR summary_source = 'heuristic'
+             WHERE (summary_source IS NULL OR summary_source = 'heuristic')
+               AND (node_category = 'production' OR node_category IS NULL)
              ORDER BY importance_score DESC
              LIMIT ?",
         )?;

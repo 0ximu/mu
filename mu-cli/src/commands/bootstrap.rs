@@ -458,6 +458,10 @@ fn build_graph(
     spin(spinner, "Detecting cross-service patterns...");
     detect_cross_service_edges(parse_results, &class_lookup, &mut nodes, &mut edges);
 
+    // Synthesize trait_impl edges from inherits + decorator data
+    spin(spinner, "Synthesizing implementation edges...");
+    synthesize_impl_edges(&nodes, &mut edges, parse_results);
+
     (nodes, edges)
 }
 
@@ -479,17 +483,34 @@ fn build_class_lookup(parse_results: &[mu_core::types::ParseResult]) -> HashMap<
 }
 
 /// Build function name -> node ID lookup for call resolution.
+///
+/// Bare names (e.g. "Clear") are only stored when unique across the codebase.
+/// Ambiguous bare names are removed so step-4 fallback can't create false edges.
 fn build_function_lookup(nodes: &[crate::engine::storage::Node]) -> HashMap<String, String> {
     let mut func_lookup = HashMap::new();
+    // Track bare names seen more than once — these are ambiguous and must not resolve globally
+    let mut bare_name_counts: HashMap<String, usize> = HashMap::new();
+
     for node in nodes {
         if node.node_type == crate::engine::storage::NodeType::Function {
             func_lookup.insert(node.id.clone(), node.id.clone());
-            func_lookup.insert(node.name.clone(), node.id.clone());
+            *bare_name_counts.entry(node.name.clone()).or_insert(0) += 1;
             if let Some(ref qname) = node.qualified_name {
                 func_lookup.insert(qname.clone(), node.id.clone());
             }
         }
     }
+
+    // Only insert bare names that are unique — ambiguous names (Clear, ToString, Dispose, etc.)
+    // would create arbitrary cross-project edges
+    for node in nodes {
+        if node.node_type == crate::engine::storage::NodeType::Function {
+            if bare_name_counts.get(&node.name).copied().unwrap_or(0) == 1 {
+                func_lookup.insert(node.name.clone(), node.id.clone());
+            }
+        }
+    }
+
     func_lookup
 }
 
@@ -796,6 +817,123 @@ fn resolve_all_call_sites(
     }
 
     (total, resolved)
+}
+
+// ============================================================================
+// Trait/Interface Implementation Edge Synthesis
+// ============================================================================
+
+/// Synthesize `trait_impl` edges between implementation methods and their
+/// interface/trait counterparts.
+///
+/// Two complementary strategies, naturally disjoint by parser convention:
+///
+/// 1. **Inherits-based** (C#/Java/TS/Python): Walk `inherits` edges, match
+///    child class methods to parent class methods by name. These parsers
+///    populate `class.bases` for interface/class inheritance.
+///
+/// 2. **Decorator-based** (Rust): Methods with `impl:TraitName` decorators
+///    are matched to methods on the trait class. The Rust parser does NOT
+///    emit `inherits` edges for `impl Trait for Struct` — it only tags
+///    each method with an `impl:` decorator. So Strategy 1 is a no-op for
+///    Rust, and Strategy 2 is a no-op for C#/Java/TS/Python.
+fn synthesize_impl_edges(
+    nodes: &[crate::engine::storage::Node],
+    edges: &mut Vec<crate::engine::storage::Edge>,
+    parse_results: &[mu_core::types::ParseResult],
+) {
+    use crate::engine::storage::schema::EdgeType;
+
+    // Build class_id → Vec<(method_name, method_id)> from contains edges
+    let method_names: HashMap<&str, &str> = nodes
+        .iter()
+        .filter(|n| n.node_type == crate::engine::storage::NodeType::Function)
+        .map(|n| (n.id.as_str(), n.name.as_str()))
+        .collect();
+
+    let mut class_methods: HashMap<&str, Vec<(&str, &str)>> = HashMap::new();
+    for edge in edges.iter() {
+        if edge.edge_type == EdgeType::Contains {
+            if let Some(&method_name) = method_names.get(edge.target_id.as_str()) {
+                class_methods
+                    .entry(edge.source_id.as_str())
+                    .or_default()
+                    .push((method_name, edge.target_id.as_str()));
+            }
+        }
+    }
+
+    // Strategy 1: Walk inherits edges, match methods by name
+    let inherits_pairs: Vec<(String, String)> = edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeType::Inherits)
+        .map(|e| (e.source_id.clone(), e.target_id.clone()))
+        .collect();
+
+    let mut new_edges = Vec::new();
+    for (child_id, parent_id) in &inherits_pairs {
+        let parent_methods = match class_methods.get(parent_id.as_str()) {
+            Some(m) => m,
+            None => continue,
+        };
+        let child_methods = match class_methods.get(child_id.as_str()) {
+            Some(m) => m,
+            None => continue,
+        };
+
+        for &(parent_name, parent_method_id) in parent_methods {
+            for &(child_name, child_method_id) in child_methods {
+                if child_name == parent_name {
+                    new_edges.push(crate::engine::storage::Edge::trait_impl(
+                        child_method_id,
+                        parent_method_id,
+                    ));
+                }
+            }
+        }
+    }
+
+    // Strategy 2: Rust "impl:Trait" decorators
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            for class in &module.classes {
+                for method in &class.methods {
+                    for dec in &method.decorators {
+                        if let Some(trait_name) = dec.strip_prefix("impl:") {
+                            let impl_method_id = format!(
+                                "fn:{}:{}.{}",
+                                module.path, class.name, method.name
+                            );
+                            // Find trait class methods by matching class ID suffix
+                            for (&cid, methods) in &class_methods {
+                                if cid.ends_with(&format!(":{}", trait_name)) {
+                                    for &(m_name, trait_method_id) in methods {
+                                        if m_name == method.name.as_str() {
+                                            new_edges.push(
+                                                crate::engine::storage::Edge::trait_impl(
+                                                    &impl_method_id,
+                                                    trait_method_id,
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let count = new_edges.len();
+    edges.extend(new_edges);
+    if count > 0 {
+        tracing::info!("Synthesized {} trait_impl edges", count);
+    }
 }
 
 // ============================================================================
@@ -1548,9 +1686,17 @@ fn resolve_call_site(
         }
     }
 
-    // 4. Check by simple name (may match if unique in codebase)
-    if let Some(target_id) = func_lookup.get(callee) {
-        return Some(target_id.clone());
+    // 4. Check by simple name — only for free function calls or self/this calls.
+    // Method calls on arbitrary receivers (e.g., `_items.Clear()`) cannot be resolved
+    // without type information; matching by bare name creates false cross-project edges.
+    let is_unresolvable_method = call.is_method_call
+        && call.receiver.as_deref().is_some_and(|r| {
+            !matches!(r, "self" | "cls" | "this" | "base" | "super")
+        });
+    if !is_unresolvable_method {
+        if let Some(target_id) = func_lookup.get(callee) {
+            return Some(target_id.clone());
+        }
     }
 
     // 5. Check imported names

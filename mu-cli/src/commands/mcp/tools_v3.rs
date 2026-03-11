@@ -1136,83 +1136,104 @@ pub fn enrich_nodes_tool(
             Err(e) => writeln!(out, "\nFTS rebuild failed: {}", e)?,
         }
     } else {
-        let top_n = config.map(|c| c.enrichment.auto_enrich_top_n).unwrap_or(20);
-        let limit = top_n.min(50);
-        let filter_ids: Option<HashSet<&str>> = node_ids.map(|ids| ids.iter().map(|s| s.as_str()).collect());
-
-        let unsummarized = mubase.get_unsummarized_nodes(if filter_ids.is_some() { 200 } else { limit })?;
-
-        let priority_ids: Option<HashSet<&str>> = config
-            .filter(|c| !c.enrichment.priority_nodes.is_empty())
-            .map(|c| c.enrichment.priority_nodes.iter().map(|s| s.as_str()).collect());
-
-        let mut candidates: Vec<&Node> = if let Some(ref filter) = filter_ids {
-            unsummarized.iter().filter(|n| filter.contains(n.id.as_str())).collect()
-        } else {
-            unsummarized.iter().take(limit).collect()
-        };
-
-        // Sort: priority nodes first, then by importance
-        if let Some(ref pids) = priority_ids {
-            candidates.sort_by(|a, b| {
-                let a_pri = pids.contains(a.id.as_str());
-                let b_pri = pids.contains(b.id.as_str());
-                match (a_pri, b_pri) {
-                    (true, false) => std::cmp::Ordering::Less,
-                    (false, true) => std::cmp::Ordering::Greater,
-                    _ => b.importance_score.partial_cmp(&a.importance_score)
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                }
-            });
-        }
-
-        writeln!(out, "# enrich: {} candidates for enrichment\n", candidates.len())?;
-
-        if candidates.is_empty() {
-            writeln!(out, "All nodes already have LLM summaries, or no nodes match the filter.")?;
-            return Ok(out);
-        }
-
-        writeln!(out, "## Prompt Guidance\n")?;
-        writeln!(
-            out,
-            "For each node below, write a 1-2 sentence summary describing what it does, \
-             its role in the codebase, and key relationships. Focus on information that would \
-             help someone searching for this code. Then call `mu_enrich` with the summaries.\n"
-        )?;
-
-        writeln!(out, "## Candidates\n")?;
-        for node in &candidates {
-            let sigil = type_sigil(node.node_type.as_str());
-            let location = node.file_path.as_deref().unwrap_or("unknown");
-
-            writeln!(
-                out,
-                "### {}{} [{}] -- {} (importance: {:.2})",
-                sigil, node.name, node.node_type.as_str(), location, node.importance_score
-            )?;
-            writeln!(out, "id: `{}`", node.id)?;
-
-            if let Some(ref src) = node.source_text {
-                let preview = truncate_str(src, 500);
-                writeln!(out, "```")?;
-                writeln!(out, "{}", preview)?;
-                writeln!(out, "```")?;
-            }
-
-            if let Some(ref summary) = node.summary_text {
-                writeln!(out, "Current heuristic summary: {}", summary)?;
-            }
-
-            writeln!(out)?;
-        }
-
-        writeln!(
-            out,
-            "---\nCall `mu_enrich` with summaries parameter to store results. \
-             Example: summaries: [{{node_id: \"...\", summary: \"...\"}}, ...]"
-        )?;
+        out.push_str(&format_enrichment_candidates(mubase, config, node_ids, None)?);
     }
+
+    Ok(out)
+}
+
+// ============================================================================
+// Enrichment candidate formatting (shared by mu_enrich and mu_configure)
+// ============================================================================
+
+/// Format enrichment candidates for display. Used by both `enrich_nodes_tool` (discovery)
+/// and `mu_configure` (post-correction enrichment).
+pub fn format_enrichment_candidates(
+    mubase: &MUbase,
+    config: Option<&crate::engine::auto_config::AutoConfig>,
+    node_ids: Option<&[String]>,
+    limit_override: Option<usize>,
+) -> Result<String> {
+    let mut out = String::new();
+
+    let top_n = limit_override.unwrap_or_else(|| {
+        config.map(|c| c.enrichment.auto_enrich_top_n).unwrap_or(20)
+    });
+    let limit = top_n.min(50);
+    let filter_ids: Option<HashSet<&str>> = node_ids.map(|ids| ids.iter().map(|s| s.as_str()).collect());
+
+    let unsummarized = mubase.get_unsummarized_nodes(if filter_ids.is_some() { 200 } else { limit })?;
+
+    let priority_ids: Option<HashSet<&str>> = config
+        .filter(|c| !c.enrichment.priority_nodes.is_empty())
+        .map(|c| c.enrichment.priority_nodes.iter().map(|s| s.as_str()).collect());
+
+    let mut candidates: Vec<&Node> = if let Some(ref filter) = filter_ids {
+        unsummarized.iter().filter(|n| filter.contains(n.id.as_str())).collect()
+    } else {
+        unsummarized.iter().take(limit).collect()
+    };
+
+    // Sort: priority nodes first, then by importance
+    if let Some(ref pids) = priority_ids {
+        candidates.sort_by(|a, b| {
+            let a_pri = pids.contains(a.id.as_str());
+            let b_pri = pids.contains(b.id.as_str());
+            match (a_pri, b_pri) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => b.importance_score.partial_cmp(&a.importance_score)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            }
+        });
+    }
+
+    writeln!(out, "# enrich: {} candidates for enrichment\n", candidates.len())?;
+
+    if candidates.is_empty() {
+        writeln!(out, "All nodes already have LLM summaries, or no nodes match the filter.")?;
+        return Ok(out);
+    }
+
+    writeln!(out, "## Prompt Guidance\n")?;
+    writeln!(
+        out,
+        "For each node below, write a 1-2 sentence summary describing what it does, \
+         its role in the codebase, and key relationships. Focus on information that would \
+         help someone searching for this code. Then call `mu_enrich` with the summaries.\n"
+    )?;
+
+    writeln!(out, "## Candidates\n")?;
+    for node in &candidates {
+        let sigil = type_sigil(node.node_type.as_str());
+        let location = node.file_path.as_deref().unwrap_or("unknown");
+
+        writeln!(
+            out,
+            "### {}{} [{}] -- {} (importance: {:.2})",
+            sigil, node.name, node.node_type.as_str(), location, node.importance_score
+        )?;
+        writeln!(out, "id: `{}`", node.id)?;
+
+        if let Some(ref src) = node.source_text {
+            let preview = truncate_str(src, 500);
+            writeln!(out, "```")?;
+            writeln!(out, "{}", preview)?;
+            writeln!(out, "```")?;
+        }
+
+        if let Some(ref summary) = node.summary_text {
+            writeln!(out, "Current heuristic summary: {}", summary)?;
+        }
+
+        writeln!(out)?;
+    }
+
+    writeln!(
+        out,
+        "---\nCall `mu_enrich` with summaries parameter to store results. \
+         Example: summaries: [{{node_id: \"...\", summary: \"...\"}}, ...]"
+    )?;
 
     Ok(out)
 }

@@ -8,6 +8,8 @@ use std::process::Command;
 use std::time::Instant;
 
 use colored::Colorize;
+use mu_core::differ::SemanticDiffResult;
+use mu_core::types::ModuleDef;
 use serde::Serialize;
 
 use crate::output::{Output, OutputFormat, TableDisplay};
@@ -221,90 +223,66 @@ fn detect_language(file_path: &str) -> Option<&'static str> {
     }
 }
 
-/// Parse file and extract entity names using mu-core
-fn extract_entities(content: &str, file_path: &str, language: &str) -> Vec<(String, String)> {
-    // Use mu_core to parse and extract entities
+/// Parse file content into a ModuleDef, returning None on failure.
+fn parse_to_module(content: &str, file_path: &str, language: &str) -> Option<ModuleDef> {
     let result = mu_core::parser::parse_source(content, file_path, language);
-
-    if !result.success {
-        return Vec::new();
-    }
-
-    let Some(module) = result.module else {
-        return Vec::new();
-    };
-
-    let mut entities = Vec::new();
-
-    // Add module itself
-    entities.push((module.name.clone(), "module".to_string()));
-
-    // Add functions
-    for func in &module.functions {
-        entities.push((func.name.clone(), "function".to_string()));
-    }
-
-    // Add classes and their methods
-    for class in &module.classes {
-        entities.push((class.name.clone(), "class".to_string()));
-        for method in &class.methods {
-            entities.push((
-                format!("{}.{}", class.name, method.name),
-                "method".to_string(),
-            ));
-        }
-    }
-
-    entities
+    result.module
 }
 
-/// Compare entities between base and head versions
-fn diff_entities(
-    base_entities: &[(String, String)],
-    head_entities: &[(String, String)],
-    file_path: &str,
-) -> Vec<SemanticChange> {
-    let mut changes = Vec::new();
+/// Create an empty ModuleDef for a file path (used when file doesn't exist at a ref).
+fn empty_module(file_path: &str, language: &str) -> ModuleDef {
+    ModuleDef::new(
+        file_path.to_string(),
+        file_path.to_string(),
+        language.to_string(),
+        vec![],
+        vec![],
+        vec![],
+        None,
+        0,
+        None,
+    )
+}
 
-    let base_set: std::collections::HashSet<(&String, &String)> =
-        base_entities.iter().map(|(a, b)| (a, b)).collect();
-    let head_set: std::collections::HashSet<(&String, &String)> =
-        head_entities.iter().map(|(a, b)| (a, b)).collect();
+/// Convert core EntityChange to CLI SemanticChange.
+fn convert_core_change(change: &mu_core::differ::EntityChange) -> SemanticChange {
+    let description = match (&change.details, &change.old_signature, &change.new_signature) {
+        (Some(details), _, _) => Some(details.clone()),
+        (None, Some(old), Some(new)) => Some(format!("{} -> {}", old, new)),
+        (None, None, Some(sig)) => Some(sig.clone()),
+        (None, Some(sig), None) => Some(sig.clone()),
+        (None, None, None) => None,
+    };
 
-    // Find added entities
-    for (name, entity_type) in head_entities {
-        if !base_set.contains(&(name, entity_type)) {
-            changes.push(SemanticChange {
-                change_type: "added".to_string(),
-                entity_type: entity_type.clone(),
-                entity_name: name.clone(),
-                file_path: Some(file_path.to_string()),
-                is_breaking: false,
-                description: None,
-            });
-        }
+    SemanticChange {
+        change_type: change.change_type.clone(),
+        entity_type: change.entity_type.clone(),
+        entity_name: change.full_name(),
+        file_path: Some(change.file_path.clone()),
+        is_breaking: change.is_breaking,
+        description,
     }
+}
 
-    // Find removed entities
-    for (name, entity_type) in base_entities {
-        if !head_set.contains(&(name, entity_type)) {
-            let is_breaking = matches!(entity_type.as_str(), "function" | "class" | "method");
-            changes.push(SemanticChange {
-                change_type: "removed".to_string(),
-                entity_type: entity_type.clone(),
-                entity_name: name.clone(),
-                file_path: Some(file_path.to_string()),
-                is_breaking,
-                description: if is_breaking {
-                    Some(format!("Removed {} may break dependents", entity_type))
-                } else {
-                    None
-                },
-            });
-        }
+/// Convert a core SemanticDiffResult into the CLI DiffResult.
+fn convert_diff_result(
+    core: &SemanticDiffResult,
+    base_ref: &str,
+    head_ref: &str,
+    files_changed: usize,
+    duration_ms: u64,
+) -> DiffResult {
+    let changes: Vec<SemanticChange> = core.changes.iter().map(convert_core_change).collect();
+    let breaking_changes: Vec<SemanticChange> = changes.iter().filter(|c| c.is_breaking).cloned().collect();
+
+    DiffResult {
+        base_ref: base_ref.to_string(),
+        head_ref: head_ref.to_string(),
+        changes,
+        breaking_changes,
+        files_changed,
+        duration_ms,
     }
-
-    changes
 }
 
 /// Run a semantic diff between two git refs and return the result.
@@ -327,7 +305,8 @@ pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResul
         });
     }
 
-    let mut all_changes = Vec::new();
+    let mut base_modules = Vec::new();
+    let mut head_modules = Vec::new();
 
     for file_path in &changed_files {
         let Some(language) = detect_language(file_path) else {
@@ -337,54 +316,31 @@ pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResul
         let base_content = get_file_at_ref(file_path, base_ref)?;
         let head_content = get_file_at_ref(file_path, head_ref)?;
 
-        match (&base_content, &head_content) {
-            (None, Some(head)) => {
-                let entities = extract_entities(head, file_path, language);
-                for (name, entity_type) in entities {
-                    all_changes.push(SemanticChange {
-                        change_type: "added".to_string(),
-                        entity_type,
-                        entity_name: name,
-                        file_path: Some(file_path.clone()),
-                        is_breaking: false,
-                        description: Some("New file".to_string()),
-                    });
-                }
-            }
-            (Some(_base), None) => {
-                all_changes.push(SemanticChange {
-                    change_type: "removed".to_string(),
-                    entity_type: "module".to_string(),
-                    entity_name: file_path.clone(),
-                    file_path: Some(file_path.clone()),
-                    is_breaking: true,
-                    description: Some("File deleted".to_string()),
-                });
-            }
-            (Some(base), Some(head)) => {
-                let base_entities = extract_entities(base, file_path, language);
-                let head_entities = extract_entities(head, file_path, language);
-                let file_changes = diff_entities(&base_entities, &head_entities, file_path);
-                all_changes.extend(file_changes);
-            }
-            (None, None) => {}
-        }
+        let base_mod = match base_content {
+            Some(ref content) => parse_to_module(content, file_path, language)
+                .unwrap_or_else(|| empty_module(file_path, language)),
+            None => empty_module(file_path, language),
+        };
+        let head_mod = match head_content {
+            Some(ref content) => parse_to_module(content, file_path, language)
+                .unwrap_or_else(|| empty_module(file_path, language)),
+            None => empty_module(file_path, language),
+        };
+
+        base_modules.push(base_mod);
+        head_modules.push(head_mod);
     }
 
-    let breaking_changes: Vec<SemanticChange> = all_changes
-        .iter()
-        .filter(|c| c.is_breaking)
-        .cloned()
-        .collect();
+    let core_result = mu_core::differ::semantic_diff_modules(&base_modules, &head_modules);
+    let duration_ms = start.elapsed().as_millis() as u64;
 
-    Ok(DiffResult {
-        base_ref: base_ref.to_string(),
-        head_ref: head_ref.to_string(),
-        changes: all_changes,
-        breaking_changes,
+    Ok(convert_diff_result(
+        &core_result,
+        base_ref,
+        head_ref,
         files_changed,
-        duration_ms: start.elapsed().as_millis() as u64,
-    })
+        duration_ms,
+    ))
 }
 
 /// Detect the default branch name from git.
@@ -409,6 +365,7 @@ pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mu_core::differ::EntityChange;
 
     #[test]
     fn test_detect_language() {
@@ -419,35 +376,80 @@ mod tests {
     }
 
     #[test]
-    fn test_diff_entities() {
-        let base = vec![
-            ("foo".to_string(), "function".to_string()),
-            ("bar".to_string(), "function".to_string()),
-        ];
-        let head = vec![
-            ("foo".to_string(), "function".to_string()),
-            ("baz".to_string(), "function".to_string()),
-        ];
+    fn test_convert_core_change_simple() {
+        let change = EntityChange::new(
+            "added".to_string(),
+            "function".to_string(),
+            "my_func".to_string(),
+            "src/lib.py".to_string(),
+            None,
+            None,
+            None,
+            None,
+            false,
+        );
 
-        let changes = diff_entities(&base, &head, "test.py");
+        let converted = convert_core_change(&change);
+        assert_eq!(converted.change_type, "added");
+        assert_eq!(converted.entity_type, "function");
+        assert_eq!(converted.entity_name, "my_func");
+        assert_eq!(converted.file_path, Some("src/lib.py".to_string()));
+        assert!(!converted.is_breaking);
+        assert!(converted.description.is_none());
+    }
 
-        // Should have 2 changes: bar removed, baz added
-        assert_eq!(changes.len(), 2);
+    #[test]
+    fn test_convert_core_change_with_parent() {
+        let change = EntityChange::new(
+            "removed".to_string(),
+            "method".to_string(),
+            "do_thing".to_string(),
+            "src/lib.py".to_string(),
+            Some("MyClass".to_string()),
+            None,
+            Some("do_thing(self, x: int)".to_string()),
+            None,
+            true,
+        );
 
-        let added: Vec<_> = changes
-            .iter()
-            .filter(|c| c.change_type == "added")
-            .collect();
-        let removed: Vec<_> = changes
-            .iter()
-            .filter(|c| c.change_type == "removed")
-            .collect();
+        let converted = convert_core_change(&change);
+        assert_eq!(converted.entity_name, "MyClass.do_thing");
+        assert!(converted.is_breaking);
+        assert_eq!(
+            converted.description,
+            Some("do_thing(self, x: int)".to_string())
+        );
+    }
 
-        assert_eq!(added.len(), 1);
-        assert_eq!(added[0].entity_name, "baz");
+    #[test]
+    fn test_convert_core_change_with_details() {
+        let change = EntityChange::new(
+            "modified".to_string(),
+            "function".to_string(),
+            "process".to_string(),
+            "src/lib.py".to_string(),
+            None,
+            Some("return: str -> int, complexity: 3 -> 7".to_string()),
+            Some("process(x: str) -> str".to_string()),
+            Some("process(x: str) -> int".to_string()),
+            true,
+        );
 
-        assert_eq!(removed.len(), 1);
-        assert_eq!(removed[0].entity_name, "bar");
-        assert!(removed[0].is_breaking);
+        let converted = convert_core_change(&change);
+        assert_eq!(converted.change_type, "modified");
+        // details takes priority over signatures
+        assert_eq!(
+            converted.description,
+            Some("return: str -> int, complexity: 3 -> 7".to_string())
+        );
+    }
+
+    #[test]
+    fn test_empty_module() {
+        let m = empty_module("src/foo.py", "python");
+        assert_eq!(m.path, "src/foo.py");
+        assert_eq!(m.language, "python");
+        assert!(m.functions.is_empty());
+        assert!(m.classes.is_empty());
     }
 }
