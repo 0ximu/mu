@@ -171,6 +171,10 @@ enum Commands {
         /// Path to project rules directory (default: .mu/rules/)
         #[arg(long)]
         rules_dir: Option<String>,
+
+        /// Show only the top N violations by severity (default: 20, 0 = unlimited)
+        #[arg(long, default_value_t = 20)]
+        top: usize,
     },
 
     // ==================== Integration ====================
@@ -299,7 +303,8 @@ async fn main() -> anyhow::Result<()> {
             max_params,
             diff,
             rules_dir,
-        } => audit::run(min_complexity, max_params, diff.as_deref(), rules_dir.as_deref(), format).await,
+            top,
+        } => audit::run(min_complexity, max_params, diff.as_deref(), rules_dir.as_deref(), top, format).await,
 
         Commands::Mcp { path } => mcp::run(&path).await,
 

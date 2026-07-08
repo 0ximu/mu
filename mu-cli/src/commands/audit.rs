@@ -95,6 +95,12 @@ pub struct AuditConfig {
     /// Rules to disable by ID
     #[serde(default)]
     pub disable: Vec<String>,
+    /// Opt in to R5-docs (missing docstring warnings). Off by default —
+    /// in mixed-language / internal-type-heavy codebases it produces thousands
+    /// of near-zero-value info rows. Enable in .mu/rules/config.toml if you
+    /// actively maintain public API docs and want to enforce coverage.
+    #[serde(default)]
+    pub enable_r5_docs: bool,
 }
 
 /// Wrapper for the config TOML
@@ -108,6 +114,8 @@ struct ConfigFile {
 #[derive(Debug, Serialize)]
 pub struct AuditResult {
     pub violations: Vec<Violation>,
+    /// Total violations found before any --top truncation.
+    pub total_violations: usize,
     pub rules_run: usize,
     pub nodes_checked: usize,
     pub error_count: usize,
@@ -141,7 +149,17 @@ impl TableDisplay for AuditResult {
             self.warning_count.to_string().yellow().bold(),
             self.info_count.to_string().dimmed(),
         );
-        output.push_str(&format!("Found {} ({}ms)\n\n", summary, self.duration_ms));
+        output.push_str(&format!("Found {} ({}ms)\n", summary, self.duration_ms));
+
+        if self.total_violations > self.violations.len() {
+            output.push_str(&format!(
+                "{} Showing top {} of {} — use --top 0 for all\n",
+                "NOTE:".cyan(),
+                self.violations.len(),
+                self.total_violations,
+            ));
+        }
+        output.push('\n');
 
         if self.violations.is_empty() {
             output.push_str(&format!(
@@ -398,68 +416,116 @@ fn rule_missing_docstrings(
         .collect()
 }
 
-/// R9: Hardcoded secrets — patterns that look like API keys, passwords, tokens
+/// Minimum Shannon entropy (bits/char) for a matched value to count as a real secret.
+/// `node_category == "production"` already drops most test fixtures; this catches
+/// low-entropy strings like `"password123"` that slip through when a fixture file
+/// ships alongside production code (rare but happens).
+const MIN_SECRET_ENTROPY: f64 = 3.5;
+
+/// Shannon entropy of `s` in bits per byte. Byte-level is fine for secret detection:
+/// real secrets are ASCII, and multi-byte noise in strings (UTF-8 continuation bytes)
+/// only adds entropy — never false-negatives a real secret.
+fn shannon_entropy(s: &str) -> f64 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    let mut counts = [0u32; 256];
+    let mut total: u32 = 0;
+    for b in s.bytes().take(256) {
+        counts[b as usize] += 1;
+        total += 1;
+    }
+    if total == 0 {
+        return 0.0;
+    }
+    let total_f = total as f64;
+    counts
+        .iter()
+        .filter(|&&c| c > 0)
+        .map(|&c| {
+            let p = c as f64 / total_f;
+            -p * p.log2()
+        })
+        .sum()
+}
+
+/// R9: Hardcoded secrets — patterns that look like API keys, passwords, tokens.
+///
+/// Regex captures the *value* (group 1) so `shannon_entropy` can score it directly.
+/// The PEM private-key pattern has no value to score — it's a structural signature,
+/// always emitted when seen.
 fn rule_secrets(
     mubase: &crate::engine::storage::MUbase,
     scope_files: &Option<HashSet<String>>,
 ) -> Vec<Violation> {
-    let sql = r#"
-        SELECT n.name, n.file_path, n.line_start, n.source_text
-        FROM nodes n
-        WHERE n.source_text IS NOT NULL
-          AND n.type IN ('function', 'module')
-        ORDER BY n.file_path, n.line_start
-    "#;
-
-    let result = match mubase.query(sql) {
-        Ok(r) => r,
+    let nodes = match mubase.all_nodes() {
+        Ok(n) => n,
         Err(_) => return Vec::new(),
     };
 
-    let secret_patterns = [
-        (r#"(?i)(api[_-]?key|apikey)\s*[=:]\s*["'][^"']{8,}"#, "API key"),
-        (r#"(?i)(secret|password|passwd|pwd)\s*[=:]\s*["'][^"']{6,}"#, "password/secret"),
-        (r#"(?i)(token|auth[_-]?token)\s*[=:]\s*["'][^"']{8,}"#, "auth token"),
-        (r#"(?i)(aws_secret|aws_key|access_key)\s*[=:]\s*["'][A-Za-z0-9/+=]{16,}"#, "AWS credential"),
-        (r#"-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----"#, "private key"),
+    // (pattern, label, has_capture_group)
+    // Patterns with a capture group put the secret *value* in group 1 for entropy scoring.
+    let secret_patterns: &[(&str, &str, bool)] = &[
+        (r#"(?i)(?:api[_-]?key|apikey)\s*[=:]\s*["']([^"']{8,})"#, "API key", true),
+        (r#"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*["']([^"']{6,})"#, "password/secret", true),
+        (r#"(?i)(?:token|auth[_-]?token)\s*[=:]\s*["']([^"']{8,})"#, "auth token", true),
+        (r#"(?i)(?:aws_secret|aws_key|access_key)\s*[=:]\s*["']([A-Za-z0-9/+=]{16,})"#, "AWS credential", true),
+        (r#"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"#, "private key", false),
     ];
 
-    let compiled: Vec<(Regex, &str)> = secret_patterns
+    let compiled: Vec<(Regex, &str, bool)> = secret_patterns
         .iter()
-        .filter_map(|(pat, label)| Regex::new(pat).ok().map(|r| (r, *label)))
+        .filter_map(|(pat, label, cap)| Regex::new(pat).ok().map(|r| (r, *label, *cap)))
         .collect();
 
     let mut violations = Vec::new();
 
-    for row in &result.rows {
-        let name = match row.first().and_then(|v| v.as_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
+    for node in &nodes {
+        // Scope filters: production code only, skip modules that aren't functions/modules,
+        // and respect caller's file scope (e.g., `--diff` narrowing).
+        if node.node_category != "production" {
+            continue;
+        }
+        let node_type_str = node.node_type.as_str();
+        if node_type_str != "function" && node_type_str != "module" {
+            continue;
+        }
+        let Some(source_text) = node.source_text.as_deref() else {
+            continue;
         };
-        let file_path = row.get(1).and_then(|v| v.as_str()).map(|s| s.to_string());
-        let line = row.get(2).and_then(|v| v.as_u64()).map(|l| l as u32);
-        let source_text = row.get(3).and_then(|v| v.as_str()).unwrap_or("");
-
         if let Some(ref scope) = scope_files {
-            if let Some(ref fp) = file_path {
+            if let Some(ref fp) = node.file_path {
                 if !scope.contains(fp) {
                     continue;
                 }
             }
         }
 
-        for (regex, label) in &compiled {
-            if regex.is_match(source_text) {
-                violations.push(Violation {
-                    rule_id: "R9-secrets".to_string(),
-                    severity: Severity::Error,
-                    node_name: name.clone(),
-                    file_path: file_path.clone(),
-                    line,
-                    message: format!("possible hardcoded {} detected", label),
-                });
-                break; // One violation per node
+        for (regex, label, has_capture) in &compiled {
+            let Some(caps) = regex.captures(source_text) else {
+                continue;
+            };
+            if *has_capture {
+                let value = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                // Natural-language error messages like "Your session has expired..."
+                // can trip the `token:"..."` pattern and score above the entropy
+                // threshold. Real secrets are continuous strings — no whitespace.
+                if value.contains(char::is_whitespace) {
+                    continue;
+                }
+                if shannon_entropy(value) < MIN_SECRET_ENTROPY {
+                    continue;
+                }
             }
+            violations.push(Violation {
+                rule_id: "R9-secrets".to_string(),
+                severity: Severity::Error,
+                node_name: node.name.clone(),
+                file_path: node.file_path.clone(),
+                line: node.line_start,
+                message: format!("possible hardcoded {} detected", label),
+            });
+            break; // One violation per node
         }
     }
 
@@ -948,6 +1014,7 @@ pub async fn run(
     max_params: Option<usize>,
     diff: Option<&str>,
     rules_dir: Option<&str>,
+    top: usize,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
     let start = Instant::now();
@@ -996,7 +1063,7 @@ pub async fn run(
         violations.extend(rule_high_complexity(&mubase, complexity_threshold, &scope_files));
         rules_run += 1;
     }
-    if !disabled.contains("R5-docs") {
+    if config.enable_r5_docs && !disabled.contains("R5-docs") {
         violations.extend(rule_missing_docstrings(&mubase, &scope_files));
         rules_run += 1;
     }
@@ -1026,14 +1093,22 @@ pub async fn run(
     violations.sort_by(|a, b| a.severity.cmp(&b.severity));
 
     let nodes_checked = count_nodes(&mubase);
+    // Count against the full list before any truncation so the summary is accurate
     let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
     let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
     let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
+    let total_violations = violations.len();
+
+    // Truncate to top N most severe (0 = unlimited)
+    if top > 0 {
+        violations.truncate(top);
+    }
 
     let duration_ms = start.elapsed().as_millis() as u64;
 
     let result = AuditResult {
         violations,
+        total_violations,
         rules_run,
         nodes_checked,
         error_count,
@@ -1082,7 +1157,7 @@ pub fn run_audit_for_mcp(
         violations.extend(rule_high_complexity(mubase, complexity_threshold, &scope_files));
         rules_run += 1;
     }
-    if !disabled.contains("R5-docs") {
+    if config.enable_r5_docs && !disabled.contains("R5-docs") {
         violations.extend(rule_missing_docstrings(mubase, &scope_files));
         rules_run += 1;
     }
@@ -1113,9 +1188,14 @@ pub fn run_audit_for_mcp(
     let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
     let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
     let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
+    let total_violations = violations.len();
+
+    // MCP consumers get a focused top-20 by default — full dumps are not useful in-context
+    violations.truncate(20);
 
     Ok(AuditResult {
         violations,
+        total_violations,
         rules_run,
         nodes_checked,
         error_count,
@@ -1244,6 +1324,7 @@ mod tests {
                 line: Some(42),
                 message: "complexity 35 exceeds threshold 30".to_string(),
             }],
+            total_violations: 1,
             rules_run: 7,
             nodes_checked: 100,
             error_count: 0,
@@ -1279,6 +1360,7 @@ mod tests {
                     message: "complexity 40 exceeds threshold 30".to_string(),
                 },
             ],
+            total_violations: 2,
             rules_run: 7,
             nodes_checked: 200,
             error_count: 1,

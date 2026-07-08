@@ -371,6 +371,7 @@ pub fn run_review(
     )
     .unwrap_or_else(|_| audit::AuditResult {
         violations: Vec::new(),
+        total_violations: 0,
         rules_run: 0,
         nodes_checked: 0,
         error_count: 0,
@@ -549,6 +550,7 @@ mod tests {
         }];
         let audit = audit::AuditResult {
             violations: vec![],
+            total_violations: 0,
             rules_run: 7,
             nodes_checked: 100,
             error_count: 0,
@@ -592,6 +594,7 @@ mod tests {
         }];
         let audit = audit::AuditResult {
             violations: vec![],
+            total_violations: 0,
             rules_run: 7,
             nodes_checked: 100,
             error_count: 0,
@@ -635,6 +638,7 @@ mod tests {
                     message: "hardcoded API key".into(),
                 },
             ],
+            total_violations: 2,
             rules_run: 7,
             nodes_checked: 100,
             error_count: 2,
