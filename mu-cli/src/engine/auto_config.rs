@@ -212,7 +212,7 @@ pub fn classify_node(file_path: Option<&str>, config: Option<&AutoConfig>) -> &'
         || lower.ends_with("_test.rs") || lower.ends_with(".test.ts")
         || lower.ends_with(".test.tsx") || lower.ends_with(".test.js")
         || lower.ends_with(".spec.ts") || lower.ends_with(".spec.js")
-        || path.rsplit('/').next().map_or(false, |f| f.starts_with("test_") && f.ends_with(".py"))
+        || path.rsplit('/').next().is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
     {
         return "test";
     }
@@ -231,6 +231,9 @@ pub fn classify_node(file_path: Option<&str>, config: Option<&AutoConfig>) -> &'
 // Detection functions
 // ============================================================================
 
+/// A glob-style pattern name plus the predicate that detects it.
+type PatternCheck = (&'static str, fn(&str) -> bool);
+
 /// Detect test file patterns by scanning all file_paths in the mubase.
 pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
     let result = mubase.query(
@@ -241,7 +244,7 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect();
 
-    let pattern_checks: &[(&str, fn(&str) -> bool)] = &[
+    let pattern_checks: &[PatternCheck] = &[
         ("*/test/*", |p: &str| p.to_lowercase().contains("/test/")),
         ("*/tests/*", |p: &str| p.to_lowercase().contains("/tests/")),
         ("tests/*", |p: &str| p.to_lowercase().starts_with("tests/")),
@@ -254,7 +257,7 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         ("*_test.py", |p: &str| p.ends_with("_test.py")),
         ("*_test.go", |p: &str| p.ends_with("_test.go")),
         ("test_*.py", |p: &str| {
-            p.rsplit('/').next().map_or(false, |f| f.starts_with("test_") && f.ends_with(".py"))
+            p.rsplit('/').next().is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
         }),
         ("*.test.ts", |p: &str| p.ends_with(".test.ts")),
         ("*.test.tsx", |p: &str| p.ends_with(".test.tsx")),
@@ -286,7 +289,7 @@ pub fn detect_generated_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect();
 
-    let pattern_checks: &[(&str, fn(&str) -> bool)] = &[
+    let pattern_checks: &[PatternCheck] = &[
         ("*.Designer.cs", |p: &str| p.ends_with(".Designer.cs")),
         ("*/Migrations/*.cs", |p: &str| {
             p.to_lowercase().contains("/migrations/") && p.ends_with(".cs")
@@ -531,7 +534,7 @@ pub fn detect_services(mubase: &MUbase) -> Result<Vec<String>> {
     }
 
     // If a pattern group has 3+ members, they're all services
-    for (_pattern, members) in &pattern_groups {
+    for members in pattern_groups.values() {
         if members.len() >= 3 {
             for dir in members {
                 let count = prefix_counts.get(dir).copied().unwrap_or(0);
@@ -858,7 +861,7 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
             if let Some(name) = name_val.as_str() {
                 let before = config.enrichment.priority_nodes.len();
                 config.enrichment.priority_nodes.retain(|nid| {
-                    !nid.rsplit(':').next().map_or(false, |n| n == name)
+                    nid.rsplit(':').next() != Some(name)
                 });
                 let removed = before - config.enrichment.priority_nodes.len();
                 if removed > 0 {
@@ -875,7 +878,7 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
                 config.filters.search_test_dampening = 0.0;
                 applied.push("Test handling: exclude (dampening=0.0)".to_string());
             }
-            "dampen" | _ => {
+            _ => {
                 config.filters.search_test_dampening = 0.3;
                 applied.push("Test handling: dampen (dampening=0.3)".to_string());
             }

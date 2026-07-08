@@ -94,7 +94,7 @@ impl GraphData {
 
     /// Load graph from a MUbase instance (acquires lock briefly).
     pub fn from_mubase(mubase: &crate::engine::storage::MUbase) -> Result<Self> {
-        mubase.with_connection(|conn| Self::from_db(conn))
+        mubase.with_connection(Self::from_db)
     }
 
     /// Find reachable nodes via outgoing edges (transitive outgoing closure).

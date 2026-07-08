@@ -22,6 +22,10 @@ use crate::config::MuConfig;
 use crate::output::{Output, OutputFormat, TableDisplay};
 use crate::tsconfig::PathAliasResolver;
 
+/// Per-node snapshot of (summary_code_hash, summary_source, summary_text),
+/// captured before a rebuild for staleness detection.
+type PriorSummaries = HashMap<String, (Option<String>, Option<String>, Option<String>)>;
+
 /// Result of bootstrap operation
 #[derive(Debug, Serialize)]
 pub struct BootstrapResult {
@@ -525,10 +529,10 @@ fn build_function_lookup(nodes: &[crate::engine::storage::Node]) -> HashMap<Stri
     // Only insert bare names that are unique — ambiguous names (Clear, ToString, Dispose, etc.)
     // would create arbitrary cross-project edges
     for node in nodes {
-        if node.node_type == crate::engine::storage::NodeType::Function {
-            if bare_name_counts.get(&node.name).copied().unwrap_or(0) == 1 {
-                func_lookup.insert(node.name.clone(), node.id.clone());
-            }
+        if node.node_type == crate::engine::storage::NodeType::Function
+            && bare_name_counts.get(&node.name).copied().unwrap_or(0) == 1
+        {
+            func_lookup.insert(node.name.clone(), node.id.clone());
         }
     }
 
@@ -924,6 +928,13 @@ fn resolve_all_call_sites(
     let mut total = 0usize;
     let mut resolved = 0usize;
 
+    let maps = CallResolutionMaps {
+        func_lookup,
+        receiver_type_map,
+        inherits_map,
+        class_lookup,
+    };
+
     for result in parse_results {
         if !result.success {
             continue;
@@ -941,11 +952,8 @@ fn resolve_all_call_sites(
                             call,
                             rel_path,
                             Some(&class.name),
-                            func_lookup,
                             &module.imports,
-                            receiver_type_map,
-                            inherits_map,
-                            class_lookup,
+                            maps,
                         ) {
                             edges.push(crate::engine::storage::Edge::calls(&method_id, &target_id));
                             resolved += 1;
@@ -963,11 +971,8 @@ fn resolve_all_call_sites(
                         call,
                         rel_path,
                         None,
-                        func_lookup,
                         &module.imports,
-                        receiver_type_map,
-                        inherits_map,
-                        class_lookup,
+                        maps,
                     ) {
                         edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
@@ -1382,7 +1387,7 @@ pub fn bootstrap_pipeline(
     let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
 
     // Snapshot existing summary info BEFORE clearing, for staleness detection later.
-    let prior_summaries: std::collections::HashMap<String, (Option<String>, Option<String>, Option<String>)> =
+    let prior_summaries: PriorSummaries =
         mubase.all_nodes().unwrap_or_default()
             .into_iter()
             .filter_map(|n| {
@@ -1801,18 +1806,30 @@ fn resolve_import(
     }
 }
 
+/// The project-wide lookup tables call-site resolution needs.
+#[derive(Clone, Copy)]
+struct CallResolutionMaps<'a> {
+    func_lookup: &'a HashMap<String, String>,
+    receiver_type_map: &'a HashMap<(String, String), String>,
+    inherits_map: &'a HashMap<String, Vec<String>>,
+    class_lookup: &'a HashMap<String, String>,
+}
+
 /// Resolve a call site to a function/method node ID.
 /// Returns None if the call cannot be resolved (external function, unresolvable reference).
 fn resolve_call_site(
     call: &mu_core::types::CallSiteDef,
     current_module: &str,
     current_class: Option<&str>,
-    func_lookup: &HashMap<String, String>,
     imports: &[mu_core::types::ImportDef],
-    receiver_type_map: &HashMap<(String, String), String>,
-    inherits_map: &HashMap<String, Vec<String>>,
-    class_lookup: &HashMap<String, String>,
+    maps: CallResolutionMaps<'_>,
 ) -> Option<String> {
+    let CallResolutionMaps {
+        func_lookup,
+        receiver_type_map,
+        inherits_map,
+        class_lookup,
+    } = maps;
     let callee = &call.callee;
 
     // 1. Method call on self/this - look in current class, then walk inheritance chain
