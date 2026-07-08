@@ -15,15 +15,12 @@ static DECISION_POINTS: Lazy<HashMap<&str, HashSet<&str>>> = Lazy::new(|| {
         "python",
         HashSet::from([
             "if_statement",
+            "elif_clause",
             "for_statement",
             "while_statement",
             "except_clause",
-            "with_statement",
-            "assert_statement",
             "boolean_operator",       // 'and', 'or' wrapped by tree-sitter
             "conditional_expression", // ternary
-            "match_statement",
-            "case_clause",
             // Comprehension clauses (count each loop/condition inside)
             "for_in_clause",
             "if_clause",
@@ -81,6 +78,7 @@ static DECISION_POINTS: Lazy<HashMap<&str, HashSet<&str>>> = Lazy::new(|| {
             "do_statement",
             "enhanced_for_statement",
             "switch_block_statement_group",
+            "switch_rule", // Java 14 arrow switches: case 1 -> ...
             "catch_clause",
             "ternary_expression",
             "binary_expression", // SPECIAL: check operator
@@ -94,8 +92,6 @@ static DECISION_POINTS: Lazy<HashMap<&str, HashSet<&str>>> = Lazy::new(|| {
             "for_expression",
             "while_expression",
             "loop_expression",
-            "match_expression",
-            "match_arm",
             "binary_expression", // SPECIAL: check operator
         ]),
     );
@@ -112,11 +108,32 @@ static DECISION_POINTS: Lazy<HashMap<&str, HashSet<&str>>> = Lazy::new(|| {
             "catch_clause",
             "conditional_expression",
             "binary_expression", // SPECIAL: check operator
-            "switch_expression",
-            "switch_expression_arm",
             "conditional_access_expression",
         ]),
     );
+
+    m
+});
+
+/// Branching containers counted as `max(arm_count - 1, 0)` instead of one
+/// point per node. Counting both the container and every arm double-counts:
+/// a 4-arm rust match would score 6 instead of 4.
+///
+/// Maps language -> (container node kind, arm node kind).
+static BRANCHING_CONTAINERS: Lazy<HashMap<&str, HashMap<&str, &str>>> = Lazy::new(|| {
+    let mut m = HashMap::new();
+
+    let mut rust = HashMap::new();
+    rust.insert("match_expression", "match_arm");
+    m.insert("rust", rust);
+
+    let mut python = HashMap::new();
+    python.insert("match_statement", "case_clause");
+    m.insert("python", python);
+
+    let mut csharp = HashMap::new();
+    csharp.insert("switch_expression", "switch_expression_arm");
+    m.insert("csharp", csharp);
 
     m
 });
@@ -154,6 +171,7 @@ pub fn calculate(source: &str, language: &str) -> u32 {
 /// This is the accurate version that walks the AST.
 pub fn calculate_for_node(node: &Node, source: &str, language: &str) -> u32 {
     let decision_types = DECISION_POINTS.get(language).cloned().unwrap_or_default();
+    let containers = BRANCHING_CONTAINERS.get(language).cloned().unwrap_or_default();
     let mut complexity = 1u32;
 
     fn is_decision_operator(node: &Node, source: &str) -> bool {
@@ -171,8 +189,34 @@ pub fn calculate_for_node(node: &Node, source: &str, language: &str) -> u32 {
         false
     }
 
-    fn traverse(node: &Node, source: &str, decision_types: &HashSet<&str>, complexity: &mut u32) {
-        if decision_types.contains(node.kind()) {
+    /// Count arm nodes belonging to this container, without descending into
+    /// nested containers of the same kind (their arms count for themselves).
+    fn count_arms(node: &Node, container_kind: &str, arm_kind: &str) -> u32 {
+        let mut count = 0;
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == arm_kind {
+                count += 1;
+            }
+            if child.kind() != container_kind {
+                count += count_arms(&child, container_kind, arm_kind);
+            }
+        }
+        count
+    }
+
+    fn traverse(
+        node: &Node,
+        source: &str,
+        decision_types: &HashSet<&str>,
+        containers: &HashMap<&str, &str>,
+        complexity: &mut u32,
+    ) {
+        if let Some(arm_kind) = containers.get(node.kind()) {
+            // An N-arm match/switch expression is N paths: N - 1 decision points.
+            let arms = count_arms(node, node.kind(), arm_kind);
+            *complexity += arms.saturating_sub(1);
+        } else if decision_types.contains(node.kind()) {
             if node.kind() == "binary_expression" {
                 // Only count if operator is && || or ??
                 if is_decision_operator(node, source) {
@@ -185,17 +229,155 @@ pub fn calculate_for_node(node: &Node, source: &str, language: &str) -> u32 {
 
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            traverse(&child, source, decision_types, complexity);
+            traverse(&child, source, decision_types, containers, complexity);
         }
     }
 
-    traverse(node, source, &decision_types, &mut complexity);
+    traverse(node, source, &decision_types, &containers, &mut complexity);
     complexity
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tree_sitter::Parser;
+
+    fn node_complexity(source: &str, language: &str, ts_language: tree_sitter::Language) -> u32 {
+        let mut parser = Parser::new();
+        parser.set_language(&ts_language).unwrap();
+        let tree = parser.parse(source, None).unwrap();
+        let root = tree.root_node();
+        assert!(!root.has_error(), "test snippet must parse cleanly");
+        calculate_for_node(&root, source, language)
+    }
+
+    fn python_complexity(source: &str) -> u32 {
+        node_complexity(source, "python", tree_sitter_python::LANGUAGE.into())
+    }
+
+    #[test]
+    fn test_python_elif_chain_counts_each_branch() {
+        let source = r#"
+def f(x):
+    if x == 1:
+        pass
+    elif x == 2:
+        pass
+    elif x == 3:
+        pass
+    else:
+        pass
+"#;
+        // base 1 + if + elif + elif = 4 (else adds no decision point)
+        assert_eq!(python_complexity(source), 4);
+    }
+
+    #[test]
+    fn test_python_with_and_assert_are_not_branches() {
+        let source = r#"
+def g():
+    with open('f') as f:
+        assert f
+        assert f
+"#;
+        assert_eq!(python_complexity(source), 1);
+    }
+
+    #[test]
+    fn test_python_match_counts_arms_minus_one() {
+        let source = r#"
+def h(x):
+    match x:
+        case 1:
+            pass
+        case 2:
+            pass
+        case 3:
+            pass
+        case _:
+            pass
+"#;
+        // base 1 + max(4 arms - 1, 0) = 4
+        assert_eq!(python_complexity(source), 4);
+    }
+
+    #[test]
+    fn test_rust_match_counts_arms_minus_one() {
+        let source = r#"
+fn f(x: u32) -> u32 {
+    match x {
+        1 => 1,
+        2 => 2,
+        3 => 3,
+        _ => 0,
+    }
+}
+"#;
+        // base 1 + max(4 arms - 1, 0) = 4, not 6 (container + every arm)
+        assert_eq!(
+            node_complexity(source, "rust", tree_sitter_rust::LANGUAGE.into()),
+            4
+        );
+    }
+
+    #[test]
+    fn test_rust_if_else_still_counts() {
+        let source = r#"
+fn f(x: u32) -> u32 {
+    if x > 1 {
+        1
+    } else {
+        0
+    }
+}
+"#;
+        assert_eq!(
+            node_complexity(source, "rust", tree_sitter_rust::LANGUAGE.into()),
+            2
+        );
+    }
+
+    #[test]
+    fn test_csharp_switch_expression_counts_arms_minus_one() {
+        let source = r#"
+public class C {
+    public int F(int x) {
+        return x switch {
+            1 => 1,
+            2 => 2,
+            3 => 3,
+            _ => 0,
+        };
+    }
+}
+"#;
+        // base 1 + max(4 arms - 1, 0) = 4
+        assert_eq!(
+            node_complexity(source, "csharp", tree_sitter_c_sharp::LANGUAGE.into()),
+            4
+        );
+    }
+
+    #[test]
+    fn test_java_arrow_switch_rules_count() {
+        let source = r#"
+class C {
+    int f(int x) {
+        switch (x) {
+            case 1 -> System.out.println(1);
+            case 2 -> System.out.println(2);
+            case 3 -> System.out.println(3);
+        }
+        return 0;
+    }
+}
+"#;
+        // base 1 + 3 switch_rule = 4 (previously arrow switches added zero)
+        assert_eq!(
+            node_complexity(source, "java", tree_sitter_java::LANGUAGE.into()),
+            4
+        );
+    }
 
     #[test]
     fn test_simple_complexity() {

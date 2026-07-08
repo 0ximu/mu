@@ -45,8 +45,11 @@ pub fn parse_files_parallel(
 pub fn parse_source(source: &str, path: &str, language: &str) -> ParseResult {
     let result = match language.to_lowercase().as_str() {
         "python" | "py" => python::parse(source, path),
-        "typescript" | "ts" | "tsx" => typescript::parse(source, path, false),
-        "javascript" | "js" | "jsx" => typescript::parse(source, path, true),
+        "typescript" | "ts" => typescript::parse(source, path, typescript::Dialect::TypeScript),
+        "tsx" => typescript::parse(source, path, typescript::Dialect::Tsx),
+        "javascript" | "js" | "jsx" => {
+            typescript::parse(source, path, typescript::Dialect::JavaScript)
+        }
         "go" => go::parse(source, path),
         "java" => java::parse(source, path),
         "rust" | "rs" => rust_lang::parse(source, path),

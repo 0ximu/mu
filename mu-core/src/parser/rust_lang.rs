@@ -22,6 +22,14 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         .ok_or("Failed to parse Rust source")?;
     let root = tree.root_node();
 
+    let has_parse_errors = root.has_error();
+    if has_parse_errors {
+        tracing::warn!(
+            "Syntax errors in {}; extracted data may be partial",
+            file_path
+        );
+    }
+
     let name = Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -33,6 +41,7 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         path: file_path.to_string(),
         language: "rust".to_string(),
         total_lines: count_lines(source),
+        has_parse_errors,
         ..Default::default()
     };
 
@@ -256,7 +265,7 @@ fn is_dispatch_attribute(attr_text: &str) -> bool {
         .trim();
     // Check against known patterns (ignore arguments in parens)
     let name = inner.split('(').next().unwrap_or(inner).trim();
-    DISPATCH_ATTRIBUTES.iter().any(|&d| name == d)
+    DISPATCH_ATTRIBUTES.contains(&name)
 }
 
 /// Extract function item.
@@ -606,34 +615,28 @@ fn extract_impl(
     source: &str,
     impl_methods: &mut std::collections::HashMap<String, Vec<FunctionDef>>,
 ) {
-    let mut type_name = String::new();
-    let mut trait_name: Option<String> = None;
+    // tree-sitter-rust exposes the implementing type under the "type" field and
+    // the trait (for `impl Trait for Type`) under the "trait" field. There is no
+    // node of kind "trait", so methods must be keyed by the type, not the trait.
+    let mut type_name = node
+        .child_by_field_name("type")
+        .map(|n| get_node_text(&n, source).to_string())
+        .unwrap_or_default();
+    // Clean up generic parameters for matching (e.g. "Foo<T>" -> "Foo")
+    if let Some(idx) = type_name.find('<') {
+        type_name = type_name[..idx].to_string();
+    }
 
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        match child.kind() {
-            "type_identifier" | "generic_type" => {
-                if type_name.is_empty() {
-                    type_name = get_node_text(&child, source).to_string();
-                    // Clean up generic parameters for matching
-                    if let Some(idx) = type_name.find('<') {
-                        type_name = type_name[..idx].to_string();
-                    }
-                }
-            }
-            "trait" => {
-                // This is a trait impl
-                trait_name = Some(get_node_text(&child, source).to_string());
-            }
-            "declaration_list" => {
-                let methods = extract_impl_methods(&child, source, trait_name.as_deref());
-                impl_methods
-                    .entry(type_name.clone())
-                    .or_default()
-                    .extend(methods);
-            }
-            _ => {}
-        }
+    let trait_name = node
+        .child_by_field_name("trait")
+        .map(|n| get_node_text(&n, source).to_string());
+
+    if let Some(body) = node.child_by_field_name("body") {
+        let methods = extract_impl_methods(&body, source, trait_name.as_deref());
+        impl_methods
+            .entry(type_name.clone())
+            .or_default()
+            .extend(methods);
     }
 }
 
@@ -927,6 +930,74 @@ impl User {
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].methods.len(), 1);
         assert_eq!(result.classes[0].methods[0].name, "new");
+    }
+
+    #[test]
+    fn test_trait_impl_attaches_methods_to_type() {
+        let source = r#"
+pub struct Widget {
+    id: u32,
+}
+
+impl Clone for Widget {
+    fn clone(&self) -> Self {
+        Widget { id: self.id }
+    }
+}
+"#;
+        let result = parse(source, "lib.rs").unwrap();
+
+        // No class named after the trait
+        assert!(
+            !result.classes.iter().any(|c| c.name == "Clone"),
+            "trait impl must not create a class named after the trait, got: {:?}",
+            result.classes.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+
+        // Methods attach to the implementing type
+        let widget = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Widget")
+            .expect("Widget struct should exist");
+        let clone = widget
+            .methods
+            .iter()
+            .find(|m| m.name == "clone")
+            .expect("clone() should attach to Widget");
+        assert!(clone
+            .decorators
+            .contains(&"impl:Clone".to_string()));
+    }
+
+    #[test]
+    fn test_scoped_trait_impl_attaches_methods_to_type() {
+        let source = r#"
+pub struct Widget {
+    id: u32,
+}
+
+impl std::fmt::Display for Widget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+"#;
+        let result = parse(source, "lib.rs").unwrap();
+
+        let widget = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Widget")
+            .expect("Widget struct should exist");
+        let fmt = widget
+            .methods
+            .iter()
+            .find(|m| m.name == "fmt")
+            .expect("fmt() should attach to Widget");
+        assert!(fmt
+            .decorators
+            .contains(&"impl:std::fmt::Display".to_string()));
     }
 
     #[test]

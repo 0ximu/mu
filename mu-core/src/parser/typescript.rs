@@ -10,19 +10,30 @@ use super::helpers::{
 use crate::reducer::complexity;
 use crate::types::{CallSiteDef, ClassDef, FunctionDef, ImportDef, ModuleDef, ParameterDef};
 
+/// Which grammar to use for parsing.
+///
+/// TSX needs its own grammar: the plain TypeScript grammar cannot parse JSX,
+/// so components and calls inside JSX would be silently lost.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dialect {
+    TypeScript,
+    Tsx,
+    JavaScript,
+}
+
 /// Parse TypeScript/JavaScript source code.
 ///
 /// # Arguments
 /// * `source` - Source code
 /// * `file_path` - Path to the file
-/// * `is_javascript` - True for JavaScript, false for TypeScript
-pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<ModuleDef, String> {
+/// * `dialect` - Grammar to use (TypeScript, TSX, or JavaScript)
+pub fn parse(source: &str, file_path: &str, dialect: Dialect) -> Result<ModuleDef, String> {
     let mut parser = Parser::new();
 
-    let language = if is_javascript {
-        tree_sitter_javascript::LANGUAGE.into()
-    } else {
-        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()
+    let language = match dialect {
+        Dialect::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        Dialect::Tsx => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        Dialect::JavaScript => tree_sitter_javascript::LANGUAGE.into(),
     };
 
     parser
@@ -32,16 +43,23 @@ pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<Modul
     let tree = parser.parse(source, None).ok_or("Failed to parse source")?;
     let root = tree.root_node();
 
+    let has_parse_errors = root.has_error();
+    if has_parse_errors {
+        tracing::warn!(
+            "Syntax errors in {}; extracted data may be partial",
+            file_path
+        );
+    }
+
     let name = Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let lang = if is_javascript {
-        "javascript"
-    } else {
-        "typescript"
+    let lang = match dialect {
+        Dialect::JavaScript => "javascript",
+        Dialect::TypeScript | Dialect::Tsx => "typescript",
     };
 
     let mut module = ModuleDef {
@@ -49,6 +67,7 @@ pub fn parse(source: &str, file_path: &str, is_javascript: bool) -> Result<Modul
         path: file_path.to_string(),
         language: lang.to_string(),
         total_lines: count_lines(source),
+        has_parse_errors,
         ..Default::default()
     };
 
@@ -744,13 +763,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_tsx_component_with_jsx_handlers() {
+        let source = r#"
+export const Button = (props: { label: string }) => {
+    const label = getLabel(props.label);
+    return (
+        <button onClick={() => handleClick(label)}>
+            {format(label)}
+        </button>
+    );
+};
+"#;
+        // Route through the dispatcher the way real .tsx files are parsed
+        let result = crate::parser::parse_source(source, "Button.tsx", "tsx");
+        assert!(result.success, "tsx parse should succeed: {:?}", result.error);
+        let module = result.module.unwrap();
+
+        let button = module
+            .functions
+            .iter()
+            .find(|f| f.name == "Button")
+            .expect("Button component should be extracted from .tsx");
+
+        // Calls inside JSX (attribute arrow handler + expression container)
+        // must be visible
+        assert!(
+            button.call_sites.iter().any(|c| c.callee == "handleClick"),
+            "handler call inside JSX attribute should be extracted, got: {:?}",
+            button.call_sites.iter().map(|c| &c.callee).collect::<Vec<_>>()
+        );
+        assert!(
+            button.call_sites.iter().any(|c| c.callee == "format"),
+            "call inside JSX expression should be extracted, got: {:?}",
+            button.call_sites.iter().map(|c| &c.callee).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn test_parse_function() {
         let source = r#"
 function hello(name: string): string {
     return `Hello, ${name}!`;
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.functions.len(), 1);
         assert_eq!(result.functions[0].name, "hello");
     }
@@ -764,7 +820,7 @@ class MyClass extends BaseClass {
     }
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].name, "MyClass");
     }
@@ -774,7 +830,7 @@ class MyClass extends BaseClass {
         let source = r#"
 import { foo, bar } from './module';
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.imports.len(), 1);
         assert_eq!(result.imports[0].module, "./module");
     }
@@ -788,7 +844,7 @@ function processData(data: string) {
     return helper.process(result);
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.functions.len(), 1);
         let func = &result.functions[0];
         assert!(
@@ -809,7 +865,7 @@ class MyClass {
     }
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         let method = &result.classes[0].methods[0];
 
         let this_call = method.call_sites.iter().find(|c| c.callee == "helper");
@@ -826,7 +882,7 @@ const process = (data: string) => {
     return transform(data);
 };
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         // Arrow functions are extracted as functions
         assert!(
             !result.functions.is_empty(),
@@ -860,7 +916,7 @@ class MUbase {
     }
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.classes.len(), 1);
         let class = &result.classes[0];
         assert_eq!(class.name, "MUbase");
@@ -885,7 +941,7 @@ class TreeNode {
     }
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         let class = &result.classes[0];
         // TreeNode should be filtered out as self-reference
         assert!(class.referenced_types.is_empty());
@@ -899,7 +955,7 @@ interface APIClient {
     batch(items: BatchItem[]): Record<string, ResultData>;
 }
 "#;
-        let result = parse(source, "test.ts", false).unwrap();
+        let result = parse(source, "test.ts", Dialect::TypeScript).unwrap();
         assert_eq!(result.classes.len(), 1);
         let interface = &result.classes[0];
         assert_eq!(interface.name, "APIClient");

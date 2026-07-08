@@ -335,10 +335,13 @@ pub fn parse(source: &str, path: &str) -> Result<ModuleDef, String> {
     let tree = parser.parse(source, None)
         .ok_or("Failed to parse source")?;
 
-    // Return descriptive errors
-    if root.has_error() {
-        return Err(format!("Syntax errors in {}", path));
+    // Syntax errors do NOT fail the parse. Flag them on the module and warn;
+    // extraction proceeds with whatever tree-sitter recovered.
+    let has_parse_errors = root.has_error();
+    if has_parse_errors {
+        tracing::warn!("Syntax errors in {}; extracted data may be partial", path);
     }
+    // ... set `has_parse_errors` on the ModuleDef
 
     Ok(module)
 }

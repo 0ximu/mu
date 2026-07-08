@@ -208,6 +208,10 @@ pub struct ModuleDef {
     pub total_lines: u32,
     /// Namespace declaration (for C#, Java, Go packages)
     pub namespace: Option<String>,
+    /// True when tree-sitter reported syntax errors in the file.
+    /// The parse still succeeds, but extracted data may be partial.
+    #[serde(default)]
+    pub has_parse_errors: bool,
 }
 
 impl ModuleDef {
@@ -233,6 +237,7 @@ impl ModuleDef {
             module_docstring,
             total_lines,
             namespace,
+            has_parse_errors: false,
         }
     }
 }
@@ -381,5 +386,23 @@ mod tests {
 
         let json = serde_json::to_string(&module).unwrap();
         assert!(json.contains("\"name\":\"test\""));
+    }
+
+    #[test]
+    fn test_module_def_deserializes_without_has_parse_errors() {
+        // Data serialized before the field existed must still load
+        let json = r#"{
+            "name": "old",
+            "path": "/old.py",
+            "language": "python",
+            "imports": [],
+            "classes": [],
+            "functions": [],
+            "module_docstring": null,
+            "total_lines": 1,
+            "namespace": null
+        }"#;
+        let module: ModuleDef = serde_json::from_str(json).unwrap();
+        assert!(!module.has_parse_errors);
     }
 }

@@ -22,6 +22,14 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         .ok_or("Failed to parse Java source")?;
     let root = tree.root_node();
 
+    let has_parse_errors = root.has_error();
+    if has_parse_errors {
+        tracing::warn!(
+            "Syntax errors in {}; extracted data may be partial",
+            file_path
+        );
+    }
+
     // Get module name from package or filename (prefer package name alone, like Python impl)
     let package_name = extract_package_name(&root, source);
     let class_name = Path::new(file_path)
@@ -38,6 +46,7 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         path: file_path.to_string(),
         language: "java".to_string(),
         total_lines: count_lines(source),
+        has_parse_errors,
         ..Default::default()
     };
 
