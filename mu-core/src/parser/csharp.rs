@@ -275,7 +275,12 @@ fn extract_method(node: &Node, source: &str) -> FunctionDef {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "identifier" => {
-                if func_def.name.is_empty() && func_def.return_type.is_some() {
+                // A user-defined return type (e.g. `CustomType Get()`) is a bare
+                // identifier: the first identifier is the return type, the second
+                // is the method name.
+                if func_def.return_type.is_none() && func_def.name.is_empty() {
+                    func_def.return_type = Some(get_node_text(&child, source).to_string());
+                } else if func_def.name.is_empty() {
                     func_def.name = get_node_text(&child, source).to_string();
                 }
             }
@@ -357,7 +362,12 @@ fn extract_property(node: &Node, source: &str) -> FunctionDef {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "identifier" => {
-                if func_def.name.is_empty() && func_def.return_type.is_some() {
+                // A user-defined property type (e.g. `CustomType Value { get; set; }`)
+                // is a bare identifier: the first identifier is the type, the second
+                // is the property name.
+                if func_def.return_type.is_none() && func_def.name.is_empty() {
+                    func_def.return_type = Some(get_node_text(&child, source).to_string());
+                } else if func_def.name.is_empty() {
                     func_def.name = get_node_text(&child, source).to_string();
                 }
             }
@@ -706,6 +716,35 @@ public class Hello {
         assert_eq!(result.classes.len(), 1);
         assert_eq!(result.classes[0].name, "Hello");
         assert_eq!(result.classes[0].methods.len(), 1);
+    }
+
+    #[test]
+    fn test_custom_return_types_keep_member_names() {
+        let source = r#"
+public class Repo {
+    public int Count() { return 0; }
+    public void Run() { }
+    public CustomType Get() { return null; }
+    public CustomType Value { get; set; }
+}
+"#;
+        let result = parse(source, "Repo.cs").unwrap();
+        assert_eq!(result.classes.len(), 1);
+        let methods = &result.classes[0].methods;
+        assert_eq!(methods.len(), 4);
+
+        let count = methods.iter().find(|m| m.name == "Count").unwrap();
+        assert_eq!(count.return_type.as_deref(), Some("int"));
+
+        let run = methods.iter().find(|m| m.name == "Run").unwrap();
+        assert_eq!(run.return_type.as_deref(), Some("void"));
+
+        let get = methods.iter().find(|m| m.name == "Get").unwrap();
+        assert_eq!(get.return_type.as_deref(), Some("CustomType"));
+
+        let value = methods.iter().find(|m| m.name == "Value").unwrap();
+        assert!(value.is_property);
+        assert_eq!(value.return_type.as_deref(), Some("CustomType"));
     }
 
     #[test]
