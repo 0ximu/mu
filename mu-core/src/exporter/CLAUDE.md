@@ -213,13 +213,20 @@ m.add_function(wrap_pyfunction!(export_newformat, m)?)?;
 
 ### Docstring Truncation
 
-Long docstrings are truncated to first line + ellipsis:
+Long docstrings are truncated to first line + ellipsis. The real
+implementation in `mu_format.rs` walks back to a UTF-8 char boundary
+before slicing - a raw `&first_line[..77]` panics on multibyte text,
+so keep the boundary check if you touch this:
 
 ```rust
 fn truncate_docstring(doc: &str) -> String {
     let first_line = doc.lines().next().unwrap_or("");
     if first_line.len() > 80 || doc.lines().count() > 1 {
-        format!("{}...", &first_line[..first_line.len().min(77)])
+        let mut end = first_line.len().min(77);
+        while end > 0 && !first_line.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &first_line[..end])
     } else {
         first_line.to_string()
     }

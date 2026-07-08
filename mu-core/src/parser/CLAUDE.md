@@ -116,6 +116,18 @@ In `src/reducer/complexity.rs`, add to `DECISION_POINTS`:
 ])
 ```
 
+### 5. Register in the Scanner
+
+The scanner has its own language tables that must match the dispatcher,
+in `src/scanner.rs`:
+
+- `detect_language()` - map the file extension to the language name
+- `is_supported_language()` - add the language name
+
+If you skip this, the scanner either drops the files before the parser
+sees them or reports files as scanned that `parse_source` then rejects
+as unsupported.
+
 ## Tree-Sitter Patterns
 
 ### Finding Node Types
@@ -244,7 +256,7 @@ fn extract_function(node: &Node, source: &str) -> FunctionDef {
 
     let body = node.child_by_field_name("body");
     let body_complexity = body
-        .map(|b| complexity::calculate_from_node(&b, "language"))
+        .map(|b| complexity::calculate_for_node(&b, "language"))
         .unwrap_or(1);
 
     FunctionDef {

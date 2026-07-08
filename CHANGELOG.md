@@ -5,48 +5,61 @@ All notable changes to MU will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.3] - Unreleased
+## [0.0.3] - 2026-07-08
 
 ### Architecture
 
-- **MCP-first design** — MU is now primarily an MCP server. Most functionality moved from CLI commands to 13 MCP tools.
-- **Removed `mu-daemon` crate** — storage, search, and graph engine consolidated into `mu-cli/src/engine/`.
-- **Lean CLI** — 11 commands (bootstrap, compress, status, deps, diff, impact, review, audit, mcp, doctor, completions). Query, search, path, export, and other analysis tools are now MCP-only.
+- **MCP-first design** - MU is now primarily an MCP server. Most functionality moved from CLI commands to 13 MCP tools.
+- **Removed `mu-daemon` crate** - storage, search, and graph engine consolidated into `mu-cli/src/engine/`.
+- **Removed `mu-embeddings` crate** - nothing in the product called it; search is BM25 + importance. The training pipeline and models moved to a separate research repo. The unused `embeddings` table is dropped by a schema migration (v2.2.0).
+- **Lean CLI** - 11 commands (bootstrap, compress, status, deps, diff, impact, review, audit, mcp, doctor, completions). Query, search, path, export, and other analysis tools are now MCP-only.
 
 ### Added
 
 - **13 MCP tools** for AI assistant integration:
-  - `mu_oracle` — task-aware context retrieval (the go-to tool)
-  - `mu_grok` — BM25 search + code snippets
-  - `mu_find` — exact symbol lookup
-  - `mu_expand` — graph traversal from seed nodes
-  - `mu_read` — bulk source code retrieval
-  - `mu_impact` — downstream impact analysis
-  - `mu_diff` — semantic diff between git refs
-  - `mu_review` — full PR review (diff + impact + audit + risk score)
-  - `mu_audit` — code quality rules
-  - `mu_sus` — suspicious/complex code detection
-  - `mu_wtf` — git archaeology
-  - `mu_enrich` — LLM summary enrichment flywheel
-  - `mu_compress` — token-efficient codebase overview
+  - `mu_grok` - BM25 search + code snippets
+  - `mu_find` - exact symbol lookup by name or node ID
+  - `mu_expand` - graph traversal from seed nodes
+  - `mu_read` - bulk source code retrieval
+  - `mu_impact` - transitive downstream impact analysis
+  - `mu_diff` - semantic diff between git refs
+  - `mu_review` - full PR review (diff + impact + audit + risk score)
+  - `mu_audit` - code quality rules
+  - `mu_sus` - suspicious/complex code detection
+  - `mu_enrich` - LLM summary enrichment flywheel
+  - `mu_compress` - token-efficient codebase overview
+  - `mu_bootstrap` - build or rebuild the index in-session
+  - `mu_configure` - project auto-configuration and enrichment workflow
 
-- **V3 search pipeline** — three-phase cascade: exact name match, BM25 full-text search, PageRank importance tiebreak (85% BM25 + 15% PageRank)
-
-- **Bootstrap post-processing** — PageRank importance scores, heuristic summaries (with caller/callee context from edges), BM25 full-text index on search_text
-
-- **Enrichment flywheel** — `mu_enrich` returns candidates needing better summaries, LLM writes them, stores back. Each cycle improves future search.
+- **V3 search pipeline** - three-phase cascade: exact name match, BM25 full-text search, PageRank importance tiebreak (85% BM25 + 15% PageRank), with composite importance scoring (PageRank + complexity + LOC + visibility) and trivial-utility dampening
+- **Bootstrap post-processing** - importance scores, heuristic summaries (with caller/callee context from edges), BM25 full-text index on search_text
+- **Enrichment flywheel** - `mu_enrich` returns candidates needing better summaries, LLM writes them, stores back. Enriched summaries survive re-bootstrap via node-level code hashing.
+- **DI- and inheritance-aware call resolution** - calls through constructor-injected interfaces and inherited methods now resolve to real graph edges
+- **Audit improvements** - R9 secrets rule gates matches on Shannon entropy, R5 docs rule is opt-in, `--top` bounds output (default 20)
 
 ### Removed
 
 - CLI commands: `search`, `query`, `path`, `why`, `ancestors`, `cycles`, `coverage`, `export`, `patterns`, `read`, `history`, `embed`, `omg`, `yolo`, `vibe`, `zen`, `grok`, `usedby`
+- MCP tools `mu_oracle` and `mu_wtf` (overlapped mu_grok/mu_read and plain git)
 - Embedding-based semantic search (replaced by BM25 + importance scoring)
 - Parser modules: C, C++, Kotlin, PHP, Ruby, Swift (may return later)
-- `mu-daemon` crate (consolidated into `mu-cli`)
+- `mu-daemon` and `mu-embeddings` crates
 
 ### Fixed
 
+- Parser: C# methods and properties with user-defined return types lost their names
+- Parser: Rust trait impl methods were attributed to the trait instead of the implementing type
+- Parser: `.tsx` files were parsed with the TypeScript grammar, losing code inside JSX
+- Parser: syntax errors are now flagged on `ModuleDef.has_parse_errors` instead of being silently ignored
+- Complexity: Python `elif` was not counted, `with`/`assert` were; match/switch arms double-counted in Rust, Python, and C#; Java arrow switches counted nothing
+- Impact analysis is truly transitive (incoming-edge BFS) in both CLI and MCP, ranked by importance
+- Git-backed MCP tools (`mu_diff`, `mu_review`, `mu_audit`) run git in the project root instead of the server's launch directory
+- UTF-8-safe truncation shared across all output paths (multibyte summaries no longer panic the MCP server)
+- `mu doctor` compares schema versions numerically instead of lexicographically
+- `mu review` sorts top affected files by impact instead of alphabetically
+- Orphan-rule suppression list no longer hardcodes MU's own symbol names
 - MCP server now opens DuckDB in read-write mode, unblocking `mu_enrich` write-back
-- Zero compiler warnings (cleaned up dead code from daemon removal)
+- Zero compiler warnings, enforced in CI with `-D warnings`
 
 ---
 
