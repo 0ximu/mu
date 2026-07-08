@@ -363,18 +363,29 @@ impl MUbase {
 
     /// Insert multiple nodes in a batch using an appender for better performance.
     pub fn insert_nodes(&self, nodes: &[Node]) -> Result<()> {
+        // Drop unnamed nodes: parsers occasionally emit them for anonymous
+        // lambdas/closures/arrow fns, and they appear in query output as
+        // `[fn]  (path)` with a blank name — pure noise. Keep-list check here
+        // rather than at every query site.
+        let mut dropped_unnamed = 0usize;
+
         // Deduplicate by ID (keep last occurrence)
         let mut unique_nodes: std::collections::HashMap<&str, &Node> =
             std::collections::HashMap::new();
         for node in nodes {
+            if node.name.trim().is_empty() {
+                dropped_unnamed += 1;
+                continue;
+            }
             unique_nodes.insert(&node.id, node);
         }
 
         let dedup_nodes: Vec<&Node> = unique_nodes.into_values().collect();
         tracing::info!(
-            "insert_nodes: {} unique nodes (from {} total)",
+            "insert_nodes: {} unique nodes (from {} total, {} unnamed dropped)",
             dedup_nodes.len(),
-            nodes.len()
+            nodes.len(),
+            dropped_unnamed,
         );
 
         let conn = self.acquire_conn()?;
