@@ -596,32 +596,106 @@ mod tests {
         assert!(json["summary_text"].is_null());
     }
 
+    // -- search cascade tests against a real V3 database --
+
+    /// MUbase::open on a fresh path creates the full V3 schema.
+    fn open_test_db() -> crate::engine::storage::MUbase {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.mubase");
+        std::mem::forget(dir);
+        crate::engine::storage::MUbase::open(&db_path).unwrap()
+    }
+
+    fn insert_node(
+        db: &crate::engine::storage::MUbase,
+        id: &str,
+        name: &str,
+        search_text: &str,
+        importance: f32,
+    ) {
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO nodes (id, type, name, file_path, line_start, line_end,
+                                    importance_score, search_text, node_category)
+                 VALUES (?, 'function', ?, 'src/lib.rs', 1, 10, ?, ?, 'production')",
+                params![id, name, importance, search_text],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
     #[test]
-    #[ignore = "Requires V3 schema with search_text and importance_score columns"]
     fn test_search_nodes_exact_match() {
-        // Would test: insert node with name "Foo", search for "Foo",
-        // verify score=1.0 and match_type=ExactName
+        let db = open_test_db();
+        insert_node(&db, "fn:1", "parse_config", "parse configuration loader", 0.1);
+        // A BM25/LIKE candidate with much higher importance must not beat the exact hit.
+        insert_node(&db, "fn:2", "load_settings", "parse_config helper wrapper", 0.9);
+
+        let results = db.search_v3("parse_config", 10).unwrap();
+
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, "fn:1");
+        assert_eq!(results[0].match_type, MatchType::ExactName);
+        assert_eq!(results[0].score, 1.0);
     }
 
     #[test]
-    #[ignore = "Requires FTS index on search_text column"]
     fn test_search_nodes_bm25_with_importance() {
-        // Would test: insert nodes with search_text, create FTS index,
-        // search and verify 85/15 scoring blend
+        let db = open_test_db();
+        // Identical search_text -> identical BM25 contribution, so the 15%
+        // importance term decides the order (85/15 blend).
+        insert_node(&db, "fn:low", "handle_a", "token stream lexer parser", 0.1);
+        insert_node(&db, "fn:high", "handle_b", "token stream lexer parser", 0.9);
+        // Build the FTS index when the extension is available; the LIKE
+        // fallback exercises the same blend contract otherwise.
+        let _ = db.rebuild_fts_on_search_text();
+
+        let results = db.search_v3("token lexer", 10).unwrap();
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].node_id, "fn:high");
+        assert_eq!(results[1].node_id, "fn:low");
+        assert_eq!(results[0].match_type, MatchType::Bm25);
+        // Equal BM25 means the score gap is exactly 0.15 * (0.9 - 0.1).
+        let gap = results[0].score - results[1].score;
+        assert!((gap - 0.12).abs() < 1e-3, "score gap was {}", gap);
     }
 
     #[test]
-    #[ignore = "Requires V3 schema with search_text column"]
     fn test_search_nodes_fallback_keyword() {
-        // Would test: search without FTS index, verify LIKE fallback
-        // produces results with synthetic BM25 score
+        let db = open_test_db();
+        // No FTS index exists on a fresh db -> bm25_search_v3 must fall back
+        // to the LIKE keyword search and still produce scored results.
+        insert_node(&db, "fn:w", "build_widget", "widget factory builder", 0.4);
+
+        let results = db.search_v3("widget factory", 10).unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].node_id, "fn:w");
+        assert_eq!(results[0].match_type, MatchType::Bm25);
+        // Synthetic raw score 5.0: 0.85 * (5/15) + 0.15 * 0.4
+        let expected = 0.85 * (5.0 / 15.0) + 0.15 * 0.4;
+        assert!(
+            (results[0].score - expected).abs() < 1e-3,
+            "score was {}",
+            results[0].score
+        );
     }
 
     #[test]
-    #[ignore = "Requires V3 schema"]
     fn test_search_nodes_dedup_exact_over_bm25() {
-        // Would test: node appears in both exact and BM25 results,
-        // verify it keeps the exact match (score=1.0) and is not duplicated
+        let db = open_test_db();
+        // Matches both the exact phase (name) and the keyword phase
+        // (search_text contains the query) -> must appear once, as exact.
+        insert_node(&db, "fn:g", "Gizmo", "Gizmo whatsit contraption", 0.5);
+
+        let results = db.search_v3("Gizmo", 10).unwrap();
+
+        let hits: Vec<_> = results.iter().filter(|r| r.node_id == "fn:g").collect();
+        assert_eq!(hits.len(), 1, "node must not be duplicated across phases");
+        assert_eq!(hits[0].match_type, MatchType::ExactName);
+        assert_eq!(hits[0].score, 1.0);
     }
 
     // -- confidence model tests --
