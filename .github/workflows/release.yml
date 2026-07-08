@@ -40,7 +40,7 @@ jobs:
             artifact_name: mu-macos-arm64
             cross: false
 
-          - os: windows-latest
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             artifact_name: mu-windows-x86_64.exe
             cross: false
