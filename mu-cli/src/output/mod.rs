@@ -107,6 +107,23 @@ pub trait TableDisplay: Serialize {
     fn to_table(&self) -> String;
 }
 
+/// Truncate a string to at most `max` bytes, respecting UTF-8 char boundaries,
+/// appending "..." when truncation happens.
+///
+/// Byte slicing (`&s[..max]`) panics when `max` lands inside a multibyte
+/// character; this backs off to the previous char boundary instead.
+pub fn truncate_str(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        let mut end = max;
+        while !s.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}...", &s[..end])
+    }
+}
+
 /// Blanket implementation of Outputter for TableDisplay types
 impl<T: TableDisplay + Serialize> Outputter for T {
     fn to_table(&self, _config: &OutputConfig) -> String {
@@ -122,5 +139,34 @@ mod tests {
     fn test_output_config_auto_detect() {
         let config = OutputConfig::auto_detect(OutputFormat::Table);
         assert_eq!(config.format, OutputFormat::Table);
+    }
+
+    #[test]
+    fn test_truncate_str_short_string_unchanged() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+        assert_eq!(truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_ascii_truncation() {
+        assert_eq!(truncate_str("hello world", 5), "hello...");
+    }
+
+    #[test]
+    fn test_truncate_str_multibyte_boundary_no_panic() {
+        // 199 ASCII chars then a 3-byte arrow: byte 200 lands mid-character.
+        // The old byte-slicing version panicked here.
+        let s = format!("{}→", "a".repeat(199));
+        assert_eq!(s.len(), 202);
+        let out = truncate_str(&s, 200);
+        assert_eq!(out, format!("{}...", "a".repeat(199)));
+    }
+
+    #[test]
+    fn test_truncate_str_multibyte_content() {
+        // Truncating inside a run of multibyte chars backs off cleanly.
+        let s = "→→→→"; // 12 bytes
+        let out = truncate_str(s, 7);
+        assert_eq!(out, "→→...");
     }
 }

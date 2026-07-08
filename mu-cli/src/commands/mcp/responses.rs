@@ -111,13 +111,7 @@ fn category_tag(cat: &str) -> &'static str {
     }
 }
 
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max.min(s.len())])
-    }
-}
+use crate::output::truncate_str;
 
 fn read_source_lines(
     path: &Path,
@@ -214,16 +208,14 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
         }
 
         // Show source snippet for exact matches
-        if match_label != "bm25" {
-            if !r.file_path.is_empty() {
-                let full_path = project_root.join(&r.file_path);
-                if let Some(snippet) = read_source_lines(&full_path, r.line_start, r.line_end, 15) {
-                    let _ = writeln!(out, "   ```");
-                    for line in snippet.lines() {
-                        let _ = writeln!(out, "   {}", line);
-                    }
-                    let _ = writeln!(out, "   ```");
+        if match_label != "bm25" && !r.file_path.is_empty() {
+            let full_path = project_root.join(&r.file_path);
+            if let Some(snippet) = read_source_lines(&full_path, r.line_start, r.line_end, 15) {
+                let _ = writeln!(out, "   ```");
+                for line in snippet.lines() {
+                    let _ = writeln!(out, "   {}", line);
                 }
+                let _ = writeln!(out, "   ```");
             }
         }
 

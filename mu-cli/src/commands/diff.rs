@@ -171,8 +171,9 @@ impl TableDisplay for DiffResult {
 }
 
 /// Get the list of changed files between two git refs
-fn get_changed_files(base_ref: &str, head_ref: &str) -> anyhow::Result<Vec<String>> {
+fn get_changed_files(repo_root: &Path, base_ref: &str, head_ref: &str) -> anyhow::Result<Vec<String>> {
     let output = Command::new("git")
+        .current_dir(repo_root)
         .args([
             "diff",
             "--name-only",
@@ -195,8 +196,9 @@ fn get_changed_files(base_ref: &str, head_ref: &str) -> anyhow::Result<Vec<Strin
 }
 
 /// Get file content at a specific git ref
-fn get_file_at_ref(file_path: &str, git_ref: &str) -> anyhow::Result<Option<String>> {
+fn get_file_at_ref(repo_root: &Path, file_path: &str, git_ref: &str) -> anyhow::Result<Option<String>> {
     let output = Command::new("git")
+        .current_dir(repo_root)
         .args(["show", &format!("{}:{}", git_ref, file_path)])
         .output()?;
 
@@ -287,11 +289,14 @@ fn convert_diff_result(
 
 /// Run a semantic diff between two git refs and return the result.
 ///
+/// `repo_root` is the project root the git commands run in — callers must not
+/// rely on the process cwd (the MCP server can be started from anywhere).
+///
 /// This is the reusable core logic — called by both the CLI command and MCP tools.
-pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResult> {
+pub fn semantic_diff(repo_root: &Path, base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResult> {
     let start = Instant::now();
 
-    let changed_files = get_changed_files(base_ref, head_ref)?;
+    let changed_files = get_changed_files(repo_root, base_ref, head_ref)?;
     let files_changed = changed_files.len();
 
     if changed_files.is_empty() {
@@ -313,8 +318,8 @@ pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResul
             continue;
         };
 
-        let base_content = get_file_at_ref(file_path, base_ref)?;
-        let head_content = get_file_at_ref(file_path, head_ref)?;
+        let base_content = get_file_at_ref(repo_root, file_path, base_ref)?;
+        let head_content = get_file_at_ref(repo_root, file_path, head_ref)?;
 
         let base_mod = match base_content {
             Some(ref content) => parse_to_module(content, file_path, language)
@@ -344,8 +349,9 @@ pub fn semantic_diff(base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResul
 }
 
 /// Detect the default branch name from git.
-pub fn detect_default_branch() -> String {
+pub fn detect_default_branch(repo_root: &Path) -> String {
     let result = Command::new("git")
+        .current_dir(repo_root)
         .args(["symbolic-ref", "refs/remotes/origin/HEAD"])
         .output();
 
@@ -356,9 +362,18 @@ pub fn detect_default_branch() -> String {
         .unwrap_or_else(|| "main".to_string())
 }
 
+/// Resolve the project root for CLI invocations, falling back to the cwd.
+pub fn resolve_repo_root() -> std::path::PathBuf {
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| crate::mubase::find_project_root(&cwd).or(Some(cwd)))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+}
+
 /// Run the diff command (CLI entry point)
 pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow::Result<()> {
-    let result = semantic_diff(base_ref, head_ref)?;
+    let repo_root = resolve_repo_root();
+    let result = semantic_diff(&repo_root, base_ref, head_ref)?;
     Output::new(result, format).render()
 }
 
@@ -366,6 +381,78 @@ pub async fn run(base_ref: &str, head_ref: &str, format: OutputFormat) -> anyhow
 mod tests {
     use super::*;
     use mu_core::differ::EntityChange;
+
+    /// Create a temp git repo with two commits:
+    /// commit 1 adds alpha.py, commit 2 adds beta.py.
+    fn make_test_repo() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .current_dir(root)
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                .env("GIT_AUTHOR_NAME", "test")
+                .env("GIT_AUTHOR_EMAIL", "test@test")
+                .env("GIT_COMMITTER_NAME", "test")
+                .env("GIT_COMMITTER_EMAIL", "test@test")
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+
+        git(&["init", "-b", "main"]);
+        std::fs::write(root.join("alpha.py"), "def alpha():\n    pass\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "one"]);
+        std::fs::write(root.join("beta.py"), "def beta():\n    pass\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "two"]);
+
+        dir
+    }
+
+    #[test]
+    fn test_get_changed_files_uses_repo_root_not_process_cwd() {
+        let repo = make_test_repo();
+        // The process cwd is the mu worktree (a different git repo). The
+        // contract is that results come from `repo_root`, not the cwd.
+        let files = get_changed_files(repo.path(), "HEAD~1", "HEAD").unwrap();
+        assert_eq!(files, vec!["beta.py".to_string()]);
+    }
+
+    #[test]
+    fn test_get_file_at_ref_uses_repo_root() {
+        let repo = make_test_repo();
+        let content = get_file_at_ref(repo.path(), "alpha.py", "HEAD").unwrap();
+        assert_eq!(content, Some("def alpha():\n    pass\n".to_string()));
+
+        // beta.py does not exist at the first commit
+        let missing = get_file_at_ref(repo.path(), "beta.py", "HEAD~1").unwrap();
+        assert_eq!(missing, None);
+    }
+
+    #[test]
+    fn test_semantic_diff_uses_repo_root() {
+        let repo = make_test_repo();
+        let result = semantic_diff(repo.path(), "HEAD~1", "HEAD").unwrap();
+        assert_eq!(result.files_changed, 1);
+        assert!(
+            result
+                .changes
+                .iter()
+                .any(|c| c.change_type == "added" && c.entity_name.contains("beta")),
+            "expected beta addition, got: {:?}",
+            result.changes
+        );
+    }
 
     #[test]
     fn test_detect_language() {
