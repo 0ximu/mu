@@ -265,7 +265,7 @@ fn is_dispatch_attribute(attr_text: &str) -> bool {
         .trim();
     // Check against known patterns (ignore arguments in parens)
     let name = inner.split('(').next().unwrap_or(inner).trim();
-    DISPATCH_ATTRIBUTES.iter().any(|&d| name == d)
+    DISPATCH_ATTRIBUTES.contains(&name)
 }
 
 /// Extract function item.
