@@ -1837,6 +1837,7 @@ mod tests {
                 module_docstring: None,
                 total_lines: 10,
                 namespace: namespace.map(|s| s.to_string()),
+                has_parse_errors: false,
             }),
             error: None,
         }

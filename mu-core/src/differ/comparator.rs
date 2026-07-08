@@ -715,6 +715,7 @@ mod tests {
             module_docstring: None,
             total_lines: 0,
             namespace: None,
+            has_parse_errors: false,
         }
     }
 

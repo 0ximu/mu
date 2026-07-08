@@ -2246,6 +2246,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
  "tree-sitter",
  "tree-sitter-c-sharp",
  "tree-sitter-go",

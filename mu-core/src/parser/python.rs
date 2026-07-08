@@ -22,6 +22,14 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         .ok_or("Failed to parse Python source")?;
     let root = tree.root_node();
 
+    let has_parse_errors = root.has_error();
+    if has_parse_errors {
+        tracing::warn!(
+            "Syntax errors in {}; extracted data may be partial",
+            file_path
+        );
+    }
+
     let name = Path::new(file_path)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -33,6 +41,7 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
         path: file_path.to_string(),
         language: "python".to_string(),
         total_lines: count_lines(source),
+        has_parse_errors,
         ..Default::default()
     };
 
@@ -751,6 +760,29 @@ def hello(name: str) -> str:
         assert_eq!(result.functions.len(), 1);
         assert_eq!(result.functions[0].name, "hello");
         assert_eq!(result.functions[0].return_type, Some("str".to_string()));
+    }
+
+    #[test]
+    fn test_syntax_errors_flagged_not_fatal() {
+        let source = r#"
+def broken(:
+    return 1
+
+def fine():
+    return 2
+"#;
+        let result = parse(source, "broken.py").expect("syntax errors must not fail the parse");
+        assert!(
+            result.has_parse_errors,
+            "has_parse_errors should be set for a file with syntax errors"
+        );
+    }
+
+    #[test]
+    fn test_clean_file_has_no_parse_errors() {
+        let source = "def fine():\n    return 2\n";
+        let result = parse(source, "fine.py").unwrap();
+        assert!(!result.has_parse_errors);
     }
 
     #[test]
