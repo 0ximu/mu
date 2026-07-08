@@ -563,7 +563,7 @@ pub fn semantic_diff_modules(
         .collect();
 
     // Collect changes from modified modules
-    for (path, changes) in common_paths.iter().zip(module_changes.into_iter()) {
+    for (path, changes) in common_paths.iter().zip(module_changes) {
         if !changes.is_empty() {
             // Add module-level modified change
             let base = base_by_path[*path];

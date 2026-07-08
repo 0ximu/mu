@@ -458,10 +458,8 @@ fn extract_typed_default_parameter(node: &Node, source: &str) -> ParameterDef {
             "type" => {
                 type_annotation = Some(get_node_text(child, source).to_string());
             }
-            "=" => {
-                if i + 1 < children.len() {
-                    default = Some(get_node_text(&children[i + 1], source).to_string());
-                }
+            "=" if i + 1 < children.len() => {
+                default = Some(get_node_text(&children[i + 1], source).to_string());
             }
             _ => {}
         }
