@@ -202,23 +202,12 @@ CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(importance_score DESC);
 CREATE INDEX IF NOT EXISTS idx_nodes_summary_source ON nodes(summary_source);
 CREATE INDEX IF NOT EXISTS idx_nodes_category ON nodes(node_category);
 
--- Embeddings table for vector storage
--- Native FLOAT[384] arrays for efficient similarity search with array_cosine_similarity()
-CREATE TABLE IF NOT EXISTS embeddings (
-    node_id VARCHAR PRIMARY KEY,
-    embedding FLOAT[384] NOT NULL,
-    model VARCHAR NOT NULL DEFAULT 'mu-sigma-v2',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- File hashes for incremental embedding updates
+-- File hashes for incremental updates
 CREATE TABLE IF NOT EXISTS file_hashes (
     file_path VARCHAR PRIMARY KEY,
     content_hash VARCHAR NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 "#;
 
 /// Schema version for migrations
@@ -227,7 +216,8 @@ CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
 /// - 1.2.0: Added source_text column to nodes for rich text search
 /// - 2.0.0: V3 search — summary, importance, search_text columns
 /// - 2.1.0: Added node_category column for classify-once-at-bootstrap
-pub const SCHEMA_VERSION: &str = "2.1.0";
+/// - 2.2.0: Dropped embeddings table (vector search removed from the product)
+pub const SCHEMA_VERSION: &str = "2.2.0";
 
 #[cfg(test)]
 mod tests {

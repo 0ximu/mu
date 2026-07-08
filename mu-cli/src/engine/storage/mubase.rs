@@ -120,9 +120,9 @@ impl MUbase {
             );
         }
 
-        // Check if migration is needed (v1.0.0 JSON embeddings → v1.1.0 native arrays)
-        // We detect this by checking the schema version in metadata table
-        let needs_migrate = conn
+        // v1.0.0 predates everything the current engine stores; its only
+        // migration path (JSON embeddings) was removed along with vector search.
+        let is_v1_0 = conn
             .query_row(
                 "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '1.0.0'",
                 [],
@@ -130,9 +130,12 @@ impl MUbase {
             )
             .unwrap_or(false);
 
-        if needs_migrate {
-            tracing::info!("Migrating embeddings from JSON to native FLOAT[384]");
-            super::migrations::migrate_embeddings_to_native(&conn)?;
+        if is_v1_0 {
+            anyhow::bail!(
+                "Database schema v1.0.0 is too old to migrate.\n\
+                 Please delete and rebuild:\n\n\
+                   rm -rf .mu && mu bootstrap\n"
+            );
         }
 
         // Check if migration from v1.1.0 → v1.2.0 is needed (add source_text column)
@@ -175,6 +178,20 @@ impl MUbase {
         if needs_v2_1_migrate {
             tracing::info!("Adding node_category column to nodes table");
             super::migrations::migrate_v2_to_v2_1(&conn)?;
+        }
+
+        // Check if migration from v2.1.0 → v2.2.0 is needed (drop embeddings table)
+        let needs_v2_2_migrate = conn
+            .query_row(
+                "SELECT value FROM metadata WHERE key = 'schema_version' AND value = '2.1.0'",
+                [],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+
+        if needs_v2_2_migrate {
+            tracing::info!("Dropping unused embeddings table");
+            super::migrations::migrate_v2_1_to_v2_2(&conn)?;
         }
 
         // Execute schema creation (CREATE TABLE IF NOT EXISTS is safe for existing tables)
