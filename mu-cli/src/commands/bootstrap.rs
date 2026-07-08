@@ -440,9 +440,30 @@ fn build_graph(
     let func_lookup = build_function_lookup(&nodes);
     tracing::debug!("Built function lookup with {} entries", func_lookup.len());
 
+    // Build DI-aware receiver type map from constructor parameters
+    let receiver_type_map = build_receiver_type_map(parse_results, &class_lookup);
+    tracing::debug!(
+        "Built receiver type map with {} entries",
+        receiver_type_map.len()
+    );
+
+    // Build inheritance map for method resolution up the class hierarchy
+    let inherits_map = build_inherits_map(&edges);
+    tracing::debug!(
+        "Built inherits map with {} classes having parents",
+        inherits_map.len()
+    );
+
     // Resolve call sites
     spin(spinner, "Resolving call sites...");
-    let (total, resolved) = resolve_all_call_sites(parse_results, &func_lookup, &mut edges);
+    let (total, resolved) = resolve_all_call_sites(
+        parse_results,
+        &func_lookup,
+        &mut edges,
+        &receiver_type_map,
+        &inherits_map,
+        &class_lookup,
+    );
     tracing::info!(
         "Call sites: {} found, {} resolved ({:.1}%)",
         total,
@@ -512,6 +533,133 @@ fn build_function_lookup(nodes: &[crate::engine::storage::Node]) -> HashMap<Stri
     }
 
     func_lookup
+}
+
+/// Map injected field names to their resolved class IDs using constructor parameters.
+///
+/// In C# DI, constructor `Foo(IBarService barService)` produces field `_barService`.
+/// This builds `(module_path, "_barService") → cls:...:BarService` by stripping the
+/// leading `I` from interface types and looking up the concrete class.
+fn build_receiver_type_map(
+    parse_results: &[mu_core::types::ParseResult],
+    class_lookup: &HashMap<String, String>,
+) -> HashMap<(String, String), String> {
+    let mut map = HashMap::new();
+
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            for class in &module.classes {
+                // Find the constructor (tagged with "constructor" decorator by the C# parser)
+                let ctor = class
+                    .methods
+                    .iter()
+                    .find(|m| m.decorators.contains(&"constructor".to_string()));
+
+                let ctor = match ctor {
+                    Some(c) => c,
+                    None => continue,
+                };
+
+                for param in &ctor.parameters {
+                    let type_name = match &param.type_annotation {
+                        Some(t) => t.as_str(),
+                        None => continue,
+                    };
+
+                    // Strip generic args: ILogger<Foo> -> ILogger
+                    let base_type = type_name.split('<').next().unwrap_or(type_name);
+
+                    // Strip leading I for interface: ITransactionService -> TransactionService
+                    let concrete_name =
+                        if base_type.starts_with('I')
+                            && base_type.len() > 1
+                            && base_type[1..].starts_with(|c: char| c.is_uppercase())
+                        {
+                            &base_type[1..]
+                        } else {
+                            base_type
+                        };
+
+                    // Look up the concrete class (try without I first, then with I)
+                    let class_id = class_lookup
+                        .get(concrete_name)
+                        .or_else(|| class_lookup.get(base_type));
+
+                    if let Some(class_id) = class_id {
+                        // Map the conventional field name: param "dbContext" -> field "_dbContext"
+                        let field_name = format!("_{}", param.name);
+                        map.insert(
+                            (module.path.clone(), field_name),
+                            class_id.clone(),
+                        );
+                        // Also map the raw param name (some code uses it directly)
+                        map.insert(
+                            (module.path.clone(), param.name.clone()),
+                            class_id.clone(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Build `class_id → Vec<parent_class_id>` from existing Inherits edges.
+fn build_inherits_map(
+    edges: &[crate::engine::storage::Edge],
+) -> HashMap<String, Vec<String>> {
+    use crate::engine::storage::schema::EdgeType;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for edge in edges {
+        if edge.edge_type == EdgeType::Inherits {
+            map.entry(edge.source_id.clone())
+                .or_default()
+                .push(edge.target_id.clone());
+        }
+    }
+    map
+}
+
+/// Walk up the class hierarchy (BFS) to find which ancestor defines the given method.
+fn resolve_inherited_method(
+    class_id: &str,
+    method_name: &str,
+    func_lookup: &HashMap<String, String>,
+    inherits_map: &HashMap<String, Vec<String>>,
+) -> Option<String> {
+    use std::collections::VecDeque;
+
+    let mut visited = HashSet::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(class_id.to_string());
+
+    while let Some(current) = queue.pop_front() {
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+
+        // Extract class name and module path from class_id like "cls:path/to/file.cs:ClassName"
+        let class_name = current.rsplit(':').next().unwrap_or("");
+        let module_path = current
+            .strip_prefix("cls:")
+            .and_then(|s| s.rsplit_once(':'))
+            .map(|(p, _)| p)
+            .unwrap_or("");
+
+        let method_id = format!("fn:{}:{}.{}", module_path, class_name, method_name);
+        if func_lookup.contains_key(&method_id) {
+            return Some(method_id);
+        }
+
+        if let Some(parents) = inherits_map.get(&current) {
+            queue.extend(parents.iter().cloned());
+        }
+    }
+    None
 }
 
 /// Build source_text for a function/method from parsed data.
@@ -769,6 +917,9 @@ fn resolve_all_call_sites(
     parse_results: &[mu_core::types::ParseResult],
     func_lookup: &HashMap<String, String>,
     edges: &mut Vec<crate::engine::storage::Edge>,
+    receiver_type_map: &HashMap<(String, String), String>,
+    inherits_map: &HashMap<String, Vec<String>>,
+    class_lookup: &HashMap<String, String>,
 ) -> (usize, usize) {
     let mut total = 0usize;
     let mut resolved = 0usize;
@@ -792,6 +943,9 @@ fn resolve_all_call_sites(
                             Some(&class.name),
                             func_lookup,
                             &module.imports,
+                            receiver_type_map,
+                            inherits_map,
+                            class_lookup,
                         ) {
                             edges.push(crate::engine::storage::Edge::calls(&method_id, &target_id));
                             resolved += 1;
@@ -805,9 +959,16 @@ fn resolve_all_call_sites(
                 let func_id = format!("fn:{}:{}", rel_path, func.name);
                 total += func.call_sites.len();
                 for call in &func.call_sites {
-                    if let Some(target_id) =
-                        resolve_call_site(call, rel_path, None, func_lookup, &module.imports)
-                    {
+                    if let Some(target_id) = resolve_call_site(
+                        call,
+                        rel_path,
+                        None,
+                        func_lookup,
+                        &module.imports,
+                        receiver_type_map,
+                        inherits_map,
+                        class_lookup,
+                    ) {
                         edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
                     }
@@ -1648,24 +1809,29 @@ fn resolve_call_site(
     current_class: Option<&str>,
     func_lookup: &HashMap<String, String>,
     imports: &[mu_core::types::ImportDef],
+    receiver_type_map: &HashMap<(String, String), String>,
+    inherits_map: &HashMap<String, Vec<String>>,
+    class_lookup: &HashMap<String, String>,
 ) -> Option<String> {
     let callee = &call.callee;
 
-    // 1. Method call on self/this - look in current class
+    // 1. Method call on self/this - look in current class, then walk inheritance chain
     // Python: self, cls | C#/Java: this, base/super | Rust: self
     if call.is_method_call {
         if let Some(receiver) = &call.receiver {
-            if receiver == "self"
-                || receiver == "cls"
-                || receiver == "this"
-                || receiver == "base"
-                || receiver == "super"
-            {
+            if matches!(receiver.as_str(), "self" | "cls" | "this" | "base" | "super") {
                 if let Some(class_name) = current_class {
-                    // Try: fn:module:Class.method
+                    // Try: fn:module:Class.method (direct method on current class)
                     let method_id = format!("fn:{}:{}.{}", current_module, class_name, callee);
                     if func_lookup.contains_key(&method_id) {
                         return Some(method_id);
+                    }
+                    // Try inherited method: walk up the class hierarchy
+                    let class_id = format!("cls:{}:{}", current_module, class_name);
+                    if let Some(inherited) =
+                        resolve_inherited_method(&class_id, callee, func_lookup, inherits_map)
+                    {
+                        return Some(inherited);
                     }
                 }
             }
@@ -1689,14 +1855,56 @@ fn resolve_call_site(
     // 4. Check by simple name — only for free function calls or self/this calls.
     // Method calls on arbitrary receivers (e.g., `_items.Clear()`) cannot be resolved
     // without type information; matching by bare name creates false cross-project edges.
-    let is_unresolvable_method = call.is_method_call
+    let is_arbitrary_receiver = call.is_method_call
         && call.receiver.as_deref().is_some_and(|r| {
             !matches!(r, "self" | "cls" | "this" | "base" | "super")
         });
-    if !is_unresolvable_method {
-        if let Some(target_id) = func_lookup.get(callee) {
-            return Some(target_id.clone());
+
+    if is_arbitrary_receiver {
+        // Try to resolve via constructor-injected field types
+        if let Some(receiver) = &call.receiver {
+            let key = (current_module.to_string(), receiver.clone());
+            if let Some(receiver_class_id) = receiver_type_map.get(&key) {
+                // Try direct method on the resolved type
+                let class_name = receiver_class_id.rsplit(':').next().unwrap_or("");
+                let module_path = receiver_class_id
+                    .strip_prefix("cls:")
+                    .and_then(|s| s.rsplit_once(':'))
+                    .map(|(p, _)| p)
+                    .unwrap_or(current_module);
+
+                let method_id = format!("fn:{}:{}.{}", module_path, class_name, callee);
+                if func_lookup.contains_key(&method_id) {
+                    return Some(method_id);
+                }
+                // Try inherited method on the resolved type
+                if let Some(inherited) = resolve_inherited_method(
+                    receiver_class_id,
+                    callee,
+                    func_lookup,
+                    inherits_map,
+                ) {
+                    return Some(inherited);
+                }
+            }
+
+            // Try treating the receiver itself as a class name (e.g., static calls)
+            if let Some(class_id) = class_lookup.get(receiver.as_str()) {
+                let class_name = class_id.rsplit(':').next().unwrap_or("");
+                let module_path = class_id
+                    .strip_prefix("cls:")
+                    .and_then(|s| s.rsplit_once(':'))
+                    .map(|(p, _)| p)
+                    .unwrap_or(current_module);
+
+                let method_id = format!("fn:{}:{}.{}", module_path, class_name, callee);
+                if func_lookup.contains_key(&method_id) {
+                    return Some(method_id);
+                }
+            }
         }
+    } else if let Some(target_id) = func_lookup.get(callee) {
+        return Some(target_id.clone());
     }
 
     // 5. Check imported names
