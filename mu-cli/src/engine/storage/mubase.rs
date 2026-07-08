@@ -84,6 +84,15 @@ impl MUbase {
         }
     }
 
+    /// Run a closure with a borrowed reference to the underlying connection.
+    pub fn with_connection<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&Connection) -> Result<T>,
+    {
+        let conn = self.acquire_conn()?;
+        f(&conn)
+    }
+
     /// Initialize the database schema.
     fn init_schema(&self) -> Result<()> {
         let conn = self.acquire_conn()?;

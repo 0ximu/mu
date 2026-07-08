@@ -63,9 +63,10 @@ pub struct ImpactParams {
     /// Symbol name to analyze for downstream dependencies
     #[schemars(description = "Symbol name to analyze (e.g., 'DatabaseConnection')")]
     pub symbol: String,
-    /// Include cross-service edges (MassTransit pub/sub, HTTP clients, shared contracts)
-    #[schemars(description = "Include cross-service edges like MassTransit pub/sub, HTTP calls, shared contracts (default: false)")]
+    /// Kept for API compatibility; BFS now traverses all edge types including cross-service.
+    #[schemars(description = "Kept for compatibility. BFS now always includes cross-service edges.")]
     #[serde(default, deserialize_with = "lenient::option_bool")]
+    #[allow(dead_code)]
     pub cross_service: Option<bool>,
 }
 
@@ -476,12 +477,22 @@ impl MuMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        // Find the target node
+        // Find the target node — try exact ID first, then name with priority ordering
+        // (function > class > module) so that e.g. "BaseService" resolves to the class,
+        // not the module file.
         let target_result = state
             .mubase
             .query_params(
                 "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text, node_category
-                 FROM nodes WHERE name = ?1 LIMIT 1",
+                 FROM nodes WHERE id = ?1 OR name = ?1
+                 ORDER BY CASE type
+                     WHEN 'function' THEN 0
+                     WHEN 'class' THEN 1
+                     WHEN 'module' THEN 2
+                     ELSE 3
+                 END,
+                 importance_score DESC
+                 LIMIT 1",
                 &[&params.symbol as &dyn duckdb::ToSql],
             )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -514,91 +525,61 @@ impl MuMcpServer {
             node_category: "production".to_string(),
         });
 
-        // Find dependents with edge info
-        let dep_result = state
-            .mubase
-            .query_params(
-                "SELECT DISTINCT n.id, n.name, n.type, n.file_path, n.line_start, n.line_end,
-                        n.importance_score, n.summary_text, e.type AS edge_type, n.node_category
-                 FROM edges e
-                 JOIN nodes n ON n.id = e.source_id
-                 WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
-                 ORDER BY n.importance_score DESC
-                 LIMIT 50",
-                &[&params.symbol as &dyn duckdb::ToSql],
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        // Full BFS traversal for transitive dependents (incoming edges)
+        let graph = crate::commands::graph::GraphData::from_mubase(&state.mubase)
+            .map_err(|e| McpError::internal_error(format!("Failed to load graph: {}", e), None))?;
+
+        let dependent_ids = if !target.node_id.is_empty() {
+            graph.dependents(&target.node_id, None, None)
+        } else {
+            vec![]
+        };
 
         let mut dependents = Vec::new();
         let mut edges = Vec::new();
 
-        for row in &dep_result.rows {
-            let dep_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let dep_name = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let dep_kind = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let edge_type = row.get(8).and_then(|v| v.as_str()).unwrap_or("calls").to_string();
+        if !dependent_ids.is_empty() {
+            // Bulk-fetch node details for all BFS-discovered dependents
+            // DuckDB doesn't support parameterized IN-lists, so use a temp table
+            let ids_csv: String = dependent_ids.iter()
+                .map(|id| format!("('{}')", id.replace('\'', "''")))
+                .collect::<Vec<_>>()
+                .join(",");
 
-            dependents.push(NodeResult {
-                node_id: dep_id.clone(),
-                name: dep_name.clone(),
-                kind: dep_kind,
-                file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                score: None,
-                match_type: None,
-                importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                node_category: row.get(9).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
-            });
+            let detail_sql = format!(
+                "SELECT n.id, n.name, n.type, n.file_path, n.line_start, n.line_end,
+                        n.importance_score, n.summary_text, n.node_category
+                 FROM nodes n
+                 WHERE n.id IN (SELECT col0 FROM (VALUES {}) AS t(col0))
+                 ORDER BY n.importance_score DESC",
+                ids_csv
+            );
 
-            edges.push(EdgeResult {
-                source_id: dep_id,
-                source_name: dep_name,
-                target_id: target.node_id.clone(),
-                target_name: target.name.clone(),
-                edge_type,
-            });
-        }
-
-        // Cross-service edges
-        if params.cross_service.unwrap_or(false) {
-            if let Ok(cs_result) = state.mubase.query_params(
-                "SELECT DISTINCT e.type, n2.id, n2.name, n2.type, n2.file_path,
-                        n2.line_start, n2.line_end, n2.importance_score
-                 FROM edges e
-                 JOIN nodes n ON n.id = e.source_id OR n.id = e.target_id
-                 JOIN nodes n2 ON (n2.id = e.source_id OR n2.id = e.target_id) AND n2.id != n.id
-                 WHERE n.name = ?1
-                 AND e.type IN ('publishes', 'subscribes', 'calls_http', 'uses_contract')
-                 LIMIT 30",
-                &[&params.symbol as &dyn duckdb::ToSql],
-            ) {
-                for row in &cs_result.rows {
-                    let cs_edge_type = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let cs_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let cs_name = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if let Ok(detail_result) = state.mubase.query_params(&detail_sql, &[]) {
+                for row in &detail_result.rows {
+                    let dep_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let dep_name = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
 
                     dependents.push(NodeResult {
-                        node_id: cs_id.clone(),
-                        name: cs_name.clone(),
-                        kind: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        file_path: row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        line_start: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                        line_end: row.get(6).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        node_id: dep_id.clone(),
+                        name: dep_name.clone(),
+                        kind: row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                        line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         score: None,
                         match_type: None,
-                        importance: row.get(7).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
-                        summary: None,
-                        node_category: "production".to_string(),
+                        importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                        summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                        node_category: row.get(8).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
                     });
 
                     edges.push(EdgeResult {
-                        source_id: cs_id,
-                        source_name: cs_name,
+                        source_id: dep_id,
+                        source_name: dep_name,
                         target_id: target.node_id.clone(),
                         target_name: target.name.clone(),
-                        edge_type: cs_edge_type,
+                        edge_type: "depends_on".to_string(),
                     });
                 }
             }
@@ -666,6 +647,7 @@ impl MuMcpServer {
                     "--include=*.js",
                     "--include=*.go",
                     "--include=*.java",
+                    "--include=*.cs",
                     "-l",
                     &params.symbol,
                 ])
@@ -694,6 +676,7 @@ impl MuMcpServer {
                             "--include=*.js",
                             "--include=*.go",
                             "--include=*.java",
+                            "--include=*.cs",
                             "-C1",
                             &params.symbol,
                         ])

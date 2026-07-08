@@ -92,7 +92,15 @@ impl GraphData {
         })
     }
 
-    /// Find impact (downstream reachable nodes)
+    /// Load graph from a MUbase instance (acquires lock briefly).
+    pub fn from_mubase(mubase: &crate::engine::storage::MUbase) -> Result<Self> {
+        mubase.with_connection(|conn| Self::from_db(conn))
+    }
+
+    /// Find reachable nodes via outgoing edges (transitive outgoing closure).
+    /// Kept for API parity with `dependents`; not currently wired to the CLI,
+    /// which uses `dependents` for true blast-radius semantics.
+    #[allow(dead_code)]
     pub fn impact(
         &self,
         node_id: &str,
@@ -100,6 +108,16 @@ impl GraphData {
         max_depth: Option<u8>,
     ) -> Vec<String> {
         self.traverse_bfs(node_id, Direction::Outgoing, edge_types, max_depth)
+    }
+
+    /// Find dependents (upstream — who calls/uses this node, transitively)
+    pub fn dependents(
+        &self,
+        node_id: &str,
+        edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
+    ) -> Vec<String> {
+        self.traverse_bfs(node_id, Direction::Incoming, edge_types, max_depth)
     }
 
     /// BFS traversal in a given direction with optional depth limit
@@ -279,9 +297,28 @@ pub async fn run_impact(
         None
     };
 
-    let affected_ids = graph.impact(&node_id, effective_edge_types.as_deref(), depth);
+    // Use `dependents` (Incoming BFS) — matches the help text "what breaks if this
+    // node changes" and aligns with the MCP mu_impact tool. The prior outgoing
+    // traversal was a transitive-deps listing mislabelled as impact.
+    let affected_ids = graph.dependents(&node_id, effective_edge_types.as_deref(), depth);
 
-    let affected_nodes: Vec<AffectedNode> = affected_ids
+    // Fetch importance scores so the list is ranked by PageRank-derived weight
+    // (high-importance dependents first = the ones most likely to matter).
+    let importance: HashMap<String, f32> = if affected_ids.is_empty() {
+        HashMap::new()
+    } else {
+        let mut stmt = conn.prepare("SELECT id, importance_score FROM nodes WHERE id = ?1")?;
+        let mut map = HashMap::new();
+        for id in &affected_ids {
+            let mut rows = stmt.query(params![id])?;
+            if let Some(row) = rows.next()? {
+                map.insert(id.clone(), row.get::<_, Option<f32>>(1)?.unwrap_or(0.0));
+            }
+        }
+        map
+    };
+
+    let mut affected_nodes: Vec<AffectedNode> = affected_ids
         .iter()
         .filter_map(|id| {
             graph.get_info(id).map(|info| AffectedNode {
@@ -292,6 +329,12 @@ pub async fn run_impact(
             })
         })
         .collect();
+
+    affected_nodes.sort_by(|a, b| {
+        let ia = importance.get(&a.id).copied().unwrap_or(0.0);
+        let ib = importance.get(&b.id).copied().unwrap_or(0.0);
+        ib.partial_cmp(&ia).unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let node_info = graph.get_info(&node_id);
     let result = ImpactResult {
@@ -307,8 +350,19 @@ pub async fn run_impact(
 
 /// Try to resolve a partial node ID to a full node ID using fuzzy matching
 pub fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
-    // 1. Try exact match on id or name first
-    let mut stmt = conn.prepare("SELECT id FROM nodes WHERE id = ?1 OR name = ?1")?;
+    // 1. Try exact match on id or name first. When multiple nodes share a name
+    //    (common in C# where `Foo` is both a module file and the class inside it),
+    //    prefer class > module > function — callers usually mean the class.
+    let mut stmt = conn.prepare(
+        "SELECT id FROM nodes WHERE id = ?1 OR name = ?1
+         ORDER BY CASE type
+             WHEN 'class' THEN 0
+             WHEN 'module' THEN 1
+             WHEN 'function' THEN 2
+             ELSE 3
+         END
+         LIMIT 1"
+    )?;
     let mut rows = stmt.query(params![query])?;
     if let Some(row) = rows.next()? {
         return Ok(row.get(0)?);
