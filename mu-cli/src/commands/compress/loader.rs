@@ -472,7 +472,7 @@ fn build_relationship_clusters(
         })
         .collect();
 
-    class_rel_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    class_rel_counts.sort_by_key(|c| std::cmp::Reverse(c.1));
 
     for (class, rel_count) in class_rel_counts.into_iter().take(10) {
         if rel_count == 0 {
@@ -1125,7 +1125,7 @@ fn build_domain_overview(
         .filter(|(_, score)| *score > 0)
         .collect();
 
-    scored_classes.sort_by(|a, b| b.1.cmp(&a.1));
+    scored_classes.sort_by_key(|c| std::cmp::Reverse(c.1));
 
     let mut seen_names: HashSet<String> = HashSet::new();
     scored_classes.retain(|(node, _)| {
@@ -1349,7 +1349,7 @@ pub fn load_from_source(path: &Path) -> Result<CompressedCodebase> {
 
     let tree = build_folder_tree(&compressed_modules);
 
-    hot_paths.sort_by(|a, b| b.complexity.cmp(&a.complexity));
+    hot_paths.sort_by_key(|p| std::cmp::Reverse(p.complexity));
     hot_paths.truncate(20);
 
     let stats = CodebaseStats {

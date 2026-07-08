@@ -1104,7 +1104,7 @@ pub async fn run(
     violations.extend(project_violations);
 
     // Sort: errors first, then warnings, then info
-    violations.sort_by(|a, b| a.severity.cmp(&b.severity));
+    violations.sort_by_key(|v| v.severity);
 
     let nodes_checked = count_nodes(&mubase);
     // Count against the full list before any truncation so the summary is accurate
@@ -1207,7 +1207,7 @@ pub fn run_audit_for_mcp(
     rules_run += project_rules.len();
     violations.extend(project_violations);
 
-    violations.sort_by(|a, b| a.severity.cmp(&b.severity));
+    violations.sort_by_key(|v| v.severity);
 
     let nodes_checked = count_nodes(mubase);
     let error_count = violations
