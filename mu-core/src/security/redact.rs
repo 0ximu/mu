@@ -21,17 +21,31 @@ pub fn redact_secrets(source: &str) -> (String, Vec<RedactedSecret>) {
     // Find all secrets
     let matches = find_secrets(source);
 
-    // Sort by position (reverse order to avoid offset issues)
+    // Different patterns can produce overlapping ranges (e.g. a generic
+    // secret spanning a postgres URI). Replacing one shifts the other's
+    // offsets and replace_range then panics. Keep only non-overlapping
+    // matches: earliest start wins, longest on ties.
     let mut sorted_matches: Vec<_> = matches.into_iter().collect();
-    sorted_matches.sort_by(|a, b| b.1.cmp(&a.1));
+    sorted_matches.sort_by(|a, b| a.1.cmp(&b.1).then(b.2.cmp(&a.2)));
 
-    for (pattern_name, start, end) in sorted_matches {
+    let mut kept: Vec<(&str, usize, usize)> = Vec::new();
+    let mut last_end = 0usize;
+    for m in sorted_matches {
+        if m.1 >= last_end {
+            last_end = m.2;
+            kept.push(m);
+        }
+    }
+
+    // Replace back-to-front so earlier offsets stay valid
+    for (pattern_name, start, end) in kept.iter().rev() {
+        let replacement = format!(":: REDACTED:{}", pattern_name);
+        redacted.replace_range(*start..*end, &replacement);
+    }
+
+    for (pattern_name, start, end) in kept {
         // Calculate line and column
         let (line_number, start_col, end_col) = position_to_line_col_full(source, start, end);
-
-        // Replace with redaction marker
-        let replacement = format!(":: REDACTED:{}", pattern_name);
-        redacted.replace_range(start..end, &replacement);
 
         secrets.push(RedactedSecret {
             pattern_name: pattern_name.to_string(),
@@ -40,9 +54,6 @@ pub fn redact_secrets(source: &str) -> (String, Vec<RedactedSecret>) {
             end_col,
         });
     }
-
-    // Reverse secrets to match source order
-    secrets.reverse();
 
     (redacted, secrets)
 }
@@ -101,6 +112,18 @@ mod tests {
         let (redacted, secrets) = redact_secrets(source);
         assert!(redacted.contains("REDACTED:aws_access_key_id"));
         assert_eq!(secrets.len(), 1);
+    }
+
+    #[test]
+    fn test_overlapping_matches_do_not_panic() {
+        // GENERIC_SECRET spans the whole assignment while POSTGRES_URI matches
+        // the URI inside it; overlapping ranges used to go stale after the
+        // inner replacement and panic in replace_range.
+        let source = "password=postgres://admin:hunter2@db.example.com/prod";
+        let (redacted, secrets) = redact_secrets(source);
+        assert!(redacted.contains("REDACTED:"));
+        assert!(!redacted.contains("hunter2"));
+        assert!(!secrets.is_empty());
     }
 
     #[test]
