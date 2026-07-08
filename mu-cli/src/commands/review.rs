@@ -154,9 +154,7 @@ impl TableDisplay for ReviewResult {
                     _ => si.change_type.yellow(),
                 };
                 let name_display = if si.name.len() > 28 {
-                    let mut end = 25;
-                    while !si.name.is_char_boundary(end) { end -= 1; }
-                    format!("{}...", &si.name[..end])
+                    crate::output::truncate_str(&si.name, 25)
                 } else {
                     si.name.clone()
                 };

@@ -111,13 +111,7 @@ fn category_tag(cat: &str) -> &'static str {
     }
 }
 
-fn truncate_str(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max.min(s.len())])
-    }
-}
+use crate::output::truncate_str;
 
 fn read_source_lines(
     path: &Path,
