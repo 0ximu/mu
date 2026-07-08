@@ -33,7 +33,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets -- -W clippy::all
+        run: cargo clippy --all-targets -- -D warnings
 
   test:
     name: Test (${{ matrix.os }})
