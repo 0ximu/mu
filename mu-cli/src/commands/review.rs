@@ -317,8 +317,8 @@ pub fn run_review(
     let start = Instant::now();
 
     // Stage 1: Semantic diff
-    let diff_result =
-        diff::semantic_diff(base_ref, "HEAD").map_err(|e| format!("diff failed: {}", e))?;
+    let diff_result = diff::semantic_diff(project_root, base_ref, "HEAD")
+        .map_err(|e| format!("diff failed: {}", e))?;
 
     // Stage 2: Impact analysis
     let mut symbol_impacts = Vec::new();
@@ -497,16 +497,16 @@ fn score_to_level(score: u32) -> RiskLevel {
 
 /// CLI entry point.
 pub async fn run(base_ref: Option<&str>, format: OutputFormat) -> anyhow::Result<()> {
-    let base = base_ref
-        .map(|s| s.to_string())
-        .unwrap_or_else(diff::detect_default_branch);
-
     let mubase_path = mubase::find_mubase_optional(".")
         .ok_or_else(|| anyhow::anyhow!("No .mu/mubase found. Run 'mu bootstrap' first."))?;
 
     let cwd = std::env::current_dir()?;
     let project_root = mubase::find_project_root(&cwd)
         .ok_or_else(|| anyhow::anyhow!("Could not determine project root."))?;
+
+    let base = base_ref
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| diff::detect_default_branch(&project_root));
 
     let db = crate::engine::storage::MUbase::open_read_only(&mubase_path)?;
 

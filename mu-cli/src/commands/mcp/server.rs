@@ -701,11 +701,13 @@ impl MuMcpServer {
         &self,
         Parameters(params): Parameters<DiffParams>,
     ) -> Result<CallToolResult, McpError> {
-        let _state = self.ensure_state().await?;
+        let state = self.ensure_state().await?;
 
-        let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
+        let base = params
+            .base_ref
+            .unwrap_or_else(|| crate::commands::diff::detect_default_branch(&state.project_root));
 
-        let diff_result = crate::commands::diff::semantic_diff(&base, "HEAD")
+        let diff_result = crate::commands::diff::semantic_diff(&state.project_root, &base, "HEAD")
             .map_err(|e| McpError::internal_error(format!("diff failed: {}", e), None))?;
 
         // Format as markdown
@@ -1092,7 +1094,9 @@ impl MuMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        let base = params.base_ref.unwrap_or_else(crate::commands::diff::detect_default_branch);
+        let base = params
+            .base_ref
+            .unwrap_or_else(|| crate::commands::diff::detect_default_branch(&state.project_root));
         let include_impact = params.include_impact.unwrap_or(true);
         let min_complexity = params.min_complexity;
 

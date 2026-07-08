@@ -922,8 +922,9 @@ fn run_project_rules(
 // ============================================================================
 
 /// Get changed files between a git ref and HEAD.
-fn get_diff_files(diff_base: &str) -> anyhow::Result<HashSet<String>> {
+fn get_diff_files(repo_root: &Path, diff_base: &str) -> anyhow::Result<HashSet<String>> {
     let output = Command::new("git")
+        .current_dir(repo_root)
         .args(["diff", "--name-only", &format!("{}...HEAD", diff_base)])
         .output()?;
 
@@ -1039,7 +1040,7 @@ pub async fn run(
 
     // Resolve diff scope
     let scope_files = match diff {
-        Some(base) => Some(get_diff_files(base)?),
+        Some(base) => Some(get_diff_files(&project_root, base)?),
         None => None,
     };
 
@@ -1134,7 +1135,7 @@ pub fn run_audit_for_mcp(
     let param_limit = config.max_params.unwrap_or(6);
 
     let scope_files = match diff_base {
-        Some(base) => get_diff_files(base).ok(),
+        Some(base) => get_diff_files(project_root, base).ok(),
         None => None,
     };
 
