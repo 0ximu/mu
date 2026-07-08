@@ -352,12 +352,7 @@ pub fn run_review(
 
     let total_dependents = total_dependents_set.len();
 
-    // Sort affected files by impact count (descending)
-    let mut affected_files: Vec<String> = affected_file_counts.into_iter().collect::<Vec<_>>()
-        .into_iter()
-        .map(|(f, _)| f)
-        .collect();
-    affected_files.sort();
+    let affected_files = sort_files_by_impact(affected_file_counts);
 
     // Stage 3: Audit on changed code
     let complexity_threshold = min_complexity.unwrap_or(15);
@@ -395,6 +390,14 @@ pub fn run_review(
         affected_files,
         duration_ms: start.elapsed().as_millis() as u64,
     })
+}
+
+/// Sort files by impact count descending, ties broken alphabetically.
+/// The "Top affected files" list claims impact order — this is that order.
+fn sort_files_by_impact(counts: HashMap<String, usize>) -> Vec<String> {
+    let mut entries: Vec<(String, usize)> = counts.into_iter().collect();
+    entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    entries.into_iter().map(|(f, _)| f).collect()
 }
 
 /// Look up how many dependents a symbol has and which files they're in.
@@ -660,6 +663,23 @@ mod tests {
         assert_eq!(score_to_level(16), RiskLevel::High);
         assert_eq!(score_to_level(30), RiskLevel::High);
         assert_eq!(score_to_level(31), RiskLevel::Critical);
+    }
+
+    #[test]
+    fn test_sort_files_by_impact_descending_ties_alphabetical() {
+        let mut counts = HashMap::new();
+        counts.insert("zeta.rs".to_string(), 3);
+        counts.insert("alpha.rs".to_string(), 1);
+        counts.insert("mid_a.rs".to_string(), 2);
+        counts.insert("mid_b.rs".to_string(), 2);
+
+        let sorted = sort_files_by_impact(counts);
+        assert_eq!(sorted, vec!["zeta.rs", "mid_a.rs", "mid_b.rs", "alpha.rs"]);
+    }
+
+    #[test]
+    fn test_sort_files_by_impact_empty() {
+        assert!(sort_files_by_impact(HashMap::new()).is_empty());
     }
 
     #[test]
