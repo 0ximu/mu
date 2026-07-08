@@ -280,10 +280,9 @@ fn rule_orphaned_fns(
           AND n.name NOT IN ('main', '__init__', '__new__', 'setup', 'teardown',
                              'setUp', 'tearDown', 'test', 'configure', 'run',
                              'build', 'create', 'init', 'new', 'default',
-                             'to_table', 'fmt', 'from', 'from_str', 'clone', 'drop',
-                             'deref', 'display', 'into', 'get_info', 'on_roots_list_changed')
+                             'fmt', 'from', 'from_str', 'clone', 'drop',
+                             'deref', 'display', 'into')
           AND n.node_category = 'production'
-          AND n.name NOT LIKE 'mu_%'
           AND (n.properties IS NULL OR n.properties NOT LIKE '%dispatch_type%')
         ORDER BY n.file_path, n.line_start
     "#;
@@ -1403,5 +1402,82 @@ mod tests {
         assert_eq!(cf.audit.complexity_threshold, Some(20));
         assert_eq!(cf.audit.max_params, Some(5));
         assert_eq!(cf.audit.disable.len(), 2);
+    }
+
+    // -- R1 orphan rule contract tests --
+
+    fn open_test_db() -> crate::engine::storage::MUbase {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.mubase");
+        std::mem::forget(dir);
+        crate::engine::storage::MUbase::open(&db_path).unwrap()
+    }
+
+    fn insert_fn(db: &crate::engine::storage::MUbase, id: &str, name: &str) {
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO nodes (id, type, name, file_path, line_start, node_category)
+                 VALUES (?, 'function', ?, 'src/lib.rs', 1, 'production')",
+                duckdb::params![id, name],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn test_r1_flags_user_functions_with_mu_prefix() {
+        let db = open_test_db();
+        // A user's function that happens to start with mu_ must be flaggable
+        // as dead code. The allowlist used to hardcode MU's own symbols.
+        insert_fn(&db, "fn:1", "mu_calculate_tax");
+
+        let violations = rule_orphaned_fns(&db, &None);
+        assert!(
+            violations.iter().any(|v| v.node_name == "mu_calculate_tax"),
+            "mu_-prefixed orphan was not flagged: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn test_r1_skips_generic_trait_method_names() {
+        let db = open_test_db();
+        insert_fn(&db, "fn:fmt", "fmt");
+        insert_fn(&db, "fn:clone", "clone");
+        insert_fn(&db, "fn:main", "main");
+
+        let violations = rule_orphaned_fns(&db, &None);
+        assert!(
+            violations.is_empty(),
+            "generic trait/entry names should not be flagged: {:?}",
+            violations
+        );
+    }
+
+    #[test]
+    fn test_r1_skips_functions_with_incoming_edges() {
+        let db = open_test_db();
+        insert_fn(&db, "fn:caller", "caller_fn");
+        insert_fn(&db, "fn:callee", "callee_fn");
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO edges (id, source_id, target_id, type)
+                 VALUES ('e1', 'fn:caller', 'fn:callee', 'calls')",
+                [],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let violations = rule_orphaned_fns(&db, &None);
+        assert!(
+            !violations.iter().any(|v| v.node_name == "callee_fn"),
+            "called function must not be an orphan"
+        );
+        assert!(
+            violations.iter().any(|v| v.node_name == "caller_fn"),
+            "uncalled function should be an orphan"
+        );
     }
 }
