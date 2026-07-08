@@ -29,7 +29,6 @@ mu-core/python/
 mu-daemon/python/
 checkpoints/
 models/
-!mu-embeddings/models/
 .beads/
 .benchmarks/
 .bmad

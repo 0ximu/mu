@@ -15,7 +15,6 @@ path = "src/main.rs"
 [dependencies]
 # Internal crates
 mu-core = { workspace = true }
-mu-embeddings = { workspace = true, optional = true }
 
 # Progress bars
 indicatif = "0.17"
@@ -59,7 +58,6 @@ rmcp = { version = "0.3", features = ["server", "transport-io"] }
 schemars = "1.0.0-alpha.17"
 
 [features]
-legacy-embeddings = ["dep:mu-embeddings"]
 
 [dev-dependencies]
 tempfile = "3"
