@@ -210,6 +210,7 @@ pub struct ReadNodesParams {
     pub mode: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PackContextParams {
     /// Optional task description for context-aware packing
@@ -299,6 +300,7 @@ pub fn handle_read_nodes(mubase: &MUbase, project_root: &Path, params: &ReadNode
     read_nodes_tool(mubase, project_root, &params.node_ids, mode)
 }
 
+#[allow(dead_code)]
 pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackContextParams) -> Result<String> {
     let budget = params.budget.unwrap_or(4000);
     let style = params.style.as_deref().unwrap_or("grouped");
@@ -882,6 +884,7 @@ pub fn read_nodes_tool(
 // ============================================================================
 
 /// Pack code context within a token budget, grouped by file.
+#[allow(dead_code)]
 pub fn pack_context_tool(
     mubase: &MUbase,
     project_root: &Path,
@@ -1323,6 +1326,7 @@ fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Op
     Some((name, ntype, file_path, category))
 }
 
+#[allow(dead_code)]
 struct PackNode {
     id: String,
     name: String,
@@ -1337,6 +1341,7 @@ struct PackNode {
     importance_score: f64,
 }
 
+#[allow(dead_code)]
 fn pack_node_from_row(row: &[serde_json::Value]) -> PackNode {
     PackNode {
         id: row.first().and_then(|v| v.as_str()).unwrap_or("").to_string(),
@@ -1352,6 +1357,7 @@ fn pack_node_from_row(row: &[serde_json::Value]) -> PackNode {
     }
 }
 
+#[allow(dead_code)]
 fn group_by_file<'a>(nodes: &'a [PackNode]) -> Vec<(String, Vec<&'a PackNode>)> {
     let mut groups: Vec<(String, Vec<&'a PackNode>)> = Vec::new();
     for node in nodes {

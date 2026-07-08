@@ -78,13 +78,6 @@ pub struct DiffParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct WtfParams {
-    /// File path to investigate history for
-    #[schemars(description = "File path to investigate (e.g., 'src/auth/login.rs')")]
-    pub file: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SusParams {
     /// Minimum complexity threshold (default: 15)
     #[schemars(description = "Minimum complexity score to flag (default: 15)")]
@@ -895,169 +888,6 @@ impl MuMcpServer {
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
-    /// WTF: Git archaeology with context
-    #[tool(
-        description = "Git archaeology — who wrote this, how it evolved, co-changed files. Use when you need to understand a file's history: who last changed it, when it was created, and what commits touched it. NOT for: understanding what code does (use mu_find or mu_read), or checking code quality (use mu_audit)."
-    )]
-    async fn mu_wtf(
-        &self,
-        Parameters(params): Parameters<WtfParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let state = self.ensure_state().await?;
-        let file_path = &params.file;
-        let full_path = state.project_root.join(file_path);
-
-        let mut output = String::new();
-        output.push_str(&format!("# WTF: {}\n\n", file_path));
-
-        // Check if file exists
-        let file_exists = full_path.exists();
-        let is_tracked = Command::new("git")
-            .args(["ls-files", file_path])
-            .current_dir(&state.project_root)
-            .output()
-            .map(|o| !o.stdout.is_empty())
-            .unwrap_or(false);
-
-        // File info
-        if file_exists {
-            if let Ok(metadata) = fs::metadata(&full_path) {
-                let size = metadata.len();
-                output.push_str(&format!("Size: {} bytes\n", size));
-            }
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                let lines = content.lines().count();
-                output.push_str(&format!("Lines: {}\n", lines));
-            }
-        } else {
-            output.push_str("⚠ File not found on disk\n");
-        }
-
-        output.push_str(&format!(
-            "Git tracked: {}\n\n",
-            if is_tracked { "Yes" } else { "No" }
-        ));
-
-        if is_tracked {
-            // Recent commits
-            output.push_str("## Recent Commits\n");
-            let log = Command::new("git")
-                .args([
-                    "log",
-                    "--format=%h %ad %an: %s",
-                    "--date=short",
-                    "-10",
-                    "--",
-                    file_path,
-                ])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(log_out) = log {
-                let log_str = String::from_utf8_lossy(&log_out.stdout);
-                if log_str.is_empty() {
-                    output.push_str("  No commits yet (new file?)\n");
-                } else {
-                    for line in log_str.lines() {
-                        output.push_str(&format!("  {}\n", line));
-                    }
-                }
-            }
-
-            // Contributors
-            output.push_str("\n## Contributors\n");
-            let authors = Command::new("git")
-                .args(["shortlog", "-sn", "--", file_path])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(auth_out) = authors {
-                let auth_str = String::from_utf8_lossy(&auth_out.stdout);
-                for line in auth_str.lines().take(5) {
-                    output.push_str(&format!("  {}\n", line.trim()));
-                }
-            }
-
-            // First created
-            output.push_str("\n## Origin\n");
-            let first = Command::new("git")
-                .args([
-                    "log",
-                    "--format=%ad %an: %s",
-                    "--date=short",
-                    "--diff-filter=A",
-                    "--",
-                    file_path,
-                ])
-                .current_dir(&state.project_root)
-                .output();
-
-            if let Ok(first_out) = first {
-                let first_str = String::from_utf8_lossy(&first_out.stdout);
-                if let Some(line) = first_str.lines().last() {
-                    output.push_str(&format!("  Created: {}\n", line));
-                }
-            }
-        } else if file_exists {
-            output.push_str("## Status: Untracked file\n");
-            output.push_str("This file exists but isn't in git yet.\n");
-
-            // Show first few lines
-            if let Ok(content) = fs::read_to_string(&full_path) {
-                output.push_str("\n## Preview\n```\n");
-                for line in content.lines().take(10) {
-                    output.push_str(line);
-                    output.push('\n');
-                }
-                output.push_str("```\n");
-            }
-        }
-
-        // Database info
-        if let Ok(nodes) = state.mubase.query_params(
-            "SELECT type, name, complexity FROM nodes WHERE file_path = ?1 ORDER BY line_start",
-            &[&file_path as &dyn duckdb::ToSql],
-        ) {
-            if !nodes.rows.is_empty() {
-                output.push_str("\n## Symbols in file\n");
-                for row in &nodes.rows {
-                    let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");
-                    let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("?");
-                    let complexity = row.get(2).and_then(|v| v.as_i64()).unwrap_or(0);
-                    if node_type == "module" {
-                        continue;
-                    }
-                    let sigil = match node_type {
-                        "class" => "$",
-                        "function" => "#",
-                        _ => "@",
-                    };
-                    output.push_str(&format!("  {}{}", sigil, name));
-                    if complexity > 15 {
-                        output.push_str(&format!(" (c={})", complexity));
-                    }
-                    output.push('\n');
-                }
-            }
-        }
-
-        Ok(CallToolResult::success(vec![Content::text(output)]))
-    }
-
-    /// Oracle: Task-aware context retrieval (V3: search + expand + pack)
-    #[tool(
-        description = "Context assembly for a specific task. Give it a task description and a token budget, and it packs the most relevant source code for that task. Best for: 'I need to understand how X works — give me all the relevant code' or 'give me context to fix bug Y'. NOT for: general questions about the codebase (use mu_grok), dependency questions (use mu_impact), or project overview (use mu_compress)."
-    )]
-    async fn mu_oracle(
-        &self,
-        Parameters(params): Parameters<tools_v3::PackContextParams>,
-    ) -> Result<CallToolResult, McpError> {
-        let state = self.ensure_state().await?;
-        let output = tools_v3::handle_pack_context(&state.mubase, &state.project_root, &params)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(output)]))
-    }
-
     /// Expand: Graph traversal from seed nodes
     #[tool(
         description = "Explore the dependency graph around a node. Use to understand what a function calls, what calls it, what it inherits from, and what it contains. Start with a node_id from mu_grok or mu_find, then expand to see its neighborhood. Use depth=1 for immediate neighbors, depth=2 for the extended graph. Best for: understanding how code connects, tracing call chains, finding related code. For full impact analysis across the whole codebase, use mu_impact instead."
@@ -1419,7 +1249,7 @@ impl ServerHandler for MuMcpServer {
                 version: env!("CARGO_PKG_VERSION").into(),
             },
             instructions: Some(
-                "MU gives you deep codebase understanding through 15 tools. Here's how to pick the right one:\n\
+                "MU gives you deep codebase understanding through 13 tools. Here's how to pick the right one:\n\
                  \n\
                  FINDING CODE:\n\
                  • Know the exact name? → mu_find (fastest, most precise)\n\
@@ -1429,14 +1259,12 @@ impl ServerHandler for MuMcpServer {
                  UNDERSTANDING STRUCTURE:\n\
                  • What does this function call / what calls it? → mu_expand (graph neighbors)\n\
                  • What breaks if I change this? → mu_impact (full downstream blast radius)\n\
-                 • Give me all context for a task → mu_oracle (packs relevant code within a token budget)\n\
                  • What services/modules exist? → mu_compress (codebase overview)\n\
                  \n\
                  CODE QUALITY:\n\
                  • Risky/complex code? → mu_sus\n\
                  • Full PR review? → mu_review (diff + impact + audit + risk score)\n\
                  • Quality rules only? → mu_audit\n\
-                 • Git history of a file? → mu_wtf\n\
                  • What changed in a branch? → mu_diff\n\
                  \n\
                  SETUP & IMPROVEMENT:\n\
@@ -1447,7 +1275,7 @@ impl ServerHandler for MuMcpServer {
                  TIPS:\n\
                  • Chain tools: mu_grok to find → mu_expand to understand neighbors → mu_read for source\n\
                  • If mu_grok returns LOW confidence, try mu_find with a specific name instead\n\
-                 • For 'how does X flow work', use mu_oracle with a task description\n\
+                 • For 'how does X flow work', start with mu_grok, then mu_expand + mu_read on the hits\n\
                  • For 'what depends on X', always use mu_impact, not mu_grok".into()
             ),
         }
