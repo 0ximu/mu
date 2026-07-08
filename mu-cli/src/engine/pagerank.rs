@@ -186,20 +186,13 @@ pub fn compute_composite_importance(
     let mut scores: HashMap<String, f32> = HashMap::with_capacity(node_metadata.len());
 
     for (node_id, meta) in node_metadata {
-        let pr = pagerank_scores
-            .get(node_id)
-            .copied()
-            .unwrap_or(0.0)
-            / pr_max;
+        let pr = pagerank_scores.get(node_id).copied().unwrap_or(0.0) / pr_max;
 
         let complexity_norm = (meta.complexity as f32 / max_complexity).min(1.0);
         let loc_norm = (meta.loc as f32).min(200.0) / 200.0;
         let public_boost = if meta.is_public { 1.0_f32 } else { 0.8 };
 
-        let mut score = 0.40 * pr
-            + 0.30 * complexity_norm
-            + 0.20 * loc_norm
-            + 0.10 * public_boost;
+        let mut score = 0.40 * pr + 0.30 * complexity_norm + 0.20 * loc_norm + 0.10 * public_boost;
 
         // Dampen trivial high-fan-in utilities (tiny body + many callers = helper, not core)
         if meta.loc < 10 && meta.in_degree > 20 {
@@ -240,7 +233,10 @@ mod tests {
         let n = nodes(&["A"]);
         let result = compute_pagerank(&n, &[], &PageRankConfig::default());
         assert_eq!(result.len(), 1);
-        assert!((result["A"] - 1.0).abs() < 1e-5, "single node should be 1.0");
+        assert!(
+            (result["A"] - 1.0).abs() < 1e-5,
+            "single node should be 1.0"
+        );
     }
 
     #[test]
@@ -321,11 +317,7 @@ mod tests {
         let max = result.values().cloned().fold(0.0_f32, f32::max);
         let min = result.values().cloned().fold(f32::MAX, f32::min);
 
-        assert!(
-            (max - 1.0).abs() < 1e-5,
-            "max should be ~1.0, got {}",
-            max
-        );
+        assert!((max - 1.0).abs() < 1e-5, "max should be ~1.0, got {}", max);
         assert!(min >= 0.0, "min should be >= 0, got {}", min);
     }
 
@@ -385,7 +377,13 @@ mod tests {
         }
     }
 
-    fn meta_with_indegree(complexity: u32, loc: u32, is_public: bool, is_test: bool, in_degree: u32) -> NodeMeta {
+    fn meta_with_indegree(
+        complexity: u32,
+        loc: u32,
+        is_public: bool,
+        is_test: bool,
+        in_degree: u32,
+    ) -> NodeMeta {
         NodeMeta {
             complexity,
             loc,
@@ -465,7 +463,12 @@ mod tests {
 
         // All scores should be positive
         for (id, score) in &scores {
-            assert!(*score > 0.0, "node {} should have positive score, got {}", id, score);
+            assert!(
+                *score > 0.0,
+                "node {} should have positive score, got {}",
+                id,
+                score
+            );
         }
 
         // Scores should be ordered: a > b > c
@@ -529,8 +532,14 @@ mod tests {
         pr.insert("normal".to_string(), 0.8);
 
         let metadata = vec![
-            ("utility".to_string(), meta_with_indegree(2, 5, true, false, 30)),
-            ("normal".to_string(), meta_with_indegree(2, 5, true, false, 5)),
+            (
+                "utility".to_string(),
+                meta_with_indegree(2, 5, true, false, 30),
+            ),
+            (
+                "normal".to_string(),
+                meta_with_indegree(2, 5, true, false, 5),
+            ),
         ];
 
         let scores = compute_composite_importance(&pr, &metadata);
@@ -580,10 +589,6 @@ mod tests {
             "difference should be small (only 10% * 0.2 = 0.02), got {}",
             diff,
         );
-        assert!(
-            diff > 0.0,
-            "difference should be positive, got {}",
-            diff,
-        );
+        assert!(diff > 0.0, "difference should be positive, got {}", diff,);
     }
 }

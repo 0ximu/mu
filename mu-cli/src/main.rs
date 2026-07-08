@@ -274,9 +274,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match command {
-        Commands::Bootstrap { path, force } => {
-            bootstrap::run(&path, force, format).await
-        }
+        Commands::Bootstrap { path, force } => bootstrap::run(&path, force, format).await,
         Commands::Compress {
             path,
             output,
@@ -304,7 +302,17 @@ async fn main() -> anyhow::Result<()> {
             diff,
             rules_dir,
             top,
-        } => audit::run(min_complexity, max_params, diff.as_deref(), rules_dir.as_deref(), top, format).await,
+        } => {
+            audit::run(
+                min_complexity,
+                max_params,
+                diff.as_deref(),
+                rules_dir.as_deref(),
+                top,
+                format,
+            )
+            .await
+        }
 
         Commands::Mcp { path } => mcp::run(&path).await,
 

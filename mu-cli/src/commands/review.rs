@@ -10,9 +10,9 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::commands::audit::{self, Severity, Violation};
-use crate::commands::diff::{self, DiffResult};
 #[cfg(test)]
 use crate::commands::diff::SemanticChange;
+use crate::commands::diff::{self, DiffResult};
 use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 
@@ -123,8 +123,12 @@ impl TableDisplay for ReviewResult {
                 }
                 if let Some(impact) = impact {
                     if !impact.affected_files.is_empty() {
-                        let files: Vec<&str> =
-                            impact.affected_files.iter().take(5).map(|s| s.as_str()).collect();
+                        let files: Vec<&str> = impact
+                            .affected_files
+                            .iter()
+                            .take(5)
+                            .map(|s| s.as_str())
+                            .collect();
                         out.push_str(&format!("    affects: {}\n", files.join(", ").dimmed()));
                     }
                 }
@@ -218,10 +222,7 @@ pub fn format_as_markdown(result: &ReviewResult) -> String {
         RiskLevel::High => "",
         RiskLevel::Critical => "",
     };
-    md.push_str(&format!(
-        "# Review: {} -> HEAD\n",
-        result.base_ref
-    ));
+    md.push_str(&format!("# Review: {} -> HEAD\n", result.base_ref));
     md.push_str(&format!(
         "**Risk: {}** {} | {} symbols changed | {} breaking | {} downstream impact\n\n",
         result.risk_level,
@@ -247,8 +248,12 @@ pub fn format_as_markdown(result: &ReviewResult) -> String {
             ));
             if let Some(impact) = impact {
                 if !impact.affected_files.is_empty() {
-                    let files: Vec<&str> =
-                        impact.affected_files.iter().take(5).map(|s| s.as_str()).collect();
+                    let files: Vec<&str> = impact
+                        .affected_files
+                        .iter()
+                        .take(5)
+                        .map(|s| s.as_str())
+                        .collect();
                     md.push_str(&format!("  - {}\n", files.join(", ")));
                 }
             }
@@ -375,7 +380,12 @@ pub fn run_review(
     });
 
     // Stage 4: Risk scoring
-    let risk_score = compute_risk_score(&diff_result, &symbol_impacts, &audit_result, total_dependents);
+    let risk_score = compute_risk_score(
+        &diff_result,
+        &symbol_impacts,
+        &audit_result,
+        total_dependents,
+    );
     let risk_level = score_to_level(risk_score);
 
     Ok(ReviewResult {
@@ -513,8 +523,8 @@ pub async fn run(base_ref: Option<&str>, format: OutputFormat) -> anyhow::Result
 
     let db = crate::engine::storage::MUbase::open_read_only(&mubase_path)?;
 
-    let result = run_review(&db, &project_root, &base, true, None)
-        .map_err(|e| anyhow::anyhow!(e))?;
+    let result =
+        run_review(&db, &project_root, &base, true, None).map_err(|e| anyhow::anyhow!(e))?;
 
     Output::new(result, format).render()
 }
@@ -651,7 +661,11 @@ mod tests {
 
         let score = compute_risk_score(&diff, &[], &audit, 0);
         // 2 * 8 (secrets) + 2 * 2 (errors) = 20
-        assert!(score >= 16, "expected HIGH or CRITICAL, got score {}", score);
+        assert!(
+            score >= 16,
+            "expected HIGH or CRITICAL, got score {}",
+            score
+        );
     }
 
     #[test]

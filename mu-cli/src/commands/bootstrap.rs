@@ -118,7 +118,10 @@ impl TableDisplay for BootstrapResult {
             }
         }
 
-        if self.importance_scores_computed > 0 || self.summaries_generated > 0 || self.fts_index_created {
+        if self.importance_scores_computed > 0
+            || self.summaries_generated > 0
+            || self.fts_index_created
+        {
             output.push_str(&format!("\n{}\n", "Search".cyan().bold()));
             if self.importance_scores_computed > 0 {
                 output.push_str(&format!(
@@ -237,8 +240,6 @@ fn ensure_config(root: &Path) -> bool {
     false
 }
 
-
-
 // ============================================================================
 // Scanning & Parsing
 // ============================================================================
@@ -342,11 +343,14 @@ fn scan_and_parse(
     }
 
     // Parse files that weren't in cache
-    spin(spinner, format!(
-        "Parsing {} files ({} cached)...",
-        files_to_parse.len(),
-        cache_stats.hits
-    ));
+    spin(
+        spinner,
+        format!(
+            "Parsing {} files ({} cached)...",
+            files_to_parse.len(),
+            cache_stats.hits
+        ),
+    );
 
     let file_infos: Vec<mu_core::types::FileInfo> = files_to_parse
         .iter()
@@ -398,7 +402,10 @@ fn build_graph(
     parse_results: &[mu_core::types::ParseResult],
     root: &Path,
     spinner: Option<&ProgressBar>,
-) -> (Vec<crate::engine::storage::Node>, Vec<crate::engine::storage::Edge>) {
+) -> (
+    Vec<crate::engine::storage::Node>,
+    Vec<crate::engine::storage::Edge>,
+) {
     spin(spinner, "Building graph...");
 
     // Load path alias resolver for TS/JS
@@ -577,15 +584,14 @@ fn build_receiver_type_map(
                     let base_type = type_name.split('<').next().unwrap_or(type_name);
 
                     // Strip leading I for interface: ITransactionService -> TransactionService
-                    let concrete_name =
-                        if base_type.starts_with('I')
-                            && base_type.len() > 1
-                            && base_type[1..].starts_with(|c: char| c.is_uppercase())
-                        {
-                            &base_type[1..]
-                        } else {
-                            base_type
-                        };
+                    let concrete_name = if base_type.starts_with('I')
+                        && base_type.len() > 1
+                        && base_type[1..].starts_with(|c: char| c.is_uppercase())
+                    {
+                        &base_type[1..]
+                    } else {
+                        base_type
+                    };
 
                     // Look up the concrete class (try without I first, then with I)
                     let class_id = class_lookup
@@ -595,15 +601,9 @@ fn build_receiver_type_map(
                     if let Some(class_id) = class_id {
                         // Map the conventional field name: param "dbContext" -> field "_dbContext"
                         let field_name = format!("_{}", param.name);
-                        map.insert(
-                            (module.path.clone(), field_name),
-                            class_id.clone(),
-                        );
+                        map.insert((module.path.clone(), field_name), class_id.clone());
                         // Also map the raw param name (some code uses it directly)
-                        map.insert(
-                            (module.path.clone(), param.name.clone()),
-                            class_id.clone(),
-                        );
+                        map.insert((module.path.clone(), param.name.clone()), class_id.clone());
                     }
                 }
             }
@@ -613,9 +613,7 @@ fn build_receiver_type_map(
 }
 
 /// Build `class_id → Vec<parent_class_id>` from existing Inherits edges.
-fn build_inherits_map(
-    edges: &[crate::engine::storage::Edge],
-) -> HashMap<String, Vec<String>> {
+fn build_inherits_map(edges: &[crate::engine::storage::Edge]) -> HashMap<String, Vec<String>> {
     use crate::engine::storage::schema::EdgeType;
     let mut map: HashMap<String, Vec<String>> = HashMap::new();
     for edge in edges {
@@ -702,7 +700,9 @@ fn build_function_source_text(func: &mu_core::types::FunctionDef) -> Option<Stri
     if let Some(ref body) = func.body_source {
         let preview = if body.len() > 500 {
             let mut end = 500;
-            while !body.is_char_boundary(end) { end -= 1; }
+            while !body.is_char_boundary(end) {
+                end -= 1;
+            }
             format!("{}...", &body[..end])
         } else {
             body.clone()
@@ -732,7 +732,8 @@ fn build_module_graph(
             parts.push(docstring.clone());
         }
         if !module.imports.is_empty() {
-            let import_names: Vec<&str> = module.imports.iter().map(|i| i.module.as_str()).collect();
+            let import_names: Vec<&str> =
+                module.imports.iter().map(|i| i.module.as_str()).collect();
             parts.push(format!("imports: {}", import_names.join(", ")));
         }
         if !parts.is_empty() {
@@ -760,7 +761,8 @@ fn build_module_graph(
                 parts.push(format!("  attributes: {}", class.attributes.join(", ")));
             }
             if !class.methods.is_empty() {
-                let method_names: Vec<&str> = class.methods.iter().map(|m| m.name.as_str()).collect();
+                let method_names: Vec<&str> =
+                    class.methods.iter().map(|m| m.name.as_str()).collect();
                 parts.push(format!("  methods: {}", method_names.join(", ")));
             }
             Some(parts.join("\n"))
@@ -797,7 +799,9 @@ fn build_module_graph(
 
         let class_id = class_node.id.clone();
         nodes.push(class_node);
-        edges.push(crate::engine::storage::Edge::contains(&module_id, &class_id));
+        edges.push(crate::engine::storage::Edge::contains(
+            &module_id, &class_id,
+        ));
 
         // Inheritance edges
         for base in &class.bases {
@@ -837,7 +841,11 @@ fn build_module_graph(
             }
             if !method.decorators.is_empty() {
                 // Check for dispatch markers
-                if let Some(dt) = method.decorators.iter().find_map(|d| d.strip_prefix("dispatch:")) {
+                if let Some(dt) = method
+                    .decorators
+                    .iter()
+                    .find_map(|d| d.strip_prefix("dispatch:"))
+                {
                     method_props.insert("dispatch_type".to_string(), json!(dt));
                 }
                 method_props.insert("decorators".to_string(), json!(method.decorators));
@@ -855,11 +863,15 @@ fn build_module_graph(
 
             let method_id = method_node.id.clone();
             nodes.push(method_node);
-            edges.push(crate::engine::storage::Edge::contains(&class_id, &method_id));
+            edges.push(crate::engine::storage::Edge::contains(
+                &class_id, &method_id,
+            ));
 
             // Emit macro_dispatch soft edge for dispatch-marked methods
             if method.decorators.iter().any(|d| d == "dispatch:macro") {
-                edges.push(crate::engine::storage::Edge::macro_dispatch(&module_id, &method_id));
+                edges.push(crate::engine::storage::Edge::macro_dispatch(
+                    &module_id, &method_id,
+                ));
             }
         }
     }
@@ -884,7 +896,11 @@ fn build_module_graph(
         }
         if !func.decorators.is_empty() {
             // Check for dispatch markers
-            if let Some(dt) = func.decorators.iter().find_map(|d| d.strip_prefix("dispatch:")) {
+            if let Some(dt) = func
+                .decorators
+                .iter()
+                .find_map(|d| d.strip_prefix("dispatch:"))
+            {
                 func_props.insert("dispatch_type".to_string(), json!(dt));
             }
             func_props.insert("decorators".to_string(), json!(func.decorators));
@@ -899,7 +915,9 @@ fn build_module_graph(
 
         // Emit macro_dispatch soft edge for dispatch-marked functions
         if func.decorators.iter().any(|d| d == "dispatch:macro") {
-            edges.push(crate::engine::storage::Edge::macro_dispatch(&module_id, &func_id));
+            edges.push(crate::engine::storage::Edge::macro_dispatch(
+                &module_id, &func_id,
+            ));
         }
     }
 
@@ -912,7 +930,9 @@ fn build_module_graph(
             path_alias_resolver,
             Some(csharp_namespace_map),
         );
-        edges.push(crate::engine::storage::Edge::imports(&module_id, &target_id));
+        edges.push(crate::engine::storage::Edge::imports(
+            &module_id, &target_id,
+        ));
     }
 }
 
@@ -967,13 +987,9 @@ fn resolve_all_call_sites(
                 let func_id = format!("fn:{}:{}", rel_path, func.name);
                 total += func.call_sites.len();
                 for call in &func.call_sites {
-                    if let Some(target_id) = resolve_call_site(
-                        call,
-                        rel_path,
-                        None,
-                        &module.imports,
-                        maps,
-                    ) {
+                    if let Some(target_id) =
+                        resolve_call_site(call, rel_path, None, &module.imports, maps)
+                    {
                         edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
                     }
@@ -1069,10 +1085,8 @@ fn synthesize_impl_edges(
                 for method in &class.methods {
                     for dec in &method.decorators {
                         if let Some(trait_name) = dec.strip_prefix("impl:") {
-                            let impl_method_id = format!(
-                                "fn:{}:{}.{}",
-                                module.path, class.name, method.name
-                            );
+                            let impl_method_id =
+                                format!("fn:{}:{}.{}", module.path, class.name, method.name);
                             // Find trait class methods by matching class ID suffix
                             for (&cid, methods) in &class_methods {
                                 if cid.ends_with(&format!(":{}", trait_name)) {
@@ -1121,31 +1135,36 @@ fn detect_cross_service_edges(
 ) {
     let consumer_re = Regex::new(r"IConsumer<(\w+)>").unwrap();
     let publish_re = Regex::new(r"\.Publish<(\w+)>\s*\(").unwrap();
-    let http_verb_re =
-        Regex::new(r"\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(").unwrap();
+    let http_verb_re = Regex::new(
+        r"\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(",
+    )
+    .unwrap();
     let http_url_re = Regex::new(r#"["'](/api/[^"']+)["']"#).unwrap();
-    let contract_ns_re = Regex::new(r"\b(\w+)\.(Contracts|Shared|Messages|Events|Commands)\.(\w+)").unwrap();
+    let contract_ns_re =
+        Regex::new(r"\b(\w+)\.(Contracts|Shared|Messages|Events|Commands)\.(\w+)").unwrap();
 
     // Track created message nodes to avoid duplicates
     let mut message_nodes: HashMap<String, String> = HashMap::new();
 
-    let mut get_or_create_message_node =
-        |type_name: &str, namespace: Option<&str>, nodes: &mut Vec<crate::engine::storage::Node>| -> String {
-            let key = format!("{}:{}", namespace.unwrap_or(""), type_name);
-            if let Some(id) = message_nodes.get(&key) {
-                return id.clone();
-            }
-            // Check if this type already exists as a class in the graph
-            if let Some(class_id) = class_lookup.get(type_name) {
-                message_nodes.insert(key, class_id.clone());
-                return class_id.clone();
-            }
-            let node = crate::engine::storage::Node::message(type_name, namespace);
-            let id = node.id.clone();
-            nodes.push(node);
-            message_nodes.insert(key, id.clone());
-            id
-        };
+    let mut get_or_create_message_node = |type_name: &str,
+                                          namespace: Option<&str>,
+                                          nodes: &mut Vec<crate::engine::storage::Node>|
+     -> String {
+        let key = format!("{}:{}", namespace.unwrap_or(""), type_name);
+        if let Some(id) = message_nodes.get(&key) {
+            return id.clone();
+        }
+        // Check if this type already exists as a class in the graph
+        if let Some(class_id) = class_lookup.get(type_name) {
+            message_nodes.insert(key, class_id.clone());
+            return class_id.clone();
+        }
+        let node = crate::engine::storage::Node::message(type_name, namespace);
+        let id = node.id.clone();
+        nodes.push(node);
+        message_nodes.insert(key, id.clone());
+        id
+    };
 
     for result in parse_results {
         if !result.success {
@@ -1170,7 +1189,11 @@ fn detect_cross_service_edges(
                     let edge = crate::engine::storage::Edge::subscribes(&class_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
-                    tracing::debug!("Cross-service: {} subscribes to {}", class.name, message_type);
+                    tracing::debug!(
+                        "Cross-service: {} subscribes to {}",
+                        class.name,
+                        message_type
+                    );
                 }
             }
 
@@ -1191,7 +1214,9 @@ fn detect_cross_service_edges(
                     edges.push(edge);
                     tracing::debug!(
                         "Cross-service: {}.{} publishes {}",
-                        class.name, method.name, message_type
+                        class.name,
+                        method.name,
+                        message_type
                     );
                 }
 
@@ -1222,7 +1247,9 @@ fn detect_cross_service_edges(
                     edges.push(edge);
                     tracing::debug!(
                         "Cross-service: {}.{} calls HTTP ({})",
-                        class.name, method.name, http_method
+                        class.name,
+                        method.name,
+                        http_method
                     );
                 }
             }
@@ -1239,11 +1266,15 @@ fn detect_cross_service_edges(
                         .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
 
                     let edge = crate::engine::storage::Edge::uses_contract(&class_id, &target_id)
-                        .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
+                        .with_properties(
+                            json!({"namespace": contract_ns, "contract_type": contract_type}),
+                        );
                     edges.push(edge);
                     tracing::debug!(
                         "Cross-service: {} uses contract {}.{}",
-                        class.name, contract_ns, contract_type
+                        class.name,
+                        contract_ns,
+                        contract_type
                     );
                 }
             }
@@ -1259,7 +1290,9 @@ fn detect_cross_service_edges(
                     .unwrap_or_else(|| format!("ext:{}:{}", contract_ns, contract_type));
 
                 let edge = crate::engine::storage::Edge::uses_contract(&class_id, &target_id)
-                    .with_properties(json!({"namespace": contract_ns, "contract_type": contract_type}));
+                    .with_properties(
+                        json!({"namespace": contract_ns, "contract_type": contract_type}),
+                    );
                 edges.push(edge);
             }
         }
@@ -1273,7 +1306,8 @@ fn detect_cross_service_edges(
     if cross_edges > 0 {
         tracing::info!(
             "Cross-service detection: {} message nodes, {} cross-service edges",
-            msg_count, cross_edges
+            msg_count,
+            cross_edges
         );
     }
 }
@@ -1379,7 +1413,8 @@ pub fn bootstrap_pipeline(
         node.node_category = crate::engine::auto_config::classify_node(
             node.file_path.as_deref(),
             auto_config.as_ref(),
-        ).to_string();
+        )
+        .to_string();
     }
 
     // Step 3: Write to database
@@ -1387,17 +1422,21 @@ pub fn bootstrap_pipeline(
     let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
 
     // Snapshot existing summary info BEFORE clearing, for staleness detection later.
-    let prior_summaries: PriorSummaries =
-        mubase.all_nodes().unwrap_or_default()
-            .into_iter()
-            .filter_map(|n| {
-                if n.summary_code_hash.is_some() {
-                    Some((n.id, (n.summary_code_hash, n.summary_source, n.summary_text)))
-                } else {
-                    None
-                }
-            })
-            .collect();
+    let prior_summaries: PriorSummaries = mubase
+        .all_nodes()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|n| {
+            if n.summary_code_hash.is_some() {
+                Some((
+                    n.id,
+                    (n.summary_code_hash, n.summary_source, n.summary_text),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
 
     mubase.clear()?;
     mubase.insert_nodes(&nodes)?;
@@ -1409,10 +1448,17 @@ pub fn bootstrap_pipeline(
     let node_ids: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
     let edge_tuples: Vec<(String, String, String)> = edges
         .iter()
-        .map(|e| (e.source_id.clone(), e.target_id.clone(), e.edge_type.to_string()))
+        .map(|e| {
+            (
+                e.source_id.clone(),
+                e.target_id.clone(),
+                e.edge_type.to_string(),
+            )
+        })
         .collect();
     let pr_config = crate::engine::pagerank::PageRankConfig::default();
-    let pagerank_scores = crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
+    let pagerank_scores =
+        crate::engine::pagerank::compute_pagerank(&node_ids, &edge_tuples, &pr_config);
 
     // Compute in-degree per node from edges
     let mut in_degree_map: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
@@ -1455,7 +1501,10 @@ pub fn bootstrap_pipeline(
     let score_pairs: Vec<(String, f32)> = importance_scores.into_iter().collect();
     mubase.update_importance_batch(&score_pairs)?;
     let importance_scores_computed = score_pairs.len();
-    tracing::info!("Updated {} composite importance scores", importance_scores_computed);
+    tracing::info!(
+        "Updated {} composite importance scores",
+        importance_scores_computed
+    );
 
     // Step 5: Generate heuristic summaries (needs edges for callers/callees)
     // Staleness check: preserve LLM-enriched summaries when code hasn't changed.
@@ -1486,7 +1535,8 @@ pub fn bootstrap_pipeline(
     }
     tracing::info!(
         "Summaries: {} generated, {} preserved (unchanged code)",
-        summaries_generated, summaries_preserved
+        summaries_generated,
+        summaries_preserved
     );
 
     // Step 6: Build search_text from summaries + identity fields
@@ -1495,7 +1545,8 @@ pub fn bootstrap_pipeline(
     let search_texts: Vec<(String, String)> = updated_nodes
         .iter()
         .map(|n| {
-            let search_text = crate::engine::summary::build_search_text(n, n.summary_text.as_deref());
+            let search_text =
+                crate::engine::summary::build_search_text(n, n.summary_text.as_deref());
             (n.id.clone(), search_text)
         })
         .collect();
@@ -1537,11 +1588,7 @@ pub fn bootstrap_pipeline(
 }
 
 /// Run the bootstrap command (CLI entry point)
-pub async fn run(
-    path: &str,
-    force: bool,
-    format: OutputFormat,
-) -> anyhow::Result<()> {
+pub async fn run(path: &str, force: bool, format: OutputFormat) -> anyhow::Result<()> {
     // Resolve and validate path
     let root = Path::new(path)
         .canonicalize()
@@ -1836,7 +1883,10 @@ fn resolve_call_site(
     // Python: self, cls | C#/Java: this, base/super | Rust: self
     if call.is_method_call {
         if let Some(receiver) = &call.receiver {
-            if matches!(receiver.as_str(), "self" | "cls" | "this" | "base" | "super") {
+            if matches!(
+                receiver.as_str(),
+                "self" | "cls" | "this" | "base" | "super"
+            ) {
                 if let Some(class_name) = current_class {
                     // Try: fn:module:Class.method (direct method on current class)
                     let method_id = format!("fn:{}:{}.{}", current_module, class_name, callee);
@@ -1873,9 +1923,10 @@ fn resolve_call_site(
     // Method calls on arbitrary receivers (e.g., `_items.Clear()`) cannot be resolved
     // without type information; matching by bare name creates false cross-project edges.
     let is_arbitrary_receiver = call.is_method_call
-        && call.receiver.as_deref().is_some_and(|r| {
-            !matches!(r, "self" | "cls" | "this" | "base" | "super")
-        });
+        && call
+            .receiver
+            .as_deref()
+            .is_some_and(|r| !matches!(r, "self" | "cls" | "this" | "base" | "super"));
 
     if is_arbitrary_receiver {
         // Try to resolve via constructor-injected field types
@@ -1895,12 +1946,9 @@ fn resolve_call_site(
                     return Some(method_id);
                 }
                 // Try inherited method on the resolved type
-                if let Some(inherited) = resolve_inherited_method(
-                    receiver_class_id,
-                    callee,
-                    func_lookup,
-                    inherits_map,
-                ) {
+                if let Some(inherited) =
+                    resolve_inherited_method(receiver_class_id, callee, func_lookup, inherits_map)
+                {
                     return Some(inherited);
                 }
             }
@@ -2240,7 +2288,8 @@ mod tests {
             "Should create message node for OrderCreatedEvent"
         );
         assert!(
-            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes
+            edges.iter().any(|e| e.edge_type
+                == crate::engine::storage::schema::EdgeType::Subscribes
                 && e.source_id.contains("OrderCreatedConsumer")),
             "Should create subscribes edge from consumer"
         );
@@ -2268,8 +2317,11 @@ mod tests {
             ..Default::default()
         };
 
-        let parse_results =
-            vec![make_csharp_module("src/Services/OrderService.cs", None, vec![class])];
+        let parse_results = vec![make_csharp_module(
+            "src/Services/OrderService.cs",
+            None,
+            vec![class],
+        )];
         let class_lookup = HashMap::new();
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -2281,7 +2333,8 @@ mod tests {
             "Should create message node for OrderCreatedEvent"
         );
         assert!(
-            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Publishes
+            edges.iter().any(|e| e.edge_type
+                == crate::engine::storage::schema::EdgeType::Publishes
                 && e.source_id.contains("OrderService.CreateOrder")),
             "Should create publishes edge from method"
         );
@@ -2308,8 +2361,11 @@ mod tests {
             ..Default::default()
         };
 
-        let parse_results =
-            vec![make_csharp_module("src/Clients/UserClient.cs", None, vec![class])];
+        let parse_results = vec![make_csharp_module(
+            "src/Clients/UserClient.cs",
+            None,
+            vec![class],
+        )];
         let class_lookup = HashMap::new();
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
@@ -2317,7 +2373,8 @@ mod tests {
         detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
 
         assert!(
-            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp
+            edges.iter().any(|e| e.edge_type
+                == crate::engine::storage::schema::EdgeType::CallsHttp
                 && e.source_id.contains("UserClient.FetchUser")),
             "Should create calls_http edge from method"
         );
@@ -2353,7 +2410,8 @@ mod tests {
         detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
 
         assert!(
-            edges.iter().any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::UsesContract
+            edges.iter().any(|e| e.edge_type
+                == crate::engine::storage::schema::EdgeType::UsesContract
                 && e.source_id.contains("OrderHandler")),
             "Should create uses_contract edge"
         );
@@ -2369,10 +2427,12 @@ mod tests {
             ..Default::default()
         };
 
-        let parse_results =
-            vec![make_csharp_module("src/Consumer.cs", None, vec![consumer])];
+        let parse_results = vec![make_csharp_module("src/Consumer.cs", None, vec![consumer])];
         let mut class_lookup = HashMap::new();
-        class_lookup.insert("UserCreated".to_string(), "cls:src/Events.cs:UserCreated".to_string());
+        class_lookup.insert(
+            "UserCreated".to_string(),
+            "cls:src/Events.cs:UserCreated".to_string(),
+        );
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
 
@@ -2417,7 +2477,10 @@ mod tests {
 
         detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
 
-        assert!(nodes.is_empty(), "Should not detect patterns in non-C# code");
+        assert!(
+            nodes.is_empty(),
+            "Should not detect patterns in non-C# code"
+        );
         assert!(edges.is_empty());
     }
 }

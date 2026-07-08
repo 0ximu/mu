@@ -37,7 +37,9 @@ pub struct FilterConfig {
     pub auxiliary_dampening: f32,
 }
 
-fn default_auxiliary_dampening() -> f32 { 0.7 }
+fn default_auxiliary_dampening() -> f32 {
+    0.7
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodebaseConfig {
@@ -177,7 +179,9 @@ impl AutoConfig {
 /// Priority: generated > test > infrastructure > production.
 /// Uses config patterns if available, falls back to hardcoded patterns.
 pub fn classify_node(file_path: Option<&str>, config: Option<&AutoConfig>) -> &'static str {
-    let Some(path) = file_path else { return "production" };
+    let Some(path) = file_path else {
+        return "production";
+    };
     let lower = path.to_lowercase();
 
     // 1. Generated (most specific — check first)
@@ -203,16 +207,27 @@ pub fn classify_node(file_path: Option<&str>, config: Option<&AutoConfig>) -> &'
         }
     }
     // Always check hardcoded test patterns as fallback
-    if lower.contains("/test/") || lower.contains("/tests/")
+    if lower.contains("/test/")
+        || lower.contains("/tests/")
         || lower.starts_with("tests/")
-        || lower.contains(".tests/") || lower.contains(".tests.")
-        || lower.contains("/__tests__/") || lower.contains("/spec/")
-        || lower.ends_with("tests.cs") || lower.ends_with("test.cs")
-        || lower.ends_with("_test.py") || lower.ends_with("_test.go")
-        || lower.ends_with("_test.rs") || lower.ends_with(".test.ts")
-        || lower.ends_with(".test.tsx") || lower.ends_with(".test.js")
-        || lower.ends_with(".spec.ts") || lower.ends_with(".spec.js")
-        || path.rsplit('/').next().is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
+        || lower.contains(".tests/")
+        || lower.contains(".tests.")
+        || lower.contains("/__tests__/")
+        || lower.contains("/spec/")
+        || lower.ends_with("tests.cs")
+        || lower.ends_with("test.cs")
+        || lower.ends_with("_test.py")
+        || lower.ends_with("_test.go")
+        || lower.ends_with("_test.rs")
+        || lower.ends_with(".test.ts")
+        || lower.ends_with(".test.tsx")
+        || lower.ends_with(".test.js")
+        || lower.ends_with(".spec.ts")
+        || lower.ends_with(".spec.js")
+        || path
+            .rsplit('/')
+            .next()
+            .is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
     {
         return "test";
     }
@@ -236,11 +251,12 @@ type PatternCheck = (&'static str, fn(&str) -> bool);
 
 /// Detect test file patterns by scanning all file_paths in the mubase.
 pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
-    let result = mubase.query(
-        "SELECT DISTINCT file_path FROM nodes WHERE file_path IS NOT NULL",
-    )?;
+    let result =
+        mubase.query("SELECT DISTINCT file_path FROM nodes WHERE file_path IS NOT NULL")?;
 
-    let paths: Vec<String> = result.rows.iter()
+    let paths: Vec<String> = result
+        .rows
+        .iter()
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect();
 
@@ -248,7 +264,10 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         ("*/test/*", |p: &str| p.to_lowercase().contains("/test/")),
         ("*/tests/*", |p: &str| p.to_lowercase().contains("/tests/")),
         ("tests/*", |p: &str| p.to_lowercase().starts_with("tests/")),
-        ("*.Tests/*", |p: &str| { let l = p.to_lowercase(); l.contains(".tests/") || l.contains(".tests.") }),
+        ("*.Tests/*", |p: &str| {
+            let l = p.to_lowercase();
+            l.contains(".tests/") || l.contains(".tests.")
+        }),
         ("*/spec/*", |p: &str| p.to_lowercase().contains("/spec/")),
         ("*/specs/*", |p: &str| p.to_lowercase().contains("/specs/")),
         ("*/__tests__/*", |p: &str| p.contains("/__tests__/")),
@@ -257,7 +276,9 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         ("*_test.py", |p: &str| p.ends_with("_test.py")),
         ("*_test.go", |p: &str| p.ends_with("_test.go")),
         ("test_*.py", |p: &str| {
-            p.rsplit('/').next().is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
+            p.rsplit('/')
+                .next()
+                .is_some_and(|f| f.starts_with("test_") && f.ends_with(".py"))
         }),
         ("*.test.ts", |p: &str| p.ends_with(".test.ts")),
         ("*.test.tsx", |p: &str| p.ends_with(".test.tsx")),
@@ -265,7 +286,9 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
         ("*.test.js", |p: &str| p.ends_with(".test.js")),
         ("*.spec.js", |p: &str| p.ends_with(".spec.js")),
         ("*_test.rs", |p: &str| p.ends_with("_test.rs")),
-        ("*/fixtures/*", |p: &str| p.to_lowercase().contains("/fixtures/")),
+        ("*/fixtures/*", |p: &str| {
+            p.to_lowercase().contains("/fixtures/")
+        }),
         ("*/mocks/*", |p: &str| p.to_lowercase().contains("/mocks/")),
     ];
 
@@ -281,11 +304,12 @@ pub fn detect_test_patterns(mubase: &MUbase) -> Result<Vec<String>> {
 
 /// Detect generated file patterns.
 pub fn detect_generated_patterns(mubase: &MUbase) -> Result<Vec<String>> {
-    let result = mubase.query(
-        "SELECT DISTINCT file_path FROM nodes WHERE file_path IS NOT NULL",
-    )?;
+    let result =
+        mubase.query("SELECT DISTINCT file_path FROM nodes WHERE file_path IS NOT NULL")?;
 
-    let paths: Vec<String> = result.rows.iter()
+    let paths: Vec<String> = result
+        .rows
+        .iter()
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect();
 
@@ -300,7 +324,9 @@ pub fn detect_generated_patterns(mubase: &MUbase) -> Result<Vec<String>> {
             let lower = p.to_lowercase();
             lower.contains(".generated.")
         }),
-        ("*/auto_generated/*", |p: &str| p.to_lowercase().contains("/auto_generated/")),
+        ("*/auto_generated/*", |p: &str| {
+            p.to_lowercase().contains("/auto_generated/")
+        }),
     ];
 
     let mut matched = Vec::new();
@@ -358,7 +384,9 @@ pub fn detect_frameworks(mubase: &MUbase) -> Result<Vec<String>> {
          SELECT DISTINCT target_id FROM edges WHERE type = 'imports'",
     )?;
 
-    let externals: Vec<String> = result.rows.iter()
+    let externals: Vec<String> = result
+        .rows
+        .iter()
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect();
 
@@ -366,7 +394,11 @@ pub fn detect_frameworks(mubase: &MUbase) -> Result<Vec<String>> {
     let framework_map: &[(&[&str], &str, &[&str])] = &[
         (&["Microsoft.EntityFrameworkCore"], "ef-core", &["csharp"]),
         (&["MassTransit"], "masstransit", &["csharp"]),
-        (&["Microsoft.Azure.Functions"], "azure-functions", &["csharp"]),
+        (
+            &["Microsoft.Azure.Functions"],
+            "azure-functions",
+            &["csharp"],
+        ),
         (&["Microsoft.AspNetCore"], "aspnet-core", &["csharp"]),
         (&["fastapi", "FastAPI"], "fastapi", &["python"]),
         (&["sqlalchemy", "SQLAlchemy"], "sqlalchemy", &["python"]),
@@ -375,7 +407,11 @@ pub fn detect_frameworks(mubase: &MUbase) -> Result<Vec<String>> {
         (&["rmcp"], "mcp-server", &["rust"]),
         (&["react", "React"], "react", &["typescript", "javascript"]),
         (&["next", "Next"], "nextjs", &["typescript", "javascript"]),
-        (&["express", "Express"], "express", &["typescript", "javascript"]),
+        (
+            &["express", "Express"],
+            "express",
+            &["typescript", "javascript"],
+        ),
         (&["axum"], "axum", &["rust"]),
         (&["actix_web", "actix-web"], "actix-web", &["rust"]),
         (&["tokio"], "tokio", &["rust"]),
@@ -387,7 +423,9 @@ pub fn detect_frameworks(mubase: &MUbase) -> Result<Vec<String>> {
 
     let mut detected = Vec::new();
     for (names, framework, langs) in framework_map {
-        let matched = names.iter().any(|name| externals.iter().any(|e| e.contains(name)));
+        let matched = names
+            .iter()
+            .any(|name| externals.iter().any(|e| e.contains(name)));
         if matched && langs.contains(&primary_lang.as_str()) {
             detected.push(framework.to_string());
         }
@@ -428,7 +466,9 @@ pub fn detect_primary_language(mubase: &MUbase) -> Result<String> {
          LIMIT 1",
     )?;
 
-    Ok(result.rows.first()
+    Ok(result
+        .rows
+        .first()
         .and_then(|r| r.first().and_then(|v| v.as_str()))
         .unwrap_or("unknown")
         .to_string())
@@ -560,18 +600,20 @@ pub fn detect_core_abstractions(mubase: &MUbase) -> Result<Vec<String>> {
          LIMIT 20",
     )?;
 
-    Ok(result.rows.iter()
+    Ok(result
+        .rows
+        .iter()
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect())
 }
 
 /// Estimate codebase size by node count.
 pub fn estimate_size(mubase: &MUbase) -> Result<String> {
-    let result = mubase.query(
-        "SELECT COUNT(*) FROM nodes WHERE type != 'external'",
-    )?;
+    let result = mubase.query("SELECT COUNT(*) FROM nodes WHERE type != 'external'")?;
 
-    let count = result.rows.first()
+    let count = result
+        .rows
+        .first()
         .and_then(|r| r.first())
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
@@ -582,7 +624,8 @@ pub fn estimate_size(mubase: &MUbase) -> Result<String> {
         "medium"
     } else {
         "large"
-    }.to_string())
+    }
+    .to_string())
 }
 
 // ============================================================================
@@ -628,13 +671,17 @@ fn glob_match(text: &[u8], pattern: &[u8]) -> bool {
 /// Check if a file path matches any pattern in a config's test patterns.
 pub fn is_test_path(path: &str, patterns: &[String]) -> bool {
     let lower = path.to_lowercase();
-    patterns.iter().any(|p| matches_glob(&lower, &p.to_lowercase()))
+    patterns
+        .iter()
+        .any(|p| matches_glob(&lower, &p.to_lowercase()))
 }
 
 /// Check if a file path matches any pattern in a config's oracle exclude patterns.
 pub fn is_excluded_path(path: &str, patterns: &[String]) -> bool {
     let lower = path.to_lowercase();
-    patterns.iter().any(|p| matches_glob(&lower, &p.to_lowercase()))
+    patterns
+        .iter()
+        .any(|p| matches_glob(&lower, &p.to_lowercase()))
 }
 
 // ============================================================================
@@ -646,7 +693,16 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
     let mut questions = Vec::new();
 
     // 1. Services with ambiguous/auxiliary-sounding names
-    let aux_hints = ["chatagent", "tool", "script", "util", "helper", "sample", "demo", "example"];
+    let aux_hints = [
+        "chatagent",
+        "tool",
+        "script",
+        "util",
+        "helper",
+        "sample",
+        "demo",
+        "example",
+    ];
     for service in &config.codebase.services {
         let lower = service.to_lowercase();
         if aux_hints.iter().any(|h| lower.contains(h)) {
@@ -666,7 +722,10 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
             for word in name.split(&['-', '_', '.'][..]) {
                 let w = word.to_lowercase();
                 if w.len() >= 4 && !["src", "main", "test", "core"].contains(&w.as_str()) {
-                    word_to_services.entry(w).or_default().push(service.as_str());
+                    word_to_services
+                        .entry(w)
+                        .or_default()
+                        .push(service.as_str());
                 }
             }
         }
@@ -682,10 +741,11 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
             }
 
             // Skip test-project siblings: "src/foo" + "tests/foo.Tests" are the same domain
-            let is_test_sibling = svcs.len() == 2 && svcs.iter().any(|s| {
-                let lower = s.to_lowercase();
-                lower.contains("/test") || lower.ends_with(".tests") || lower.ends_with(".test")
-            });
+            let is_test_sibling = svcs.len() == 2
+                && svcs.iter().any(|s| {
+                    let lower = s.to_lowercase();
+                    lower.contains("/test") || lower.ends_with(".tests") || lower.ends_with(".test")
+                });
             if is_test_sibling {
                 continue;
             }
@@ -730,7 +790,10 @@ pub fn generate_questions(config: &AutoConfig, mubase: &MUbase) -> Result<Vec<St
     );
 
     if let Ok(result) = high_dep_result {
-        let priority_names: Vec<String> = config.enrichment.priority_nodes.iter()
+        let priority_names: Vec<String> = config
+            .enrichment
+            .priority_nodes
+            .iter()
             .filter_map(|nid| nid.rsplit(':').next().map(|s| s.to_string()))
             .collect();
 
@@ -774,7 +837,9 @@ pub fn suggest_enrichment_nodes(mubase: &MUbase) -> Result<Vec<String>> {
          LIMIT 30",
     )?;
 
-    Ok(result.rows.iter()
+    Ok(result
+        .rows
+        .iter()
         .filter_map(|r| r.first().and_then(|v| v.as_str()).map(|s| s.to_string()))
         .collect())
 }
@@ -793,14 +858,21 @@ pub fn suggest_enrichment_nodes(mubase: &MUbase) -> Result<Vec<String>> {
 /// - `remove_priority_nodes`: `["Name1"]` — removes matching entries
 /// - `test_handling`: `"dampen"` | `"exclude"` — adjusts test dampening (0.3 vs 0.0)
 /// - `auxiliary_dampening`: float — override the auxiliary service dampening factor
-pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase: &MUbase) -> Result<String> {
+pub fn apply_corrections(
+    config: &mut AutoConfig,
+    corrections_json: &str,
+    mubase: &MUbase,
+) -> Result<String> {
     let corrections: serde_json::Value = serde_json::from_str(corrections_json)
         .map_err(|e| anyhow::anyhow!("invalid corrections JSON: {}", e))?;
 
     let mut applied = Vec::new();
 
     // service_classifications
-    if let Some(obj) = corrections.get("service_classifications").and_then(|v| v.as_object()) {
+    if let Some(obj) = corrections
+        .get("service_classifications")
+        .and_then(|v| v.as_object())
+    {
         for (svc, classification) in obj {
             let class_str = classification.as_str().unwrap_or("core");
             if class_str == "auxiliary" {
@@ -817,16 +889,24 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
     }
 
     // domain_concepts
-    if let Some(obj) = corrections.get("domain_concepts").and_then(|v| v.as_object()) {
+    if let Some(obj) = corrections
+        .get("domain_concepts")
+        .and_then(|v| v.as_object())
+    {
         for (keyword, description) in obj {
             let desc = description.as_str().unwrap_or("");
-            config.domain_concepts.insert(keyword.clone(), desc.to_string());
+            config
+                .domain_concepts
+                .insert(keyword.clone(), desc.to_string());
             applied.push(format!("Added domain concept: '{}'", keyword));
         }
     }
 
     // add_priority_nodes — resolve names to full node_ids
-    if let Some(arr) = corrections.get("add_priority_nodes").and_then(|v| v.as_array()) {
+    if let Some(arr) = corrections
+        .get("add_priority_nodes")
+        .and_then(|v| v.as_array())
+    {
         for name_val in arr {
             if let Some(name) = name_val.as_str() {
                 // Look up the node by name to get the full node_id
@@ -840,10 +920,16 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
                     &[&name as &dyn duckdb::ToSql],
                 );
                 if let Ok(result) = lookup {
-                    if let Some(node_id) = result.rows.first()
+                    if let Some(node_id) = result
+                        .rows
+                        .first()
                         .and_then(|r| r.first().and_then(|v| v.as_str()))
                     {
-                        if !config.enrichment.priority_nodes.contains(&node_id.to_string()) {
+                        if !config
+                            .enrichment
+                            .priority_nodes
+                            .contains(&node_id.to_string())
+                        {
                             config.enrichment.priority_nodes.push(node_id.to_string());
                             applied.push(format!("Added priority node: {} ({})", name, node_id));
                         }
@@ -856,13 +942,17 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
     }
 
     // remove_priority_nodes
-    if let Some(arr) = corrections.get("remove_priority_nodes").and_then(|v| v.as_array()) {
+    if let Some(arr) = corrections
+        .get("remove_priority_nodes")
+        .and_then(|v| v.as_array())
+    {
         for name_val in arr {
             if let Some(name) = name_val.as_str() {
                 let before = config.enrichment.priority_nodes.len();
-                config.enrichment.priority_nodes.retain(|nid| {
-                    nid.rsplit(':').next() != Some(name)
-                });
+                config
+                    .enrichment
+                    .priority_nodes
+                    .retain(|nid| nid.rsplit(':').next() != Some(name));
                 let removed = before - config.enrichment.priority_nodes.len();
                 if removed > 0 {
                     applied.push(format!("Removed priority node: {}", name));
@@ -886,7 +976,10 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
     }
 
     // auxiliary_dampening override
-    if let Some(val) = corrections.get("auxiliary_dampening").and_then(|v| v.as_f64()) {
+    if let Some(val) = corrections
+        .get("auxiliary_dampening")
+        .and_then(|v| v.as_f64())
+    {
         config.filters.auxiliary_dampening = val as f32;
         applied.push(format!("Auxiliary dampening set to {}", val));
     }
@@ -894,10 +987,15 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
     if applied.is_empty() {
         Ok("No corrections applied — check the JSON format.".to_string())
     } else {
-        Ok(format!("Applied {} corrections:\n{}", applied.len(), applied.iter()
-            .map(|a| format!("- {}", a))
-            .collect::<Vec<_>>()
-            .join("\n")))
+        Ok(format!(
+            "Applied {} corrections:\n{}",
+            applied.len(),
+            applied
+                .iter()
+                .map(|a| format!("- {}", a))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))
     }
 }
 
@@ -908,7 +1006,9 @@ pub fn apply_corrections(config: &mut AutoConfig, corrections_json: &str, mubase
 /// Check if a file path belongs to an auxiliary service.
 pub fn is_auxiliary_service(file_path: &str, auxiliary_services: &[String]) -> bool {
     let lower = file_path.to_lowercase();
-    auxiliary_services.iter().any(|svc| lower.starts_with(&svc.to_lowercase()))
+    auxiliary_services
+        .iter()
+        .any(|svc| lower.starts_with(&svc.to_lowercase()))
 }
 
 // ============================================================================
@@ -923,16 +1023,28 @@ pub fn format_summary(config: &AutoConfig) -> String {
 
     // Codebase section
     out.push_str("## Codebase\n");
-    out.push_str(&format!("- Language: {}\n", config.codebase.primary_language));
+    out.push_str(&format!(
+        "- Language: {}\n",
+        config.codebase.primary_language
+    ));
     out.push_str(&format!("- Size: {}\n", config.codebase.estimated_size));
     if !config.codebase.frameworks.is_empty() {
-        out.push_str(&format!("- Frameworks: {}\n", config.codebase.frameworks.join(", ")));
+        out.push_str(&format!(
+            "- Frameworks: {}\n",
+            config.codebase.frameworks.join(", ")
+        ));
     }
     if !config.codebase.services.is_empty() {
-        out.push_str(&format!("- Services: {}\n", config.codebase.services.join(", ")));
+        out.push_str(&format!(
+            "- Services: {}\n",
+            config.codebase.services.join(", ")
+        ));
     }
     if !config.codebase.auxiliary_services.is_empty() {
-        out.push_str(&format!("- Auxiliary services: {}\n", config.codebase.auxiliary_services.join(", ")));
+        out.push_str(&format!(
+            "- Auxiliary services: {}\n",
+            config.codebase.auxiliary_services.join(", ")
+        ));
     }
     out.push('\n');
 
@@ -947,41 +1059,64 @@ pub fn format_summary(config: &AutoConfig) -> String {
 
     // Filters section
     out.push_str("## Filters\n");
-    out.push_str(&format!("- Test dampening: {}\n", config.filters.search_test_dampening));
-    out.push_str(&format!("- Auxiliary dampening: {}\n", config.filters.auxiliary_dampening));
+    out.push_str(&format!(
+        "- Test dampening: {}\n",
+        config.filters.search_test_dampening
+    ));
+    out.push_str(&format!(
+        "- Auxiliary dampening: {}\n",
+        config.filters.auxiliary_dampening
+    ));
     if !config.filters.test_patterns.is_empty() {
-        out.push_str(&format!("- Test patterns ({}): {}\n",
+        out.push_str(&format!(
+            "- Test patterns ({}): {}\n",
             config.filters.test_patterns.len(),
-            config.filters.test_patterns.join(", ")));
+            config.filters.test_patterns.join(", ")
+        ));
     }
     if !config.filters.generated_patterns.is_empty() {
-        out.push_str(&format!("- Generated patterns ({}): {}\n",
+        out.push_str(&format!(
+            "- Generated patterns ({}): {}\n",
             config.filters.generated_patterns.len(),
-            config.filters.generated_patterns.join(", ")));
+            config.filters.generated_patterns.join(", ")
+        ));
     }
     out.push('\n');
 
     // Oracle section
     out.push_str("## Oracle\n");
-    out.push_str(&format!("- Test budget cap: {}%\n", (config.oracle.test_budget_cap * 100.0) as u32));
+    out.push_str(&format!(
+        "- Test budget cap: {}%\n",
+        (config.oracle.test_budget_cap * 100.0) as u32
+    ));
     if !config.oracle.exclude_patterns.is_empty() {
-        out.push_str(&format!("- Exclude patterns ({}): {}\n",
+        out.push_str(&format!(
+            "- Exclude patterns ({}): {}\n",
             config.oracle.exclude_patterns.len(),
-            config.oracle.exclude_patterns.join(", ")));
+            config.oracle.exclude_patterns.join(", ")
+        ));
     }
     out.push('\n');
 
     // Enrichment section
     out.push_str("## Enrichment\n");
-    out.push_str(&format!("- Top-N for auto-enrich: {}\n", config.enrichment.auto_enrich_top_n));
-    out.push_str(&format!("- Priority nodes: {}\n", config.enrichment.priority_nodes.len()));
+    out.push_str(&format!(
+        "- Top-N for auto-enrich: {}\n",
+        config.enrichment.auto_enrich_top_n
+    ));
+    out.push_str(&format!(
+        "- Priority nodes: {}\n",
+        config.enrichment.priority_nodes.len()
+    ));
     if !config.enrichment.priority_nodes.is_empty() {
         for nid in config.enrichment.priority_nodes.iter().take(10) {
             out.push_str(&format!("  - {}\n", nid));
         }
         if config.enrichment.priority_nodes.len() > 10 {
-            out.push_str(&format!("  - ... and {} more\n",
-                config.enrichment.priority_nodes.len() - 10));
+            out.push_str(&format!(
+                "  - ... and {} more\n",
+                config.enrichment.priority_nodes.len() - 10
+            ));
         }
     }
 
@@ -1003,25 +1138,41 @@ pub fn format_discovery_summary(
 
     // Detected structure (same as format_summary minus the "saved" footer)
     out.push_str("## Detected Structure\n");
-    out.push_str(&format!("- Language: {}\n", config.codebase.primary_language));
+    out.push_str(&format!(
+        "- Language: {}\n",
+        config.codebase.primary_language
+    ));
     out.push_str(&format!("- Size: {}\n", config.codebase.estimated_size));
     if !config.codebase.frameworks.is_empty() {
-        out.push_str(&format!("- Frameworks: {}\n", config.codebase.frameworks.join(", ")));
+        out.push_str(&format!(
+            "- Frameworks: {}\n",
+            config.codebase.frameworks.join(", ")
+        ));
     }
     if !config.codebase.services.is_empty() {
-        out.push_str(&format!("- Services ({}): {}\n",
+        out.push_str(&format!(
+            "- Services ({}): {}\n",
             config.codebase.services.len(),
-            config.codebase.services.join(", ")));
+            config.codebase.services.join(", ")
+        ));
     }
-    out.push_str(&format!("- Test dampening: {}\n", config.filters.search_test_dampening));
-    out.push_str(&format!("- Priority nodes: {}\n", config.enrichment.priority_nodes.len()));
+    out.push_str(&format!(
+        "- Test dampening: {}\n",
+        config.filters.search_test_dampening
+    ));
+    out.push_str(&format!(
+        "- Priority nodes: {}\n",
+        config.enrichment.priority_nodes.len()
+    ));
     if !config.enrichment.priority_nodes.is_empty() {
         for nid in config.enrichment.priority_nodes.iter().take(10) {
             out.push_str(&format!("  - {}\n", nid));
         }
         if config.enrichment.priority_nodes.len() > 10 {
-            out.push_str(&format!("  - ... and {} more\n",
-                config.enrichment.priority_nodes.len() - 10));
+            out.push_str(&format!(
+                "  - ... and {} more\n",
+                config.enrichment.priority_nodes.len() - 10
+            ));
         }
     }
     out.push('\n');
@@ -1101,8 +1252,14 @@ mod tests {
 
     #[test]
     fn test_matches_glob_middle_pattern() {
-        assert!(matches_glob("src/Migrations/20240101_Init.cs", "*/Migrations/*.cs"));
-        assert!(!matches_glob("src/Migrations/readme.md", "*/Migrations/*.cs"));
+        assert!(matches_glob(
+            "src/Migrations/20240101_Init.cs",
+            "*/Migrations/*.cs"
+        ));
+        assert!(!matches_glob(
+            "src/Migrations/readme.md",
+            "*/Migrations/*.cs"
+        ));
     }
 
     #[test]
@@ -1143,10 +1300,19 @@ mod tests {
         let cfg = AutoConfig::default();
         let toml_str = toml::to_string_pretty(&cfg).unwrap();
         let parsed: AutoConfig = toml::from_str(&toml_str).unwrap();
-        assert_eq!(parsed.filters.search_test_dampening, cfg.filters.search_test_dampening);
-        assert_eq!(parsed.codebase.primary_language, cfg.codebase.primary_language);
+        assert_eq!(
+            parsed.filters.search_test_dampening,
+            cfg.filters.search_test_dampening
+        );
+        assert_eq!(
+            parsed.codebase.primary_language,
+            cfg.codebase.primary_language
+        );
         assert_eq!(parsed.oracle.test_budget_cap, cfg.oracle.test_budget_cap);
-        assert_eq!(parsed.enrichment.auto_enrich_top_n, cfg.enrichment.auto_enrich_top_n);
+        assert_eq!(
+            parsed.enrichment.auto_enrich_top_n,
+            cfg.enrichment.auto_enrich_top_n
+        );
     }
 
     #[test]
@@ -1193,11 +1359,15 @@ mod tests {
         std::fs::create_dir_all(tmp.path().join(".mu")).unwrap();
         let mut cfg = AutoConfig::default();
         cfg.codebase.auxiliary_services = vec!["src/chatagent".into()];
-        cfg.domain_concepts.insert("compliance".into(), "Two domains: KYC and NAV".into());
+        cfg.domain_concepts
+            .insert("compliance".into(), "Two domains: KYC and NAV".into());
         cfg.save(tmp.path()).unwrap();
         let loaded = AutoConfig::load(tmp.path()).unwrap();
         assert_eq!(loaded.codebase.auxiliary_services, vec!["src/chatagent"]);
-        assert_eq!(loaded.domain_concepts.get("compliance").unwrap(), "Two domains: KYC and NAV");
+        assert_eq!(
+            loaded.domain_concepts.get("compliance").unwrap(),
+            "Two domains: KYC and NAV"
+        );
     }
 
     #[test]
@@ -1260,7 +1430,8 @@ test_budget_cap = 0.1
     #[ignore = "Requires real .mu/mubase at project root"]
     fn test_generate_on_real_mubase() {
         let mubase_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
+            .parent()
+            .unwrap()
             .join(".mu/mubase");
         if !mubase_path.exists() {
             eprintln!("Skipping: no mubase at {:?}", mubase_path);
@@ -1272,13 +1443,22 @@ test_budget_cap = 0.1
         // MU's own codebase should be detected as Rust
         assert_eq!(config.codebase.primary_language, "rust");
         // Should detect rmcp as a framework
-        assert!(config.codebase.frameworks.contains(&"mcp-server".to_string()),
-            "Expected mcp-server framework, got: {:?}", config.codebase.frameworks);
+        assert!(
+            config
+                .codebase
+                .frameworks
+                .contains(&"mcp-server".to_string()),
+            "Expected mcp-server framework, got: {:?}",
+            config.codebase.frameworks
+        );
         // Should have some priority nodes
         assert!(!config.enrichment.priority_nodes.is_empty());
         // Should be medium or large
-        assert!(config.codebase.estimated_size == "medium" || config.codebase.estimated_size == "large",
-            "Expected medium/large, got: {}", config.codebase.estimated_size);
+        assert!(
+            config.codebase.estimated_size == "medium" || config.codebase.estimated_size == "large",
+            "Expected medium/large, got: {}",
+            config.codebase.estimated_size
+        );
 
         eprintln!("{}", format_summary(&config));
     }

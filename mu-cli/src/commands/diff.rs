@@ -167,11 +167,14 @@ impl TableDisplay for DiffResult {
 
         output
     }
-
 }
 
 /// Get the list of changed files between two git refs
-fn get_changed_files(repo_root: &Path, base_ref: &str, head_ref: &str) -> anyhow::Result<Vec<String>> {
+fn get_changed_files(
+    repo_root: &Path,
+    base_ref: &str,
+    head_ref: &str,
+) -> anyhow::Result<Vec<String>> {
     let output = Command::new("git")
         .current_dir(repo_root)
         .args([
@@ -196,7 +199,11 @@ fn get_changed_files(repo_root: &Path, base_ref: &str, head_ref: &str) -> anyhow
 }
 
 /// Get file content at a specific git ref
-fn get_file_at_ref(repo_root: &Path, file_path: &str, git_ref: &str) -> anyhow::Result<Option<String>> {
+fn get_file_at_ref(
+    repo_root: &Path,
+    file_path: &str,
+    git_ref: &str,
+) -> anyhow::Result<Option<String>> {
     let output = Command::new("git")
         .current_dir(repo_root)
         .args(["show", &format!("{}:{}", git_ref, file_path)])
@@ -248,7 +255,11 @@ fn empty_module(file_path: &str, language: &str) -> ModuleDef {
 
 /// Convert core EntityChange to CLI SemanticChange.
 fn convert_core_change(change: &mu_core::differ::EntityChange) -> SemanticChange {
-    let description = match (&change.details, &change.old_signature, &change.new_signature) {
+    let description = match (
+        &change.details,
+        &change.old_signature,
+        &change.new_signature,
+    ) {
         (Some(details), _, _) => Some(details.clone()),
         (None, Some(old), Some(new)) => Some(format!("{} -> {}", old, new)),
         (None, None, Some(sig)) => Some(sig.clone()),
@@ -275,7 +286,8 @@ fn convert_diff_result(
     duration_ms: u64,
 ) -> DiffResult {
     let changes: Vec<SemanticChange> = core.changes.iter().map(convert_core_change).collect();
-    let breaking_changes: Vec<SemanticChange> = changes.iter().filter(|c| c.is_breaking).cloned().collect();
+    let breaking_changes: Vec<SemanticChange> =
+        changes.iter().filter(|c| c.is_breaking).cloned().collect();
 
     DiffResult {
         base_ref: base_ref.to_string(),
@@ -293,7 +305,11 @@ fn convert_diff_result(
 /// rely on the process cwd (the MCP server can be started from anywhere).
 ///
 /// This is the reusable core logic — called by both the CLI command and MCP tools.
-pub fn semantic_diff(repo_root: &Path, base_ref: &str, head_ref: &str) -> anyhow::Result<DiffResult> {
+pub fn semantic_diff(
+    repo_root: &Path,
+    base_ref: &str,
+    head_ref: &str,
+) -> anyhow::Result<DiffResult> {
     let start = Instant::now();
 
     let changed_files = get_changed_files(repo_root, base_ref, head_ref)?;

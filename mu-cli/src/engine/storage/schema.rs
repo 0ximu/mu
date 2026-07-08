@@ -83,7 +83,8 @@ pub enum EdgeType {
 }
 
 /// Cross-service edge types for microservice graph traversal.
-pub const CROSS_SERVICE_EDGE_TYPES: &[&str] = &["publishes", "subscribes", "calls_http", "uses_contract"];
+pub const CROSS_SERVICE_EDGE_TYPES: &[&str] =
+    &["publishes", "subscribes", "calls_http", "uses_contract"];
 
 impl EdgeType {
     pub fn as_str(&self) -> &'static str {
@@ -141,7 +142,10 @@ impl EdgeType {
     pub fn is_cross_service(&self) -> bool {
         matches!(
             self,
-            EdgeType::Publishes | EdgeType::Subscribes | EdgeType::CallsHttp | EdgeType::UsesContract
+            EdgeType::Publishes
+                | EdgeType::Subscribes
+                | EdgeType::CallsHttp
+                | EdgeType::UsesContract
         )
     }
 }

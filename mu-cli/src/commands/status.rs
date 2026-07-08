@@ -120,7 +120,6 @@ impl TableDisplay for StatusInfo {
 
         lines.join("\n")
     }
-
 }
 
 /// Run the status command.

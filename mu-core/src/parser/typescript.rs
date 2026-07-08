@@ -776,7 +776,11 @@ export const Button = (props: { label: string }) => {
 "#;
         // Route through the dispatcher the way real .tsx files are parsed
         let result = crate::parser::parse_source(source, "Button.tsx", "tsx");
-        assert!(result.success, "tsx parse should succeed: {:?}", result.error);
+        assert!(
+            result.success,
+            "tsx parse should succeed: {:?}",
+            result.error
+        );
         let module = result.module.unwrap();
 
         let button = module
@@ -790,12 +794,20 @@ export const Button = (props: { label: string }) => {
         assert!(
             button.call_sites.iter().any(|c| c.callee == "handleClick"),
             "handler call inside JSX attribute should be extracted, got: {:?}",
-            button.call_sites.iter().map(|c| &c.callee).collect::<Vec<_>>()
+            button
+                .call_sites
+                .iter()
+                .map(|c| &c.callee)
+                .collect::<Vec<_>>()
         );
         assert!(
             button.call_sites.iter().any(|c| c.callee == "format"),
             "call inside JSX expression should be extracted, got: {:?}",
-            button.call_sites.iter().map(|c| &c.callee).collect::<Vec<_>>()
+            button
+                .call_sites
+                .iter()
+                .map(|c| &c.callee)
+                .collect::<Vec<_>>()
         );
     }
 

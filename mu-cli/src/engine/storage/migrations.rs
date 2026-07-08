@@ -79,12 +79,30 @@ pub fn migrate_v1_2_to_v2(conn: &Connection) -> Result<()> {
     tracing::info!("Starting migration: v1.2.0 → v2.0.0 (V3 search)");
 
     let cols = [
-        ("summary_text", "ALTER TABLE nodes ADD COLUMN summary_text TEXT"),
-        ("summary_source", "ALTER TABLE nodes ADD COLUMN summary_source VARCHAR DEFAULT 'heuristic'"),
-        ("summary_code_hash", "ALTER TABLE nodes ADD COLUMN summary_code_hash VARCHAR"),
-        ("importance_score", "ALTER TABLE nodes ADD COLUMN importance_score FLOAT DEFAULT 0.0"),
-        ("search_text", "ALTER TABLE nodes ADD COLUMN search_text TEXT"),
-        ("summary_updated_at", "ALTER TABLE nodes ADD COLUMN summary_updated_at TIMESTAMP"),
+        (
+            "summary_text",
+            "ALTER TABLE nodes ADD COLUMN summary_text TEXT",
+        ),
+        (
+            "summary_source",
+            "ALTER TABLE nodes ADD COLUMN summary_source VARCHAR DEFAULT 'heuristic'",
+        ),
+        (
+            "summary_code_hash",
+            "ALTER TABLE nodes ADD COLUMN summary_code_hash VARCHAR",
+        ),
+        (
+            "importance_score",
+            "ALTER TABLE nodes ADD COLUMN importance_score FLOAT DEFAULT 0.0",
+        ),
+        (
+            "search_text",
+            "ALTER TABLE nodes ADD COLUMN search_text TEXT",
+        ),
+        (
+            "summary_updated_at",
+            "ALTER TABLE nodes ADD COLUMN summary_updated_at TIMESTAMP",
+        ),
     ];
 
     for (col_name, ddl) in &cols {
@@ -104,10 +122,12 @@ pub fn migrate_v1_2_to_v2(conn: &Connection) -> Result<()> {
         }
     }
 
-    conn.execute_batch("
+    conn.execute_batch(
+        "
         CREATE INDEX IF NOT EXISTS idx_nodes_importance ON nodes(importance_score DESC);
         CREATE INDEX IF NOT EXISTS idx_nodes_summary_source ON nodes(summary_source);
-    ")?;
+    ",
+    )?;
 
     conn.execute(
         "UPDATE metadata SET value = '2.0.0' WHERE key = 'schema_version'",
@@ -123,7 +143,10 @@ pub fn migrate_v2_to_v2_1(conn: &Connection) -> Result<()> {
     tracing::info!("Starting migration: v2.0.0 → v2.1.0 (add node_category)");
     conn.execute_batch("ALTER TABLE nodes ADD COLUMN node_category VARCHAR DEFAULT 'production'")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_nodes_category ON nodes(node_category)")?;
-    conn.execute("UPDATE metadata SET value = '2.1.0' WHERE key = 'schema_version'", [])?;
+    conn.execute(
+        "UPDATE metadata SET value = '2.1.0' WHERE key = 'schema_version'",
+        [],
+    )?;
     tracing::info!("Migration v2.0.0 → v2.1.0 complete");
     Ok(())
 }
@@ -136,7 +159,10 @@ pub fn migrate_v2_1_to_v2_2(conn: &Connection) -> Result<()> {
     tracing::info!("Starting migration: v2.1.0 → v2.2.0 (drop embeddings table)");
     conn.execute_batch("DROP INDEX IF EXISTS idx_embeddings_model")?;
     conn.execute_batch("DROP TABLE IF EXISTS embeddings")?;
-    conn.execute("UPDATE metadata SET value = '2.2.0' WHERE key = 'schema_version'", [])?;
+    conn.execute(
+        "UPDATE metadata SET value = '2.2.0' WHERE key = 'schema_version'",
+        [],
+    )?;
     tracing::info!("Migration v2.1.0 → v2.2.0 complete");
     Ok(())
 }
@@ -203,7 +229,9 @@ mod tests {
             )
             .unwrap();
         assert_eq!(version, "2.2.0");
-        assert!(conn.query_row("SELECT 1 FROM embeddings", [], |_| Ok(())).is_err());
+        assert!(conn
+            .query_row("SELECT 1 FROM embeddings", [], |_| Ok(()))
+            .is_err());
 
         // Idempotent: running again on a DB without the table succeeds
         migrate_v2_1_to_v2_2(&conn).unwrap();

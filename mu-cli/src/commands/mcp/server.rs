@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
-use super::responses::{NodeResult, EdgeResult, ImpactResponse, format_impact_response};
+use super::responses::{format_impact_response, EdgeResult, ImpactResponse, NodeResult};
 use super::tools_v3;
 
+use super::tools_v3::lenient;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, tool::Parameters},
     model::{ErrorData as McpError, *},
@@ -20,7 +21,6 @@ use rmcp::{
 };
 use serde::Deserialize;
 use tokio::sync::RwLock;
-use super::tools_v3::lenient;
 
 /// Lazily-initialized project state (cloneable for RwLock hand-off)
 #[derive(Clone)]
@@ -54,7 +54,9 @@ pub struct MuMcpServer {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindParams {
     /// Exact symbol name or node ID to find
-    #[schemars(description = "Symbol name (e.g., 'parse_config') or node ID (e.g., 'fn:src/main.rs:main')")]
+    #[schemars(
+        description = "Symbol name (e.g., 'parse_config') or node ID (e.g., 'fn:src/main.rs:main')"
+    )]
     pub symbol: String,
 }
 
@@ -64,7 +66,9 @@ pub struct ImpactParams {
     #[schemars(description = "Symbol name to analyze (e.g., 'DatabaseConnection')")]
     pub symbol: String,
     /// Kept for API compatibility; BFS now traverses all edge types including cross-service.
-    #[schemars(description = "Kept for compatibility. BFS now always includes cross-service edges.")]
+    #[schemars(
+        description = "Kept for compatibility. BFS now always includes cross-service edges."
+    )]
     #[serde(default, deserialize_with = "lenient::option_bool")]
     #[allow(dead_code)]
     pub cross_service: Option<bool>,
@@ -99,7 +103,9 @@ pub struct AuditParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReviewParams {
     /// Base git ref (defaults to main/develop)
-    #[schemars(description = "Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')")]
+    #[schemars(
+        description = "Base git ref to compare against (e.g., 'main', 'develop', 'HEAD~5')"
+    )]
     pub base_ref: Option<String>,
     /// Whether to include impact analysis (default: true)
     #[schemars(description = "Include downstream impact analysis (default: true)")]
@@ -114,10 +120,14 @@ pub struct ReviewParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ConfigureParams {
     /// JSON corrections to apply to the draft config. Omit for discovery mode.
-    #[schemars(description = "JSON object with corrections: service_classifications, domain_concepts, add_priority_nodes, remove_priority_nodes, test_handling. Omit to get the draft config with review questions.")]
+    #[schemars(
+        description = "JSON object with corrections: service_classifications, domain_concepts, add_priority_nodes, remove_priority_nodes, test_handling. Omit to get the draft config with review questions."
+    )]
     pub corrections: Option<String>,
     /// Action: omit for normal flow, "enrich_more" for next enrichment batch.
-    #[schemars(description = "Action: omit for normal flow, 'enrich_more' to get the next batch of enrichment candidates.")]
+    #[schemars(
+        description = "Action: omit for normal flow, 'enrich_more' to get the next batch of enrichment candidates."
+    )]
     pub action: Option<String>,
 }
 
@@ -217,10 +227,8 @@ impl MuMcpServer {
         })?;
 
         let mubase_path = project_root.join(".mu").join("mubase");
-        let mubase =
-            crate::engine::storage::MUbase::open(&mubase_path).map_err(|e| {
-                McpError::internal_error(format!("Failed to open mubase: {}", e), None)
-            })?;
+        let mubase = crate::engine::storage::MUbase::open(&mubase_path)
+            .map_err(|e| McpError::internal_error(format!("Failed to open mubase: {}", e), None))?;
 
         let state = ProjectState {
             mubase,
@@ -313,7 +321,10 @@ impl MuMcpServer {
                 _ => " [other]",
             };
 
-            output.push_str(&format!("## {}{} [{}]{}\n", sigil, name, node_type, cat_tag));
+            output.push_str(&format!(
+                "## {}{} [{}]{}\n",
+                sigil, name, node_type, cat_tag
+            ));
             output.push_str(&format!("{}:{}-{}\n", file_path, start_line, end_line));
 
             // Show the actual code
@@ -490,33 +501,55 @@ impl MuMcpServer {
             )
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let target = target_result.rows.first().map(|row| {
-            NodeResult {
-                node_id: row.first().and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                name: row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                kind: row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        let target = target_result
+            .rows
+            .first()
+            .map(|row| NodeResult {
+                node_id: row
+                    .first()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                name: row
+                    .get(1)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                kind: row
+                    .get(2)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                file_path: row
+                    .get(3)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 score: None,
                 match_type: None,
                 importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                 summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                node_category: row.get(8).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
-            }
-        }).unwrap_or_else(|| NodeResult {
-            node_id: String::new(),
-            name: params.symbol.clone(),
-            kind: "unknown".to_string(),
-            file_path: String::new(),
-            line_start: 0,
-            line_end: 0,
-            score: None,
-            match_type: None,
-            importance: 0.0,
-            summary: None,
-            node_category: "production".to_string(),
-        });
+                node_category: row
+                    .get(8)
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("production")
+                    .to_string(),
+            })
+            .unwrap_or_else(|| NodeResult {
+                node_id: String::new(),
+                name: params.symbol.clone(),
+                kind: "unknown".to_string(),
+                file_path: String::new(),
+                line_start: 0,
+                line_end: 0,
+                score: None,
+                match_type: None,
+                importance: 0.0,
+                summary: None,
+                node_category: "production".to_string(),
+            });
 
         // Full BFS traversal for transitive dependents (incoming edges)
         let graph = crate::commands::graph::GraphData::from_mubase(&state.mubase)
@@ -534,7 +567,8 @@ impl MuMcpServer {
         if !dependent_ids.is_empty() {
             // Bulk-fetch node details for all BFS-discovered dependents
             // DuckDB doesn't support parameterized IN-lists, so use a temp table
-            let ids_csv: String = dependent_ids.iter()
+            let ids_csv: String = dependent_ids
+                .iter()
                 .map(|id| format!("('{}')", id.replace('\'', "''")))
                 .collect::<Vec<_>>()
                 .join(",");
@@ -550,21 +584,41 @@ impl MuMcpServer {
 
             if let Ok(detail_result) = state.mubase.query_params(&detail_sql, &[]) {
                 for row in &detail_result.rows {
-                    let dep_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let dep_name = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let dep_id = row
+                        .first()
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let dep_name = row
+                        .get(1)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
 
                     dependents.push(NodeResult {
                         node_id: dep_id.clone(),
                         name: dep_name.clone(),
-                        kind: row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                        file_path: row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                        kind: row
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        file_path: row
+                            .get(3)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
                         line_start: row.get(4).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         line_end: row.get(5).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                         score: None,
                         match_type: None,
                         importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
                         summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
-                        node_category: row.get(8).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
+                        node_category: row
+                            .get(8)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("production")
+                            .to_string(),
                     });
 
                     edges.push(EdgeResult {
@@ -589,20 +643,28 @@ impl MuMcpServer {
             }
 
             for like_pattern in &patterns {
-                let suggestions = state.mubase.query_params(
-                    "SELECT name, type, file_path FROM nodes
+                let suggestions = state
+                    .mubase
+                    .query_params(
+                        "SELECT name, type, file_path FROM nodes
                      WHERE name LIKE ?1 AND node_category = 'production'
                      ORDER BY importance_score DESC LIMIT 5",
-                    &[like_pattern as &dyn duckdb::ToSql],
-                ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                        &[like_pattern as &dyn duckdb::ToSql],
+                    )
+                    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
                 if !suggestions.rows.is_empty() {
-                    let names: Vec<String> = suggestions.rows.iter()
+                    let names: Vec<String> = suggestions
+                        .rows
+                        .iter()
                         .map(|row| {
                             let name = row.first().and_then(|v| v.as_str()).unwrap_or("");
                             let kind = row.get(1).and_then(|v| v.as_str()).unwrap_or("");
-                            let file = row.get(2).and_then(|v| v.as_str())
-                                .and_then(|p| p.rsplit('/').next()).unwrap_or("");
+                            let file = row
+                                .get(2)
+                                .and_then(|v| v.as_str())
+                                .and_then(|p| p.rsplit('/').next())
+                                .unwrap_or("");
                             format!("  - {} ({}, {})", name, kind, file)
                         })
                         .collect();
@@ -739,14 +801,29 @@ impl MuMcpServer {
         }
 
         // Group changes by type
-        let added: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "added").collect();
-        let modified: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "modified" || c.change_type == "signature_changed").collect();
-        let removed: Vec<_> = diff_result.changes.iter().filter(|c| c.change_type == "removed").collect();
+        let added: Vec<_> = diff_result
+            .changes
+            .iter()
+            .filter(|c| c.change_type == "added")
+            .collect();
+        let modified: Vec<_> = diff_result
+            .changes
+            .iter()
+            .filter(|c| c.change_type == "modified" || c.change_type == "signature_changed")
+            .collect();
+        let removed: Vec<_> = diff_result
+            .changes
+            .iter()
+            .filter(|c| c.change_type == "removed")
+            .collect();
 
         if !added.is_empty() {
             output.push_str(&format!("## Added ({})\n\n", added.len()));
             for change in &added {
-                output.push_str(&format!("- `{}` [{}]", change.entity_name, change.entity_type));
+                output.push_str(&format!(
+                    "- `{}` [{}]",
+                    change.entity_name, change.entity_type
+                ));
                 if let Some(ref path) = change.file_path {
                     output.push_str(&format!(" -- {}", path));
                 }
@@ -758,8 +835,15 @@ impl MuMcpServer {
         if !modified.is_empty() {
             output.push_str(&format!("## Modified ({})\n\n", modified.len()));
             for change in &modified {
-                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
-                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
+                let marker = if change.is_breaking {
+                    " **BREAKING**"
+                } else {
+                    ""
+                };
+                output.push_str(&format!(
+                    "- `{}` [{}]{}",
+                    change.entity_name, change.entity_type, marker
+                ));
                 if let Some(ref path) = change.file_path {
                     output.push_str(&format!(" -- {}", path));
                 }
@@ -771,8 +855,15 @@ impl MuMcpServer {
         if !removed.is_empty() {
             output.push_str(&format!("## Removed ({})\n\n", removed.len()));
             for change in &removed {
-                let marker = if change.is_breaking { " **BREAKING**" } else { "" };
-                output.push_str(&format!("- `{}` [{}]{}", change.entity_name, change.entity_type, marker));
+                let marker = if change.is_breaking {
+                    " **BREAKING**"
+                } else {
+                    ""
+                };
+                output.push_str(&format!(
+                    "- `{}` [{}]{}",
+                    change.entity_name, change.entity_type, marker
+                ));
                 if let Some(ref path) = change.file_path {
                     output.push_str(&format!(" -- {}", path));
                 }
@@ -951,11 +1042,15 @@ impl MuMcpServer {
                 });
 
             let result = crate::engine::auto_config::apply_corrections(
-                &mut config, corrections_json, &state.mubase,
-            ).map_err(|e| McpError::internal_error(format!("corrections failed: {}", e), None))?;
+                &mut config,
+                corrections_json,
+                &state.mubase,
+            )
+            .map_err(|e| McpError::internal_error(format!("corrections failed: {}", e), None))?;
 
-            config.save(&state.project_root)
-                .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+            config.save(&state.project_root).map_err(|e| {
+                McpError::internal_error(format!("failed to save config: {}", e), None)
+            })?;
 
             let mut output = result;
             output.push_str("\n\n");
@@ -964,43 +1059,61 @@ impl MuMcpServer {
             // Append enrichment candidates so the LLM can write summaries inline
             output.push_str("\n\n---\n\n## Enrichment — Phase 1\n\n");
             let candidates = tools_v3::format_enrichment_candidates(
-                &state.mubase, Some(&config), None, Some(20),
-            ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                &state.mubase,
+                Some(&config),
+                None,
+                Some(20),
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
             output.push_str(&candidates);
-            output.push_str("\n\nAfter writing summaries, call `mu_enrich` to store them, \
-                then `mu_configure(action=\"enrich_more\")` for the next batch.");
+            output.push_str(
+                "\n\nAfter writing summaries, call `mu_enrich` to store them, \
+                then `mu_configure(action=\"enrich_more\")` for the next batch.",
+            );
 
             Ok(CallToolResult::success(vec![Content::text(output)]))
         } else if params.action.as_deref() == Some("enrich_more") {
             // Enrich-more mode: load config, return next batch of candidates
             let config = crate::engine::auto_config::AutoConfig::load(&state.project_root);
             let candidates = tools_v3::format_enrichment_candidates(
-                &state.mubase, config.as_ref(), None, Some(20),
-            ).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+                &state.mubase,
+                config.as_ref(),
+                None,
+                Some(20),
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
             let mut output = String::from("## Enrichment — Next Batch\n\n");
             output.push_str(&candidates);
-            output.push_str("\n\nAfter writing summaries, call `mu_enrich` to store them, \
-                then `mu_configure(action=\"enrich_more\")` for more.");
+            output.push_str(
+                "\n\nAfter writing summaries, call `mu_enrich` to store them, \
+                then `mu_configure(action=\"enrich_more\")` for more.",
+            );
 
             Ok(CallToolResult::success(vec![Content::text(output)]))
         } else {
             // Discovery mode: generate draft, questions, enrichment suggestions
-            let config = crate::engine::auto_config::AutoConfig::generate(&state.mubase)
-                .map_err(|e| McpError::internal_error(format!("config generation failed: {}", e), None))?;
+            let config =
+                crate::engine::auto_config::AutoConfig::generate(&state.mubase).map_err(|e| {
+                    McpError::internal_error(format!("config generation failed: {}", e), None)
+                })?;
 
             // Save the draft so tools can use it immediately
-            config.save(&state.project_root)
-                .map_err(|e| McpError::internal_error(format!("failed to save config: {}", e), None))?;
+            config.save(&state.project_root).map_err(|e| {
+                McpError::internal_error(format!("failed to save config: {}", e), None)
+            })?;
 
             let questions = crate::engine::auto_config::generate_questions(&config, &state.mubase)
                 .unwrap_or_default();
 
-            let enrichment_ids = crate::engine::auto_config::suggest_enrichment_nodes(&state.mubase)
-                .unwrap_or_default();
+            let enrichment_ids =
+                crate::engine::auto_config::suggest_enrichment_nodes(&state.mubase)
+                    .unwrap_or_default();
 
             let summary = crate::engine::auto_config::format_discovery_summary(
-                &config, &questions, &enrichment_ids,
+                &config,
+                &questions,
+                &enrichment_ids,
             );
             Ok(CallToolResult::success(vec![Content::text(summary)]))
         }
@@ -1027,11 +1140,17 @@ impl MuMcpServer {
         let mut output = String::new();
         if result.already_existed {
             output.push_str("# Bootstrap: Already Initialized\n\n");
-            output.push_str(&format!("Nodes: {} | Edges: {}\n", result.node_count, result.edge_count));
+            output.push_str(&format!(
+                "Nodes: {} | Edges: {}\n",
+                result.node_count, result.edge_count
+            ));
             output.push_str("\nPass `force: true` to rebuild.\n");
         } else if result.files_scanned == 0 {
             output.push_str("# Bootstrap: No Files Found\n\n");
-            output.push_str(&format!("No supported source files in `{}`.\n", dir.display()));
+            output.push_str(&format!(
+                "No supported source files in `{}`.\n",
+                dir.display()
+            ));
         } else {
             output.push_str("# Bootstrap Complete\n\n");
             output.push_str(&format!(
@@ -1047,13 +1166,21 @@ impl MuMcpServer {
                     "PageRank: {} scores | Summaries: {} | FTS: {}\n",
                     result.importance_scores_computed,
                     result.summaries_generated,
-                    if result.fts_index_created { "rebuilt" } else { "skipped" }
+                    if result.fts_index_created {
+                        "rebuilt"
+                    } else {
+                        "skipped"
+                    }
                 ));
             }
             if result.config_created || result.gitignore_updated {
                 output.push_str("\nSetup: ");
-                if result.config_created { output.push_str(".murc.toml created "); }
-                if result.gitignore_updated { output.push_str(".gitignore updated"); }
+                if result.config_created {
+                    output.push_str(".murc.toml created ");
+                }
+                if result.gitignore_updated {
+                    output.push_str(".gitignore updated");
+                }
                 output.push('\n');
             }
         }
@@ -1237,7 +1364,6 @@ impl MuMcpServer {
             .map(|w| w.to_string())
             .collect()
     }
-
 }
 
 #[tool_handler]

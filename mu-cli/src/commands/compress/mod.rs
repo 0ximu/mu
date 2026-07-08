@@ -110,4 +110,3 @@ pub async fn run(
 
     Output::new(result, format).render()
 }
-

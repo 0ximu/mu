@@ -103,7 +103,6 @@ impl TableDisplay for DoctorResult {
 
         output
     }
-
 }
 
 /// Get file size in human-readable format
@@ -180,7 +179,6 @@ fn get_edge_count(conn: &Connection) -> usize {
     conn.query_row("SELECT COUNT(*) FROM edges", [], |row| row.get(0))
         .unwrap_or(0)
 }
-
 
 /// Run the doctor command
 pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
@@ -266,7 +264,6 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
                 } else {
                     checks.push(CheckItem::warning("Edge count", "0"));
                 }
-
             }
             Err(e) => {
                 checks.push(CheckItem::error(

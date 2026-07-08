@@ -252,8 +252,21 @@ fn extract_use_list(node: &Node, source: &str, names: &mut Vec<String>) {
 
 /// Known proc macro attributes that indicate dispatch wiring.
 const DISPATCH_ATTRIBUTES: &[&str] = &[
-    "tool", "test", "tokio::test", "handler", "get", "post", "put", "delete", "patch",
-    "route", "endpoint", "command", "event", "query", "subscribe",
+    "tool",
+    "test",
+    "tokio::test",
+    "handler",
+    "get",
+    "post",
+    "put",
+    "delete",
+    "patch",
+    "route",
+    "endpoint",
+    "command",
+    "event",
+    "query",
+    "subscribe",
 ];
 
 /// Check if an attribute name matches a known dispatch pattern.
@@ -965,9 +978,7 @@ impl Clone for Widget {
             .iter()
             .find(|m| m.name == "clone")
             .expect("clone() should attach to Widget");
-        assert!(clone
-            .decorators
-            .contains(&"impl:Clone".to_string()));
+        assert!(clone.decorators.contains(&"impl:Clone".to_string()));
     }
 
     #[test]
@@ -1154,7 +1165,11 @@ fn normal_function() {
         assert_eq!(result.functions.len(), 3);
 
         // #[test] function should have dispatch:macro
-        let test_fn = result.functions.iter().find(|f| f.name == "test_something").unwrap();
+        let test_fn = result
+            .functions
+            .iter()
+            .find(|f| f.name == "test_something")
+            .unwrap();
         assert!(
             test_fn.decorators.iter().any(|d| d == "dispatch:macro"),
             "test function should have dispatch:macro, got: {:?}",
@@ -1162,7 +1177,11 @@ fn normal_function() {
         );
 
         // #[tokio::test] function should also have dispatch:macro
-        let async_test = result.functions.iter().find(|f| f.name == "test_async").unwrap();
+        let async_test = result
+            .functions
+            .iter()
+            .find(|f| f.name == "test_async")
+            .unwrap();
         assert!(
             async_test.decorators.iter().any(|d| d == "dispatch:macro"),
             "tokio::test function should have dispatch:macro, got: {:?}",
@@ -1170,7 +1189,11 @@ fn normal_function() {
         );
 
         // normal function should NOT have dispatch:macro
-        let normal = result.functions.iter().find(|f| f.name == "normal_function").unwrap();
+        let normal = result
+            .functions
+            .iter()
+            .find(|f| f.name == "normal_function")
+            .unwrap();
         assert!(
             !normal.decorators.iter().any(|d| d == "dispatch:macro"),
             "normal function should not have dispatch:macro"

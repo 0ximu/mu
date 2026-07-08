@@ -257,7 +257,6 @@ impl TableDisplay for ImpactResult {
         ));
         output
     }
-
 }
 
 // ============== Command Runners ==============
@@ -361,7 +360,7 @@ pub fn resolve_node_id(conn: &Connection, query: &str) -> Result<String> {
              WHEN 'function' THEN 2
              ELSE 3
          END
-         LIMIT 1"
+         LIMIT 1",
     )?;
     let mut rows = stmt.query(params![query])?;
     if let Some(row) = rows.next()? {

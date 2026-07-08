@@ -4,17 +4,14 @@
 //! Each tool builds a structured response (from super::responses) first,
 //! then formats it into markdown. Called from the tool handlers in server.rs.
 
-use anyhow::Result;
-use crate::engine::storage::{MUbase, Node};
 use super::responses::{
-    NodeResult, EdgeResult, SearchResponse, SearchConfidence, EnrichmentHint,
-    ExpandResponse, ReadResponse, ReadNodeResult,
-    format_search_response, format_expand_response, format_read_response,
+    format_expand_response, format_read_response, format_search_response, EdgeResult,
+    EnrichmentHint, ExpandResponse, NodeResult, ReadNodeResult, ReadResponse, SearchConfidence,
+    SearchResponse,
 };
-use crate::engine::search::{
-    SearchConfidence as EngineConfidence,
-    compute_confidence,
-};
+use crate::engine::search::{compute_confidence, SearchConfidence as EngineConfidence};
+use crate::engine::storage::{MUbase, Node};
+use anyhow::Result;
 use rmcp::schemars::JsonSchema;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
@@ -31,7 +28,7 @@ use std::path::Path;
 // ============================================================================
 
 pub mod lenient {
-    use serde::{Deserialize, Deserializer, de};
+    use serde::{de, Deserialize, Deserializer};
 
     /// Accepts both `3` and `"3"` → `Option<usize>`
     pub fn option_usize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<usize>, D::Error> {
@@ -139,7 +136,9 @@ pub mod lenient {
     }
 
     /// Same as `vec_string` but for `Option<Vec<String>>`
-    pub fn option_vec_string<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+    pub fn option_vec_string<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<Option<Vec<String>>, D::Error> {
         #[derive(Deserialize)]
         #[serde(untagged)]
         enum Val {
@@ -152,7 +151,9 @@ pub mod lenient {
             Some(Val::Arr(v)) => Ok(Some(v)),
             Some(Val::Str(s)) => {
                 if s.starts_with('[') {
-                    serde_json::from_str::<Vec<String>>(&s).map(Some).map_err(de::Error::custom)
+                    serde_json::from_str::<Vec<String>>(&s)
+                        .map(Some)
+                        .map_err(de::Error::custom)
                 } else {
                     Ok(Some(vec![s]))
                 }
@@ -206,7 +207,9 @@ pub struct ReadNodesParams {
     #[serde(deserialize_with = "lenient::vec_string")]
     pub node_ids: Vec<String>,
     /// Read mode: signature, summary, source, full (default: source)
-    #[schemars(description = "Detail level: 'signature', 'summary', 'source', or 'full' (default: 'source')")]
+    #[schemars(
+        description = "Detail level: 'signature', 'summary', 'source', or 'full' (default: 'source')"
+    )]
     pub mode: Option<String>,
 }
 
@@ -214,10 +217,14 @@ pub struct ReadNodesParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PackContextParams {
     /// Optional task description for context-aware packing
-    #[schemars(description = "Task description (e.g., 'fix the login bug'). If omitted, returns top nodes by importance.")]
+    #[schemars(
+        description = "Task description (e.g., 'fix the login bug'). If omitted, returns top nodes by importance."
+    )]
     pub task: Option<String>,
     /// Specific node IDs to pack
-    #[schemars(description = "Specific node IDs to include. If omitted with task, searches for relevant nodes.")]
+    #[schemars(
+        description = "Specific node IDs to include. If omitted with task, searches for relevant nodes."
+    )]
     #[serde(default, deserialize_with = "lenient::option_vec_string")]
     pub node_ids: Option<Vec<String>>,
     /// Token budget (default: 4000)
@@ -250,7 +257,11 @@ pub struct EnrichSummary {
 // Handler wrappers (called from server.rs)
 // ============================================================================
 
-pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &SearchNodesParams) -> Result<String> {
+pub fn handle_search_nodes(
+    mubase: &MUbase,
+    project_root: &Path,
+    params: &SearchNodesParams,
+) -> Result<String> {
     let limit = params.limit.unwrap_or(10);
     let config = crate::engine::auto_config::AutoConfig::load(project_root);
 
@@ -275,12 +286,19 @@ pub fn handle_search_nodes(mubase: &MUbase, project_root: &Path, params: &Search
             let dampening = cfg.filters.auxiliary_dampening;
             for r in &mut results {
                 if let Some(ref fp) = r.file_path {
-                    if crate::engine::auto_config::is_auxiliary_service(fp, &cfg.codebase.auxiliary_services) {
+                    if crate::engine::auto_config::is_auxiliary_service(
+                        fp,
+                        &cfg.codebase.auxiliary_services,
+                    ) {
                         r.score *= dampening;
                     }
                 }
             }
-            results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+            results.sort_by(|a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
     }
 
@@ -295,13 +313,21 @@ pub fn handle_expand_nodes(mubase: &MUbase, params: &ExpandNodesParams) -> Resul
     expand_nodes_tool(mubase, &params.node_ids, depth, edge_types, direction)
 }
 
-pub fn handle_read_nodes(mubase: &MUbase, project_root: &Path, params: &ReadNodesParams) -> Result<String> {
+pub fn handle_read_nodes(
+    mubase: &MUbase,
+    project_root: &Path,
+    params: &ReadNodesParams,
+) -> Result<String> {
     let mode = params.mode.as_deref().unwrap_or("source");
     read_nodes_tool(mubase, project_root, &params.node_ids, mode)
 }
 
 #[allow(dead_code)]
-pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackContextParams) -> Result<String> {
+pub fn handle_pack_context(
+    mubase: &MUbase,
+    project_root: &Path,
+    params: &PackContextParams,
+) -> Result<String> {
     let budget = params.budget.unwrap_or(4000);
     let style = params.style.as_deref().unwrap_or("grouped");
     let config = crate::engine::auto_config::AutoConfig::load(project_root);
@@ -312,31 +338,58 @@ pub fn handle_pack_context(mubase: &MUbase, project_root: &Path, params: &PackCo
             // Domain concept boosting for oracle task descriptions
             let mut search_query = task.clone();
             if let Some(ref cfg) = config {
-                if let Some(boost_terms) = domain_concept_boost(&search_query, &cfg.domain_concepts) {
+                if let Some(boost_terms) = domain_concept_boost(&search_query, &cfg.domain_concepts)
+                {
                     search_query = format!("{} {}", search_query, boost_terms);
                 }
             }
 
-            let search_results = mubase.search_v3_with_config(
-                &search_query, 20, &["production"],
-            )?;
+            let search_results =
+                mubase.search_v3_with_config(&search_query, 20, &["production"])?;
             let ids: Vec<String> = search_results.iter().map(|r| r.node_id.clone()).collect();
             if ids.is_empty() {
-                return pack_context_tool(mubase, project_root, None, budget, style, config.as_ref());
+                return pack_context_tool(
+                    mubase,
+                    project_root,
+                    None,
+                    budget,
+                    style,
+                    config.as_ref(),
+                );
             }
-            return pack_context_tool(mubase, project_root, Some(&ids), budget, style, config.as_ref());
+            return pack_context_tool(
+                mubase,
+                project_root,
+                Some(&ids),
+                budget,
+                style,
+                config.as_ref(),
+            );
         }
     }
 
     let node_ids = params.node_ids.as_deref();
-    pack_context_tool(mubase, project_root, node_ids, budget, style, config.as_ref())
+    pack_context_tool(
+        mubase,
+        project_root,
+        node_ids,
+        budget,
+        style,
+        config.as_ref(),
+    )
 }
 
-pub fn handle_enrich_nodes(mubase: &MUbase, project_root: &Path, params: &EnrichNodesParams) -> Result<String> {
+pub fn handle_enrich_nodes(
+    mubase: &MUbase,
+    project_root: &Path,
+    params: &EnrichNodesParams,
+) -> Result<String> {
     let config = crate::engine::auto_config::AutoConfig::load(project_root);
     let node_ids = params.node_ids.as_deref();
     let summaries: Option<Vec<(String, String)>> = params.summaries.as_ref().map(|s| {
-        s.iter().map(|es| (es.node_id.clone(), es.summary.clone())).collect()
+        s.iter()
+            .map(|es| (es.node_id.clone(), es.summary.clone()))
+            .collect()
     });
     let summary_refs: Option<&[(String, String)]> = summaries.as_deref();
     enrich_nodes_tool(mubase, node_ids, summary_refs, config.as_ref())
@@ -396,7 +449,8 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
         Some(EnrichmentHint {
             node_ids: enrichment_ids,
             message: "Some high-importance results lack LLM summaries. \
-                      Use `mu_enrich` to improve search quality.".to_string(),
+                      Use `mu_enrich` to improve search quality."
+                .to_string(),
         })
     };
 
@@ -410,7 +464,12 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
 
 /// Search the code graph using the V3 three-phase cascade.
 #[allow(dead_code)]
-pub fn search_nodes_tool(mubase: &MUbase, project_root: &Path, query: &str, limit: usize) -> Result<String> {
+pub fn search_nodes_tool(
+    mubase: &MUbase,
+    project_root: &Path,
+    query: &str,
+    limit: usize,
+) -> Result<String> {
     let resp = build_search_response(mubase, query, limit)?;
     Ok(format_search_response(&resp, project_root))
 }
@@ -433,7 +492,8 @@ fn domain_concept_boost(query: &str, concepts: &HashMap<String, String>) -> Opti
         // Look for words that look like service/path names (contain - or /)
         let desc_lower = description.to_lowercase();
         for word in desc_lower.split_whitespace() {
-            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '/' && c != '_');
+            let clean = word
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '/' && c != '_');
             if clean.contains('-') || clean.contains('/') {
                 // Check if any OTHER query word biases toward this specific path
                 // e.g., "NAV" in query + "invoices-connector" in NAV context
@@ -511,7 +571,8 @@ fn build_search_response_from_results(
         Some(EnrichmentHint {
             node_ids: enrichment_ids,
             message: "Some high-importance results lack LLM summaries. \
-                      Use `mu_enrich` to improve search quality.".to_string(),
+                      Use `mu_enrich` to improve search quality."
+                .to_string(),
         })
     };
 
@@ -522,7 +583,6 @@ fn build_search_response_from_results(
         enrichment_opportunity,
     })
 }
-
 
 // ============================================================================
 // 2. expand_nodes_tool
@@ -547,7 +607,10 @@ pub fn build_expand_response(
     let edge_filter = edge_types
         .filter(|et| !et.is_empty())
         .map(|et| {
-            let quoted: Vec<String> = et.iter().map(|t| format!("'{}'", t.replace('\'', "''"))).collect();
+            let quoted: Vec<String> = et
+                .iter()
+                .map(|t| format!("'{}'", t.replace('\'', "''")))
+                .collect();
             format!("AND e.type IN ({})", quoted.join(", "))
         })
         .unwrap_or_default();
@@ -583,23 +646,57 @@ pub fn build_expand_response(
                 );
                 if let Ok(result) = mubase.query_params(&sql, &[&nid as &dyn duckdb::ToSql]) {
                     for row in &result.rows {
-                        let source_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let target_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let etype = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let target_name = row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let target_ntype = row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let target_file = row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let target_cat = row.get(6).and_then(|v| v.as_str()).unwrap_or("production").to_string();
+                        let source_id = row
+                            .first()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let target_id = row
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let etype = row
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let target_name = row
+                            .get(3)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let target_ntype = row
+                            .get(4)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let target_file =
+                            row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let target_cat = row
+                            .get(6)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("production")
+                            .to_string();
 
                         let source_name = node_info
                             .get(&source_id)
                             .map(|(n, _, _, _)| n.clone())
                             .unwrap_or_else(|| source_id.clone());
 
-                        all_edges.push((source_id.clone(), source_name, target_id.clone(), target_name.clone(), etype));
-                        node_info
-                            .entry(target_id.clone())
-                            .or_insert((target_name, target_ntype, target_file, target_cat));
+                        all_edges.push((
+                            source_id.clone(),
+                            source_name,
+                            target_id.clone(),
+                            target_name.clone(),
+                            etype,
+                        ));
+                        node_info.entry(target_id.clone()).or_insert((
+                            target_name,
+                            target_ntype,
+                            target_file,
+                            target_cat,
+                        ));
 
                         if !visited.contains(&target_id) {
                             visited.insert(target_id.clone());
@@ -618,23 +715,57 @@ pub fn build_expand_response(
                 );
                 if let Ok(result) = mubase.query_params(&sql, &[&nid as &dyn duckdb::ToSql]) {
                     for row in &result.rows {
-                        let source_id = row.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let target_id = row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let etype = row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let source_name = row.get(3).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let source_ntype = row.get(4).and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let source_file = row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
-                        let source_cat = row.get(6).and_then(|v| v.as_str()).unwrap_or("production").to_string();
+                        let source_id = row
+                            .first()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let target_id = row
+                            .get(1)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let etype = row
+                            .get(2)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let source_name = row
+                            .get(3)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let source_ntype = row
+                            .get(4)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let source_file =
+                            row.get(5).and_then(|v| v.as_str()).map(|s| s.to_string());
+                        let source_cat = row
+                            .get(6)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("production")
+                            .to_string();
 
                         let target_name = node_info
                             .get(&target_id)
                             .map(|(n, _, _, _)| n.clone())
                             .unwrap_or_else(|| target_id.clone());
 
-                        all_edges.push((source_id.clone(), source_name.clone(), target_id.clone(), target_name, etype));
-                        node_info
-                            .entry(source_id.clone())
-                            .or_insert((source_name, source_ntype, source_file, source_cat));
+                        all_edges.push((
+                            source_id.clone(),
+                            source_name.clone(),
+                            target_id.clone(),
+                            target_name,
+                            etype,
+                        ));
+                        node_info.entry(source_id.clone()).or_insert((
+                            source_name,
+                            source_ntype,
+                            source_file,
+                            source_cat,
+                        ));
 
                         if !visited.contains(&source_id) {
                             visited.insert(source_id.clone());
@@ -687,13 +818,15 @@ pub fn build_expand_response(
             let key = format!("{}->{}->{}", src_id, etype, tgt_id);
             seen_edges.insert(key)
         })
-        .map(|(source_id, source_name, target_id, target_name, edge_type)| EdgeResult {
-            source_id,
-            source_name,
-            target_id,
-            target_name,
-            edge_type,
-        })
+        .map(
+            |(source_id, source_name, target_id, target_name, edge_type)| EdgeResult {
+                source_id,
+                source_name,
+                target_id,
+                target_name,
+                edge_type,
+            },
+        )
         .collect();
 
     Ok(ExpandResponse {
@@ -713,14 +846,22 @@ pub fn expand_nodes_tool(
 ) -> Result<String> {
     if node_ids.is_empty() {
         let mut out = String::new();
-        writeln!(out, "# expand: 0 seed(s), depth={}, direction={}", depth, direction)?;
+        writeln!(
+            out,
+            "# expand: 0 seed(s), depth={}, direction={}",
+            depth, direction
+        )?;
         writeln!(out, "No seed nodes provided.")?;
         return Ok(out);
     }
 
     if !["outgoing", "incoming", "both"].contains(&direction) {
         let mut out = String::new();
-        writeln!(out, "Invalid direction '{}'. Use: outgoing, incoming, both", direction)?;
+        writeln!(
+            out,
+            "Invalid direction '{}'. Use: outgoing, incoming, both",
+            direction
+        )?;
         return Ok(out);
     }
 
@@ -778,14 +919,12 @@ pub fn build_read_response(
         };
 
         // Resolve source text
-        let source = source_text_db
-            .map(|s| s.to_string())
-            .or_else(|| {
-                file_path.and_then(|fp| {
-                    let full_path = project_root.join(fp);
-                    read_source_lines(&full_path, line_start, line_end, 100)
-                })
-            });
+        let source = source_text_db.map(|s| s.to_string()).or_else(|| {
+            file_path.and_then(|fp| {
+                let full_path = project_root.join(fp);
+                read_source_lines(&full_path, line_start, line_end, 100)
+            })
+        });
 
         // Extract signature
         let signature = source_text_db
@@ -860,14 +999,22 @@ pub fn read_nodes_tool(
 
     if !["signature", "summary", "source", "full"].contains(&mode) {
         let mut out = String::new();
-        writeln!(out, "Invalid mode '{}'. Use: signature, summary, source, full", mode)?;
+        writeln!(
+            out,
+            "Invalid mode '{}'. Use: signature, summary, source, full",
+            mode
+        )?;
         return Ok(out);
     }
 
     let resp = build_read_response(mubase, project_root, node_ids, mode)?;
 
     // Check for not-found nodes
-    let found_ids: HashSet<&str> = resp.nodes.iter().map(|rn| rn.node.node_id.as_str()).collect();
+    let found_ids: HashSet<&str> = resp
+        .nodes
+        .iter()
+        .map(|rn| rn.node.node_id.as_str())
+        .collect();
     let mut out = format_read_response(&resp, project_root);
 
     for nid in node_ids {
@@ -955,9 +1102,18 @@ pub fn pack_context_tool(
 
     let is_overview = node_ids.is_none();
     if is_overview {
-        writeln!(out, "# Project Context (top by importance, budget={})\n", budget)?;
+        writeln!(
+            out,
+            "# Project Context (top by importance, budget={})\n",
+            budget
+        )?;
     } else {
-        writeln!(out, "# Context Pack ({} node(s), budget={})\n", nodes_to_pack.len(), budget)?;
+        writeln!(
+            out,
+            "# Context Pack ({} node(s), budget={})\n",
+            nodes_to_pack.len(),
+            budget
+        )?;
     }
 
     let mut used_tokens = approx_tokens(&out);
@@ -969,7 +1125,10 @@ pub fn pack_context_tool(
     } else {
         let mut flat: Vec<(String, Vec<&PackNode>)> = Vec::new();
         for node in &nodes_to_pack {
-            let key = node.file_path.clone().unwrap_or_else(|| "unknown".to_string());
+            let key = node
+                .file_path
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
             if let Some(entry) = flat.iter_mut().find(|(k, _)| k == &key) {
                 entry.1.push(node);
             } else {
@@ -1001,7 +1160,9 @@ pub fn pack_context_tool(
 
             let sigil = type_sigil(&node.node_type);
 
-            let source = node.source_text.as_deref()
+            let source = node
+                .source_text
+                .as_deref()
                 .map(|s| s.to_string())
                 .or_else(|| {
                     node.file_path.as_ref().and_then(|fp| {
@@ -1091,7 +1252,9 @@ pub fn enrich_nodes_tool(
                 "SELECT source_text FROM nodes WHERE id = ?1",
                 &[&node_id as &dyn duckdb::ToSql],
             ) {
-                result.rows.first()
+                result
+                    .rows
+                    .first()
                     .and_then(|r| r.first())
                     .and_then(|v| v.as_str())
                     .map(crate::engine::summary::compute_code_hash)
@@ -1113,8 +1276,12 @@ pub fn enrich_nodes_tool(
 
                             let mut parts = vec![summary.as_str()];
                             parts.push(name);
-                            if let Some(q) = qn { parts.push(q); }
-                            if let Some(f) = fp { parts.push(f); }
+                            if let Some(q) = qn {
+                                parts.push(q);
+                            }
+                            if let Some(f) = fp {
+                                parts.push(f);
+                            }
                             let search_text = parts.join(" | ");
                             let _ = mubase.update_search_text(node_id, &search_text);
                         }
@@ -1130,7 +1297,9 @@ pub fn enrich_nodes_tool(
         writeln!(out, "Stored {} summaries.", stored)?;
         if !errors.is_empty() {
             writeln!(out, "\nErrors:")?;
-            for e in &errors { writeln!(out, "  - {}", e)?; }
+            for e in &errors {
+                writeln!(out, "  - {}", e)?;
+            }
         }
 
         match mubase.rebuild_fts_on_search_text() {
@@ -1139,7 +1308,9 @@ pub fn enrich_nodes_tool(
             Err(e) => writeln!(out, "\nFTS rebuild failed: {}", e)?,
         }
     } else {
-        out.push_str(&format_enrichment_candidates(mubase, config, node_ids, None)?);
+        out.push_str(&format_enrichment_candidates(
+            mubase, config, node_ids, None,
+        )?);
     }
 
     Ok(out)
@@ -1159,20 +1330,30 @@ pub fn format_enrichment_candidates(
 ) -> Result<String> {
     let mut out = String::new();
 
-    let top_n = limit_override.unwrap_or_else(|| {
-        config.map(|c| c.enrichment.auto_enrich_top_n).unwrap_or(20)
-    });
+    let top_n = limit_override
+        .unwrap_or_else(|| config.map(|c| c.enrichment.auto_enrich_top_n).unwrap_or(20));
     let limit = top_n.min(50);
-    let filter_ids: Option<HashSet<&str>> = node_ids.map(|ids| ids.iter().map(|s| s.as_str()).collect());
+    let filter_ids: Option<HashSet<&str>> =
+        node_ids.map(|ids| ids.iter().map(|s| s.as_str()).collect());
 
-    let unsummarized = mubase.get_unsummarized_nodes(if filter_ids.is_some() { 200 } else { limit })?;
+    let unsummarized =
+        mubase.get_unsummarized_nodes(if filter_ids.is_some() { 200 } else { limit })?;
 
     let priority_ids: Option<HashSet<&str>> = config
         .filter(|c| !c.enrichment.priority_nodes.is_empty())
-        .map(|c| c.enrichment.priority_nodes.iter().map(|s| s.as_str()).collect());
+        .map(|c| {
+            c.enrichment
+                .priority_nodes
+                .iter()
+                .map(|s| s.as_str())
+                .collect()
+        });
 
     let mut candidates: Vec<&Node> = if let Some(ref filter) = filter_ids {
-        unsummarized.iter().filter(|n| filter.contains(n.id.as_str())).collect()
+        unsummarized
+            .iter()
+            .filter(|n| filter.contains(n.id.as_str()))
+            .collect()
     } else {
         unsummarized.iter().take(limit).collect()
     };
@@ -1185,16 +1366,25 @@ pub fn format_enrichment_candidates(
             match (a_pri, b_pri) {
                 (true, false) => std::cmp::Ordering::Less,
                 (false, true) => std::cmp::Ordering::Greater,
-                _ => b.importance_score.partial_cmp(&a.importance_score)
+                _ => b
+                    .importance_score
+                    .partial_cmp(&a.importance_score)
                     .unwrap_or(std::cmp::Ordering::Equal),
             }
         });
     }
 
-    writeln!(out, "# enrich: {} candidates for enrichment\n", candidates.len())?;
+    writeln!(
+        out,
+        "# enrich: {} candidates for enrichment\n",
+        candidates.len()
+    )?;
 
     if candidates.is_empty() {
-        writeln!(out, "All nodes already have LLM summaries, or no nodes match the filter.")?;
+        writeln!(
+            out,
+            "All nodes already have LLM summaries, or no nodes match the filter."
+        )?;
         return Ok(out);
     }
 
@@ -1214,7 +1404,11 @@ pub fn format_enrichment_candidates(
         writeln!(
             out,
             "### {}{} [{}] -- {} (importance: {:.2})",
-            sigil, node.name, node.node_type.as_str(), location, node.importance_score
+            sigil,
+            node.name,
+            node.node_type.as_str(),
+            location,
+            node.importance_score
         )?;
         writeln!(out, "id: `{}`", node.id)?;
 
@@ -1267,7 +1461,10 @@ fn read_source_lines(
     let lines: Vec<&str> = content.lines().collect();
 
     let start = line_start.unwrap_or(1).saturating_sub(1) as usize;
-    let end = line_end.map(|e| e as usize).unwrap_or(lines.len()).min(lines.len());
+    let end = line_end
+        .map(|e| e as usize)
+        .unwrap_or(lines.len())
+        .min(lines.len());
 
     if start >= lines.len() {
         return None;
@@ -1284,14 +1481,32 @@ fn read_source_lines(
 
 fn extract_signature_line(source: &str) -> Option<String> {
     let sig_prefixes = [
-        "fn ", "pub fn ", "pub async fn ", "async fn ",
-        "pub(crate) fn ", "pub(super) fn ",
-        "def ", "async def ",
-        "func ", "public func ", "private func ",
-        "function ", "export function ", "async function ",
-        "public ", "private ", "protected ", "internal ",
-        "class ", "struct ", "trait ", "interface ", "enum ",
-        "pub struct ", "pub trait ", "pub enum ",
+        "fn ",
+        "pub fn ",
+        "pub async fn ",
+        "async fn ",
+        "pub(crate) fn ",
+        "pub(super) fn ",
+        "def ",
+        "async def ",
+        "func ",
+        "public func ",
+        "private func ",
+        "function ",
+        "export function ",
+        "async function ",
+        "public ",
+        "private ",
+        "protected ",
+        "internal ",
+        "class ",
+        "struct ",
+        "trait ",
+        "interface ",
+        "enum ",
+        "pub struct ",
+        "pub trait ",
+        "pub enum ",
     ];
 
     for line in source.lines() {
@@ -1305,16 +1520,25 @@ fn extract_signature_line(source: &str) -> Option<String> {
     None
 }
 
-fn fetch_node_info(mubase: &MUbase, node_id: &str) -> Option<(String, String, Option<String>, String)> {
-    let result = mubase.query_params(
-        "SELECT name, type, file_path, node_category FROM nodes WHERE id = ?1",
-        &[&node_id as &dyn duckdb::ToSql],
-    ).ok()?;
+fn fetch_node_info(
+    mubase: &MUbase,
+    node_id: &str,
+) -> Option<(String, String, Option<String>, String)> {
+    let result = mubase
+        .query_params(
+            "SELECT name, type, file_path, node_category FROM nodes WHERE id = ?1",
+            &[&node_id as &dyn duckdb::ToSql],
+        )
+        .ok()?;
     let row = result.rows.first()?;
     let name = row.first().and_then(|v| v.as_str())?.to_string();
     let ntype = row.get(1).and_then(|v| v.as_str())?.to_string();
     let file_path = row.get(2).and_then(|v| v.as_str()).map(|s| s.to_string());
-    let category = row.get(3).and_then(|v| v.as_str()).unwrap_or("production").to_string();
+    let category = row
+        .get(3)
+        .and_then(|v| v.as_str())
+        .unwrap_or("production")
+        .to_string();
     Some((name, ntype, file_path, category))
 }
 
@@ -1336,16 +1560,32 @@ struct PackNode {
 #[allow(dead_code)]
 fn pack_node_from_row(row: &[serde_json::Value]) -> PackNode {
     PackNode {
-        id: row.first().and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        node_type: row.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        name: row.get(2).and_then(|v| v.as_str()).unwrap_or("").to_string(),
+        id: row
+            .first()
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        node_type: row
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        name: row
+            .get(2)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
         file_path: row.get(3).and_then(|v| v.as_str()).map(|s| s.to_string()),
         line_start: row.get(4).and_then(|v| v.as_i64()).map(|v| v as u32),
         line_end: row.get(5).and_then(|v| v.as_i64()).map(|v| v as u32),
         source_text: row.get(6).and_then(|v| v.as_str()).map(|s| s.to_string()),
         summary_text: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
         importance_score: row.get(8).and_then(|v| v.as_f64()).unwrap_or(0.0),
-        node_category: row.get(9).and_then(|v| v.as_str()).unwrap_or("production").to_string(),
+        node_category: row
+            .get(9)
+            .and_then(|v| v.as_str())
+            .unwrap_or("production")
+            .to_string(),
     }
 }
 
@@ -1353,7 +1593,10 @@ fn pack_node_from_row(row: &[serde_json::Value]) -> PackNode {
 fn group_by_file<'a>(nodes: &'a [PackNode]) -> Vec<(String, Vec<&'a PackNode>)> {
     let mut groups: Vec<(String, Vec<&'a PackNode>)> = Vec::new();
     for node in nodes {
-        let key = node.file_path.clone().unwrap_or_else(|| "unknown".to_string());
+        let key = node
+            .file_path
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
         if let Some(entry) = groups.iter_mut().find(|(k, _)| k == &key) {
             entry.1.push(node);
         } else {
@@ -1438,7 +1681,9 @@ mod tests {
     fn edge_types_as_json_string() {
         let v = json!({"node_ids": ["fn:a"], "edge_types": "[\"calls\",\"imports\"]"});
         let p: ExpandNodesParams = serde_json::from_value(v).unwrap();
-        assert_eq!(p.edge_types, Some(vec!["calls".to_string(), "imports".to_string()]));
+        assert_eq!(
+            p.edge_types,
+            Some(vec!["calls".to_string(), "imports".to_string()])
+        );
     }
-
 }

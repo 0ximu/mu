@@ -586,10 +586,7 @@ languages = "python"
         .unwrap();
 
         let config = MuConfig::load_strict(&temp_dir).expect("string language should parse");
-        assert_eq!(
-            config.parser.languages,
-            Some(vec!["python".to_string()])
-        );
+        assert_eq!(config.parser.languages, Some(vec!["python".to_string()]));
     }
 
     #[test]
@@ -604,8 +601,7 @@ languages = "python"
 
     #[test]
     fn test_languages_array_still_works() {
-        let parsed: ParserConfig =
-            toml::from_str(r#"languages = ["python", "rust"]"#).unwrap();
+        let parsed: ParserConfig = toml::from_str(r#"languages = ["python", "rust"]"#).unwrap();
         assert_eq!(
             parsed.languages,
             Some(vec!["python".to_string(), "rust".to_string()])

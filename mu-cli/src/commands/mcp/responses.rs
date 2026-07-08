@@ -122,7 +122,11 @@ fn read_source_lines(
     let content = std::fs::read_to_string(path).ok()?;
     let lines: Vec<&str> = content.lines().collect();
 
-    let start = if line_start == 0 { 0 } else { (line_start - 1) as usize };
+    let start = if line_start == 0 {
+        0
+    } else {
+        (line_start - 1) as usize
+    };
     let end = (line_end as usize).min(lines.len());
 
     if start >= lines.len() {
@@ -169,7 +173,10 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
     }
 
     if resp.results.is_empty() {
-        let _ = writeln!(out, "No results found. Try broader terms or check `mu_compress` for available symbols.");
+        let _ = writeln!(
+            out,
+            "No results found. Try broader terms or check `mu_compress` for available symbols."
+        );
         return out;
     }
 
@@ -238,7 +245,11 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
     if !resp.target.node_id.is_empty() {
         let _ = writeln!(out, "id: {}", resp.target.node_id);
         if !resp.target.file_path.is_empty() {
-            let _ = writeln!(out, "location: {}:{}", resp.target.file_path, resp.target.line_start);
+            let _ = writeln!(
+                out,
+                "location: {}:{}",
+                resp.target.file_path, resp.target.line_start
+            );
         }
     }
     let _ = writeln!(out);
@@ -262,12 +273,16 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
     let _ = writeln!(
         out,
         "## Dependents ({} found — {} production, {} test/other)\n",
-        resp.dependents.len(), prod.len(), non_prod.len(),
+        resp.dependents.len(),
+        prod.len(),
+        non_prod.len(),
     );
 
     for (i, dep) in &prod {
         let dep_sigil = type_sigil(&dep.kind);
-        let edge_label = resp.edges.get(*i)
+        let edge_label = resp
+            .edges
+            .get(*i)
             .map(|e| e.edge_type.as_str())
             .unwrap_or("calls");
         let _ = writeln!(
@@ -286,14 +301,22 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
         let _ = writeln!(out, "### Tests & Other ({})\n", non_prod.len());
         for (i, dep) in &non_prod {
             let dep_sigil = type_sigil(&dep.kind);
-            let edge_label = resp.edges.get(*i)
+            let edge_label = resp
+                .edges
+                .get(*i)
                 .map(|e| e.edge_type.as_str())
                 .unwrap_or("calls");
             let dep_cat = category_tag(&dep.node_category);
             let _ = writeln!(
                 out,
                 "  {}{} [{}]{} --[{}]--> {} | importance={:.2}",
-                dep_sigil, dep.name, dep.kind, dep_cat, edge_label, resp.target.name, dep.importance,
+                dep_sigil,
+                dep.name,
+                dep.kind,
+                dep_cat,
+                edge_label,
+                resp.target.name,
+                dep.importance,
             );
             let _ = writeln!(out, "    id: {}", dep.node_id);
             if !dep.file_path.is_empty() {
@@ -323,14 +346,22 @@ pub fn format_expand_response(resp: &ExpandResponse) -> String {
     for n in &resp.seed_nodes {
         let sigil = type_sigil(&n.kind);
         let cat = category_tag(&n.node_category);
-        let _ = writeln!(out, "  {}{} [{}]{} -- {} [seed]", sigil, n.name, n.kind, cat, n.file_path);
+        let _ = writeln!(
+            out,
+            "  {}{} [{}]{} -- {} [seed]",
+            sigil, n.name, n.kind, cat, n.file_path
+        );
         let _ = writeln!(out, "    id: {}", n.node_id);
     }
 
     for n in &resp.neighbors {
         let sigil = type_sigil(&n.kind);
         let cat = category_tag(&n.node_category);
-        let _ = writeln!(out, "  {}{} [{}]{} -- {}", sigil, n.name, n.kind, cat, n.file_path);
+        let _ = writeln!(
+            out,
+            "  {}{} [{}]{} -- {}",
+            sigil, n.name, n.kind, cat, n.file_path
+        );
         let _ = writeln!(out, "    id: {}", n.node_id);
     }
 
@@ -338,7 +369,11 @@ pub fn format_expand_response(resp: &ExpandResponse) -> String {
 
     let _ = writeln!(out, "## Edges ({})", resp.edges.len());
     for e in &resp.edges {
-        let _ = writeln!(out, "  {} --[{}]--> {}", e.source_name, e.edge_type, e.target_name);
+        let _ = writeln!(
+            out,
+            "  {} --[{}]--> {}",
+            e.source_name, e.edge_type, e.target_name
+        );
     }
 
     out
@@ -346,7 +381,12 @@ pub fn format_expand_response(resp: &ExpandResponse) -> String {
 
 pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String {
     let mut out = String::new();
-    let _ = writeln!(out, "# read: {} node(s), mode={}\n", resp.nodes.len(), resp.mode);
+    let _ = writeln!(
+        out,
+        "# read: {} node(s), mode={}\n",
+        resp.nodes.len(),
+        resp.mode
+    );
 
     for rn in &resp.nodes {
         let n = &rn.node;
@@ -375,7 +415,9 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
                     let _ = writeln!(out, "```");
                 } else if !n.file_path.is_empty() {
                     let full_path = project_root.join(&n.file_path);
-                    if let Some(snippet) = read_source_lines(&full_path, n.line_start, n.line_start + 1, 2) {
+                    if let Some(snippet) =
+                        read_source_lines(&full_path, n.line_start, n.line_start + 1, 2)
+                    {
                         let _ = writeln!(out, "\n```");
                         let _ = writeln!(out, "{}", snippet.trim_end());
                         let _ = writeln!(out, "```");
@@ -386,7 +428,10 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
                 if let Some(ref summary) = n.summary {
                     let _ = writeln!(out, "\n{}", summary);
                 } else {
-                    let _ = writeln!(out, "\nNo summary available. Use `mu_enrich` to generate one.");
+                    let _ = writeln!(
+                        out,
+                        "\nNo summary available. Use `mu_enrich` to generate one."
+                    );
                 }
             }
             "source" => {
@@ -417,7 +462,11 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
                     let _ = writeln!(out, "\n### Neighbors");
                     for (edge_type, neighbor) in &rn.neighbors {
                         let n_sigil = type_sigil(&neighbor.kind);
-                        let _ = write!(out, "  {} {}{} [{}]", edge_type, n_sigil, neighbor.name, neighbor.kind);
+                        let _ = write!(
+                            out,
+                            "  {} {}{} [{}]",
+                            edge_type, n_sigil, neighbor.name, neighbor.kind
+                        );
                         if !neighbor.file_path.is_empty() {
                             let _ = write!(out, " -- {}", neighbor.file_path);
                         }

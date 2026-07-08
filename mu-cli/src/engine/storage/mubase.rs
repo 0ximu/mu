@@ -56,9 +56,8 @@ impl MUbase {
         let config = Config::default()
             .access_mode(duckdb::AccessMode::ReadOnly)
             .map_err(|e| anyhow::anyhow!("Failed to set read-only mode: {}", e))?;
-        let conn = Connection::open_with_flags(path, config).with_context(|| {
-            format!("Failed to open database in read-only mode: {:?}", path)
-        })?;
+        let conn = Connection::open_with_flags(path, config)
+            .with_context(|| format!("Failed to open database in read-only mode: {:?}", path))?;
 
         let mubase = Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -235,7 +234,13 @@ impl MUbase {
     }
 
     /// Update summary fields for a node.
-    pub fn update_summary(&self, node_id: &str, summary_text: &str, summary_source: &str, code_hash: &str) -> Result<()> {
+    pub fn update_summary(
+        &self,
+        node_id: &str,
+        summary_text: &str,
+        summary_source: &str,
+        code_hash: &str,
+    ) -> Result<()> {
         let conn = self.acquire_conn()?;
         conn.execute(
             "UPDATE nodes SET summary_text = ?, summary_source = ?, summary_code_hash = ?, summary_updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -354,7 +359,11 @@ impl MUbase {
     /// Run V3 three-phase search (exact -> BM25 -> importance tiebreak).
     ///
     /// Wraps `search::search_nodes` with the internal connection.
-    pub fn search_v3(&self, query: &str, limit: usize) -> Result<Vec<crate::engine::search::SearchResult>> {
+    pub fn search_v3(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::engine::search::SearchResult>> {
         let conn = self.acquire_conn()?;
         crate::engine::search::search_nodes(&conn, query, limit)
     }
@@ -367,9 +376,7 @@ impl MUbase {
         categories: &[&str],
     ) -> Result<Vec<crate::engine::search::SearchResult>> {
         let conn = self.acquire_conn()?;
-        crate::engine::search::search_nodes_with_categories(
-            &conn, query, limit, categories,
-        )
+        crate::engine::search::search_nodes_with_categories(&conn, query, limit, categories)
     }
 
     /// Clear all data from the database (no-op since insert functions handle this).
@@ -644,7 +651,6 @@ impl MUbase {
             type_counts,
         })
     }
-
 }
 
 /// Result of a SQL query.
@@ -653,7 +659,6 @@ pub struct QueryResult {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<serde_json::Value>>,
 }
-
 
 /// Statistics about the graph.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -689,7 +694,9 @@ mod tests {
         let node = Node::module("src/cli.py");
         db.insert_nodes(&[node]).unwrap();
 
-        let result = db.query("SELECT id, name FROM nodes WHERE id = 'mod:src/cli.py'").unwrap();
+        let result = db
+            .query("SELECT id, name FROM nodes WHERE id = 'mod:src/cli.py'")
+            .unwrap();
         assert_eq!(result.rows.len(), 1);
     }
 

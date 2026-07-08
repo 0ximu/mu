@@ -383,23 +383,49 @@ mod tests {
             10,
             50,
             5,
-            Some("/// Processes incoming requests\npub fn process(req: Request) -> Response {".to_string()),
+            Some(
+                "/// Processes incoming requests\npub fn process(req: Request) -> Response {"
+                    .to_string(),
+            ),
         );
 
         let edges = vec![
             // process calls validate and save
-            edge("fn:src/service.rs:process", "fn:src/validate.rs:validate", "calls"),
+            edge(
+                "fn:src/service.rs:process",
+                "fn:src/validate.rs:validate",
+                "calls",
+            ),
             edge("fn:src/service.rs:process", "fn:src/db.rs:save", "calls"),
             // handler calls process
-            edge("fn:src/handler.rs:handler", "fn:src/service.rs:process", "calls"),
+            edge(
+                "fn:src/handler.rs:handler",
+                "fn:src/service.rs:process",
+                "calls",
+            ),
         ];
 
         let summary = generate_heuristic_summary(&node, &edges);
-        assert!(summary.contains("Processes incoming requests"), "should have doc line");
-        assert!(summary.contains("pub fn process(req: Request) -> Response {"), "should have signature");
-        assert!(summary.contains("Calls: validate, save"), "should list callees");
-        assert!(summary.contains("Called by: handler"), "should list callers");
-        assert!(summary.contains("In src/service.rs"), "should have location");
+        assert!(
+            summary.contains("Processes incoming requests"),
+            "should have doc line"
+        );
+        assert!(
+            summary.contains("pub fn process(req: Request) -> Response {"),
+            "should have signature"
+        );
+        assert!(
+            summary.contains("Calls: validate, save"),
+            "should list callees"
+        );
+        assert!(
+            summary.contains("Called by: handler"),
+            "should list callers"
+        );
+        assert!(
+            summary.contains("In src/service.rs"),
+            "should have location"
+        );
     }
 
     #[test]
@@ -411,7 +437,10 @@ mod tests {
         };
 
         let summary = generate_heuristic_summary(&node, &[]);
-        assert!(summary.contains("Returns usize"), "should include return type from properties");
+        assert!(
+            summary.contains("Returns usize"),
+            "should include return type from properties"
+        );
         assert!(summary.contains("In src/lib.rs"), "should have location");
     }
 
@@ -452,17 +481,45 @@ mod tests {
         );
 
         let edges = vec![
-            edge("cls:src/models.rs:UserService", "fn:src/models.rs:UserService.create", "contains"),
-            edge("cls:src/models.rs:UserService", "fn:src/models.rs:UserService.delete", "contains"),
-            edge("cls:src/models.rs:UserService", "cls:src/base.rs:BaseService", "inherits"),
-            edge("mod:src/handler.rs", "cls:src/models.rs:UserService", "uses"),
+            edge(
+                "cls:src/models.rs:UserService",
+                "fn:src/models.rs:UserService.create",
+                "contains",
+            ),
+            edge(
+                "cls:src/models.rs:UserService",
+                "fn:src/models.rs:UserService.delete",
+                "contains",
+            ),
+            edge(
+                "cls:src/models.rs:UserService",
+                "cls:src/base.rs:BaseService",
+                "inherits",
+            ),
+            edge(
+                "mod:src/handler.rs",
+                "cls:src/models.rs:UserService",
+                "uses",
+            ),
         ];
 
         let summary = generate_heuristic_summary(&node, &edges);
-        assert!(summary.contains("class UserService extends BaseService {"), "should have declaration");
-        assert!(summary.contains("Methods: UserService.create, UserService.delete"), "should list methods");
-        assert!(summary.contains("Extends: BaseService"), "should list parent");
-        assert!(summary.contains("Used by: src/handler.rs"), "should list users");
+        assert!(
+            summary.contains("class UserService extends BaseService {"),
+            "should have declaration"
+        );
+        assert!(
+            summary.contains("Methods: UserService.create, UserService.delete"),
+            "should list methods"
+        );
+        assert!(
+            summary.contains("Extends: BaseService"),
+            "should list parent"
+        );
+        assert!(
+            summary.contains("Used by: src/handler.rs"),
+            "should list users"
+        );
         assert!(summary.contains("In src/models.rs"), "should have location");
     }
 
@@ -502,8 +559,14 @@ mod tests {
         ];
 
         let summary = generate_heuristic_summary(&node, &edges);
-        assert!(summary.contains("Contains: helper, Config"), "should list exports");
-        assert!(summary.contains("File: src/utils.py"), "should have file path");
+        assert!(
+            summary.contains("Contains: helper, Config"),
+            "should list exports"
+        );
+        assert!(
+            summary.contains("File: src/utils.py"),
+            "should have file path"
+        );
     }
 
     #[test]
@@ -544,22 +607,46 @@ mod tests {
         let node = Node::message("OrderCreated", Some("Orders"));
 
         let edges = vec![
-            edge("fn:src/orders.rs:OrderService.create", "msg:Orders:OrderCreated", "publishes"),
-            edge("fn:src/billing.rs:BillingHandler.handle", "msg:Orders:OrderCreated", "subscribes"),
-            edge("fn:src/shipping.rs:ShipHandler.handle", "msg:Orders:OrderCreated", "subscribes"),
+            edge(
+                "fn:src/orders.rs:OrderService.create",
+                "msg:Orders:OrderCreated",
+                "publishes",
+            ),
+            edge(
+                "fn:src/billing.rs:BillingHandler.handle",
+                "msg:Orders:OrderCreated",
+                "subscribes",
+            ),
+            edge(
+                "fn:src/shipping.rs:ShipHandler.handle",
+                "msg:Orders:OrderCreated",
+                "subscribes",
+            ),
         ];
 
         let summary = generate_heuristic_summary(&node, &edges);
-        assert!(summary.contains("Message type OrderCreated"), "should have message type");
-        assert!(summary.contains("Published by: OrderService.create"), "should list publisher");
-        assert!(summary.contains("Consumed by: BillingHandler.handle, ShipHandler.handle"), "should list subscribers");
+        assert!(
+            summary.contains("Message type OrderCreated"),
+            "should have message type"
+        );
+        assert!(
+            summary.contains("Published by: OrderService.create"),
+            "should list publisher"
+        );
+        assert!(
+            summary.contains("Consumed by: BillingHandler.handle, ShipHandler.handle"),
+            "should list subscribers"
+        );
     }
 
     #[test]
     fn test_build_search_text() {
         let node = Node::function("src/lib.rs", "do_stuff", None, 1, 10, 1, None);
         let text = build_search_text(&node, Some("Does important stuff"));
-        assert_eq!(text, "Does important stuff | do_stuff | src/lib.rs:do_stuff | src/lib.rs");
+        assert_eq!(
+            text,
+            "Does important stuff | do_stuff | src/lib.rs:do_stuff | src/lib.rs"
+        );
     }
 
     #[test]
@@ -591,12 +678,24 @@ mod tests {
 
         // Generate 60 callers
         let edges: Vec<(String, String, String)> = (0..60)
-            .map(|i| edge(&format!("fn:src/caller_{}.rs:call_{}", i, i), "fn:src/util.rs:log", "calls"))
+            .map(|i| {
+                edge(
+                    &format!("fn:src/caller_{}.rs:call_{}", i, i),
+                    "fn:src/util.rs:log",
+                    "calls",
+                )
+            })
             .collect();
 
         let summary = generate_heuristic_summary(&node, &edges);
-        assert!(summary.contains("Called by:"), "should have Called by section");
-        assert!(summary.contains("(and 55 more)"), "should show truncation with remaining count");
+        assert!(
+            summary.contains("Called by:"),
+            "should have Called by section"
+        );
+        assert!(
+            summary.contains("(and 55 more)"),
+            "should show truncation with remaining count"
+        );
 
         // Should only list 5 callers when >50
         let called_by_section = summary
@@ -612,7 +711,11 @@ mod tests {
             .unwrap()
             .split(", ")
             .collect();
-        assert_eq!(listed_callers.len(), 5, "should cap at 5 callers when total > 50");
+        assert_eq!(
+            listed_callers.len(),
+            5,
+            "should cap at 5 callers when total > 50"
+        );
     }
 
     #[test]
@@ -640,7 +743,10 @@ mod tests {
     fn test_extract_signature_rust() {
         let source = "/// Does stuff\npub async fn do_it(x: i32) -> Result<()> {";
         let sig = extract_signature(source);
-        assert_eq!(sig, Some("pub async fn do_it(x: i32) -> Result<()> {".to_string()));
+        assert_eq!(
+            sig,
+            Some("pub async fn do_it(x: i32) -> Result<()> {".to_string())
+        );
     }
 
     #[test]

@@ -188,11 +188,7 @@ impl TableDisplay for AuditResult {
 
         // Errors
         if !errors.is_empty() {
-            output.push_str(&format!(
-                "{} ({})\n",
-                "ERRORS".red().bold(),
-                errors.len()
-            ));
+            output.push_str(&format!("{} ({})\n", "ERRORS".red().bold(), errors.len()));
             output.push_str(&format!("{}\n", "-".repeat(60)));
             for v in &errors {
                 format_violation(&mut output, v);
@@ -216,11 +212,7 @@ impl TableDisplay for AuditResult {
 
         // Info
         if !infos.is_empty() {
-            output.push_str(&format!(
-                "{} ({})\n",
-                "INFO".dimmed().bold(),
-                infos.len()
-            ));
+            output.push_str(&format!("{} ({})\n", "INFO".dimmed().bold(), infos.len()));
             output.push_str(&format!("{}\n", "-".repeat(60)));
             for v in &infos {
                 format_violation(&mut output, v);
@@ -287,8 +279,14 @@ fn rule_orphaned_fns(
         ORDER BY n.file_path, n.line_start
     "#;
 
-    query_to_violations(mubase, sql, scope_files, "R1-orphan", Severity::Info,
-        |name, _fp| format!("no incoming calls — possibly dead code ({})", name))
+    query_to_violations(
+        mubase,
+        sql,
+        scope_files,
+        "R1-orphan",
+        Severity::Info,
+        |name, _fp| format!("no incoming calls — possibly dead code ({})", name),
+    )
 }
 
 /// R3: High cyclomatic complexity
@@ -465,11 +463,31 @@ fn rule_secrets(
     // (pattern, label, has_capture_group)
     // Patterns with a capture group put the secret *value* in group 1 for entropy scoring.
     let secret_patterns: &[(&str, &str, bool)] = &[
-        (r#"(?i)(?:api[_-]?key|apikey)\s*[=:]\s*["']([^"']{8,})"#, "API key", true),
-        (r#"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*["']([^"']{6,})"#, "password/secret", true),
-        (r#"(?i)(?:token|auth[_-]?token)\s*[=:]\s*["']([^"']{8,})"#, "auth token", true),
-        (r#"(?i)(?:aws_secret|aws_key|access_key)\s*[=:]\s*["']([A-Za-z0-9/+=]{16,})"#, "AWS credential", true),
-        (r#"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"#, "private key", false),
+        (
+            r#"(?i)(?:api[_-]?key|apikey)\s*[=:]\s*["']([^"']{8,})"#,
+            "API key",
+            true,
+        ),
+        (
+            r#"(?i)(?:secret|password|passwd|pwd)\s*[=:]\s*["']([^"']{6,})"#,
+            "password/secret",
+            true,
+        ),
+        (
+            r#"(?i)(?:token|auth[_-]?token)\s*[=:]\s*["']([^"']{8,})"#,
+            "auth token",
+            true,
+        ),
+        (
+            r#"(?i)(?:aws_secret|aws_key|access_key)\s*[=:]\s*["']([A-Za-z0-9/+=]{16,})"#,
+            "AWS credential",
+            true,
+        ),
+        (
+            r#"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----"#,
+            "private key",
+            false,
+        ),
     ];
 
     let compiled: Vec<(Regex, &str, bool)> = secret_patterns
@@ -725,10 +743,7 @@ fn count_params(source_text: &str) -> usize {
         first_line
     } else {
         // Maybe the signature spans multiple lines in source_text
-        source_text
-            .lines()
-            .find(|l| l.contains('('))
-            .unwrap_or("")
+        source_text.lines().find(|l| l.contains('(')).unwrap_or("")
     };
 
     let open = match sig_text.find('(') {
@@ -762,7 +777,10 @@ fn count_params(source_text: &str) -> usize {
     // Filter out 'self' / '&self' / '&mut self' / 'cls' params
     let self_re = Regex::new(r"^\s*(&\s*(mut\s+)?)?self\s*$|^\s*cls\s*$").unwrap();
     let parts: Vec<&str> = split_params_at_depth_zero(param_str);
-    let real_params = parts.iter().filter(|p| !self_re.is_match(p.split(':').next().unwrap_or(p).trim())).count();
+    let real_params = parts
+        .iter()
+        .filter(|p| !self_re.is_match(p.split(':').next().unwrap_or(p).trim()))
+        .count();
 
     real_params
 }
@@ -1032,9 +1050,7 @@ pub async fn run(
     let project_rules = load_project_rules(&rules_path);
 
     // Resolve thresholds (CLI > project config > defaults)
-    let complexity_threshold = min_complexity
-        .or(config.complexity_threshold)
-        .unwrap_or(30);
+    let complexity_threshold = min_complexity.or(config.complexity_threshold).unwrap_or(30);
     let param_limit = max_params.or(config.max_params).unwrap_or(6);
 
     // Resolve diff scope
@@ -1054,7 +1070,11 @@ pub async fn run(
         rules_run += 1;
     }
     if !disabled.contains("R3-complexity") {
-        violations.extend(rule_high_complexity(&mubase, complexity_threshold, &scope_files));
+        violations.extend(rule_high_complexity(
+            &mubase,
+            complexity_threshold,
+            &scope_files,
+        ));
         rules_run += 1;
     }
     if config.enable_r5_docs && !disabled.contains("R5-docs") {
@@ -1088,9 +1108,18 @@ pub async fn run(
 
     let nodes_checked = count_nodes(&mubase);
     // Count against the full list before any truncation so the summary is accurate
-    let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
-    let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
-    let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
+    let error_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Error)
+        .count();
+    let warning_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Warning)
+        .count();
+    let info_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Info)
+        .count();
     let total_violations = violations.len();
 
     // Truncate to top N most severe (0 = unlimited)
@@ -1128,9 +1157,7 @@ pub fn run_audit_for_mcp(
     let config = load_audit_config(&rules_path);
     let project_rules = load_project_rules(&rules_path);
 
-    let complexity_threshold = min_complexity
-        .or(config.complexity_threshold)
-        .unwrap_or(30);
+    let complexity_threshold = min_complexity.or(config.complexity_threshold).unwrap_or(30);
     let param_limit = config.max_params.unwrap_or(6);
 
     let scope_files = match diff_base {
@@ -1148,7 +1175,11 @@ pub fn run_audit_for_mcp(
         rules_run += 1;
     }
     if !disabled.contains("R3-complexity") {
-        violations.extend(rule_high_complexity(mubase, complexity_threshold, &scope_files));
+        violations.extend(rule_high_complexity(
+            mubase,
+            complexity_threshold,
+            &scope_files,
+        ));
         rules_run += 1;
     }
     if config.enable_r5_docs && !disabled.contains("R5-docs") {
@@ -1179,9 +1210,18 @@ pub fn run_audit_for_mcp(
     violations.sort_by(|a, b| a.severity.cmp(&b.severity));
 
     let nodes_checked = count_nodes(mubase);
-    let error_count = violations.iter().filter(|v| v.severity == Severity::Error).count();
-    let warning_count = violations.iter().filter(|v| v.severity == Severity::Warning).count();
-    let info_count = violations.iter().filter(|v| v.severity == Severity::Info).count();
+    let error_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Error)
+        .count();
+    let warning_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Warning)
+        .count();
+    let info_count = violations
+        .iter()
+        .filter(|v| v.severity == Severity::Info)
+        .count();
     let total_violations = violations.len();
 
     // MCP consumers get a focused top-20 by default — full dumps are not useful in-context
@@ -1269,10 +1309,7 @@ mod tests {
 
     #[test]
     fn test_count_params_with_generics() {
-        assert_eq!(
-            count_params("fn foo(map: HashMap<K, V>, b: String)"),
-            2
-        );
+        assert_eq!(count_params("fn foo(map: HashMap<K, V>, b: String)"), 2);
     }
 
     #[test]

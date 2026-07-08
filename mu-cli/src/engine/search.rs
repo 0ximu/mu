@@ -33,10 +33,9 @@ pub fn compute_confidence(results: &[SearchResult], query: &str) -> SearchConfid
     }
 
     // Exact match always HIGH
-    if results
-        .iter()
-        .any(|r| r.match_type == MatchType::ExactName || r.match_type == MatchType::ExactQualifiedName)
-    {
+    if results.iter().any(|r| {
+        r.match_type == MatchType::ExactName || r.match_type == MatchType::ExactQualifiedName
+    }) {
         return SearchConfidence::High;
     }
 
@@ -54,8 +53,7 @@ pub fn compute_confidence(results: &[SearchResult], query: &str) -> SearchConfid
                 .iter()
                 .filter(|t| {
                     let tl = t.to_lowercase();
-                    top_name.contains(&tl)
-                        || (tl.len() >= 5 && top_name.contains(&tl[..5]))
+                    top_name.contains(&tl) || (tl.len() >= 5 && top_name.contains(&tl[..5]))
                 })
                 .count();
             if matching_terms >= 2 {
@@ -317,9 +315,7 @@ fn fallback_keyword_search(
         .enumerate()
         .map(|(i, _)| {
             let p = i + 1; // 1-indexed param
-            format!(
-                "(search_text LIKE '%' || ?{p} || '%' OR name LIKE '%' || ?{p} || '%')"
-            )
+            format!("(search_text LIKE '%' || ?{p} || '%' OR name LIKE '%' || ?{p} || '%')")
         })
         .collect();
 
@@ -628,9 +624,21 @@ mod tests {
     #[test]
     fn test_search_nodes_exact_match() {
         let db = open_test_db();
-        insert_node(&db, "fn:1", "parse_config", "parse configuration loader", 0.1);
+        insert_node(
+            &db,
+            "fn:1",
+            "parse_config",
+            "parse configuration loader",
+            0.1,
+        );
         // A BM25/LIKE candidate with much higher importance must not beat the exact hit.
-        insert_node(&db, "fn:2", "load_settings", "parse_config helper wrapper", 0.9);
+        insert_node(
+            &db,
+            "fn:2",
+            "load_settings",
+            "parse_config helper wrapper",
+            0.9,
+        );
 
         let results = db.search_v3("parse_config", 10).unwrap();
 
@@ -880,5 +888,4 @@ mod tests {
         let results = make_results(&[0.40, 0.35, 0.25, 0.15, 0.10]);
         assert_eq!(compute_confidence(&results, ""), SearchConfidence::Medium);
     }
-
 }

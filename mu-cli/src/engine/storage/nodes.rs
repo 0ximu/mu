@@ -250,7 +250,8 @@ mod tests {
 
     #[test]
     fn test_class_node_with_source_text() {
-        let src = Some("class MUbase(Base)\n  attributes: conn\n  methods: open, close".to_string());
+        let src =
+            Some("class MUbase(Base)\n  attributes: conn\n  methods: open, close".to_string());
         let node = Node::class("src/cli.py", "MUbase", 10, 100, src.clone());
         assert_eq!(node.source_text, src);
     }

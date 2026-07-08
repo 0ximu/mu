@@ -171,7 +171,10 @@ pub fn calculate(source: &str, language: &str) -> u32 {
 /// This is the accurate version that walks the AST.
 pub fn calculate_for_node(node: &Node, source: &str, language: &str) -> u32 {
     let decision_types = DECISION_POINTS.get(language).cloned().unwrap_or_default();
-    let containers = BRANCHING_CONTAINERS.get(language).cloned().unwrap_or_default();
+    let containers = BRANCHING_CONTAINERS
+        .get(language)
+        .cloned()
+        .unwrap_or_default();
     let mut complexity = 1u32;
 
     fn is_decision_operator(node: &Node, source: &str) -> bool {

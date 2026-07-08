@@ -101,7 +101,6 @@ impl TableDisplay for DependencyInfo {
         output.push_str(&format!("\n{}: {}\n", "Total".bold(), self.total_count));
         output
     }
-
 }
 
 /// Find the parent module for a class or function node.
@@ -295,7 +294,6 @@ async fn run_direct(
 
     Output::new(info, format).render()
 }
-
 
 /// Get node name and type for display
 fn get_node_info(conn: &Connection, node_id: &str) -> Result<(String, String)> {

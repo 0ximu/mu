@@ -230,7 +230,9 @@ fn truncate_docstring(doc: &str) -> String {
     let first_line = doc.lines().next().unwrap_or("");
     if first_line.len() > 80 {
         let mut end = 77;
-        while !first_line.is_char_boundary(end) { end -= 1; }
+        while !first_line.is_char_boundary(end) {
+            end -= 1;
+        }
         format!("{}...", &first_line[..end])
     } else {
         first_line.to_string()

@@ -60,7 +60,6 @@ impl TableDisplay for CompletionInstructions {
         }
         output
     }
-
 }
 
 /// Get installation instructions for a shell
