@@ -6,11 +6,35 @@
 
 use anyhow::{Context, Result};
 use duckdb::Connection;
+use std::cmp::Ordering;
+
+/// Compare two dotted version strings numerically, component by component.
+///
+/// String comparison gets this wrong: "1.10.0" < "1.2.0" lexicographically.
+/// Missing or non-numeric components are treated as 0.
+pub fn compare_semver(a: &str, b: &str) -> Ordering {
+    let parse = |v: &str| -> Vec<u64> {
+        v.split('.')
+            .map(|c| c.trim().parse::<u64>().unwrap_or(0))
+            .collect()
+    };
+    let (av, bv) = (parse(a), parse(b));
+    let len = av.len().max(bv.len());
+    for i in 0..len {
+        let x = av.get(i).copied().unwrap_or(0);
+        let y = bv.get(i).copied().unwrap_or(0);
+        match x.cmp(&y) {
+            Ordering::Equal => continue,
+            other => return other,
+        }
+    }
+    Ordering::Equal
+}
 
 /// Check if migration is needed from current version to target.
 #[cfg(test)]
 pub fn needs_migration(current: &str, target: &str) -> bool {
-    current != target && current < target
+    compare_semver(current, target) == Ordering::Less
 }
 
 /// Migrate embeddings from JSON VARCHAR to native FLOAT[384] arrays.
@@ -250,6 +274,30 @@ mod tests {
         assert!(needs_migration("1.0.0", "1.2.0"));
         assert!(needs_migration("1.1.0", "1.2.0"));
         assert!(!needs_migration("1.2.0", "1.2.0"));
+        // Numeric compare: 1.10.0 is newer than 1.2.0, no migration needed
+        assert!(!needs_migration("1.10.0", "1.2.0"));
+        assert!(needs_migration("1.2.0", "1.10.0"));
+    }
+
+    #[test]
+    fn test_compare_semver_numeric_not_lexicographic() {
+        // The lexicographic trap: "1.10.0" < "1.2.0" as strings.
+        assert_eq!(compare_semver("1.10.0", "1.2.0"), Ordering::Greater);
+        assert_eq!(compare_semver("1.2.0", "1.10.0"), Ordering::Less);
+    }
+
+    #[test]
+    fn test_compare_semver_equal() {
+        assert_eq!(compare_semver("2.1.0", "2.1.0"), Ordering::Equal);
+        // Missing components count as zero
+        assert_eq!(compare_semver("2.1", "2.1.0"), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_compare_semver_ordering() {
+        assert_eq!(compare_semver("1.0.0", "2.0.0"), Ordering::Less);
+        assert_eq!(compare_semver("2.1.0", "2.0.0"), Ordering::Greater);
+        assert_eq!(compare_semver("0.9.0", "1.0.0"), Ordering::Less);
     }
 
     #[test]

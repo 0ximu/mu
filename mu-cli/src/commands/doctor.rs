@@ -14,8 +14,10 @@ use serde::Serialize;
 
 use crate::output::{Output, OutputFormat, TableDisplay};
 
-/// Current schema version expected by this CLI
-const CURRENT_SCHEMA_VERSION: &str = "1.0.0";
+/// Current schema version expected by this CLI — the same constant the
+/// storage layer stamps into freshly bootstrapped databases. Duplicating
+/// the value here is how doctor ended up calling its own DBs "newer than CLI".
+use crate::engine::storage::schema::SCHEMA_VERSION as CURRENT_SCHEMA_VERSION;
 
 /// Status of a health check item
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -156,32 +158,14 @@ fn get_schema_version(conn: &Connection) -> Option<String> {
     .ok()
 }
 
-/// Parse the major version number from a semver string (e.g., "1.0.0" -> 1)
-fn parse_major_version(version: &str) -> Option<u32> {
-    version.split('.').next()?.parse().ok()
-}
-
 /// Compare stored version against current version
 /// Returns a tuple of (display message, is_ok)
 fn compare_versions(stored: &str, current: &str) -> (&'static str, bool) {
-    if stored == current {
-        return ("current", true);
-    }
-
-    let stored_major = parse_major_version(stored);
-    let current_major = parse_major_version(current);
-
-    match (stored_major, current_major) {
-        (Some(s), Some(c)) if s < c => ("outdated", false),
-        (Some(s), Some(c)) if s > c => ("newer than CLI", false),
-        _ => {
-            // Fall back to string comparison if major versions are equal but full versions differ
-            if stored < current {
-                ("outdated", false)
-            } else {
-                ("newer than CLI", false)
-            }
-        }
+    use crate::engine::storage::migrations::compare_semver;
+    match compare_semver(stored, current) {
+        std::cmp::Ordering::Equal => ("current", true),
+        std::cmp::Ordering::Less => ("outdated", false),
+        std::cmp::Ordering::Greater => ("newer than CLI", false),
     }
 }
 
@@ -343,20 +327,41 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_major_version() {
-        assert_eq!(parse_major_version("1.0.0"), Some(1));
-        assert_eq!(parse_major_version("2.5.3"), Some(2));
-        assert_eq!(parse_major_version("10.0.0"), Some(10));
-        assert_eq!(parse_major_version("0.9.0"), Some(0));
-        assert_eq!(parse_major_version("invalid"), None);
-        assert_eq!(parse_major_version(""), None);
-    }
-
-    #[test]
     fn test_version_comparison_current() {
         let (msg, is_ok) = compare_versions("1.0.0", "1.0.0");
         assert_eq!(msg, "current");
         assert!(is_ok);
+    }
+
+    #[test]
+    fn test_freshly_created_db_reports_current() {
+        // Regression: doctor called a DB its own binary just created
+        // "newer than CLI" because it compared against a stale constant.
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.mubase");
+        std::mem::forget(dir);
+        let db = crate::engine::storage::MUbase::open(&db_path).unwrap();
+
+        let stored = db
+            .with_connection(|conn| Ok(get_schema_version(conn)))
+            .unwrap()
+            .expect("fresh db must have a schema_version");
+
+        let (msg, is_ok) = compare_versions(&stored, CURRENT_SCHEMA_VERSION);
+        assert_eq!(msg, "current");
+        assert!(is_ok);
+    }
+
+    #[test]
+    fn test_version_comparison_not_lexicographic() {
+        // "1.2.0" < "1.10.0" numerically, even though ">" lexicographically.
+        let (msg, is_ok) = compare_versions("1.2.0", "1.10.0");
+        assert_eq!(msg, "outdated");
+        assert!(!is_ok);
+
+        let (msg, is_ok) = compare_versions("1.10.0", "1.2.0");
+        assert_eq!(msg, "newer than CLI");
+        assert!(!is_ok);
     }
 
     #[test]
