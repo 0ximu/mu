@@ -48,7 +48,7 @@ dirs = "5"
 regex = "1.10"
 
 # Database (for direct MUbase access)
-duckdb = { version = "1.1", features = ["bundled"] }
+duckdb = { version = "1.1", features = ["bundled", "json"] }
 
 # Graph algorithms
 petgraph = "0.6"
