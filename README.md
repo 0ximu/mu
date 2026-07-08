@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/assets/intro.gif" alt="MU Demo" width="600"/>
-</p>
-
 <h1 align="center">MU</h1>
 
 <p align="center">
@@ -10,7 +6,7 @@
 
 <p align="center">
   <em>MCP server that gives AI assistants deep codebase understanding.<br/>
-  Semantic graph, BM25 search, impact analysis, code review — all via tool calls.</em>
+  Semantic graph, BM25 search, impact analysis, code review - all via tool calls.</em>
 </p>
 
 MU parses your codebase into a semantic graph stored in DuckDB, then exposes it through 13 MCP tools. Your AI assistant can search, navigate, review, and understand your code without stuffing the entire repo into a context window.
@@ -22,7 +18,7 @@ MU parses your codebase into a semantic graph stored in DuckDB, then exposes it 
 
 LLMs choke on large codebases. Context windows are precious. 90% of code is boilerplate. You're feeding syntax when you need semantics.
 
-MU solves this by building a semantic graph — nodes (files, classes, functions), edges (imports, calls, inheritance), importance scores, summaries — and letting your AI pull exactly what it needs.
+MU solves this by building a semantic graph - nodes (files, classes, functions), edges (imports, calls, inheritance), importance scores, summaries - and letting your AI pull exactly what it needs.
 
 ```
 Input:  66,493 lines of Python
@@ -32,20 +28,27 @@ Result: LLM correctly answers architectural questions
 
 ## Quick Start
 
+Grab a prebuilt binary from [Releases](https://github.com/0ximu/mu/releases), or build from source:
+
 ```bash
-# Build from source
 git clone https://github.com/0ximu/mu.git
 cd mu && cargo build --release
 
-# Bootstrap your project
+# Put mu on your PATH (required for the MCP config below)
+cp target/release/mu ~/.local/bin/   # or /usr/local/bin
+```
+
+Then index your project and hook it up to Claude Code:
+
+```bash
 cd /path/to/your/project
 mu bootstrap
 
-# Start the MCP server
-mu mcp
+# Register the MCP server with Claude Code
+claude mcp add mu -- mu mcp
 ```
 
-Add to your Claude Code config (`~/.claude/settings.json`):
+Or, to share the server config with your team, create `.mcp.json` in the project root:
 
 ```json
 {
@@ -58,7 +61,7 @@ Add to your Claude Code config (`~/.claude/settings.json`):
 }
 ```
 
-That's it. Your AI assistant now has full codebase understanding.
+That's it. Your AI assistant now has full codebase understanding. (Other MCP clients work too - MU speaks MCP over stdio.)
 
 ## MCP Tools
 
@@ -66,19 +69,19 @@ These are the tools your AI assistant can call:
 
 | Tool | What it does |
 |------|-------------|
-| `mu_oracle` | The go-to tool — given a task description, returns exactly the code and context needed |
 | `mu_grok` | Search + code snippets. BM25 full-text search ranked by importance |
 | `mu_find` | Exact symbol lookup by name |
-| `mu_expand` | Graph traversal — explore dependencies outward from seed nodes |
+| `mu_expand` | Graph traversal - explore dependencies outward from seed nodes |
 | `mu_read` | Bulk source code retrieval for specific nodes |
-| `mu_impact` | Downstream impact — what breaks if this symbol changes |
+| `mu_impact` | Downstream impact - what breaks if this symbol changes, transitively |
 | `mu_diff` | Semantic diff between git refs (branches, commits) |
 | `mu_review` | Full PR review: diff + impact + audit + risk score |
-| `mu_audit` | Code quality rules — complexity, missing docs, code smells |
-| `mu_sus` | Find suspicious code — high complexity, security-sensitive, untested |
-| `mu_wtf` | Git archaeology — who wrote this, how it evolved, co-changed files |
-| `mu_enrich` | Enrichment flywheel — LLM generates better summaries, improving future search |
+| `mu_audit` | Code quality rules - complexity, hardcoded secrets, code smells |
+| `mu_sus` | Find suspicious code - high complexity, security-sensitive, untested |
+| `mu_enrich` | Enrichment flywheel - LLM writes better summaries, improving future search |
 | `mu_compress` | Token-efficient codebase overview with sigil notation |
+| `mu_bootstrap` | Build or rebuild the index without leaving the session |
+| `mu_configure` | Auto-detect project patterns, refine config, drive enrichment |
 
 ### The Enrichment Flywheel
 
@@ -86,7 +89,7 @@ These are the tools your AI assistant can call:
 
 ## CLI Commands
 
-The CLI is lean — bootstrap, compress, and analyze:
+The CLI is lean - bootstrap, compress, and analyze:
 
 ```bash
 mu bootstrap              # Build the semantic graph (run this first)
@@ -121,17 +124,17 @@ $ AuthService  [★★★]
     | src/handlers/api.rs
 ```
 
-Sigil notation: `!` modules, `$` classes, `#` functions. Complexity scores, call counts, importance stars — all in minimal tokens.
+Sigil notation: `!` modules, `$` classes, `#` functions. Complexity scores, call counts, importance stars - all in minimal tokens.
 
 ## What Bootstrap Builds
 
 `mu bootstrap` parses your codebase and produces:
 
-1. **Semantic graph** — nodes (files, classes, functions) and edges (imports, calls, inheritance, uses)
-2. **PageRank importance scores** — which symbols are most connected/important
-3. **Heuristic summaries** — auto-generated descriptions for each node (generated after the graph is complete — summaries include caller/callee information from edges)
-4. **BM25 full-text index** — fast search over summaries, names, and code
-5. **DuckDB database** — everything stored in `.mu/mubase`
+1. **Semantic graph** - nodes (files, classes, functions) and edges (imports, calls, inheritance, uses)
+2. **PageRank importance scores** - which symbols are most connected/important
+3. **Heuristic summaries** - auto-generated descriptions for each node (generated after the graph is complete - summaries include caller/callee information from edges)
+4. **BM25 full-text index** - fast search over summaries, names, and code
+5. **DuckDB database** - everything stored in `.mu/mubase`
 
 Bootstrap is fast: a 400k-line TypeScript project takes about 60 seconds.
 
@@ -211,7 +214,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](./LICENSE).
+Apache License 2.0 - see [LICENSE](./LICENSE).
 
 ---
 

@@ -6,13 +6,15 @@
 
 ## 1. Install MU
 
+Grab a prebuilt binary from [Releases](https://github.com/0ximu/mu/releases), or build from source:
+
 ```bash
 # Build from source (Rust 1.70+)
 git clone https://github.com/0ximu/mu.git
 cd mu
 cargo build --release
 
-# Add to PATH (optional)
+# Put mu on your PATH (required - the MCP config runs `mu` by name)
 sudo cp target/release/mu /usr/local/bin/
 ```
 
@@ -34,7 +36,11 @@ This builds the semantic graph: nodes (files, classes, functions), edges (import
 
 ### Claude Code
 
-Add to `~/.claude/settings.json`:
+```bash
+claude mcp add mu -- mu mcp
+```
+
+Or, to share the config with your team, create `.mcp.json` in the project root:
 
 ```json
 {
@@ -56,20 +62,20 @@ Start the server manually:
 mu mcp
 ```
 
-MU speaks MCP over stdio — any MCP client can connect.
+MU speaks MCP over stdio - any MCP client can connect.
 
 ## 4. What Your AI Can Do Now
 
 Once connected, your AI assistant can:
 
-- **`mu_oracle`** — "What code do I need to understand to implement X?"
-- **`mu_grok`** — "Find code related to authentication"
-- **`mu_impact`** — "What breaks if I change this function?"
-- **`mu_review`** — "Review the changes on this branch"
-- **`mu_sus`** — "Find suspicious or complex code"
-- **`mu_wtf`** — "Who wrote this file and why?"
+- **`mu_grok`** - "Find code related to authentication"
+- **`mu_impact`** - "What breaks if I change this function?"
+- **`mu_review`** - "Review the changes on this branch"
+- **`mu_sus`** - "Find suspicious or complex code"
+- **`mu_compress`** - "Give me an architectural overview"
+- **`mu_enrich`** - "Improve search quality by writing better summaries"
 
-You don't call these directly — your AI assistant calls them as MCP tools.
+You don't call these directly - your AI assistant calls them as MCP tools.
 
 ## 5. CLI Commands (For Humans)
 

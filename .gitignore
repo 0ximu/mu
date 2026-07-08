@@ -94,3 +94,6 @@ Thumbs.db
 tools/vscode-mu/node_modules/
 *.vsix
 *.tasks.md
+
+# Internal audit notes
+MU-AUDIT-REPORT.md
