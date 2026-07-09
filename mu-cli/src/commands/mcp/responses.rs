@@ -386,6 +386,50 @@ pub fn format_expand_response(resp: &ExpandResponse) -> String {
     out
 }
 
+/// Cap on source lines emitted per node in read responses.
+const READ_SOURCE_LINE_CAP: usize = 100;
+
+/// Write a fenced source block, capped at READ_SOURCE_LINE_CAP lines.
+///
+/// When the body is longer than the cap, append an explicit marker with the
+/// real numbers instead of cutting silently.
+fn write_capped_source_block(out: &mut String, src: &str, node: &NodeResult) {
+    let _ = writeln!(out, "\n```");
+    let mut shown = 0usize;
+    for line in src.lines().take(READ_SOURCE_LINE_CAP) {
+        let _ = writeln!(out, "{}", line);
+        shown += 1;
+    }
+    let _ = writeln!(out, "```");
+
+    // Total body length: prefer the node's line span (the snippet itself may
+    // already be capped upstream), fall back to counting snippet lines.
+    let span_total = if node.line_start > 0 && node.line_end >= node.line_start {
+        (node.line_end - node.line_start + 1) as usize
+    } else {
+        0
+    };
+    let total = span_total.max(src.lines().count());
+
+    if total > shown {
+        if node.line_start > 0 && !node.file_path.is_empty() {
+            let file_start = node.line_start as usize;
+            let file_end = file_start + shown - 1;
+            let _ = writeln!(
+                out,
+                "... [truncated: showing lines 1-{} of {} total (lines {}-{} in {}); read the file directly for the rest]",
+                shown, total, file_start, file_end, node.file_path
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "... [truncated: showing lines 1-{} of {} total; read the file directly for the rest]",
+                shown, total
+            );
+        }
+    }
+}
+
 pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String {
     let mut out = String::new();
     let _ = writeln!(
@@ -443,22 +487,14 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
             }
             "source" => {
                 if let Some(ref src) = rn.source_text {
-                    let _ = writeln!(out, "\n```");
-                    for line in src.lines().take(100) {
-                        let _ = writeln!(out, "{}", line);
-                    }
-                    let _ = writeln!(out, "```");
+                    write_capped_source_block(&mut out, src, n);
                 } else {
                     let _ = writeln!(out, "\nSource not available.");
                 }
             }
             "full" => {
                 if let Some(ref src) = rn.source_text {
-                    let _ = writeln!(out, "\n```");
-                    for line in src.lines().take(100) {
-                        let _ = writeln!(out, "{}", line);
-                    }
-                    let _ = writeln!(out, "```");
+                    write_capped_source_block(&mut out, src, n);
                 }
 
                 if let Some(ref summary) = n.summary {

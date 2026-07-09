@@ -1686,4 +1686,81 @@ mod tests {
             Some(vec!["calls".to_string(), "imports".to_string()])
         );
     }
+
+    // -- read_nodes truncation contract --
+
+    fn open_test_db() -> (tempfile::TempDir, MUbase) {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.mubase");
+        let db = MUbase::open(&db_path).unwrap();
+        (dir, db)
+    }
+
+    fn insert_source_node(
+        db: &MUbase,
+        id: &str,
+        name: &str,
+        line_start: u32,
+        line_end: u32,
+        source_text: &str,
+    ) {
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO nodes (id, type, name, file_path, line_start, line_end,
+                                    importance_score, source_text, node_category)
+                 VALUES (?, 'function', ?, 'src/big.rs', ?, ?, 0.5, ?, 'production')",
+                duckdb::params![id, name, line_start, line_end, source_text],
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn read_nodes_long_source_gets_explicit_truncation_marker() {
+        let (dir, db) = open_test_db();
+        // 250-line body starting at file line 10 -> only the first 100 lines
+        // fit, and the cut must be announced with real numbers.
+        let body: String = (1..=250)
+            .map(|i| format!("let x{} = {};\n", i, i))
+            .collect();
+        insert_source_node(&db, "fn:big", "big_fn", 10, 259, &body);
+
+        let out = read_nodes_tool(&db, dir.path(), &["fn:big".to_string()], "source").unwrap();
+
+        assert!(
+            out.contains("truncated: showing"),
+            "missing truncation marker in output:\n{}",
+            out
+        );
+        assert!(out.contains("showing lines 1-100 of 250 total"), "{}", out);
+        assert!(out.contains("(lines 10-109 in src/big.rs)"), "{}", out);
+        assert!(
+            out.contains("read the file directly for the rest"),
+            "{}",
+            out
+        );
+    }
+
+    #[test]
+    fn read_nodes_short_source_has_no_truncation_marker() {
+        let (dir, db) = open_test_db();
+        insert_source_node(
+            &db,
+            "fn:small",
+            "small_fn",
+            1,
+            3,
+            "fn small() {\n    1\n}\n",
+        );
+
+        let out = read_nodes_tool(&db, dir.path(), &["fn:small".to_string()], "source").unwrap();
+
+        assert!(out.contains("fn small()"));
+        assert!(
+            !out.contains("truncated"),
+            "false marker in output:\n{}",
+            out
+        );
+    }
 }
