@@ -20,6 +20,69 @@ pub enum SearchConfidence {
     NoResults,
 }
 
+/// Curated bidirectional abbreviation table for query term expansion.
+///
+/// Code identifiers routinely tokenize to short forms ("BasicAuthMiddleware"
+/// -> "auth") that neither exact matching nor the 5-char prefix stemming in
+/// `compute_confidence` can bridge: "authentication" never prefix-matches
+/// "auth". Each entry maps a short form to its long form(s); expansion works
+/// in both directions.
+///
+/// "val" is deliberately absent: it is ambiguous (validation vs value).
+const ABBREVIATIONS: &[(&str, &[&str])] = &[
+    ("auth", &["authentication", "authorization"]),
+    ("config", &["configuration"]),
+    ("db", &["database"]),
+    ("repo", &["repository"]),
+    ("msg", &["message"]),
+    ("impl", &["implementation"]),
+    ("init", &["initialization"]),
+    ("param", &["parameter"]),
+    ("util", &["utility"]),
+    ("ctx", &["context"]),
+    ("svc", &["service"]),
+    ("mgr", &["manager"]),
+    ("conn", &["connection"]),
+    ("spec", &["specification"]),
+    ("env", &["environment"]),
+    ("temp", &["temporary"]),
+    ("doc", &["document", "documentation"]),
+];
+
+/// Abbreviation variants for a single query term (bidirectional, lowercase).
+/// Returns an empty vec for terms not in the table.
+fn abbreviation_variants(term: &str) -> Vec<String> {
+    let lower = term.to_lowercase();
+    let mut variants = Vec::new();
+    for (short, longs) in ABBREVIATIONS {
+        if lower == *short {
+            variants.extend(longs.iter().map(|l| (*l).to_string()));
+        } else if longs.contains(&lower.as_str()) {
+            variants.push((*short).to_string());
+        }
+    }
+    variants
+}
+
+/// Expand a query for the BM25 phase by appending abbreviation variants of
+/// each term as extra OR terms: "authentication middleware" becomes
+/// "authentication middleware auth". The exact-name phase keeps the raw query.
+fn expand_query(query: &str) -> String {
+    let mut expanded = query.to_string();
+    for term in query.split_whitespace() {
+        for variant in abbreviation_variants(term) {
+            let already = expanded
+                .split_whitespace()
+                .any(|t| t.eq_ignore_ascii_case(&variant));
+            if !already {
+                expanded.push(' ');
+                expanded.push_str(&variant);
+            }
+        }
+    }
+    expanded
+}
+
 /// Compute confidence from search result scores using distribution analysis.
 ///
 /// Uses score spread (top vs median) and coefficient of variation instead
@@ -53,7 +116,11 @@ pub fn compute_confidence(results: &[SearchResult], query: &str) -> SearchConfid
                 .iter()
                 .filter(|t| {
                     let tl = t.to_lowercase();
-                    top_name.contains(&tl) || (tl.len() >= 5 && top_name.contains(&tl[..5]))
+                    top_name.contains(&tl)
+                        || (tl.len() >= 5 && top_name.contains(&tl[..5]))
+                        || abbreviation_variants(&tl)
+                            .iter()
+                            .any(|v| top_name.contains(v.as_str()))
                 })
                 .count();
             if matching_terms >= 2 {
@@ -246,6 +313,10 @@ fn bm25_search_v3(
     limit: usize,
     category_filter: &str,
 ) -> Result<Vec<(String, f32, SearchResult)>> {
+    // Expand abbreviations into extra OR terms so "authentication" also
+    // matches nodes indexed only under "auth" (and vice versa).
+    let expanded_query = expand_query(query);
+
     // Try FTS first
     let sql = format!(
         "SELECT id, type, name, qualified_name, file_path, line_start, line_end,
@@ -261,7 +332,7 @@ fn bm25_search_v3(
 
     match fts_result {
         Ok(mut stmt) => {
-            let mut rows = stmt.query(params![query, limit as i64])?;
+            let mut rows = stmt.query(params![expanded_query, limit as i64])?;
             let mut results = Vec::new();
 
             while let Some(row) = rows.next()? {
@@ -309,17 +380,27 @@ fn fallback_keyword_search(
         return Ok(Vec::new());
     }
 
-    // Build LIKE conditions for each keyword using positional params (?1, ?2, ...)
-    let conditions: Vec<String> = keywords
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let p = i + 1; // 1-indexed param
-            format!("(search_text LIKE '%' || ?{p} || '%' OR name LIKE '%' || ?{p} || '%')")
-        })
-        .collect();
+    // Each keyword becomes an OR-group over the keyword itself plus its
+    // abbreviation variants; groups stay ANDed so multi-term queries still
+    // narrow. Positional params (?1, ?2, ...) are allocated per variant.
+    let mut conditions: Vec<String> = Vec::new();
+    let mut param_values: Vec<Box<dyn duckdb::ToSql>> = Vec::new();
+    for keyword in &keywords {
+        let mut terms = vec![keyword.to_string()];
+        terms.extend(abbreviation_variants(keyword));
 
-    let limit_param = keywords.len() + 1;
+        let alternatives: Vec<String> = terms
+            .into_iter()
+            .map(|term| {
+                param_values.push(Box::new(term) as Box<dyn duckdb::ToSql>);
+                let p = param_values.len(); // 1-indexed param
+                format!("search_text LIKE '%' || ?{p} || '%' OR name LIKE '%' || ?{p} || '%'")
+            })
+            .collect();
+        conditions.push(format!("({})", alternatives.join(" OR ")));
+    }
+
+    let limit_param = param_values.len() + 1;
     let where_clause = conditions.join(" AND ");
     let sql = format!(
         "SELECT id, type, name, qualified_name, file_path, line_start, line_end,
@@ -332,11 +413,6 @@ fn fallback_keyword_search(
 
     let mut stmt = conn.prepare(&sql)?;
 
-    // Build dynamic params: keywords + limit
-    let mut param_values: Vec<Box<dyn duckdb::ToSql>> = keywords
-        .iter()
-        .map(|k| Box::new(k.to_string()) as Box<dyn duckdb::ToSql>)
-        .collect();
     param_values.push(Box::new(limit as i64));
 
     let param_refs: Vec<&dyn duckdb::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
@@ -706,6 +782,111 @@ mod tests {
         assert_eq!(hits[0].score, 1.0);
     }
 
+    // -- abbreviation expansion tests --
+
+    #[test]
+    fn test_expand_query_short_to_long() {
+        let expanded = expand_query("auth flow");
+        let terms: Vec<&str> = expanded.split_whitespace().collect();
+        assert!(terms.contains(&"auth"));
+        assert!(terms.contains(&"authentication"));
+        assert!(terms.contains(&"authorization"));
+        assert!(terms.contains(&"flow"));
+    }
+
+    #[test]
+    fn test_expand_query_long_to_short() {
+        assert_eq!(expand_query("database"), "database db");
+        assert_eq!(
+            expand_query("Configuration loader"),
+            "Configuration loader config"
+        );
+    }
+
+    #[test]
+    fn test_expand_query_no_table_hit_is_identity() {
+        assert_eq!(expand_query("widget factory"), "widget factory");
+    }
+
+    #[test]
+    fn test_expand_query_val_is_skipped() {
+        // "val" is ambiguous (validation vs value) and deliberately not expanded.
+        assert_eq!(expand_query("val"), "val");
+        assert_eq!(expand_query("validation"), "validation");
+        assert_eq!(expand_query("value"), "value");
+    }
+
+    #[test]
+    fn test_expand_query_no_duplicate_terms() {
+        // Both directions present already -> nothing appended twice.
+        assert_eq!(expand_query("db database"), "db database");
+    }
+
+    #[test]
+    fn test_search_full_word_matches_abbreviated_node() {
+        let db = open_test_db();
+        // The eval failure: name tokenizes to "auth", which neither exact-
+        // nor prefix-matches "authentication". The abbreviation table must
+        // bridge the gap in the BM25/keyword phase.
+        insert_node(
+            &db,
+            "fn:auth",
+            "DomAuthMiddleware",
+            "dom auth middleware handler",
+            0.5,
+        );
+        insert_node(&db, "fn:other", "CacheWarmer", "cache warm preload", 0.5);
+        // Exercise the FTS path when the extension is available; the LIKE
+        // fallback covers the same contract otherwise.
+        let _ = db.rebuild_fts_on_search_text();
+
+        let results = db.search_v3("authentication", 10).unwrap();
+
+        assert!(!results.is_empty(), "expansion must produce a match");
+        assert_eq!(results[0].node_id, "fn:auth");
+        assert!(results.iter().all(|r| r.node_id != "fn:other"));
+    }
+
+    #[test]
+    fn test_search_abbreviation_matches_full_word_node() {
+        let db = open_test_db();
+        // Reverse direction: short query term, long form in search_text.
+        insert_node(
+            &db,
+            "fn:cfg",
+            "ConfigurationLoader",
+            "configuration loader parser",
+            0.5,
+        );
+        let _ = db.rebuild_fts_on_search_text();
+
+        let results = db.search_v3("config loader", 10).unwrap();
+
+        assert!(!results.is_empty());
+        assert_eq!(results[0].node_id, "fn:cfg");
+    }
+
+    #[test]
+    fn test_search_exact_name_phase_unaffected_by_expansion() {
+        let db = open_test_db();
+        // A node literally named "auth" must still be an exact match with
+        // score 1.0, beating any expanded BM25 candidate.
+        insert_node(&db, "fn:exact", "auth", "auth entrypoint", 0.1);
+        insert_node(
+            &db,
+            "fn:bm25",
+            "AuthenticationService",
+            "authentication service",
+            0.9,
+        );
+
+        let results = db.search_v3("auth", 10).unwrap();
+
+        assert_eq!(results[0].node_id, "fn:exact");
+        assert_eq!(results[0].match_type, MatchType::ExactName);
+        assert_eq!(results[0].score, 1.0);
+    }
+
     // -- confidence model tests --
 
     fn make_result(score: f32, match_type: MatchType) -> SearchResult {
@@ -880,6 +1061,21 @@ mod tests {
         // "search" matches but "work" doesn't → only 1 match → no promote
         let conf = compute_confidence(&results, "how does the search work");
         assert_ne!(conf, SearchConfidence::High);
+    }
+
+    #[test]
+    fn test_confidence_abbreviation_match_promotes_to_high() {
+        // "authentication middleware" -> DomAuthMiddleware: "middleware" is a
+        // substring, "authentication" only matches via the abbreviation table.
+        let results = vec![
+            make_named_result("DomAuthMiddleware", 0.35),
+            make_named_result("OtherThing", 0.30),
+            make_named_result("Random", 0.25),
+        ];
+        assert_eq!(
+            compute_confidence(&results, "authentication middleware"),
+            SearchConfidence::High
+        );
     }
 
     #[test]
