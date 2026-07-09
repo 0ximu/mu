@@ -302,8 +302,30 @@ pub fn handle_search_nodes(
         }
     }
 
-    let resp = build_search_response_from_results(results, &params.query)?;
+    let mut resp = build_search_response_from_results(results, &params.query)?;
+    apply_importance_percentiles(mubase, resp.results.iter_mut());
     Ok(format_search_response(&resp, project_root))
+}
+
+/// Fill in `importance_pct` on node results from the full score distribution.
+/// Raw importance renders as 0.00 for nearly everything on large graphs; the
+/// percentile is the readable form.
+pub fn apply_importance_percentiles<'a>(
+    mubase: &MUbase,
+    nodes: impl Iterator<Item = &'a mut NodeResult>,
+) {
+    let Ok(result) = mubase.query_params("SELECT importance_score FROM nodes", &[]) else {
+        return;
+    };
+    let scores: Vec<f32> = result
+        .rows
+        .iter()
+        .filter_map(|r| r.first().and_then(|v| v.as_f64()).map(|f| f as f32))
+        .collect();
+    let table = crate::commands::compress::budget::PercentileTable::new(scores);
+    for node in nodes {
+        node.importance_pct = Some(table.rank(node.importance));
+    }
 }
 
 pub fn handle_expand_nodes(mubase: &MUbase, params: &ExpandNodesParams) -> Result<String> {
@@ -429,6 +451,7 @@ pub fn build_search_response(mubase: &MUbase, query: &str, limit: usize) -> Resu
                 score: Some(r.score),
                 match_type: Some(match_label.to_string()),
                 importance: r.importance_score,
+                importance_pct: None,
                 summary: r.summary_text.clone(),
                 node_category: r.node_category.clone(),
             }
@@ -551,6 +574,7 @@ fn build_search_response_from_results(
                 score: Some(r.score),
                 match_type: Some(match_label.to_string()),
                 importance: r.importance_score,
+                importance_pct: None,
                 summary: r.summary_text.clone(),
                 node_category: r.node_category.clone(),
             }
@@ -800,6 +824,7 @@ pub fn build_expand_response(
             score: None,
             match_type: None,
             importance: 0.0,
+            importance_pct: None,
             summary: None,
             node_category: category.clone(),
         };
@@ -914,6 +939,7 @@ pub fn build_read_response(
             score: None,
             match_type: None,
             importance: importance as f32,
+            importance_pct: None,
             summary: summary_text.map(|s| s.to_string()),
             node_category: category.to_string(),
         };
@@ -958,6 +984,7 @@ pub fn build_read_response(
                         score: None,
                         match_type: None,
                         importance: 0.0,
+                        importance_pct: None,
                         summary: None,
                         node_category: n_cat.to_string(),
                     })

@@ -546,6 +546,7 @@ impl MuMcpServer {
                 score: None,
                 match_type: None,
                 importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                importance_pct: None,
                 summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
                 node_category: row
                     .get(8)
@@ -563,6 +564,7 @@ impl MuMcpServer {
                 score: None,
                 match_type: None,
                 importance: 0.0,
+                importance_pct: None,
                 summary: None,
                 node_category: "production".to_string(),
             });
@@ -639,6 +641,7 @@ impl MuMcpServer {
                         score: None,
                         match_type: None,
                         importance: row.get(6).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32,
+                        importance_pct: None,
                         summary: row.get(7).and_then(|v| v.as_str()).map(|s| s.to_string()),
                         node_category: row
                             .get(8)
@@ -706,11 +709,15 @@ impl MuMcpServer {
             ))]));
         }
 
-        let response = ImpactResponse {
+        let mut response = ImpactResponse {
             target: target.clone(),
             dependents,
             edges,
         };
+        tools_v3::apply_importance_percentiles(
+            &state.mubase,
+            std::iter::once(&mut response.target).chain(response.dependents.iter_mut()),
+        );
 
         // Format structured response
         let mut output = format_impact_response(&response);

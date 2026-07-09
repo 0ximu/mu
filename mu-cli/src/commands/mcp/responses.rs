@@ -19,6 +19,10 @@ pub struct NodeResult {
     pub score: Option<f32>,
     pub match_type: Option<String>,
     pub importance: f32,
+    /// Percentile rank of importance across all nodes (0-100). Raw scores
+    /// render as 0.00 for nearly everything after normalization over large
+    /// graphs; the percentile is the readable form.
+    pub importance_pct: Option<u8>,
     pub summary: Option<String>,
     pub node_category: String,
 }
@@ -142,6 +146,15 @@ fn read_source_lines(
     Some(result)
 }
 
+/// Render importance as a percentile when available ("imp=p87"), falling
+/// back to the raw score. Raw scores are near-zero on large graphs.
+fn importance_label(importance: f32, pct: Option<u8>) -> String {
+    match pct {
+        Some(p) => format!("imp=p{}", p),
+        None => format!("importance={:.2}", importance),
+    }
+}
+
 fn confidence_label(c: &SearchConfidence) -> &'static str {
     match c {
         SearchConfidence::High => "HIGH",
@@ -195,7 +208,7 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
         let cat_tag = category_tag(&r.node_category);
         let _ = writeln!(
             out,
-            "{}. {}{} [{}]{} -- {} | score={:.2} ({}) | importance={:.2}",
+            "{}. {}{} [{}]{} -- {} | score={:.2} ({}) | {}",
             i + 1,
             sigil,
             r.name,
@@ -204,7 +217,7 @@ pub fn format_search_response(resp: &SearchResponse, project_root: &Path) -> Str
             location,
             r.score.unwrap_or(0.0),
             match_label,
-            r.importance,
+            importance_label(r.importance, r.importance_pct),
         );
 
         let _ = writeln!(out, "   id: {}", r.node_id);
@@ -294,8 +307,13 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
             .unwrap_or("calls");
         let _ = writeln!(
             out,
-            "  {}{} [{}] --[{}]--> {} | importance={:.2}",
-            dep_sigil, dep.name, dep.kind, edge_label, resp.target.name, dep.importance,
+            "  {}{} [{}] --[{}]--> {} | {}",
+            dep_sigil,
+            dep.name,
+            dep.kind,
+            edge_label,
+            resp.target.name,
+            importance_label(dep.importance, dep.importance_pct),
         );
         let _ = writeln!(out, "    id: {}", dep.node_id);
         if !dep.file_path.is_empty() {
@@ -316,14 +334,14 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
             let dep_cat = category_tag(&dep.node_category);
             let _ = writeln!(
                 out,
-                "  {}{} [{}]{} --[{}]--> {} | importance={:.2}",
+                "  {}{} [{}]{} --[{}]--> {} | {}",
                 dep_sigil,
                 dep.name,
                 dep.kind,
                 dep_cat,
                 edge_label,
                 resp.target.name,
-                dep.importance,
+                importance_label(dep.importance, dep.importance_pct),
             );
             let _ = writeln!(out, "    id: {}", dep.node_id);
             if !dep.file_path.is_empty() {
@@ -542,6 +560,7 @@ mod tests {
             score: None,
             match_type: None,
             importance: 0.5,
+            importance_pct: None,
             summary: None,
             node_category: "production".to_string(),
         }
