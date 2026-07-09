@@ -24,6 +24,7 @@ pub struct RawNode {
     pub file_path: Option<String>,
     pub complexity: Option<i32>,
     pub properties: Option<String>,
+    pub importance: f32,
 }
 
 /// Raw edge from the database
@@ -37,7 +38,7 @@ pub struct RawEdge {
 /// Load nodes from the database
 fn load_nodes(conn: &Connection) -> Result<Vec<RawNode>> {
     let mut stmt = conn.prepare(
-        "SELECT id, name, type, qualified_name, file_path, complexity, properties FROM nodes",
+        "SELECT id, name, type, qualified_name, file_path, complexity, properties, importance_score FROM nodes",
     )?;
     let mut rows = stmt.query([])?;
     let mut nodes = Vec::new();
@@ -51,6 +52,7 @@ fn load_nodes(conn: &Connection) -> Result<Vec<RawNode>> {
             file_path: row.get(4)?,
             complexity: row.get(5)?,
             properties: row.get(6)?,
+            importance: row.get::<_, Option<f32>>(7)?.unwrap_or(0.0),
         });
     }
 
@@ -198,8 +200,14 @@ pub fn load_from_database(db_path: &Path, source: &str) -> Result<CompressedCode
     )
     .with_context(|| format!("Failed to open database: {:?}", db_path))?;
 
-    let nodes = load_nodes(&conn)?;
-    let edges = load_edges(&conn)?;
+    load_from_connection(&conn, source)
+}
+
+/// Load compressed codebase from an already-open database connection.
+/// Used by the MCP server, which holds its own MUbase connection.
+pub fn load_from_connection(conn: &Connection, source: &str) -> Result<CompressedCodebase> {
+    let nodes = load_nodes(conn)?;
+    let edges = load_edges(conn)?;
 
     let call_counts = count_incoming_calls(&edges);
     let (outgoing_map, incoming_map) = build_relationship_maps(&edges);
@@ -278,6 +286,7 @@ pub fn load_from_database(db_path: &Path, source: &str) -> Result<CompressedCode
                                     call_count,
                                     is_hot,
                                     docstring: extract_docstring(method_node),
+                                    importance: method_node.importance,
                                 };
 
                                 if is_hot {
@@ -331,6 +340,7 @@ pub fn load_from_database(db_path: &Path, source: &str) -> Result<CompressedCode
                         used_by,
                         methods,
                         attributes: extract_attributes(class_node),
+                        importance: class_node.importance,
                     });
                 }
             }
@@ -355,6 +365,7 @@ pub fn load_from_database(db_path: &Path, source: &str) -> Result<CompressedCode
                         call_count,
                         is_hot,
                         docstring: extract_docstring(func_node),
+                        importance: func_node.importance,
                     };
 
                     if is_hot {
@@ -1280,6 +1291,7 @@ pub fn load_from_source(path: &Path) -> Result<CompressedCodebase> {
                             call_count: 0,
                             is_hot,
                             docstring: m.docstring.clone(),
+                            importance: 0.0,
                         }
                     })
                     .collect();
@@ -1293,6 +1305,7 @@ pub fn load_from_source(path: &Path) -> Result<CompressedCodebase> {
                     used_by: Vec::new(),
                     methods,
                     attributes: class.attributes.clone(),
+                    importance: 0.0,
                 });
             }
             total_classes += classes.len();
@@ -1323,6 +1336,7 @@ pub fn load_from_source(path: &Path) -> Result<CompressedCodebase> {
                         call_count: 0,
                         is_hot,
                         docstring: f.docstring.clone(),
+                        importance: 0.0,
                     }
                 })
                 .collect();
