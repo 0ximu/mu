@@ -5,6 +5,54 @@ All notable changes to MU will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-07-09
+
+Correctness and trust release, driven by a blind eval on a 920k-line C#
+microservices codebase (agents answering real questions with MU tools vs
+plain grep). Every fix below traces to a measured failure.
+
+### Added
+
+- **Message-bus impact edges** - MassTransit `Publish<T>` and `IConsumer<T>`
+  are now connected through shared message nodes, so `mu_impact` traverses
+  the bus: impact of a message type returns its publishers and consumers
+  across services (152 dependents for a core message on the eval codebase,
+  previously invisible)
+- **Index staleness detection** - bootstrap stamps `indexed_at`; the MCP
+  server warns in search/impact output when source files changed since the
+  last bootstrap, and `mu doctor` reports index freshness
+- **`mu compress --budget <tokens>`** (CLI) and `budget` param (MCP, default
+  8000) - importance-ranked degradation across four detail levels with an
+  always-present honest footer; the budget is a hard ceiling
+- **Importance percentiles** - search/impact/compress render `imp=p87`
+  instead of raw scores that round to 0.00 on large graphs
+- Nested C# type declarations (`Outer.Inner`) are extracted with bases, so
+  nested-class interface implementations appear in the graph
+- Search matches camelCase/snake_case name words ("auth middleware" finds
+  `DominaiteAuthMiddleware`) and expands common abbreviations
+  (auth/config/db/repo/...) at query time
+- `mu_find` accepts qualified names (`Class.Method`) and prints node ids
+
+### Fixed
+
+- **Parse cache ignored `--force` and binary upgrades**, silently rebuilding
+  the database from stale parse results - parser fixes never reached
+  unchanged files (+8.7% edges on the eval codebase once invalidated)
+- C# constructor parameter types with user-defined types were dropped,
+  emptying the DI receiver map (zero DI call edges on C# codebases)
+- `this._field.Method()` calls did not resolve through the DI receiver map
+- `mu_impact` resolved C# class names to constructors (which share the class
+  name), producing near-empty blast radii; class targets also seed the BFS
+  with their methods so callers are reachable (CLI and MCP)
+- Zero graph dependents now carries an explicit "this does not prove
+  absence" warning pointing at text references
+- `calls_http` edges required a client-like receiver; any `.SendAsync(` no
+  longer creates false HTTP edges
+- Message nodes were keyed by the referencing module's namespace, splitting
+  publisher and consumer onto disconnected nodes
+- MCP `mu_compress` no longer truncates to 500 alphabetically-first nodes
+- `mu_read` states exactly what was truncated and where to read the rest
+
 ## [0.0.3] - 2026-07-08
 
 ### Architecture

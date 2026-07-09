@@ -18,13 +18,21 @@ MU parses your codebase into a semantic graph stored in DuckDB, then exposes it 
 
 LLMs choke on large codebases. Context windows are precious. 90% of code is boilerplate. You're feeding syntax when you need semantics.
 
-MU solves this by building a semantic graph - nodes (files, classes, functions), edges (imports, calls, inheritance), importance scores, summaries - and letting your AI pull exactly what it needs.
+MU solves this by building a semantic graph - nodes (files, classes, functions), edges (imports, calls, inheritance, DI injection, message-bus publish/consume), importance scores, summaries - and letting your AI pull exactly what it needs.
 
-```
-Input:  66,493 lines of Python
-Output: 2,173 tokens (mu compress)
-Result: LLM correctly answers architectural questions
-```
+## Does it actually beat grep?
+
+We measured. 12 real questions about a 920k-line C# microservices codebase, identical agents: one arm with only grep/read, one with only MU tools. Blind grading against source-verified ground truth.
+
+| | grep-only agent | MU-only agent |
+|---|---|---|
+| Correct answers | 12/12 (one incomplete) | 12/12 |
+| "Top 5 riskiest methods in service X" | 10,421 tokens, 143s of hand-counting branches | **659 tokens, 38s** (precomputed complexity) |
+| "What breaks if I change X?" | manual grep across 7 services | **one call**: 55 direct dependents + message-bus consumers |
+| "Map the services" | trusted a stale README (missed 5 services) | **21/21 services** from importance-ranked compress |
+| Full-flow questions (invoice validation) | found 1 of 4 country rule sets | all 4 (graph fan-out) |
+
+Where grep wins - README lookups, trivially greppable strings - your agent still has grep. MU is the layer for what grep structurally can't do: blast radius through DI and message buses, measured complexity, and importance-ranked orientation. When the graph can't prove something, MU says so instead of asserting absence.
 
 ## Quick Start
 
@@ -79,7 +87,7 @@ These are the tools your AI assistant can call:
 | `mu_audit` | Code quality rules - complexity, hardcoded secrets, code smells |
 | `mu_sus` | Find suspicious code - high complexity, security-sensitive, untested |
 | `mu_enrich` | Enrichment flywheel - LLM writes better summaries, improving future search |
-| `mu_compress` | Token-efficient codebase overview with sigil notation |
+| `mu_compress` | Importance-ranked codebase overview within a token budget |
 | `mu_bootstrap` | Build or rebuild the index without leaving the session |
 | `mu_configure` | Auto-detect project patterns, refine config, drive enrichment |
 
@@ -94,6 +102,7 @@ The CLI is lean - bootstrap, compress, and analyze:
 ```bash
 mu bootstrap              # Build the semantic graph (run this first)
 mu compress               # Compress codebase for LLM consumption
+mu compress --budget 8000 # Fit an importance-ranked overview into ~8k tokens
 mu compress -o context.mu # Write to file
 mu status                 # Project status and stats
 mu deps <node>            # Show dependencies
