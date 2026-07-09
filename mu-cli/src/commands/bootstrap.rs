@@ -1123,10 +1123,15 @@ fn synthesize_impl_edges(
 // Cross-Service Edge Detection (C# MassTransit, HTTP, Contracts)
 // ============================================================================
 
+/// Strip a namespace qualifier from a type name: `Contracts.SendEmail` -> `SendEmail`.
+fn short_type_name(type_name: &str) -> &str {
+    type_name.rsplit('.').next().unwrap_or(type_name)
+}
+
 /// Detect cross-service patterns in C# code and add message nodes + edges.
 ///
 /// Scans parsed data (bases, body_source, referenced_types) with regex to find:
-/// - MassTransit IConsumer<T> subscribers
+/// - MassTransit IConsumer<T> subscribers (including IConsumer<Batch<T>>)
 /// - MassTransit Publish<T>() publishers
 /// - HttpClient usage (GetAsync, PostAsync, etc.)
 /// - Shared contract references (.Contracts., .Shared. namespaces)
@@ -1136,8 +1141,10 @@ fn detect_cross_service_edges(
     nodes: &mut Vec<crate::engine::storage::Node>,
     edges: &mut Vec<crate::engine::storage::Edge>,
 ) {
-    let consumer_re = Regex::new(r"IConsumer<(\w+)>").unwrap();
-    let publish_re = Regex::new(r"\.Publish<(\w+)>\s*\(").unwrap();
+    // Matches IConsumer<T>, IConsumer<Batch<T>>, and namespace-qualified
+    // type arguments. Batch is unwrapped: the consumer subscribes to T.
+    let consumer_re = Regex::new(r"IConsumer<\s*(?:Batch<\s*([\w.]+)\s*>|([\w.]+))\s*>").unwrap();
+    let publish_re = Regex::new(r"\.Publish<\s*([\w.]+)\s*>\s*\(").unwrap();
     let http_verb_re = Regex::new(
         r"\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(",
     )
@@ -1146,28 +1153,29 @@ fn detect_cross_service_edges(
     let contract_ns_re =
         Regex::new(r"\b(\w+)\.(Contracts|Shared|Messages|Events|Commands)\.(\w+)").unwrap();
 
-    // Track created message nodes to avoid duplicates
+    // Track created message nodes to avoid duplicates. Keyed by the short
+    // type name ONLY: publisher and consumer live in different namespaces
+    // (that is the whole point of a message bus), and keying on the
+    // publishing module's namespace used to split one message type into
+    // two disconnected nodes, breaking publisher -> consumer traversal.
     let mut message_nodes: HashMap<String, String> = HashMap::new();
 
-    let mut get_or_create_message_node = |type_name: &str,
-                                          namespace: Option<&str>,
-                                          nodes: &mut Vec<crate::engine::storage::Node>|
-     -> String {
-        let key = format!("{}:{}", namespace.unwrap_or(""), type_name);
-        if let Some(id) = message_nodes.get(&key) {
-            return id.clone();
-        }
-        // Check if this type already exists as a class in the graph
-        if let Some(class_id) = class_lookup.get(type_name) {
-            message_nodes.insert(key, class_id.clone());
-            return class_id.clone();
-        }
-        let node = crate::engine::storage::Node::message(type_name, namespace);
-        let id = node.id.clone();
-        nodes.push(node);
-        message_nodes.insert(key, id.clone());
-        id
-    };
+    let mut get_or_create_message_node =
+        |type_name: &str, nodes: &mut Vec<crate::engine::storage::Node>| -> String {
+            if let Some(id) = message_nodes.get(type_name) {
+                return id.clone();
+            }
+            // Check if this type already exists as a class in the graph
+            if let Some(class_id) = class_lookup.get(type_name) {
+                message_nodes.insert(type_name.to_string(), class_id.clone());
+                return class_id.clone();
+            }
+            let node = crate::engine::storage::Node::message(type_name, None);
+            let id = node.id.clone();
+            nodes.push(node);
+            message_nodes.insert(type_name.to_string(), id.clone());
+            id
+        };
 
     for result in parse_results {
         if !result.success {
@@ -1179,16 +1187,21 @@ fn detect_cross_service_edges(
         };
 
         let rel_path = &module.path;
-        let module_namespace = module.namespace.as_deref();
 
         for class in &module.classes {
             let class_id = format!("cls:{}:{}", rel_path, class.name);
 
-            // 1. MassTransit Consumer detection: IConsumer<T> in bases
+            // 1. MassTransit Consumer detection: IConsumer<T> in bases.
+            // Group 1 is the Batch<T> payload, group 2 the plain type arg.
             for base in &class.bases {
                 for cap in consumer_re.captures_iter(base) {
-                    let message_type = &cap[1];
-                    let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
+                    let raw_type = cap
+                        .get(1)
+                        .or_else(|| cap.get(2))
+                        .map(|m| m.as_str())
+                        .unwrap_or_default();
+                    let message_type = short_type_name(raw_type);
+                    let msg_id = get_or_create_message_node(message_type, nodes);
                     let edge = crate::engine::storage::Edge::subscribes(&class_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
@@ -1210,8 +1223,8 @@ fn detect_cross_service_edges(
 
                 // MassTransit Publish<T>()
                 for cap in publish_re.captures_iter(body) {
-                    let message_type = &cap[1];
-                    let msg_id = get_or_create_message_node(message_type, module_namespace, nodes);
+                    let message_type = short_type_name(&cap[1]);
+                    let msg_id = get_or_create_message_node(message_type, nodes);
                     let edge = crate::engine::storage::Edge::publishes(&method_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
@@ -2456,6 +2469,148 @@ mod tests {
             .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes)
             .expect("Should create subscribes edge");
         assert_eq!(sub_edge.target_id, "cls:src/Events.cs:UserCreated");
+    }
+
+    #[test]
+    fn test_consumer_batch_message_unwrapped() {
+        // IConsumer<Batch<T>> subscribes to T, not to Batch.
+        let class = mu_core::types::ClassDef {
+            name: "OrderBatchConsumer".to_string(),
+            bases: vec!["IConsumer<Batch<OrderCreatedEvent>>".to_string()],
+            methods: vec![],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Consumers/OrderBatchConsumer.cs",
+            Some("MyService.Consumers"),
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(
+            nodes.iter().any(|n| n.name == "OrderCreatedEvent"
+                && n.node_type == crate::engine::storage::NodeType::Message),
+            "Batch<T> must be unwrapped to a message node for T"
+        );
+        assert!(
+            !nodes.iter().any(|n| n.name.contains("Batch")),
+            "No message node for the Batch wrapper itself"
+        );
+        let sub = edges
+            .iter()
+            .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes)
+            .expect("subscribes edge");
+        assert!(sub.source_id.contains("OrderBatchConsumer"));
+        assert_eq!(sub.target_id, "msg:OrderCreatedEvent");
+    }
+
+    #[test]
+    fn test_publisher_and_consumer_share_message_node() {
+        // Publisher and consumer live in different namespaces (that's the
+        // point of a bus). Both sides must land on the SAME message node,
+        // otherwise the pub -> sub path can never be traversed.
+        let publish_method = mu_core::types::FunctionDef {
+            name: "SendWelcome".to_string(),
+            is_method: true,
+            body_source: Some(
+                "await _publishEndpoint.Publish<SendEmail>(new SendEmail());".to_string(),
+            ),
+            ..Default::default()
+        };
+        let publisher = mu_core::types::ClassDef {
+            name: "OnboardingService".to_string(),
+            methods: vec![publish_method],
+            ..Default::default()
+        };
+        let consumer = mu_core::types::ClassDef {
+            name: "NotificationsConsumer".to_string(),
+            bases: vec!["IConsumer<SendEmail>".to_string()],
+            ..Default::default()
+        };
+
+        let parse_results = vec![
+            make_csharp_module(
+                "src/Onboarding/OnboardingService.cs",
+                Some("Company.Onboarding"),
+                vec![publisher],
+            ),
+            make_csharp_module(
+                "src/Notifications/NotificationsConsumer.cs",
+                Some("Company.Notifications"),
+                vec![consumer],
+            ),
+        ];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        let msg_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.node_type == crate::engine::storage::NodeType::Message)
+            .collect();
+        assert_eq!(msg_nodes.len(), 1, "exactly one node for SendEmail");
+
+        let pub_edge = edges
+            .iter()
+            .find(|e| {
+                e.edge_type == crate::engine::storage::schema::EdgeType::Publishes
+                    && e.source_id.contains("OnboardingService.SendWelcome")
+            })
+            .expect("publishes edge");
+        let sub_edge = edges
+            .iter()
+            .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::Subscribes)
+            .expect("subscribes edge");
+        assert_eq!(
+            pub_edge.target_id, sub_edge.target_id,
+            "publisher and consumer must reference the same message node"
+        );
+    }
+
+    #[test]
+    fn test_qualified_message_type_collapses_to_short_name() {
+        // Publish<Contracts.SendEmail> and IConsumer<SendEmail> must meet
+        // on the same node.
+        let publish_method = mu_core::types::FunctionDef {
+            name: "Run".to_string(),
+            is_method: true,
+            body_source: Some("await bus.Publish<Contracts.SendEmail>(msg);".to_string()),
+            ..Default::default()
+        };
+        let publisher = mu_core::types::ClassDef {
+            name: "Publisher".to_string(),
+            methods: vec![publish_method],
+            ..Default::default()
+        };
+        let consumer = mu_core::types::ClassDef {
+            name: "Consumer".to_string(),
+            bases: vec!["IConsumer<SendEmail>".to_string()],
+            ..Default::default()
+        };
+
+        let parse_results = vec![
+            make_csharp_module("src/Pub.cs", None, vec![publisher]),
+            make_csharp_module("src/Sub.cs", None, vec![consumer]),
+        ];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        let msg_nodes: Vec<_> = nodes
+            .iter()
+            .filter(|n| n.node_type == crate::engine::storage::NodeType::Message)
+            .collect();
+        assert_eq!(msg_nodes.len(), 1);
+        assert_eq!(msg_nodes[0].id, "msg:SendEmail");
     }
 
     #[test]
