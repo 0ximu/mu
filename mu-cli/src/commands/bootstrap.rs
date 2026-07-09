@@ -1128,6 +1128,16 @@ fn short_type_name(type_name: &str) -> &str {
     type_name.rsplit('.').next().unwrap_or(type_name)
 }
 
+/// Receiver evidence for calls_http detection: the token chain before
+/// `.GetAsync(` / `.PostAsync(` / etc. must look like an HttpClient
+/// (`_httpClient`, `client`, `_clientFactory.CreateClient()`, ...).
+/// Verb names alone are too weak: any DI-injected service can have a
+/// `SendAsync` method.
+fn receiver_looks_like_http_client(receiver: &str) -> bool {
+    let r = receiver.to_ascii_lowercase();
+    r.contains("http") || r.contains("client")
+}
+
 /// Detect cross-service patterns in C# code and add message nodes + edges.
 ///
 /// Scans parsed data (bases, body_source, referenced_types) with regex to find:
@@ -1166,8 +1176,11 @@ fn detect_cross_service_edges(
     // type arguments. Batch is unwrapped: the consumer subscribes to T.
     let consumer_re = Regex::new(r"IConsumer<\s*(?:Batch<\s*([\w.]+)\s*>|([\w.]+))\s*>").unwrap();
     let publish_re = Regex::new(r"\.Publish<\s*([\w.]+)\s*>\s*\(").unwrap();
+    // Group 1 is the receiver chain before the verb (simple call segments
+    // like `.CreateClient("api")` stay part of it), group 2 the verb.
+    // The receiver must pass receiver_looks_like_http_client.
     let http_verb_re = Regex::new(
-        r"\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(",
+        r"([A-Za-z_]\w*(?:\([^()]*\))?(?:\.[A-Za-z_]\w*(?:\([^()]*\))?)*)\.(GetAsync|PostAsync|PutAsync|DeleteAsync|SendAsync|GetStringAsync|PatchAsync)\s*\(",
     )
     .unwrap();
     let http_url_re = Regex::new(r#"["'](/api/[^"']+)["']"#).unwrap();
@@ -1263,14 +1276,15 @@ fn detect_cross_service_edges(
                     );
                 }
 
-                // HTTP client calls
-                if http_verb_re.is_match(body) {
-                    // Extract HTTP method
-                    let http_method = http_verb_re
-                        .captures(body)
-                        .and_then(|c| c.get(1))
-                        .map(|m| m.as_str().replace("Async", "").replace("String", ""))
-                        .unwrap_or_else(|| "UNKNOWN".to_string());
+                // HTTP client calls. The verb alone is not enough evidence:
+                // any DI-injected service can expose SendAsync/GetAsync
+                // (e.g. _notifSvc.SendAsync), which produced false
+                // calls_http edges. Require a client-ish receiver.
+                let http_call = http_verb_re
+                    .captures_iter(body)
+                    .find(|c| receiver_looks_like_http_client(&c[1]));
+                if let Some(cap) = http_call {
+                    let http_method = cap[2].replace("Async", "").replace("String", "");
 
                     // Try to extract URL pattern
                     let url_pattern = http_url_re
@@ -2449,6 +2463,133 @@ mod tests {
         let props = http_edge.properties.as_ref().unwrap();
         assert_eq!(props["method"], "Get");
         assert_eq!(props["url_pattern"], "/api/users/123");
+    }
+
+    #[test]
+    fn test_send_async_on_non_http_service_is_not_http_call() {
+        // A DI-injected mail service with SendAsync must NOT produce a
+        // calls_http edge: verb names alone are not receiver evidence.
+        let method = mu_core::types::FunctionDef {
+            name: "Notify".to_string(),
+            is_method: true,
+            body_source: Some(
+                r#"
+                await _notifSvc.SendAsync(new EmailMessage(user.Email));
+                "#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+        let class = mu_core::types::ClassDef {
+            name: "NotificationHandler".to_string(),
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Handlers/NotificationHandler.cs",
+            None,
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        assert!(
+            !edges
+                .iter()
+                .any(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp),
+            "SendAsync on a non-client receiver must not create calls_http"
+        );
+    }
+
+    #[test]
+    fn test_http_client_factory_chain_detected() {
+        // IHttpClientFactory pattern: _clientFactory.CreateClient().GetAsync(...)
+        let method = mu_core::types::FunctionDef {
+            name: "FetchOrders".to_string(),
+            is_method: true,
+            body_source: Some(
+                r#"
+                var response = await _clientFactory.CreateClient("orders").GetAsync("/api/orders");
+                "#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+        let class = mu_core::types::ClassDef {
+            name: "OrdersGateway".to_string(),
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Gateways/OrdersGateway.cs",
+            None,
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        let http_edge = edges
+            .iter()
+            .find(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp)
+            .expect("factory-created client must still be detected");
+        assert_eq!(http_edge.properties.as_ref().unwrap()["method"], "Get");
+        assert_eq!(
+            http_edge.properties.as_ref().unwrap()["url_pattern"],
+            "/api/orders"
+        );
+    }
+
+    #[test]
+    fn test_mixed_body_picks_the_http_call_not_the_bus_send() {
+        // Both a bus SendAsync and a real HTTP call in one body: only the
+        // HTTP call counts, and the extracted verb comes from it.
+        let method = mu_core::types::FunctionDef {
+            name: "Sync".to_string(),
+            is_method: true,
+            body_source: Some(
+                r#"
+                await _bus.SendAsync(new SyncStarted());
+                var res = await _httpClient.PostAsync("/api/sync", content);
+                "#
+                .to_string(),
+            ),
+            ..Default::default()
+        };
+        let class = mu_core::types::ClassDef {
+            name: "SyncService".to_string(),
+            methods: vec![method],
+            ..Default::default()
+        };
+
+        let parse_results = vec![make_csharp_module(
+            "src/Services/SyncService.cs",
+            None,
+            vec![class],
+        )];
+        let class_lookup = HashMap::new();
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        detect_cross_service_edges(&parse_results, &class_lookup, &mut nodes, &mut edges);
+
+        let http_edges: Vec<_> = edges
+            .iter()
+            .filter(|e| e.edge_type == crate::engine::storage::schema::EdgeType::CallsHttp)
+            .collect();
+        assert_eq!(http_edges.len(), 1);
+        assert_eq!(
+            http_edges[0].properties.as_ref().unwrap()["method"],
+            "Post",
+            "verb must come from the client call, not the bus SendAsync"
+        );
     }
 
     #[test]
