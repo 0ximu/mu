@@ -249,10 +249,38 @@ pub fn render_with_budget(
         .position(|&chars| chars <= budget_chars)
         .unwrap_or(3) as u8;
 
-    let (mut content, omitted) = cb.to_mu_format_level(detail, level);
+    let (mut content, mut omitted) = cb.to_mu_format_level(detail, level);
     if !content.ends_with('\n') {
         content.push('\n');
     }
+
+    // Even the deepest level can exceed the budget on very large codebases
+    // (thousands of modules make the directory skeleton itself huge). The
+    // budget is a contract: hard-cut at a line boundary and say so, rather
+    // than deliver 5x the asked-for tokens.
+    let mut truncated_lines = 0usize;
+    if estimate_tokens_chars(&content) > budget_tokens {
+        // Reserve room for the footer + truncation notice.
+        let keep_chars = budget_tokens.saturating_mul(4).saturating_sub(200);
+        let mut kept = String::with_capacity(keep_chars);
+        for line in content.lines() {
+            if kept.len() + line.len() + 1 > keep_chars {
+                truncated_lines += 1;
+                continue;
+            }
+            kept.push_str(line);
+            kept.push('\n');
+        }
+        if truncated_lines > 0 {
+            omitted += truncated_lines;
+            kept.push_str(&format!(
+                "# ... hard-truncated {} more lines to fit the budget; raise budget for more\n",
+                truncated_lines
+            ));
+        }
+        content = kept;
+    }
+
     let used_tokens = estimate_tokens_chars(&content);
     content.push_str(&format!(
         "\n# budget: ~{} tokens used of {} | detail level {} | omitted: {} symbols\n",
@@ -519,5 +547,20 @@ mod tests {
         assert!(content.contains("aaa_minor_0_00"));
         assert!(content.contains("zeta_core_0"));
         assert_eq!(omitted, 0);
+    }
+
+    #[test]
+    fn test_budget_is_a_hard_ceiling() {
+        // A tiny budget against a codebase whose deepest level still exceeds
+        // it must hard-truncate, not deliver 5x the asked-for tokens.
+        let cb = synthetic_codebase();
+        let (content, report) = render_with_budget(&cb, DetailLevel::High, 50);
+        assert!(
+            report.used_tokens <= 60,
+            "used {} tokens against a budget of 50",
+            report.used_tokens
+        );
+        assert!(content.contains("hard-truncated"));
+        assert!(content.contains("# budget:"));
     }
 }
