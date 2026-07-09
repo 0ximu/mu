@@ -233,6 +233,33 @@ impl MUbase {
         }
     }
 
+    /// Record the moment the index was (re)built, as unix seconds.
+    pub fn set_indexed_at_now(&self) -> Result<()> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let conn = self.acquire_conn()?;
+        conn.execute(
+            "INSERT OR REPLACE INTO metadata (key, value) VALUES ('indexed_at', ?)",
+            params![now.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// When the index was last built, as unix seconds. None on pre-staleness
+    /// databases (indexed_at was introduced in 0.0.4).
+    pub fn indexed_at(&self) -> Option<u64> {
+        let conn = self.acquire_conn().ok()?;
+        conn.query_row(
+            "SELECT value FROM metadata WHERE key = 'indexed_at'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+        .and_then(|v| v.parse().ok())
+    }
+
     /// Update summary fields for a node.
     pub fn update_summary(
         &self,

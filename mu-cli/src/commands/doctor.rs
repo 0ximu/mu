@@ -157,6 +157,17 @@ fn get_schema_version(conn: &Connection) -> Option<String> {
     .ok()
 }
 
+/// When the index was last built (unix seconds), if the DB records it.
+fn get_indexed_at(conn: &Connection) -> Option<u64> {
+    conn.query_row(
+        "SELECT value FROM metadata WHERE key = 'indexed_at'",
+        [],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|v| v.parse().ok())
+}
+
 /// Compare stored version against current version
 /// Returns a tuple of (display message, is_ok)
 fn compare_versions(stored: &str, current: &str) -> (&'static str, bool) {
@@ -263,6 +274,44 @@ pub async fn run(path: &str, format: OutputFormat) -> anyhow::Result<()> {
                     checks.push(CheckItem::ok("Edge count", edge_count.to_string()));
                 } else {
                     checks.push(CheckItem::warning("Edge count", "0"));
+                }
+
+                // Check 5: Index staleness (indexed_at introduced in 0.0.4)
+                match get_indexed_at(&conn) {
+                    Some(ts) => {
+                        match crate::engine::staleness::check_staleness(&root, ts, vec![]) {
+                            Ok(report) if report.is_stale() => {
+                                checks.push(CheckItem::warning(
+                                    "Index freshness",
+                                    format!(
+                                        "{} of {} source files changed since last bootstrap",
+                                        report.stale_files, report.total_files
+                                    ),
+                                ));
+                                recommendations
+                                    .push("Refresh the index: mu bootstrap --force".to_string());
+                            }
+                            Ok(report) => {
+                                checks.push(CheckItem::ok(
+                                    "Index freshness",
+                                    format!("current ({} source files)", report.total_files),
+                                ));
+                            }
+                            Err(e) => {
+                                checks.push(CheckItem::warning(
+                                    "Index freshness",
+                                    format!("check failed: {}", e),
+                                ));
+                            }
+                        }
+                    }
+                    None => {
+                        checks.push(CheckItem::warning(
+                            "Index freshness",
+                            "unknown (index predates staleness tracking)",
+                        ));
+                        recommendations.push("Refresh the index: mu bootstrap --force".to_string());
+                    }
                 }
             }
             Err(e) => {

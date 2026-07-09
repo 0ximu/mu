@@ -1570,6 +1570,12 @@ pub fn bootstrap_pipeline(
         }
     };
 
+    // Step 8: Stamp the index time so staleness can be detected later.
+    // Stored as unix seconds; consumers compare against source file mtimes.
+    if let Err(e) = mubase.set_indexed_at_now() {
+        tracing::warn!("Failed to record indexed_at: {}", e);
+    }
+
     Ok(BootstrapResult {
         success: true,
         root_path: root.to_string_lossy().to_string(),

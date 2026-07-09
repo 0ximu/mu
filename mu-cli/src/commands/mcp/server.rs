@@ -27,6 +27,25 @@ use tokio::sync::RwLock;
 struct ProjectState {
     mubase: crate::engine::storage::MUbase,
     project_root: PathBuf,
+    /// Source files modified since the index was built, measured once at
+    /// state init. > 0 means answers may come from a stale graph.
+    stale_files: usize,
+}
+
+impl ProjectState {
+    /// A warning to append to tool outputs when the index is stale. Tools
+    /// answering from a rotten graph without saying so is the fastest way to
+    /// lose trust; every data-bearing tool should carry this.
+    fn staleness_note(&self) -> Option<String> {
+        if self.stale_files == 0 {
+            return None;
+        }
+        Some(format!(
+            "\n⚠ index staleness: {} source file(s) changed since the last bootstrap.\n\
+             Results may be outdated — call mu_bootstrap to refresh the index.\n",
+            self.stale_files
+        ))
+    }
 }
 
 /// MU MCP Server - exposes codebase intelligence tools
@@ -257,9 +276,27 @@ impl MuMcpServer {
         let mubase = crate::engine::storage::MUbase::open(&mubase_path)
             .map_err(|e| McpError::internal_error(format!("Failed to open mubase: {}", e), None))?;
 
+        // One staleness check per state init (~100ms scan). Failures and
+        // pre-0.0.4 databases without indexed_at degrade to "not stale".
+        let stale_files = mubase
+            .indexed_at()
+            .and_then(|ts| {
+                crate::engine::staleness::check_staleness(&project_root, ts, vec![])
+                    .ok()
+                    .map(|r| r.stale_files)
+            })
+            .unwrap_or(0);
+        if stale_files > 0 {
+            tracing::warn!(
+                "Index is stale: {} source files changed since last bootstrap",
+                stale_files
+            );
+        }
+
         let state = ProjectState {
             mubase,
             project_root,
+            stale_files,
         };
         let cloned = state.clone();
         *guard = Some(state);
@@ -282,8 +319,11 @@ impl MuMcpServer {
         Parameters(params): Parameters<tools_v3::SearchNodesParams>,
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
-        let output = tools_v3::handle_search_nodes(&state.mubase, &state.project_root, &params)
+        let mut output = tools_v3::handle_search_nodes(&state.mubase, &state.project_root, &params)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        if let Some(note) = state.staleness_note() {
+            output.push_str(&note);
+        }
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
@@ -781,6 +821,9 @@ impl MuMcpServer {
             }
         }
 
+        if let Some(note) = state.staleness_note() {
+            output.push_str(&note);
+        }
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 
