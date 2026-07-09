@@ -31,6 +31,7 @@ pub async fn run(
     path: &str,
     output: Option<&str>,
     detail: &str,
+    budget_tokens: Option<usize>,
     format: OutputFormat,
 ) -> Result<()> {
     let detail_level = DetailLevel::from_str(detail).unwrap_or(DetailLevel::Medium);
@@ -75,9 +76,27 @@ pub async fn run(
         detail_level
     };
 
-    // Generate output
-    let content = codebase.to_mu_format(resolved_detail);
-    let estimated_tokens = Some(budget::estimate_tokens(&content));
+    // Generate output. With a budget, degrade gracefully by importance
+    // (the content then ends with an explicit budget footer).
+    let (content, estimated_tokens) = match budget_tokens {
+        Some(b) => {
+            let (content, report) = budget::render_with_budget(&codebase, resolved_detail, b);
+            eprintln!(
+                "{} Budget {} tokens: detail level {}, ~{} tokens, {} symbols omitted",
+                "INFO:".cyan(),
+                b,
+                report.level,
+                report.used_tokens,
+                report.omitted
+            );
+            (content, Some(report.used_tokens))
+        }
+        None => {
+            let content = codebase.to_mu_format(resolved_detail);
+            let est = Some(budget::estimate_tokens(&content));
+            (content, est)
+        }
+    };
 
     // Write to file or stdout
     let stamped_output = output.map(stamp_filename);

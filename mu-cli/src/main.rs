@@ -89,6 +89,11 @@ enum Commands {
         /// Detail level: low, medium, high, auto
         #[arg(short, long, default_value = "auto")]
         detail: String,
+
+        /// Approximate token budget; degrades detail by importance to fit
+        /// and appends an explicit budget footer (never truncates silently)
+        #[arg(short, long)]
+        budget: Option<usize>,
     },
 
     /// Show project status and recommended next steps
@@ -279,7 +284,8 @@ async fn main() -> anyhow::Result<()> {
             path,
             output,
             detail,
-        } => compress::run(&path, output.as_deref(), &detail, format).await,
+            budget,
+        } => compress::run(&path, output.as_deref(), &detail, budget, format).await,
         Commands::Status { path } => status::run(&path, format).await,
         Commands::Deps {
             node,
