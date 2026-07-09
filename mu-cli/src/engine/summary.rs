@@ -229,6 +229,13 @@ pub fn build_search_text(node: &Node, summary_text: Option<&str>) -> String {
         parts.push(summary.to_string());
     }
     parts.push(node.name.clone());
+    // The FTS tokenizer splits on non-alphanumerics only, so a camelCase name
+    // like "DominaiteAuthMiddleware" is a single opaque token and the query
+    // "auth middleware" can never match it. Index the split words too.
+    let split = split_identifier_words(&node.name);
+    if split.to_lowercase() != node.name.to_lowercase() {
+        parts.push(split);
+    }
     if let Some(ref qn) = node.qualified_name {
         parts.push(qn.clone());
     }
@@ -236,6 +243,38 @@ pub fn build_search_text(node: &Node, summary_text: Option<&str>) -> String {
         parts.push(path.clone());
     }
     parts.join(" | ")
+}
+
+/// Split a camelCase / PascalCase / snake_case identifier into space-separated
+/// lowercase words: "DominaiteAuthMiddleware" -> "dominaite auth middleware",
+/// "parse_config" -> "parse config", "HTTPServer" -> "http server".
+pub fn split_identifier_words(name: &str) -> String {
+    let mut words: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = name.chars().collect();
+
+    for (i, &c) in chars.iter().enumerate() {
+        if !c.is_alphanumeric() {
+            if !current.is_empty() {
+                words.push(std::mem::take(&mut current));
+            }
+            continue;
+        }
+        if c.is_uppercase() && !current.is_empty() {
+            let prev_lower = chars[i - 1].is_lowercase() || chars[i - 1].is_numeric();
+            // Split at lower->Upper, and inside acronym runs at Upper followed
+            // by lower ("HTTPServer" -> "HTTP" + "Server").
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+            if prev_lower || (chars[i - 1].is_uppercase() && next_lower) {
+                words.push(std::mem::take(&mut current));
+            }
+        }
+        current.push(c.to_ascii_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    words.join(" ")
 }
 
 /// Compute a hash of the node's source_text for staleness detection.
@@ -645,7 +684,7 @@ mod tests {
         let text = build_search_text(&node, Some("Does important stuff"));
         assert_eq!(
             text,
-            "Does important stuff | do_stuff | src/lib.rs:do_stuff | src/lib.rs"
+            "Does important stuff | do_stuff | do stuff | src/lib.rs:do_stuff | src/lib.rs"
         );
     }
 
@@ -653,7 +692,10 @@ mod tests {
     fn test_build_search_text_no_summary() {
         let node = Node::function("src/lib.rs", "do_stuff", None, 1, 10, 1, None);
         let text = build_search_text(&node, None);
-        assert_eq!(text, "do_stuff | src/lib.rs:do_stuff | src/lib.rs");
+        assert_eq!(
+            text,
+            "do_stuff | do stuff | src/lib.rs:do_stuff | src/lib.rs"
+        );
     }
 
     #[test]
@@ -754,5 +796,32 @@ mod tests {
         let source = "# comment\ndef process(self, data):";
         let sig = extract_signature(source);
         assert_eq!(sig, Some("def process(self, data):".to_string()));
+    }
+
+    #[test]
+    fn test_split_identifier_words() {
+        assert_eq!(
+            split_identifier_words("DominaiteAuthMiddleware"),
+            "dominaite auth middleware"
+        );
+        assert_eq!(split_identifier_words("parse_config"), "parse config");
+        assert_eq!(split_identifier_words("HTTPServer"), "http server");
+        assert_eq!(split_identifier_words("simple"), "simple");
+        assert_eq!(split_identifier_words("SendEmailAsync"), "send email async");
+    }
+
+    #[test]
+    fn test_search_text_contains_split_name_words() {
+        // The q5 eval failure: "authentication middleware" could never match
+        // DominaiteAuthMiddleware because the camelCase name was one FTS token.
+        let node = crate::engine::storage::Node::class(
+            "common/Auth/DominaiteAuthMiddleware.cs",
+            "DominaiteAuthMiddleware",
+            22,
+            1500,
+            None,
+        );
+        let text = build_search_text(&node, None);
+        assert!(text.contains("dominaite auth middleware"));
     }
 }
