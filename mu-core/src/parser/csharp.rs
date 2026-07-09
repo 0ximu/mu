@@ -72,25 +72,61 @@ fn process_node(node: &Node, source: &str, module: &mut ModuleDef) {
                 process_node(&child, source, module);
             }
             "class_declaration" => {
-                module.classes.push(extract_class(&child, source));
+                let class_def = extract_class(&child, source);
+                let outer_name = class_def.name.clone();
+                module.classes.push(class_def);
+                extract_nested_types(&child, source, &outer_name, &mut module.classes);
             }
             "interface_declaration" => {
-                module.classes.push(extract_interface(&child, source));
+                let class_def = extract_interface(&child, source);
+                let outer_name = class_def.name.clone();
+                module.classes.push(class_def);
+                extract_nested_types(&child, source, &outer_name, &mut module.classes);
             }
             "struct_declaration" => {
-                module.classes.push(extract_struct(&child, source));
+                let class_def = extract_struct(&child, source);
+                let outer_name = class_def.name.clone();
+                module.classes.push(class_def);
+                extract_nested_types(&child, source, &outer_name, &mut module.classes);
             }
             "enum_declaration" => {
                 module.classes.push(extract_enum(&child, source));
             }
             "record_declaration" => {
-                module.classes.push(extract_record(&child, source));
+                let class_def = extract_record(&child, source);
+                let outer_name = class_def.name.clone();
+                module.classes.push(class_def);
+                extract_nested_types(&child, source, &outer_name, &mut module.classes);
             }
             "declaration_list" => {
                 process_node(&child, source, module);
             }
             _ => {}
         }
+    }
+}
+
+/// Extract nested type declarations (class/interface/record) from a type body.
+/// Nested types are named `Outer.Inner`, matching the qualified-name convention
+/// used elsewhere (see differ::changes::Change::full_name). Recurses so deeper
+/// nesting yields `Outer.Middle.Inner`.
+fn extract_nested_types(node: &Node, source: &str, prefix: &str, classes: &mut Vec<ClassDef>) {
+    let Some(body) = find_child_by_type(node, "declaration_list") else {
+        return;
+    };
+
+    let mut cursor = body.walk();
+    for child in body.children(&mut cursor) {
+        let mut nested = match child.kind() {
+            "class_declaration" => extract_class(&child, source),
+            "interface_declaration" => extract_interface(&child, source),
+            "record_declaration" => extract_record(&child, source),
+            _ => continue,
+        };
+        nested.name = format!("{}.{}", prefix, nested.name);
+        let qualified = nested.name.clone();
+        classes.push(nested);
+        extract_nested_types(&child, source, &qualified, classes);
     }
 }
 
@@ -953,6 +989,91 @@ public class HomeController {
             result.namespace,
             Some("DominaiteGateway.Api.Controllers".to_string())
         );
+    }
+
+    #[test]
+    fn test_nested_class_extracted_with_bases() {
+        let source = r#"
+public class Outer {
+    public void OuterMethod() { }
+
+    private sealed class Inner : ISomething {
+        public void M() { }
+    }
+}
+"#;
+        let result = parse(source, "Outer.cs").unwrap();
+
+        let outer = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Outer")
+            .expect("outer class extracted");
+        let inner = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Outer.Inner")
+            .expect("nested class extracted with qualified name");
+
+        // Bases of the nested class must be captured so inherits edges get built
+        assert_eq!(inner.bases, vec!["ISomething".to_string()]);
+
+        // Inner's methods belong to Inner, not Outer
+        assert!(inner.methods.iter().any(|m| m.name == "M"));
+        assert!(outer.methods.iter().any(|m| m.name == "OuterMethod"));
+        assert!(outer.methods.iter().all(|m| m.name != "M"));
+    }
+
+    #[test]
+    fn test_nested_interface_and_record() {
+        let source = r#"
+public class Container {
+    public interface IHandler {
+        void Handle();
+    }
+
+    public record Entry(string Name) : IHandler;
+}
+"#;
+        let result = parse(source, "Container.cs").unwrap();
+
+        let handler = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Container.IHandler")
+            .expect("nested interface extracted");
+        assert!(handler.decorators.contains(&"interface".to_string()));
+
+        let entry = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Container.Entry")
+            .expect("nested record extracted");
+        assert!(entry.decorators.contains(&"record".to_string()));
+        assert_eq!(entry.bases, vec!["IHandler".to_string()]);
+    }
+
+    #[test]
+    fn test_doubly_nested_class() {
+        let source = r#"
+public class Outer {
+    private class Middle {
+        internal class Inner : IDeep {
+            public void Run() { }
+        }
+    }
+}
+"#;
+        let result = parse(source, "Outer.cs").unwrap();
+
+        assert!(result.classes.iter().any(|c| c.name == "Outer.Middle"));
+        let inner = result
+            .classes
+            .iter()
+            .find(|c| c.name == "Outer.Middle.Inner")
+            .expect("doubly nested class extracted");
+        assert_eq!(inner.bases, vec!["IDeep".to_string()]);
+        assert!(inner.methods.iter().any(|m| m.name == "Run"));
     }
 
     #[test]
