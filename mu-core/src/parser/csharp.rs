@@ -446,12 +446,17 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
     for child in node.children(&mut cursor) {
         if child.kind() == "parameter" {
             let mut param = ParameterDef::default();
+            // A user-defined parameter type (`INotifSvc notifSvc`) is a bare
+            // `identifier` node, exactly like the parameter name. Collect
+            // identifiers in order: with two, the first is the type and the
+            // second the name; with one, it's the name (lambda/implicit).
+            let mut identifiers: Vec<String> = Vec::new();
 
             let mut inner_cursor = child.walk();
             for inner in child.children(&mut inner_cursor) {
                 match inner.kind() {
                     "identifier" => {
-                        param.name = get_node_text(&inner, source).to_string();
+                        identifiers.push(get_node_text(&inner, source).to_string());
                     }
                     "predefined_type" | "nullable_type" | "array_type" | "generic_name"
                     | "qualified_name" => {
@@ -465,6 +470,13 @@ fn extract_parameters(node: &Node, source: &str) -> Vec<ParameterDef> {
                     }
                     _ => {}
                 }
+            }
+
+            if param.type_annotation.is_none() && identifiers.len() >= 2 {
+                param.name = identifiers.pop().unwrap();
+                param.type_annotation = identifiers.pop();
+            } else if let Some(name) = identifiers.pop() {
+                param.name = name;
             }
 
             if !param.name.is_empty() {
@@ -1087,5 +1099,63 @@ public class GlobalClass {
 "#;
         let result = parse(source, "GlobalClass.cs").unwrap();
         assert_eq!(result.namespace, None);
+    }
+
+    #[test]
+    fn test_chained_awaited_call_site_extracted() {
+        // `await this._svc.SendAsync(x).ConfigureAwait(false)` must yield a
+        // call site for SendAsync with the DI-field receiver, not just the
+        // outer ConfigureAwait link in the chain.
+        let source = r#"
+using System.Threading.Tasks;
+namespace Demo {
+    public class Caller {
+        private readonly INotifSvc _notifSvc;
+        public Caller(INotifSvc notifSvc) { _notifSvc = notifSvc; }
+        public async Task Run() {
+            await this._notifSvc.SendAsync("x").ConfigureAwait(false);
+        }
+    }
+}
+"#;
+        let result = parse(source, "B.cs").unwrap();
+        let run = result.classes[0]
+            .methods
+            .iter()
+            .find(|m| m.name == "Run")
+            .expect("Run method");
+        let send = run
+            .call_sites
+            .iter()
+            .find(|c| c.callee == "SendAsync")
+            .expect("SendAsync call site should be extracted from the chain");
+        assert!(send.is_method_call);
+        assert_eq!(send.receiver.as_deref(), Some("this._notifSvc"));
+    }
+
+    #[test]
+    fn test_parameter_with_user_defined_type() {
+        // `INotifSvc notifSvc` is two bare identifiers: first is the type,
+        // second the name. Losing the type broke DI receiver resolution.
+        let source = r#"
+public class Caller {
+    public Caller(INotifSvc notifSvc, int count, string name) { }
+}
+"#;
+        let result = parse(source, "t.cs").unwrap();
+        let ctor = &result.classes[0].methods[0];
+        assert_eq!(ctor.parameters.len(), 3);
+        assert_eq!(ctor.parameters[0].name, "notifSvc");
+        assert_eq!(
+            ctor.parameters[0].type_annotation.as_deref(),
+            Some("INotifSvc")
+        );
+        assert_eq!(ctor.parameters[1].name, "count");
+        assert_eq!(ctor.parameters[1].type_annotation.as_deref(), Some("int"));
+        assert_eq!(ctor.parameters[2].name, "name");
+        assert_eq!(
+            ctor.parameters[2].type_annotation.as_deref(),
+            Some("string")
+        );
     }
 }

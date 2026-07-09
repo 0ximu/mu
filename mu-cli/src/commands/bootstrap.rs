@@ -264,6 +264,7 @@ fn scan_and_parse(
     root: &Path,
     config: &MuConfig,
     spinner: Option<&ProgressBar>,
+    force: bool,
 ) -> anyhow::Result<ParsedCodebase> {
     // Step 1: Scan codebase
     spin(spinner, "Scanning codebase...");
@@ -299,9 +300,11 @@ fn scan_and_parse(
         });
     }
 
-    // Step 2: Load cache and determine what needs parsing
+    // Step 2: Load cache and determine what needs parsing.
+    // --force means "rebuild everything": that must include re-parsing, or a
+    // parser fix never reaches an index whose files haven't changed on disk.
     spin(spinner, "Loading cache...");
-    let mut cache = if cache_enabled {
+    let mut cache = if cache_enabled && !force {
         ParseCache::load(config.cache_directory(), root)
     } else {
         ParseCache::new()
@@ -1382,7 +1385,7 @@ pub fn bootstrap_pipeline(
     }
 
     // Step 1: Scan and parse
-    let parsed = scan_and_parse(root, &config, spinner)?;
+    let parsed = scan_and_parse(root, &config, spinner, force)?;
     if parsed.files_scanned == 0 {
         return Ok(BootstrapResult {
             success: true,
@@ -2537,6 +2540,65 @@ mod tests {
         assert_eq!(
             resolved.as_deref(),
             Some("fn:svc.cs:NotificationsService.SendEmailAsync")
+        );
+    }
+
+    #[test]
+    fn test_receiver_type_map_from_parsed_csharp() {
+        // End-to-end DI map construction from real parser output: the eval
+        // showed zero DI edges on a 920k-line C# codebase even though every
+        // link looked correct in isolation.
+        let a = mu_core::parser::parse_source(
+            r#"
+namespace Demo {
+    public interface INotifSvc { }
+    public class NotifSvc : INotifSvc { public void SendAsync(string m) { } }
+}
+"#,
+            "A.cs",
+            "csharp",
+        );
+        let b = mu_core::parser::parse_source(
+            r#"
+using System.Threading.Tasks;
+namespace Demo {
+    public class Caller {
+        private readonly INotifSvc _notifSvc;
+        public Caller(INotifSvc notifSvc) { _notifSvc = notifSvc; }
+        public async Task Run() {
+            await this._notifSvc.SendAsync("x").ConfigureAwait(false);
+        }
+    }
+}
+"#,
+            "B.cs",
+            "csharp",
+        );
+        assert!(a.success && b.success, "fixture must parse");
+        let results = vec![a, b];
+
+        let caller = results[1].module.as_ref().unwrap();
+        let ctor = caller.classes[0]
+            .methods
+            .iter()
+            .find(|m| m.decorators.contains(&"constructor".to_string()))
+            .expect("constructor must be tagged");
+        assert_eq!(
+            ctor.parameters
+                .first()
+                .and_then(|p| p.type_annotation.as_deref()),
+            Some("INotifSvc"),
+            "constructor param type must be captured"
+        );
+
+        let class_lookup = build_class_lookup(&results);
+        assert!(class_lookup.contains_key("NotifSvc"), "class lookup");
+
+        let map = build_receiver_type_map(&results, &class_lookup);
+        assert_eq!(
+            map.get(&("B.cs".to_string(), "_notifSvc".to_string())),
+            Some(&"cls:A.cs:NotifSvc".to_string()),
+            "DI receiver map must map _notifSvc to the concrete class"
         );
     }
 }
