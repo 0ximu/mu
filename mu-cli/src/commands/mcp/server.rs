@@ -159,6 +159,16 @@ pub struct ConfigureParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct CompressParams {
+    /// Approximate token budget for the overview (default: 8000)
+    #[schemars(
+        description = "Approximate token budget for the overview (default: 8000). Detail degrades by importance to fit the budget; the output always states how many symbols were omitted."
+    )]
+    #[serde(default, deserialize_with = "lenient::option_usize")]
+    pub budget: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct BootstrapParams {
     /// Project directory to bootstrap. Omit to use the current project root.
     #[schemars(description = "Project directory path. Omit to use the current project root.")]
@@ -386,35 +396,15 @@ impl MuMcpServer {
 
     /// Compress: Token-efficient codebase overview
     #[tool(
-        description = "Token-efficient overview of the entire codebase structure. Shows all modules, classes, and functions with importance markers. Use for initial orientation on an unfamiliar codebase or to answer 'what services/modules exist?' NOT for: finding specific code (use mu_grok or mu_find)."
+        description = "Token-efficient overview of the entire codebase structure, selected by importance to fit a token budget (default 8000, override with `budget`). Shows modules, classes, and functions with importance percentiles and always states how many symbols were omitted. Use for initial orientation on an unfamiliar codebase or to answer 'what services/modules exist?' NOT for: finding specific code (use mu_grok or mu_find)."
     )]
-    async fn mu_compress(&self) -> Result<CallToolResult, McpError> {
+    async fn mu_compress(
+        &self,
+        Parameters(params): Parameters<CompressParams>,
+    ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        // Get stats
-        let stats = state
-            .mubase
-            .query(
-                "SELECT
-            (SELECT COUNT(*) FROM nodes) as nodes,
-            (SELECT COUNT(*) FROM edges) as edges,
-            (SELECT COUNT(DISTINCT file_path) FROM nodes) as files",
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        let (node_count, edge_count, file_count) = stats
-            .rows
-            .first()
-            .map(|r| {
-                (
-                    r.first().and_then(|v| v.as_i64()).unwrap_or(0),
-                    r.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
-                    r.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-                )
-            })
-            .unwrap_or((0, 0, 0));
-
-        // Detect languages
+        // Detect languages (symbol counts come from the structure header)
         let langs = state
             .mubase
             .query(
@@ -443,10 +433,6 @@ impl MuMcpServer {
         let mut output = String::new();
         output.push_str("# MU Codebase Overview\n\n");
         output.push_str(&format!(
-            "Files: {} | Symbols: {} | Edges: {}\n",
-            file_count, node_count, edge_count
-        ));
-        output.push_str(&format!(
             "Languages: {}\n\n",
             if languages.is_empty() {
                 "Unknown".to_string()
@@ -455,47 +441,18 @@ impl MuMcpServer {
             }
         ));
 
-        // Get structure grouped by directory
-        let nodes_result = state.mubase.query(
-            "SELECT type, name, file_path, complexity FROM nodes ORDER BY file_path, type DESC, name LIMIT 500")
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        let mut current_dir = String::new();
-        let mut current_file = String::new();
-
-        for row in &nodes_result.rows {
-            let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("");
-            let name = row.get(1).and_then(|v| v.as_str()).unwrap_or("");
-            let file_path = row.get(2).and_then(|v| v.as_str()).unwrap_or("");
-            let complexity = row.get(3).and_then(|v| v.as_i64()).unwrap_or(0);
-
-            // Track directory changes
-            let dir = file_path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-            if dir != current_dir && !dir.is_empty() {
-                current_dir = dir.to_string();
-                output.push_str(&format!("\n## {}/\n", dir));
-            }
-
-            // Track file changes
-            if file_path != current_file && !file_path.is_empty() {
-                current_file = file_path.to_string();
-                let filename = file_path
-                    .rsplit_once('/')
-                    .map(|(_, f)| f)
-                    .unwrap_or(file_path);
-                output.push_str(&format!("  ! {}\n", filename));
-            }
-
-            let sigil = match node_type {
-                "module" => continue, // Skip module entries, we show files
-                "class" => "$",
-                "function" => "#",
-                _ => "@",
-            };
-
-            let complexity_indicator = if complexity > 20 { " ⚠" } else { "" };
-            output.push_str(&format!("    {}{}{}\n", sigil, name, complexity_indicator));
-        }
+        // Importance-ordered structure within a token budget. This replaced
+        // an alphabetical `ORDER BY file_path LIMIT 500` that silently showed
+        // whatever sorted first; the budget renderer keeps what matters most
+        // and its footer always states how many symbols were omitted.
+        let budget = params.budget.unwrap_or(8000);
+        let structure = crate::commands::compress::overview_from_mubase(
+            &state.mubase,
+            &state.project_root.to_string_lossy(),
+            budget,
+        )
+        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        output.push_str(&structure);
 
         Ok(CallToolResult::success(vec![Content::text(output)]))
     }
