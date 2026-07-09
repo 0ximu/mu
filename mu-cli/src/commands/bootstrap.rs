@@ -1879,14 +1879,22 @@ fn resolve_call_site(
     } = maps;
     let callee = &call.callee;
 
+    // Normalize the receiver: `this._svc.M()` extracts receiver "this._svc",
+    // but the DI receiver map and field conventions key on "_svc". Strip the
+    // self-reference prefix so both spellings resolve identically.
+    let receiver_norm: Option<&str> = call.receiver.as_deref().map(|r| {
+        r.strip_prefix("this.")
+            .or_else(|| r.strip_prefix("base."))
+            .or_else(|| r.strip_prefix("self."))
+            .or_else(|| r.strip_prefix("super."))
+            .unwrap_or(r)
+    });
+
     // 1. Method call on self/this - look in current class, then walk inheritance chain
     // Python: self, cls | C#/Java: this, base/super | Rust: self
     if call.is_method_call {
-        if let Some(receiver) = &call.receiver {
-            if matches!(
-                receiver.as_str(),
-                "self" | "cls" | "this" | "base" | "super"
-            ) {
+        if let Some(receiver) = receiver_norm {
+            if matches!(receiver, "self" | "cls" | "this" | "base" | "super") {
                 if let Some(class_name) = current_class {
                     // Try: fn:module:Class.method (direct method on current class)
                     let method_id = format!("fn:{}:{}.{}", current_module, class_name, callee);
@@ -1923,15 +1931,12 @@ fn resolve_call_site(
     // Method calls on arbitrary receivers (e.g., `_items.Clear()`) cannot be resolved
     // without type information; matching by bare name creates false cross-project edges.
     let is_arbitrary_receiver = call.is_method_call
-        && call
-            .receiver
-            .as_deref()
-            .is_some_and(|r| !matches!(r, "self" | "cls" | "this" | "base" | "super"));
+        && receiver_norm.is_some_and(|r| !matches!(r, "self" | "cls" | "this" | "base" | "super"));
 
     if is_arbitrary_receiver {
         // Try to resolve via constructor-injected field types
-        if let Some(receiver) = &call.receiver {
-            let key = (current_module.to_string(), receiver.clone());
+        if let Some(receiver) = receiver_norm {
+            let key = (current_module.to_string(), receiver.to_string());
             if let Some(receiver_class_id) = receiver_type_map.get(&key) {
                 // Try direct method on the resolved type
                 let class_name = receiver_class_id.rsplit(':').next().unwrap_or("");
@@ -1954,7 +1959,7 @@ fn resolve_call_site(
             }
 
             // Try treating the receiver itself as a class name (e.g., static calls)
-            if let Some(class_id) = class_lookup.get(receiver.as_str()) {
+            if let Some(class_id) = class_lookup.get(receiver) {
                 let class_name = class_id.rsplit(':').next().unwrap_or("");
                 let module_path = class_id
                     .strip_prefix("cls:")
@@ -2482,5 +2487,56 @@ mod tests {
             "Should not detect patterns in non-C# code"
         );
         assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_receiver_with_this_prefix() {
+        // C# extracts `this._svc.Send()` with receiver "this._svc"; the DI map
+        // keys on "_svc". The resolver must strip the self-reference prefix or
+        // every this-qualified DI call silently fails to produce an edge.
+        let mut func_lookup = HashMap::new();
+        func_lookup.insert(
+            "fn:svc.cs:NotificationsService.SendEmailAsync".to_string(),
+            "fn:svc.cs:NotificationsService.SendEmailAsync".to_string(),
+        );
+        let mut receiver_type_map = HashMap::new();
+        receiver_type_map.insert(
+            ("caller.cs".to_string(), "_notificationsService".to_string()),
+            "cls:svc.cs:NotificationsService".to_string(),
+        );
+        let inherits_map = HashMap::new();
+        let class_lookup = HashMap::new();
+        let maps = CallResolutionMaps {
+            func_lookup: &func_lookup,
+            receiver_type_map: &receiver_type_map,
+            inherits_map: &inherits_map,
+            class_lookup: &class_lookup,
+        };
+
+        let call = mu_core::types::CallSiteDef {
+            callee: "SendEmailAsync".to_string(),
+            line: 10,
+            is_method_call: true,
+            receiver: Some("this._notificationsService".to_string()),
+        };
+        let resolved = resolve_call_site(&call, "caller.cs", Some("Caller"), &[], maps);
+        assert_eq!(
+            resolved.as_deref(),
+            Some("fn:svc.cs:NotificationsService.SendEmailAsync"),
+            "this.-prefixed receiver must resolve through the DI map"
+        );
+
+        // Bare field receiver keeps working.
+        let bare = mu_core::types::CallSiteDef {
+            callee: "SendEmailAsync".to_string(),
+            line: 11,
+            is_method_call: true,
+            receiver: Some("_notificationsService".to_string()),
+        };
+        let resolved = resolve_call_site(&bare, "caller.cs", Some("Caller"), &[], maps);
+        assert_eq!(
+            resolved.as_deref(),
+            Some("fn:svc.cs:NotificationsService.SendEmailAsync")
+        );
     }
 }
