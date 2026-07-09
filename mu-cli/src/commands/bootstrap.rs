@@ -1135,6 +1135,27 @@ fn short_type_name(type_name: &str) -> &str {
 /// - MassTransit Publish<T>() publishers
 /// - HttpClient usage (GetAsync, PostAsync, etc.)
 /// - Shared contract references (.Contracts., .Shared. namespaces)
+///
+/// # Edge direction convention
+///
+/// `mu impact` runs an INCOMING BFS from the target
+/// (`GraphData::dependents`), so an edge `A -> B` must read "A depends
+/// on B" for A to appear in B's blast radius (same convention as
+/// `calls`: caller -> callee). Message-bus edges are emitted as:
+///
+/// - `consumer_class --subscribes--> msg`: the consumer depends on the
+///   message contract, so consumers land in the message's blast radius.
+/// - `publisher_method --publishes--> msg`: kept in this direction
+///   because a message contract change breaks its publishers too, and
+///   summaries/PageRank read "published by" as incoming edges on the
+///   message node.
+/// - `msg --publishes--> publisher_method` with properties
+///   `{"reverse": true}`: companion edge. Without it both real edges
+///   point AT the message, so an incoming BFS from the publisher can
+///   never leave it. With it, impact of a publisher climbs
+///   `publisher <- msg <- consumer` and reports every consumer.
+///   Trade-off: co-publishers of the same message type show up in each
+///   other's blast radius (recall over precision).
 fn detect_cross_service_edges(
     parse_results: &[mu_core::types::ParseResult],
     class_lookup: &HashMap<String, String>,
@@ -1228,6 +1249,12 @@ fn detect_cross_service_edges(
                     let edge = crate::engine::storage::Edge::publishes(&method_id, &msg_id)
                         .with_properties(json!({"message_type": message_type}));
                     edges.push(edge);
+                    // Reverse companion edge so the incoming impact BFS can
+                    // traverse publisher <- msg <- consumer (see the edge
+                    // direction convention in the function docs).
+                    let reverse = crate::engine::storage::Edge::publishes(&msg_id, &method_id)
+                        .with_properties(json!({"message_type": message_type, "reverse": true}));
+                    edges.push(reverse);
                     tracing::debug!(
                         "Cross-service: {}.{} publishes {}",
                         class.name,
@@ -2356,8 +2383,23 @@ mod tests {
         assert!(
             edges.iter().any(|e| e.edge_type
                 == crate::engine::storage::schema::EdgeType::Publishes
-                && e.source_id.contains("OrderService.CreateOrder")),
+                && e.source_id.contains("OrderService.CreateOrder")
+                && e.target_id == "msg:OrderCreatedEvent"),
             "Should create publishes edge from method"
+        );
+        // Reverse companion edge (msg -> publisher) for impact traversal.
+        let reverse = edges
+            .iter()
+            .find(|e| {
+                e.edge_type == crate::engine::storage::schema::EdgeType::Publishes
+                    && e.source_id == "msg:OrderCreatedEvent"
+            })
+            .expect("Should create reverse publishes edge from message node");
+        assert!(reverse.target_id.contains("OrderService.CreateOrder"));
+        assert_eq!(
+            reverse.properties.as_ref().unwrap()["reverse"],
+            serde_json::Value::Bool(true),
+            "reverse edge must be marked"
         );
     }
 
@@ -2611,6 +2653,115 @@ mod tests {
             .collect();
         assert_eq!(msg_nodes.len(), 1);
         assert_eq!(msg_nodes[0].id, "msg:SendEmail");
+    }
+
+    #[test]
+    fn test_impact_of_publisher_reaches_consumer_through_bus() {
+        // End-to-end: real C# sources through the parser and build_graph,
+        // loaded into a DuckDB graph, then the same incoming BFS mu_impact
+        // uses. The blast radius of the publishing method must include the
+        // message node and the consumer on the other side of the bus.
+        let publisher = mu_core::parser::parse_source(
+            r#"
+using MassTransit;
+using System.Threading.Tasks;
+namespace Orders {
+    public class OrderService {
+        private readonly IPublishEndpoint _publishEndpoint;
+        public OrderService(IPublishEndpoint publishEndpoint) { _publishEndpoint = publishEndpoint; }
+        public async Task CreateOrder() {
+            await _publishEndpoint.Publish<SendEmail>(new SendEmail());
+        }
+    }
+}
+"#,
+            "Orders/OrderService.cs",
+            "csharp",
+        );
+        let consumer = mu_core::parser::parse_source(
+            r#"
+using MassTransit;
+using System.Threading.Tasks;
+namespace Notifications {
+    public class NotificationsConsumer : IConsumer<SendEmail> {
+        public async Task Consume(ConsumeContext<SendEmail> context) {
+            await Task.CompletedTask;
+        }
+    }
+}
+"#,
+            "Notifications/NotificationsConsumer.cs",
+            "csharp",
+        );
+        assert!(publisher.success && consumer.success, "fixtures must parse");
+        // Sanity: the parser must surface the generic base verbatim.
+        assert!(
+            consumer.module.as_ref().unwrap().classes[0]
+                .bases
+                .contains(&"IConsumer<SendEmail>".to_string()),
+            "parser must capture IConsumer<SendEmail> in bases, got {:?}",
+            consumer.module.as_ref().unwrap().classes[0].bases
+        );
+        let results = vec![publisher, consumer];
+
+        let (nodes, edges) = build_graph(&results, Path::new("."), None);
+
+        let publisher_fn = "fn:Orders/OrderService.cs:OrderService.CreateOrder";
+        let consumer_cls = "cls:Notifications/NotificationsConsumer.cs:NotificationsConsumer";
+        let msg = "msg:SendEmail";
+        assert!(nodes.iter().any(|n| n.id == msg), "message node exists");
+
+        // Load into a throwaway DuckDB with the columns GraphData reads.
+        let dir = tempfile::tempdir().unwrap();
+        let conn = duckdb::Connection::open(dir.path().join("test.mubase")).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE nodes (id VARCHAR, name VARCHAR, type VARCHAR, file_path VARCHAR);
+             CREATE TABLE edges (source_id VARCHAR, target_id VARCHAR, type VARCHAR);",
+        )
+        .unwrap();
+        for n in &nodes {
+            conn.execute(
+                "INSERT INTO nodes VALUES (?, ?, ?, ?)",
+                duckdb::params![n.id, n.name, n.node_type.as_str(), n.file_path],
+            )
+            .unwrap();
+        }
+        for e in &edges {
+            conn.execute(
+                "INSERT INTO edges VALUES (?, ?, ?)",
+                duckdb::params![e.source_id, e.target_id, e.edge_type.as_str()],
+            )
+            .unwrap();
+        }
+
+        let graph = crate::commands::graph::GraphData::from_db(&conn).unwrap();
+
+        // Impact of the publisher method: consumers must be in the
+        // dependents set (publisher <- msg <- consumer).
+        let publisher_impact = graph.dependents(publisher_fn, None, None);
+        assert!(
+            publisher_impact.contains(&msg.to_string()),
+            "publisher impact must include the message node, got {:?}",
+            publisher_impact
+        );
+        assert!(
+            publisher_impact.contains(&consumer_cls.to_string()),
+            "publisher impact must include the consumer, got {:?}",
+            publisher_impact
+        );
+
+        // Impact of the message type: both sides of the bus.
+        let msg_impact = graph.dependents(msg, None, None);
+        assert!(
+            msg_impact.contains(&publisher_fn.to_string()),
+            "message impact must include the publisher, got {:?}",
+            msg_impact
+        );
+        assert!(
+            msg_impact.contains(&consumer_cls.to_string()),
+            "message impact must include the consumer, got {:?}",
+            msg_impact
+        );
     }
 
     #[test]
