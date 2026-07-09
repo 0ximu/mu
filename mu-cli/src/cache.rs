@@ -27,8 +27,11 @@ use std::path::Path;
 
 use mu_core::types::ModuleDef;
 
-/// Current cache format version. Increment when cache format changes.
-const CACHE_VERSION: &str = "1";
+/// Cache compatibility version, tied to the crate version: parser output can
+/// change in any release, and a cache written by an older binary would
+/// silently serve stale ModuleDefs (bug fixes included). A binary upgrade
+/// therefore always starts a fresh cache.
+const CACHE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Default cache file path relative to project root.
 const DEFAULT_CACHE_PATH: &str = ".mu/cache/parse_cache.json";
