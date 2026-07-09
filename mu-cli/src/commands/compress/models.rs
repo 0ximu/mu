@@ -48,6 +48,8 @@ pub struct CompressedFunction {
     pub call_count: u32,
     pub is_hot: bool,
     pub docstring: Option<String>,
+    /// PageRank importance score from the graph (0.0 when no graph).
+    pub importance: f32,
 }
 
 /// A compressed class representation
@@ -59,6 +61,8 @@ pub struct CompressedClass {
     pub used_by: Vec<String>,
     pub methods: Vec<CompressedFunction>,
     pub attributes: Vec<String>,
+    /// PageRank importance score from the graph (0.0 when no graph).
+    pub importance: f32,
 }
 
 /// A compressed module representation
