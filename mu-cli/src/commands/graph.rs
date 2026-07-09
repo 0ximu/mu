@@ -327,7 +327,16 @@ pub async fn run_impact(
     // Use `dependents` (Incoming BFS) — matches the help text "what breaks if this
     // node changes" and aligns with the MCP mu_impact tool. The prior outgoing
     // traversal was a transitive-deps listing mislabelled as impact.
-    let affected_ids = graph.dependents(&node_id, effective_edge_types.as_deref(), depth);
+    // Class targets seed the BFS with their contained members too: callers
+    // point at method nodes, which a class-only BFS can never reach.
+    let affected_ids = if node_id.starts_with("cls:") {
+        let members = graph.contained_members(&node_id);
+        let mut seeds: Vec<&str> = vec![node_id.as_str()];
+        seeds.extend(members.iter().map(|s| s.as_str()));
+        graph.dependents_many(&seeds, effective_edge_types.as_deref(), depth)
+    } else {
+        graph.dependents(&node_id, effective_edge_types.as_deref(), depth)
+    };
 
     // Fetch importance scores so the list is ranked by PageRank-derived weight
     // (high-importance dependents first = the ones most likely to matter).
