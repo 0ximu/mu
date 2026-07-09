@@ -255,7 +255,14 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
     let _ = writeln!(out);
 
     if resp.dependents.is_empty() {
-        let _ = writeln!(out, "No graph dependencies found.");
+        let _ = writeln!(out, "## Graph Dependents (0 found)\n");
+        let _ = writeln!(
+            out,
+            "  NOTE: zero graph dependents does NOT prove nothing depends on this.\n\
+             \x20 Edges can be missing for DI-injected interfaces, reflection, message-bus\n\
+             \x20 publish/consume, and cross-service HTTP. Check the Text References section\n\
+             \x20 below — if it lists files, treat those as real dependents until verified.",
+        );
         return out;
     }
 
@@ -272,7 +279,7 @@ pub fn format_impact_response(resp: &ImpactResponse) -> String {
 
     let _ = writeln!(
         out,
-        "## Dependents ({} found — {} production, {} test/other)\n",
+        "## Graph Dependents ({} found — {} production, {} test/other)\n",
         resp.dependents.len(),
         prod.len(),
         non_prod.len(),
@@ -482,4 +489,56 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target_node() -> NodeResult {
+        NodeResult {
+            node_id: "cls:svc.cs:Svc".to_string(),
+            name: "Svc".to_string(),
+            kind: "class".to_string(),
+            file_path: "svc.cs".to_string(),
+            line_start: 1,
+            line_end: 10,
+            score: None,
+            match_type: None,
+            importance: 0.5,
+            summary: None,
+            node_category: "production".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_impact_zero_dependents_warns_instead_of_asserting_absence() {
+        // An empty graph result must never read as proof of no dependents:
+        // edges can be missing (DI, reflection, message bus). The output has
+        // to steer the reader to the text-reference channel.
+        let resp = ImpactResponse {
+            target: target_node(),
+            dependents: vec![],
+            edges: vec![],
+        };
+        let out = format_impact_response(&resp);
+        assert!(out.contains("Graph Dependents (0 found"));
+        assert!(out.contains("does NOT prove"));
+        assert!(out.contains("Text References"));
+    }
+
+    #[test]
+    fn test_impact_with_dependents_has_no_warning() {
+        let mut dep = target_node();
+        dep.node_id = "cls:caller.cs:Caller".to_string();
+        dep.name = "Caller".to_string();
+        let resp = ImpactResponse {
+            target: target_node(),
+            dependents: vec![dep],
+            edges: vec![],
+        };
+        let out = format_impact_response(&resp);
+        assert!(out.contains("Graph Dependents (1 found"));
+        assert!(!out.contains("does NOT prove"));
+    }
 }

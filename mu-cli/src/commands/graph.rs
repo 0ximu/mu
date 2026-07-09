@@ -107,7 +107,7 @@ impl GraphData {
         edge_types: Option<&[String]>,
         max_depth: Option<u8>,
     ) -> Vec<String> {
-        self.traverse_bfs(node_id, Direction::Outgoing, edge_types, max_depth)
+        self.traverse_bfs(&[node_id], Direction::Outgoing, edge_types, max_depth)
     }
 
     /// Find dependents (upstream — who calls/uses this node, transitively)
@@ -117,30 +117,58 @@ impl GraphData {
         edge_types: Option<&[String]>,
         max_depth: Option<u8>,
     ) -> Vec<String> {
-        self.traverse_bfs(node_id, Direction::Incoming, edge_types, max_depth)
+        self.traverse_bfs(&[node_id], Direction::Incoming, edge_types, max_depth)
+    }
+
+    /// Find dependents starting from multiple seed nodes (single shared BFS,
+    /// so seeds and anything already visited are never reported as dependents).
+    /// Used for class targets: a class's blast radius must include callers of
+    /// its methods, which the graph attaches to the method nodes, not the class.
+    pub fn dependents_many(
+        &self,
+        node_ids: &[&str],
+        edge_types: Option<&[String]>,
+        max_depth: Option<u8>,
+    ) -> Vec<String> {
+        self.traverse_bfs(node_ids, Direction::Incoming, edge_types, max_depth)
+    }
+
+    /// Direct children of a node via `contains` edges (e.g. a class's methods).
+    pub fn contained_members(&self, node_id: &str) -> Vec<String> {
+        let Some(&idx) = self.node_map.get(node_id) else {
+            return vec![];
+        };
+        self.graph
+            .edges_directed(idx, Direction::Outgoing)
+            .filter(|e| e.weight() == "contains")
+            .map(|e| self.reverse_map[&e.target()].clone())
+            .collect()
     }
 
     /// BFS traversal in a given direction with optional depth limit
     fn traverse_bfs(
         &self,
-        node_id: &str,
+        node_ids: &[&str],
         direction: Direction,
         edge_types: Option<&[String]>,
         max_depth: Option<u8>,
     ) -> Vec<String> {
-        let start = match self.node_map.get(node_id) {
-            Some(&idx) => idx,
-            None => return vec![],
-        };
-
         let allowed: Option<HashSet<&String>> = edge_types.map(|t| t.iter().collect());
 
         let mut visited: HashSet<NodeIndex> = HashSet::new();
         let mut result = Vec::new();
         let mut queue: VecDeque<(NodeIndex, u8)> = VecDeque::new();
 
-        visited.insert(start);
-        queue.push_back((start, 0));
+        for node_id in node_ids {
+            if let Some(&idx) = self.node_map.get(*node_id) {
+                if visited.insert(idx) {
+                    queue.push_back((idx, 0));
+                }
+            }
+        }
+        if queue.is_empty() {
+            return vec![];
+        }
 
         while let Some((current, depth)) = queue.pop_front() {
             // Skip if we've exceeded max depth
@@ -525,5 +553,68 @@ mod tests {
         assert!(impact.contains(&"mod:b".to_string()));
         assert!(impact.contains(&"mod:c".to_string()));
         assert!(!impact.contains(&"mod:d".to_string()));
+    }
+
+    /// Build a DB shaped like the DI case that broke impact analysis: a class
+    /// whose methods are called by another class. Callers point at the method
+    /// node, so a BFS from the class node alone cannot see them.
+    fn create_class_method_db() -> Connection {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test.mubase");
+        let conn = Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE nodes (
+                id VARCHAR PRIMARY KEY, type VARCHAR NOT NULL, name VARCHAR NOT NULL,
+                qualified_name VARCHAR, file_path VARCHAR,
+                line_start INTEGER, line_end INTEGER, properties JSON, complexity INTEGER DEFAULT 0
+            );
+            CREATE TABLE edges (
+                id VARCHAR PRIMARY KEY, source_id VARCHAR NOT NULL,
+                target_id VARCHAR NOT NULL, type VARCHAR NOT NULL, properties JSON
+            );
+            INSERT INTO nodes (id, type, name, file_path) VALUES
+                ('cls:svc.cs:Svc', 'class', 'Svc', 'svc.cs'),
+                ('fn:svc.cs:Svc.Send', 'function', 'Send', 'svc.cs'),
+                ('cls:caller.cs:Caller', 'class', 'Caller', 'caller.cs'),
+                ('fn:caller.cs:Caller.Run', 'function', 'Run', 'caller.cs');
+            INSERT INTO edges (id, source_id, target_id, type) VALUES
+                ('e1', 'cls:svc.cs:Svc', 'fn:svc.cs:Svc.Send', 'contains'),
+                ('e2', 'cls:caller.cs:Caller', 'fn:caller.cs:Caller.Run', 'contains'),
+                ('e3', 'fn:caller.cs:Caller.Run', 'fn:svc.cs:Svc.Send', 'calls');
+            "#,
+        )
+        .unwrap();
+        std::mem::forget(dir);
+        conn
+    }
+
+    #[test]
+    fn test_contained_members() {
+        let conn = create_class_method_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+        let members = graph.contained_members("cls:svc.cs:Svc");
+        assert_eq!(members, vec!["fn:svc.cs:Svc.Send".to_string()]);
+    }
+
+    #[test]
+    fn test_class_blast_radius_includes_method_callers() {
+        let conn = create_class_method_db();
+        let graph = GraphData::from_db(&conn).unwrap();
+
+        // From the class node alone, the caller is invisible.
+        let class_only = graph.dependents("cls:svc.cs:Svc", None, None);
+        assert!(!class_only.contains(&"fn:caller.cs:Caller.Run".to_string()));
+
+        // Seeding class + members finds the caller (and its containing class),
+        // without reporting the seeds themselves.
+        let members = graph.contained_members("cls:svc.cs:Svc");
+        let mut seeds: Vec<&str> = vec!["cls:svc.cs:Svc"];
+        seeds.extend(members.iter().map(|s| s.as_str()));
+        let full = graph.dependents_many(&seeds, None, None);
+        assert!(full.contains(&"fn:caller.cs:Caller.Run".to_string()));
+        assert!(full.contains(&"cls:caller.cs:Caller".to_string()));
+        assert!(!full.contains(&"cls:svc.cs:Svc".to_string()));
+        assert!(!full.contains(&"fn:svc.cs:Svc.Send".to_string()));
     }
 }

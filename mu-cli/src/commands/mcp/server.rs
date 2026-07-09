@@ -50,6 +50,33 @@ pub struct MuMcpServer {
     tool_router: ToolRouter<MuMcpServer>,
 }
 
+/// Target resolution for mu_impact. Class beats function: in C#/Java a
+/// constructor shares the class name, and resolving to the constructor gives
+/// a near-empty blast radius. Class beats module so "BaseService" resolves to
+/// the class, not the file.
+pub(crate) const IMPACT_TARGET_SQL: &str =
+    "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text, node_category
+     FROM nodes WHERE id = ?1 OR name = ?1
+     ORDER BY CASE type
+         WHEN 'class' THEN 0
+         WHEN 'function' THEN 1
+         WHEN 'module' THEN 2
+         ELSE 3
+     END,
+     importance_score DESC
+     LIMIT 1";
+
+/// Symbol lookup for mu_find: bare name, exact qualified name, dotted suffix
+/// of a qualified name, and `Class.Method` inputs via the id suffix (node ids
+/// end in `:Class.Method`).
+pub(crate) const FIND_SYMBOL_SQL: &str =
+    "SELECT type, name, file_path, line_start, line_end, node_category, id FROM nodes
+     WHERE name = ?1
+        OR qualified_name = ?1
+        OR qualified_name LIKE '%.' || ?1
+        OR id LIKE '%:' || ?1
+     LIMIT 10";
+
 // Tool parameter structs
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct FindParams {
@@ -280,14 +307,13 @@ impl MuMcpServer {
 
         let result = if is_node_id {
             state.mubase.query_params(
-                "SELECT type, name, file_path, line_start, line_end, node_category FROM nodes WHERE id = ?1 LIMIT 1",
+                "SELECT type, name, file_path, line_start, line_end, node_category, id FROM nodes WHERE id = ?1 LIMIT 1",
                 &[&symbol.as_str()],
             )
         } else {
-            state.mubase.query_params(
-                "SELECT type, name, file_path, line_start, line_end, node_category FROM nodes WHERE name = ?1 OR qualified_name LIKE '%.' || ?1 LIMIT 10",
-                &[&symbol.as_str()],
-            )
+            state
+                .mubase
+                .query_params(FIND_SYMBOL_SQL, &[&symbol.as_str()])
         }
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
@@ -325,6 +351,9 @@ impl MuMcpServer {
                 "## {}{} [{}]{}\n",
                 sigil, name, node_type, cat_tag
             ));
+            if let Some(node_id) = row.get(6).and_then(|v| v.as_str()) {
+                output.push_str(&format!("id: {}\n", node_id));
+            }
             output.push_str(&format!("{}:{}-{}\n", file_path, start_line, end_line));
 
             // Show the actual code
@@ -481,24 +510,14 @@ impl MuMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let state = self.ensure_state().await?;
 
-        // Find the target node — try exact ID first, then name with priority ordering
-        // (function > class > module) so that e.g. "BaseService" resolves to the class,
-        // not the module file.
+        // Find the target node — try exact ID first, then name with priority ordering.
+        // Class beats function: in C#/Java a constructor function shares the class
+        // name, and resolving "NotificationsService" to the constructor gives a
+        // near-empty blast radius. Class beats module so "BaseService" resolves to
+        // the class, not the file.
         let target_result = state
             .mubase
-            .query_params(
-                "SELECT id, name, type, file_path, line_start, line_end, importance_score, summary_text, node_category
-                 FROM nodes WHERE id = ?1 OR name = ?1
-                 ORDER BY CASE type
-                     WHEN 'function' THEN 0
-                     WHEN 'class' THEN 1
-                     WHEN 'module' THEN 2
-                     ELSE 3
-                 END,
-                 importance_score DESC
-                 LIMIT 1",
-                &[&params.symbol as &dyn duckdb::ToSql],
-            )
+            .query_params(IMPACT_TARGET_SQL, &[&params.symbol as &dyn duckdb::ToSql])
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let target = target_result
@@ -556,7 +575,17 @@ impl MuMcpServer {
             .map_err(|e| McpError::internal_error(format!("Failed to load graph: {}", e), None))?;
 
         let dependent_ids = if !target.node_id.is_empty() {
-            graph.dependents(&target.node_id, None, None)
+            if target.kind == "class" {
+                // Callers point at method nodes, not the class node. Seed the BFS
+                // with the class AND its members so "what breaks if this class
+                // changes" includes everything that calls any of its methods.
+                let members = graph.contained_members(&target.node_id);
+                let mut seeds: Vec<&str> = vec![target.node_id.as_str()];
+                seeds.extend(members.iter().map(|s| s.as_str()));
+                graph.dependents_many(&seeds, None, None)
+            } else {
+                graph.dependents(&target.node_id, None, None)
+            }
         } else {
             vec![]
         };
@@ -1439,4 +1468,97 @@ fn strip_trailing_pascal_word(s: &str) -> &str {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::storage::MUbase;
+
+    fn seed_db() -> MUbase {
+        let dir = tempfile::tempdir().unwrap();
+        let mubase = MUbase::open(dir.path().join("mubase")).unwrap();
+        mubase
+            .with_connection(|conn| {
+                conn.execute_batch(
+                    r#"
+                    INSERT INTO nodes (id, type, name, qualified_name, file_path, line_start, line_end, importance_score)
+                    VALUES
+                        ('cls:svc.cs:NotificationsService', 'class', 'NotificationsService',
+                         'NotificationsService', 'svc.cs', 10, 400, 0.5),
+                        ('fn:svc.cs:NotificationsService.NotificationsService', 'function', 'NotificationsService',
+                         'NotificationsService.NotificationsService', 'svc.cs', 20, 40, 0.9),
+                        ('fn:svc.cs:NotificationsService.SendEmailAsync', 'function', 'SendEmailAsync',
+                         'NotificationsService.SendEmailAsync', 'svc.cs', 50, 120, 0.4),
+                        ('mod:svc.cs', 'module', 'NotificationsService', NULL, 'svc.cs', 1, 400, 0.6)
+                    "#,
+                )?;
+                Ok(())
+            })
+            .unwrap();
+        std::mem::forget(mubase.clone());
+        mubase
+    }
+
+    #[test]
+    fn test_impact_target_prefers_class_over_constructor() {
+        // C#: the constructor function shares the class name and here even has
+        // higher importance. The class must still win, or blast radius starts
+        // from a node with no meaningful incoming edges.
+        let mubase = seed_db();
+        let result = mubase
+            .query_params(
+                IMPACT_TARGET_SQL,
+                &[&"NotificationsService" as &dyn duckdb::ToSql],
+            )
+            .unwrap();
+        let row = result.rows.first().expect("target row");
+        assert_eq!(row.get(2).and_then(|v| v.as_str()), Some("class"));
+        assert_eq!(
+            row.first().and_then(|v| v.as_str()),
+            Some("cls:svc.cs:NotificationsService")
+        );
+    }
+
+    #[test]
+    fn test_impact_target_exact_id_still_wins() {
+        let mubase = seed_db();
+        let result = mubase
+            .query_params(
+                IMPACT_TARGET_SQL,
+                &[&"fn:svc.cs:NotificationsService.SendEmailAsync" as &dyn duckdb::ToSql],
+            )
+            .unwrap();
+        let row = result.rows.first().expect("target row");
+        assert_eq!(row.get(2).and_then(|v| v.as_str()), Some("function"));
+    }
+
+    #[test]
+    fn test_find_symbol_accepts_qualified_name() {
+        // "Class.Method" inputs must resolve; the eval showed agents naturally
+        // pass qualified names and previously got zero matches.
+        let mubase = seed_db();
+        let result = mubase
+            .query_params(
+                FIND_SYMBOL_SQL,
+                &[&"NotificationsService.SendEmailAsync" as &dyn duckdb::ToSql],
+            )
+            .unwrap();
+        assert!(!result.rows.is_empty(), "qualified name should match");
+        let ids: Vec<&str> = result
+            .rows
+            .iter()
+            .filter_map(|r| r.get(6).and_then(|v| v.as_str()))
+            .collect();
+        assert!(ids.contains(&"fn:svc.cs:NotificationsService.SendEmailAsync"));
+    }
+
+    #[test]
+    fn test_find_symbol_bare_name_unchanged() {
+        let mubase = seed_db();
+        let result = mubase
+            .query_params(FIND_SYMBOL_SQL, &[&"SendEmailAsync" as &dyn duckdb::ToSql])
+            .unwrap();
+        assert!(!result.rows.is_empty());
+    }
 }
