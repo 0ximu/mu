@@ -52,10 +52,7 @@ pub fn find_mubase_from(start: &Path) -> Option<PathBuf> {
         }
 
         // Move up to parent
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return None,
-        }
+        current = current.parent()?;
     }
 }
 
@@ -89,10 +86,7 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
         if current.join(MU_DIR).exists() {
             return Some(current.to_path_buf());
         }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => return None,
-        }
+        current = current.parent()?;
     }
 }
 
