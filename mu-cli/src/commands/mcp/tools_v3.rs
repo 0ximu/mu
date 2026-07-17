@@ -1034,7 +1034,10 @@ pub fn read_nodes_tool(
         return Ok(out);
     }
 
-    let resp = build_read_response(mubase, project_root, node_ids, mode)?;
+    let mut resp = build_read_response(mubase, project_root, node_ids, mode)?;
+    // Percentile ranks keep mu_read's importance consistent with mu_grok
+    // (raw scores read as 0.00 for most nodes on large graphs).
+    apply_importance_percentiles(mubase, resp.nodes.iter_mut().map(|rn| &mut rn.node));
 
     // Check for not-found nodes
     let found_ids: HashSet<&str> = resp
