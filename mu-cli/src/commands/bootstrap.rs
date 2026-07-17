@@ -1097,6 +1097,7 @@ fn resolve_all_call_sites(
             for class in &module.classes {
                 for method in &class.methods {
                     let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                    let param_types = param_type_map(&method.parameters);
                     total += method.call_sites.len();
                     for call in &method.call_sites {
                         if let Some(target_id) = resolve_call_site(
@@ -1104,11 +1105,20 @@ fn resolve_all_call_sites(
                             rel_path,
                             Some(&class.name),
                             &module.imports,
+                            &param_types,
                             maps,
                         ) {
                             edges.push(crate::engine::storage::Edge::calls(&method_id, &target_id));
                             resolved += 1;
                         }
+                        push_arg_ref_edges(
+                            call,
+                            &method_id,
+                            rel_path,
+                            &module.imports,
+                            maps,
+                            edges,
+                        );
                     }
                 }
             }
@@ -1116,20 +1126,47 @@ fn resolve_all_call_sites(
             // Module-level functions
             for func in &module.functions {
                 let func_id = format!("fn:{}:{}", rel_path, func.name);
+                let param_types = param_type_map(&func.parameters);
                 total += func.call_sites.len();
                 for call in &func.call_sites {
                     if let Some(target_id) =
-                        resolve_call_site(call, rel_path, None, &module.imports, maps)
+                        resolve_call_site(call, rel_path, None, &module.imports, &param_types, maps)
                     {
                         edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
                     }
+                    push_arg_ref_edges(call, &func_id, rel_path, &module.imports, maps, edges);
                 }
             }
         }
     }
 
     (total, resolved)
+}
+
+/// Emit `uses` edges for function references passed as call arguments
+/// (callback registration: `event.listen(Session, "do_orm_execute", hook)`).
+/// Impact BFS traverses all edge types, so the hook stops looking like dead
+/// weight the moment something registers it.
+fn push_arg_ref_edges(
+    call: &mu_core::types::CallSiteDef,
+    from_id: &str,
+    current_module: &str,
+    imports: &[mu_core::types::ImportDef],
+    maps: CallResolutionMaps<'_>,
+    edges: &mut Vec<crate::engine::storage::Edge>,
+) {
+    for arg in &call.arg_refs {
+        if let Some(target_id) = resolve_arg_ref(
+            arg,
+            current_module,
+            imports,
+            maps.func_lookup,
+            maps.python_module_index,
+        ) {
+            edges.push(crate::engine::storage::Edge::uses(from_id, &target_id));
+        }
+    }
 }
 
 // ============================================================================
@@ -2072,6 +2109,72 @@ fn resolve_import(
     }
 }
 
+/// Map parameter names to their type annotations for one function.
+fn param_type_map(params: &[mu_core::types::ParameterDef]) -> HashMap<&str, &str> {
+    params
+        .iter()
+        .filter_map(|p| p.type_annotation.as_deref().map(|t| (p.name.as_str(), t)))
+        .collect()
+}
+
+/// Extract the class name from a parameter type annotation. Handles the
+/// common spellings: `Svc`, `Optional[Svc]`, `Svc | None`, `pkg.Svc`, and
+/// quoted forward references. Returns None for anything that doesn't reduce
+/// to a plain identifier (generics like `list[Svc]` are deliberately skipped:
+/// the receiver's methods are the container's, not the element's).
+fn annotation_class_name(annotation: &str) -> Option<&str> {
+    let mut s = annotation.trim().trim_matches('"').trim_matches('\'');
+    if let Some((head, tail)) = s.split_once('|') {
+        let head = head.trim();
+        let tail = tail.trim();
+        s = if head == "None" { tail } else { head };
+    }
+    if let Some(inner) = s
+        .strip_prefix("Optional[")
+        .and_then(|r| r.strip_suffix(']'))
+    {
+        s = inner.trim();
+    }
+    let s = s.rsplit('.').next().unwrap_or(s);
+    let valid = !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
+    valid.then_some(s)
+}
+
+/// Resolve a bare identifier passed as a call argument to a function node.
+/// Only precise resolutions (same module, or explicitly imported name) are
+/// attempted: argument identifiers are usually plain variables, so a global
+/// bare-name fallback would fabricate edges.
+fn resolve_arg_ref(
+    arg: &str,
+    current_module: &str,
+    imports: &[mu_core::types::ImportDef],
+    func_lookup: &HashMap<String, String>,
+    python_module_index: &PythonModuleIndex,
+) -> Option<String> {
+    let local_id = format!("fn:{}:{}", current_module, arg);
+    if func_lookup.contains_key(&local_id) {
+        return Some(local_id);
+    }
+    for import in imports {
+        if import.names.contains(&arg.to_string()) {
+            let import_path = import.module.replace('.', "/");
+            let mut candidates: Vec<String> = Vec::new();
+            if let Some(resolved) = python_module_index.resolve(&import.module) {
+                candidates.push(resolved.to_string());
+            }
+            candidates.push(import_path.clone());
+            candidates.push(format!("{}.py", import_path));
+            for path in &candidates {
+                let id = format!("fn:{}:{}", path, arg);
+                if func_lookup.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// The project-wide lookup tables call-site resolution needs.
 #[derive(Clone, Copy)]
 struct CallResolutionMaps<'a> {
@@ -2091,6 +2194,7 @@ fn resolve_call_site(
     current_module: &str,
     current_class: Option<&str>,
     imports: &[mu_core::types::ImportDef],
+    param_types: &HashMap<&str, &str>,
     maps: CallResolutionMaps<'_>,
 ) -> Option<String> {
     let CallResolutionMaps {
@@ -2188,6 +2292,37 @@ fn resolve_call_site(
                     resolve_inherited_method(receiver_class_id, callee, func_lookup, inherits_map)
                 {
                     return Some(inherited);
+                }
+            }
+
+            // Try the enclosing function's parameter annotations:
+            // `def go(s: Svc): s.run()` resolves through the declared type.
+            // The Python parser stores non-self attribute calls with the full
+            // dotted text as callee ("invoker.invoke"), so take the last
+            // segment as the method name.
+            if let Some(annotation) = param_types.get(receiver) {
+                if let Some(class_name) = annotation_class_name(annotation) {
+                    if let Some(class_id) = class_lookup.get(class_name) {
+                        let method_name = callee.rsplit('.').next().unwrap_or(callee);
+                        let module_path = class_id
+                            .strip_prefix("cls:")
+                            .and_then(|s| s.rsplit_once(':'))
+                            .map(|(p, _)| p)
+                            .unwrap_or(current_module);
+                        let method_id =
+                            format!("fn:{}:{}.{}", module_path, class_name, method_name);
+                        if func_lookup.contains_key(&method_id) {
+                            return Some(method_id);
+                        }
+                        if let Some(inherited) = resolve_inherited_method(
+                            class_id,
+                            method_name,
+                            func_lookup,
+                            inherits_map,
+                        ) {
+                            return Some(inherited);
+                        }
+                    }
                 }
             }
 
@@ -3192,8 +3327,16 @@ namespace Notifications {
             line: 10,
             is_method_call: true,
             receiver: Some("this._notificationsService".to_string()),
+            arg_refs: Vec::new(),
         };
-        let resolved = resolve_call_site(&call, "caller.cs", Some("Caller"), &[], maps);
+        let resolved = resolve_call_site(
+            &call,
+            "caller.cs",
+            Some("Caller"),
+            &[],
+            &HashMap::new(),
+            maps,
+        );
         assert_eq!(
             resolved.as_deref(),
             Some("fn:svc.cs:NotificationsService.SendEmailAsync"),
@@ -3206,8 +3349,16 @@ namespace Notifications {
             line: 11,
             is_method_call: true,
             receiver: Some("_notificationsService".to_string()),
+            arg_refs: Vec::new(),
         };
-        let resolved = resolve_call_site(&bare, "caller.cs", Some("Caller"), &[], maps);
+        let resolved = resolve_call_site(
+            &bare,
+            "caller.cs",
+            Some("Caller"),
+            &[],
+            &HashMap::new(),
+            maps,
+        );
         assert_eq!(
             resolved.as_deref(),
             Some("fn:svc.cs:NotificationsService.SendEmailAsync")
@@ -3438,6 +3589,7 @@ namespace Demo {
                 "src/pkg/clients/base_client.py",
                 Some("BpHttpClient"),
                 &imports,
+                &HashMap::new(),
                 maps
             ),
             Some("cls:src/pkg/auth/token_forwarding.py:TokenForwardingHandler".to_string())
@@ -3474,7 +3626,7 @@ namespace Demo {
         };
 
         assert_eq!(
-            resolve_call_site(&call, "app.py", None, &[], maps),
+            resolve_call_site(&call, "app.py", None, &[], &HashMap::new(), maps),
             Some("cls:app.py:Config".to_string())
         );
     }
@@ -3521,7 +3673,7 @@ namespace Demo {
         }];
 
         assert_eq!(
-            resolve_call_site(&call, "main.py", None, &imports, maps),
+            resolve_call_site(&call, "main.py", None, &imports, &HashMap::new(), maps),
             Some("cls:auth/handler.py:Handler".to_string())
         );
 
@@ -3537,7 +3689,116 @@ namespace Demo {
             &index,
         );
         assert_eq!(
-            resolve_call_site(&call, "main.py", None, &[], maps_ambiguous),
+            resolve_call_site(&call, "main.py", None, &[], &HashMap::new(), maps_ambiguous),
+            None
+        );
+    }
+
+    #[test]
+    fn test_annotation_class_name_spellings() {
+        assert_eq!(annotation_class_name("Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("Optional[Svc]"), Some("Svc"));
+        assert_eq!(annotation_class_name("Svc | None"), Some("Svc"));
+        assert_eq!(annotation_class_name("None | Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("pkg.mod.Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("\"Svc\""), Some("Svc"));
+        // Containers are not the receiver's type
+        assert_eq!(annotation_class_name("list[Svc]"), None);
+        assert_eq!(annotation_class_name("dict[str, Svc]"), None);
+    }
+
+    #[test]
+    fn test_resolve_call_site_annotated_param_receiver() {
+        // def go(s: Svc): s.run()  ->  edge to Svc.run
+        let results = python_parse_results(&["src/svc.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let mut func_lookup = HashMap::new();
+        func_lookup.insert(
+            "fn:src/svc.py:Svc.run".to_string(),
+            "fn:src/svc.py:Svc.run".to_string(),
+        );
+        let receiver_type_map = HashMap::new();
+        let inherits_map = HashMap::new();
+        let mut class_lookup = HashMap::new();
+        class_lookup.insert("Svc".to_string(), "cls:src/svc.py:Svc".to_string());
+        let class_ids = HashSet::new();
+        let unique_class_names = HashMap::new();
+
+        let maps = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &unique_class_names,
+            &index,
+        );
+
+        let call = mu_core::types::CallSiteDef {
+            // Python stores non-self attribute calls with the dotted text
+            callee: "s.run".to_string(),
+            is_method_call: true,
+            receiver: Some("s".to_string()),
+            ..Default::default()
+        };
+        let mut param_types = HashMap::new();
+        param_types.insert("s", "Svc");
+
+        assert_eq!(
+            resolve_call_site(&call, "src/caller.py", None, &[], &param_types, maps),
+            Some("fn:src/svc.py:Svc.run".to_string())
+        );
+
+        // Without the annotation the receiver stays unresolvable
+        assert_eq!(
+            resolve_call_site(&call, "src/caller.py", None, &[], &HashMap::new(), maps),
+            None
+        );
+    }
+
+    #[test]
+    fn test_resolve_arg_ref_local_and_imported() {
+        let results = python_parse_results(&["src/pkg/hooks.py", "src/pkg/main.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let mut func_lookup = HashMap::new();
+        func_lookup.insert(
+            "fn:src/pkg/hooks.py:on_event".to_string(),
+            "fn:src/pkg/hooks.py:on_event".to_string(),
+        );
+        func_lookup.insert(
+            "fn:src/pkg/main.py:local_hook".to_string(),
+            "fn:src/pkg/main.py:local_hook".to_string(),
+        );
+
+        // Local function reference
+        assert_eq!(
+            resolve_arg_ref("local_hook", "src/pkg/main.py", &[], &func_lookup, &index),
+            Some("fn:src/pkg/main.py:local_hook".to_string())
+        );
+
+        // Imported function reference, resolved through the module index
+        let imports = vec![mu_core::types::ImportDef {
+            module: "hooks".to_string(),
+            names: vec!["on_event".to_string()],
+            is_from: true,
+            ..Default::default()
+        }];
+        assert_eq!(
+            resolve_arg_ref(
+                "on_event",
+                "src/pkg/main.py",
+                &imports,
+                &func_lookup,
+                &index
+            ),
+            Some("fn:src/pkg/hooks.py:on_event".to_string())
+        );
+
+        // Plain variables must not resolve
+        assert_eq!(
+            resolve_arg_ref("session", "src/pkg/main.py", &imports, &func_lookup, &index),
             None
         );
     }

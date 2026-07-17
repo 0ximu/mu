@@ -716,6 +716,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "member_expression" => {
@@ -743,6 +744,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         _ => {
@@ -753,6 +755,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
     }

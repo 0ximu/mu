@@ -682,11 +682,39 @@ fn find_call_sites_recursive(node: &Node, source: &str, results: &mut Vec<CallSi
     }
 }
 
+/// Collect bare identifiers passed as arguments (positional or keyword
+/// values). These are potential function references: callback registration
+/// like `event.listen(Session, "do_orm_execute", my_hook)` is invisible to
+/// call-edge extraction otherwise. The resolver decides which identifiers
+/// actually name functions.
+fn extract_arg_refs(call_node: &Node, source: &str) -> Vec<String> {
+    let Some(args) = call_node.child_by_field_name("arguments") else {
+        return Vec::new();
+    };
+    let mut refs = Vec::new();
+    let mut cursor = args.walk();
+    for child in args.children(&mut cursor) {
+        match child.kind() {
+            "identifier" => refs.push(get_node_text(&child, source).to_string()),
+            "keyword_argument" => {
+                if let Some(value) = child.child_by_field_name("value") {
+                    if value.kind() == "identifier" {
+                        refs.push(get_node_text(&value, source).to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    refs
+}
+
 /// Extract a single call site from a call node.
 fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
     // The function being called is in the first child (before argument_list)
     let func_node = node.child(0)?;
     let line = get_start_line(node);
+    let arg_refs = extract_arg_refs(node, source);
 
     match func_node.kind() {
         "identifier" => {
@@ -697,6 +725,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs,
             })
         }
         "attribute" => {
@@ -728,6 +757,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs,
             })
         }
         _ => {
@@ -738,6 +768,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs,
             })
         }
     }
@@ -758,6 +789,32 @@ def hello(name: str) -> str:
         assert_eq!(result.functions.len(), 1);
         assert_eq!(result.functions[0].name, "hello");
         assert_eq!(result.functions[0].return_type, Some("str".to_string()));
+    }
+
+    #[test]
+    fn test_call_site_captures_identifier_arg_refs() {
+        // Callback registration: the identifier argument must be captured so
+        // the graph can link `event.listen(..., my_hook)` to my_hook.
+        let source = r#"
+def register(session):
+    event.listen(Session, "do_orm_execute", my_hook)
+    schedule(callback=other_hook, retries=3)
+"#;
+        let result = parse(source, "test.py").unwrap();
+        let calls = &result.functions[0].call_sites;
+        let listen = calls.iter().find(|c| c.callee.contains("listen")).unwrap();
+        assert!(listen.arg_refs.contains(&"Session".to_string()));
+        assert!(listen.arg_refs.contains(&"my_hook".to_string()));
+        // String literals are not identifiers
+        assert!(!listen.arg_refs.iter().any(|a| a.contains("do_orm")));
+
+        let schedule = calls
+            .iter()
+            .find(|c| c.callee.contains("schedule"))
+            .unwrap();
+        assert!(schedule.arg_refs.contains(&"other_hook".to_string()));
+        // Literal keyword values are not identifiers
+        assert_eq!(schedule.arg_refs.len(), 1);
     }
 
     #[test]

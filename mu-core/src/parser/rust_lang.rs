@@ -733,6 +733,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "field_expression" => {
@@ -763,6 +764,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         "scoped_identifier" => {
@@ -783,6 +785,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: receiver.is_some(),
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         "generic_function" => {
@@ -814,6 +817,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                         line,
                         is_method_call: true,
                         receiver,
+                        arg_refs: Vec::new(),
                     });
                 }
             }
@@ -823,6 +827,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "parenthesized_expression" => {
@@ -833,6 +838,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "call_expression" => {
@@ -843,6 +849,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "index_expression" => {
@@ -853,6 +860,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         _ => {
@@ -863,6 +871,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
     }
@@ -893,6 +902,7 @@ fn extract_macro_invocation(node: &Node, source: &str) -> Option<CallSiteDef> {
         line,
         is_method_call: is_scoped,
         receiver,
+        arg_refs: Vec::new(),
     })
 }
 
