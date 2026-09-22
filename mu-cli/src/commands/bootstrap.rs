@@ -94,7 +94,7 @@ impl TableDisplay for BootstrapResult {
 
         if self.already_existed {
             output.push_str(&format!(
-                "{} MU already initialized. Use --force to rebuild.\n",
+                "{} MU already initialized. Use --update to refresh or --force to rebuild.\n",
                 "INFO:".yellow().bold()
             ));
             output.push_str(&format!("  Nodes: {}\n", self.node_count));
@@ -1672,6 +1672,7 @@ fn create_spinner() -> ProgressBar {
 pub fn bootstrap_pipeline(
     root: &Path,
     force: bool,
+    update: bool,
     spinner: Option<&ProgressBar>,
 ) -> anyhow::Result<BootstrapResult> {
     let start = Instant::now();
@@ -1688,8 +1689,9 @@ pub fn bootstrap_pipeline(
     let mu_dir = root.join(".mu");
     let mubase_path = mu_dir.join("mubase");
 
-    // Check if rebuild is needed
-    if mubase_path.exists() && !force {
+    // Check if rebuild is needed. `update` rebuilds like `force` but keeps
+    // the parse cache, so only files whose content changed get re-parsed.
+    if mubase_path.exists() && !force && !update {
         let mubase = crate::engine::storage::MUbase::open(&mubase_path)?;
         let stats = mubase.stats()?;
         return Ok(BootstrapResult {
@@ -1933,7 +1935,12 @@ pub fn bootstrap_pipeline(
 }
 
 /// Run the bootstrap command (CLI entry point)
-pub async fn run(path: &str, force: bool, format: OutputFormat) -> anyhow::Result<()> {
+pub async fn run(
+    path: &str,
+    force: bool,
+    update: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     // Resolve and validate path
     let root = Path::new(path)
         .canonicalize()
@@ -1947,7 +1954,7 @@ pub async fn run(path: &str, force: bool, format: OutputFormat) -> anyhow::Resul
     }
 
     let spinner = create_spinner();
-    let result = bootstrap_pipeline(&root, force, Some(&spinner))?;
+    let result = bootstrap_pipeline(&root, force, update, Some(&spinner))?;
     spinner.finish_and_clear();
 
     if result.already_existed {
