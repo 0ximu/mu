@@ -178,6 +178,42 @@ pub struct ConstructorChange {
     pub files_outside_diff: Vec<String>,
 }
 
+/// `namespace X.Y;` or `namespace X.Y {` of a C# file.
+pub fn namespace_of(content: &str) -> Option<String> {
+    content.lines().find_map(|l| {
+        let t = l.trim();
+        let rest = t.strip_prefix("namespace ")?;
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '_')
+            .collect();
+        (!name.is_empty()).then_some(name)
+    })
+}
+
+/// Whether `content` (a file in `file_service`) can refer to a class that
+/// lives in `class_service` under `class_namespace`: same service, or an
+/// import of that namespace, or a fully qualified use of it.
+pub fn can_see_class(
+    content: &str,
+    file_service: &str,
+    class_service: &str,
+    class_namespace: Option<&str>,
+) -> bool {
+    if file_service == class_service {
+        return true;
+    }
+    let Some(ns) = class_namespace else {
+        // Unknown namespace: keep the old behaviour rather than hide sites.
+        return true;
+    };
+    content.lines().any(|l| {
+        let t = l.trim();
+        (t.starts_with("using ") || t.starts_with("global using "))
+            && t.trim_end_matches(';').split_whitespace().last() == Some(ns)
+    }) || content.contains(&format!("{ns}."))
+}
+
 /// Constructor sites found in one file's text.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct CtorSites {
@@ -361,12 +397,30 @@ pub fn constructor_changes(
         })
         .collect();
 
+    // Same class name in several services (every gateway service has an
+    // InternalApiFunction) must not pool their sites. A file constructs the
+    // changed class only if it sits in the same service or imports the
+    // class file's namespace.
+    let scopes: Vec<(String, Option<String>)> = results
+        .iter()
+        .map(|r| {
+            let ns = std::fs::read_to_string(project_root.join(&r.file_path))
+                .ok()
+                .and_then(|c| namespace_of(&c));
+            (service_of(&r.file_path), ns)
+        })
+        .collect();
+
     for f in &files {
         let Ok(content) = std::fs::read_to_string(project_root.join(&f.path)) else {
             continue;
         };
-        for r in results.iter_mut() {
+        let file_service = service_of(&f.path);
+        for (r, (service, namespace)) in results.iter_mut().zip(scopes.iter()) {
             if !content.contains(r.class_name.as_str()) {
+                continue;
+            }
+            if !can_see_class(&content, &file_service, service, namespace.as_deref()) {
                 continue;
             }
             let sites = find_ctor_sites(&content, &r.class_name);
@@ -555,6 +609,51 @@ pub fn render_markdown(contracts: &[ContractImpact], ctors: &[ConstructorChange]
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn namespace_of_reads_file_scoped_and_block_forms() {
+        assert_eq!(
+            namespace_of("using X;\nnamespace A.B;\nclass C {}").as_deref(),
+            Some("A.B")
+        );
+        assert_eq!(namespace_of("namespace A.B\n{\n}").as_deref(), Some("A.B"));
+        assert_eq!(namespace_of("class C {}"), None);
+    }
+
+    #[test]
+    fn same_name_in_another_service_is_not_a_site() {
+        let other = "using Gateway.Payments.Functions;\nvar f = new InternalApiFunction(a);";
+        assert!(!can_see_class(
+            other,
+            "payments",
+            "commerce",
+            Some("Gateway.Commerce.Functions")
+        ));
+        let imports = "using Gateway.Commerce.Functions;\nvar f = new InternalApiFunction(a);";
+        assert!(can_see_class(
+            imports,
+            "payments",
+            "commerce",
+            Some("Gateway.Commerce.Functions")
+        ));
+        let qualified = "var f = new Gateway.Commerce.Functions.InternalApiFunction(a);";
+        assert!(can_see_class(
+            qualified,
+            "payments",
+            "commerce",
+            Some("Gateway.Commerce.Functions")
+        ));
+        assert!(can_see_class(
+            other,
+            "commerce",
+            "commerce",
+            Some("Gateway.Commerce.Functions")
+        ));
+        assert!(
+            can_see_class(other, "payments", "commerce", None),
+            "unknown namespace keeps the site"
+        );
+    }
 
     #[test]
     fn service_of_uses_the_first_meaningful_segment() {
