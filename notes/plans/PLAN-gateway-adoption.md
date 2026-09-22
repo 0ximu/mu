@@ -99,3 +99,22 @@ Inputs there: detached worktree at PR head (`setup_worktree`, ~612), `changed_fi
 `pr.head_sha`, `prev_sha`. Caveat: the poller is not currently running on this machine
 (`target/` absent, LaunchAgents not loaded), so wiring it in also means rebuilding and
 reloading it.
+
+## WP4 progress (2026-09-22)
+
+Done on this branch: `mu review` prints `MESSAGE CONTRACTS TOUCHED` (depth-1 publishers
+and consumers by service, tests counted separately) and `CONSTRUCTOR CHANGES` (explicit
+`new T(`, target-typed `new(` on lines naming T, DI registrations, and files with
+construction sites the diff does not touch). Module `mu-cli/src/commands/review_sections.rs`,
+end-to-end test `test_review_reports_contract_parties_and_constructor_sites`.
+
+Open, in priority order:
+1. Poller wiring (dominaite-tools): `mu bootstrap` then `mu review --base <base> --format json`
+   in the PR worktree; render only the two sections into `extra_context`. Poller is not
+   running on this machine; rebuild + reload the LaunchAgents as part of the change.
+2. Detect `Publish(new T(...))` (non-generic) as a publish edge. Check how many gateway
+   publishers use that form before deciding.
+3. Parse primary constructors as constructors (5 uses in gateway today).
+4. Defect 6: drop `R1-orphan` for properties, drop test methods from BREAKING, and stop
+   printing the CHANGED SYMBOLS dump by default.
+5. Risk score still counts the old signals; recompute from the two sections once 4 lands.
