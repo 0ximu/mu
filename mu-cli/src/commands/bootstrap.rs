@@ -449,6 +449,15 @@ fn scan_and_parse(
     let mut logged_failures: HashMap<String, usize> = HashMap::new();
     for ((scanned_file, _content), result) in files_to_parse.iter().zip(fresh_parse_results.iter())
     {
+        // Scanned but never parsed by design (json, markdown, ...): not a
+        // failure and not a language row.
+        if result
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("Unsupported language"))
+        {
+            continue;
+        }
         let st = languages.entry(scanned_file.language.clone()).or_default();
         st.files += 1;
         match (&result.success, &result.module) {
