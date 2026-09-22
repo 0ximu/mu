@@ -53,3 +53,22 @@ MassTransit). Other languages are best-effort.
 - Which review poller and where is its plugin point? (agent survey in flight)
 - Jev-style decision model: only plausible slot is reranking top-k search hits.
   Not planned; MU's value is local and deterministic.
+
+## 2026-09-22 smoke test on the gateway index (after the grammar fix)
+
+Index at gateway origin/dev 584214ee1: 92,690 nodes, 229,770 edges, 10,912 classes
+(before the fix: 0 C# classes).
+
+`mu impact RegistrationActivatedDTO` against `git grep IConsumer<RegistrationActivatedDTO>`:
+
+| query | result | verdict |
+|---|---|---|
+| `-e subscribes -d 1` | 4 consumers (api, payments, crm, notifications) | exact match with grep |
+| `-e publishes -d 1` | 1 real publisher (Shift4PostApprovalService.ExecuteAsync) + 4 test helpers | correct; tests should be labelled or split |
+| `--cross-service -d 1` | consumers + publisher + tests + 2 services that pass the DTO | usable |
+| `--cross-service` (unbounded) | ~40 nodes, most of companyadmin | noise, unusable in a review |
+
+Design consequence for WP4: the review output for a changed message contract should be
+the depth-1 publishers/consumers grouped by service with the edge type shown, test
+nodes listed separately, and no transitive walk by default. Unbounded depth stays
+opt-in.
