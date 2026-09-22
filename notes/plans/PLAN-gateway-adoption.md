@@ -72,3 +72,30 @@ Design consequence for WP4: the review output for a changed message contract sho
 the depth-1 publishers/consumers grouped by service with the edge type shown, test
 nodes listed separately, and no transitive walk by default. Unbounded depth stays
 opt-in.
+
+## Defects found by the 2026-09-22 PR eval (see notes/evals/gateway-prs-2026-09.md)
+
+5. **Name-only symbol resolution in `mu review` impact** (fixed on this branch).
+   `lookup_impact` matched `nodes WHERE name = ?1` ignoring the file, so any changed `Id`
+   or `Amount` property collected dependents of every `Id` in gateway. Payments PRs listed
+   commerce files as top affected. Now scoped to the changed symbol's file (exact or
+   suffix match), pinned by `impact_scope_tests`.
+6. **Review noise** (open). `R1-orphan` flags C# properties and EF `DbSet`s as dead code;
+   BREAKING lists removed test methods with 0 dependents; CHANGED SYMBOLS is an unranked
+   dump of every added property and import. None of this belongs in a PR comment.
+
+## WP4 shape, informed by the eval
+
+Output for a gateway PR is one section, "Message contracts touched": for each changed
+type under `contracts/Events/**` or any type that has publishes/subscribes edges, the
+depth-1 publishers and consumers grouped by service with the edge type, tests listed
+separately. Nothing else from today's `mu review` output goes into the comment until
+defect 6 is fixed.
+
+Poller plug-in point (verified by poller-find, 2026-09-22): dominaite-tools crate
+`crates/review-core/src/review.rs`, `extra_context` accumulator at line ~1271, prompt
+assembled at ~1605; providers are plain `fn(...) -> String` returning a markdown section.
+Inputs there: detached worktree at PR head (`setup_worktree`, ~612), `changed_files`,
+`pr.head_sha`, `prev_sha`. Caveat: the poller is not currently running on this machine
+(`target/` absent, LaunchAgents not loaded), so wiring it in also means rebuilding and
+reloading it.
