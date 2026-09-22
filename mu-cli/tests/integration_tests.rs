@@ -841,8 +841,10 @@ fn test_review_reports_contract_parties_and_constructor_sites() {
     w("tests/orders.Tests/SvcTests.cs",
       "namespace Orders.Tests;\npublic class SvcTests\n{\n    private readonly Svc _sut = new Svc(1);\n}\n");
     // Same class name in another service: never a site of the orders Svc.
-    w("src/billing/Svc.cs",
-      "namespace Billing;\npublic class Svc\n{\n    public Svc(int a, int b)\n    {\n    }\n}\n");
+    w(
+        "src/billing/Svc.cs",
+        "namespace Billing;\npublic class Svc\n{\n    public Svc(int a, int b)\n    {\n    }\n}\n",
+    );
     w("tests/billing.Tests/SvcTests.cs",
       "namespace Billing.Tests;\npublic class SvcTests\n{\n    private readonly Svc _sut = new Svc(1, 2);\n}\n");
 
