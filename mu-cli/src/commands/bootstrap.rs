@@ -26,6 +26,42 @@ use crate::tsconfig::PathAliasResolver;
 /// captured before a rebuild for staleness detection.
 type PriorSummaries = HashMap<String, (Option<String>, Option<String>, Option<String>)>;
 
+/// Per-language extraction stats for one bootstrap run.
+#[derive(Debug, Default, Clone, Serialize, PartialEq)]
+pub struct LanguageStat {
+    /// Files scanned for this language (cached + freshly parsed).
+    pub files: usize,
+    /// Files whose parse returned an error.
+    pub failed: usize,
+    /// Classes + free functions + methods extracted.
+    pub symbols: usize,
+}
+
+/// Languages that had files but produced nothing. This is the shape of the
+/// 2026-09-22 regression: a grammar ABI mismatch made every .cs file parse
+/// into an empty module while the summary still said "Parsed: 8713".
+pub fn extraction_warnings(stats: &HashMap<String, LanguageStat>) -> Vec<String> {
+    let mut out: Vec<String> = stats
+        .iter()
+        .filter(|(_, st)| st.files > 0 && st.symbols == 0)
+        .map(|(lang, st)| {
+            if st.failed == st.files {
+                format!(
+                    "{}: all {} files failed to parse (grammar/ABI mismatch or unsupported syntax)",
+                    lang, st.files
+                )
+            } else {
+                format!(
+                    "{}: {} files scanned but no symbols extracted",
+                    lang, st.files
+                )
+            }
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 /// Result of bootstrap operation
 #[derive(Debug, Serialize)]
 pub struct BootstrapResult {
@@ -38,6 +74,9 @@ pub struct BootstrapResult {
     pub node_count: usize,
     pub edge_count: usize,
     pub nodes_by_type: HashMap<String, usize>,
+    /// Extraction stats per language; see `extraction_warnings`.
+    #[serde(default)]
+    pub languages: HashMap<String, LanguageStat>,
     pub duration_ms: u64,
     pub config_created: bool,
     pub gitignore_updated: bool,
@@ -95,6 +134,26 @@ impl TableDisplay for BootstrapResult {
             output.push_str(&format!("\n{}\n", "Node Types".cyan().bold()));
             for (node_type, count) in &self.nodes_by_type {
                 output.push_str(&format!("  {}: {}\n", node_type, count));
+            }
+        }
+
+        if !self.languages.is_empty() {
+            output.push_str(&format!("\n{}\n", "Languages".cyan().bold()));
+            let mut langs: Vec<_> = self.languages.iter().collect();
+            langs.sort_by(|a, b| b.1.files.cmp(&a.1.files).then(a.0.cmp(b.0)));
+            for (lang, st) in langs {
+                let mut line = format!(
+                    "  {:<12} files {:>6}  symbols {:>7}",
+                    lang, st.files, st.symbols
+                );
+                if st.failed > 0 {
+                    line.push_str(&format!("  failed {}", st.failed));
+                }
+                output.push_str(&line);
+                output.push('\n');
+            }
+            for w in extraction_warnings(&self.languages) {
+                output.push_str(&format!("  {} {}\n", "WARN:".yellow().bold(), w));
             }
         }
 
@@ -250,6 +309,17 @@ struct ParsedCodebase {
     files_scanned: usize,
     files_parsed: usize,
     files_cached: usize,
+    languages: HashMap<String, LanguageStat>,
+}
+
+fn symbols_in(module: &mu_core::types::ModuleDef) -> usize {
+    module.functions.len()
+        + module.classes.len()
+        + module
+            .classes
+            .iter()
+            .map(|c| c.methods.len())
+            .sum::<usize>()
 }
 
 /// Set spinner message if spinner is present.
@@ -297,6 +367,7 @@ fn scan_and_parse(
             files_scanned: 0,
             files_parsed: 0,
             files_cached: 0,
+            languages: HashMap::new(),
         });
     }
 
@@ -366,6 +437,48 @@ fn scan_and_parse(
 
     let fresh_parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
 
+    // Per-language extraction stats. Cached modules count as parsed successes.
+    let mut languages: HashMap<String, LanguageStat> = HashMap::new();
+    for cached in &cached_modules {
+        if let Some(m) = &cached.module {
+            let st = languages.entry(m.language.clone()).or_default();
+            st.files += 1;
+            st.symbols += symbols_in(m);
+        }
+    }
+    let mut logged_failures: HashMap<String, usize> = HashMap::new();
+    for ((scanned_file, _content), result) in files_to_parse.iter().zip(fresh_parse_results.iter())
+    {
+        let st = languages.entry(scanned_file.language.clone()).or_default();
+        st.files += 1;
+        match (&result.success, &result.module) {
+            (true, Some(m)) => st.symbols += symbols_in(m),
+            _ => {
+                st.failed += 1;
+                let n = logged_failures
+                    .entry(scanned_file.language.clone())
+                    .or_default();
+                *n += 1;
+                if *n <= 5 {
+                    tracing::warn!(
+                        "parse failed: {} ({}): {}",
+                        scanned_file.path,
+                        scanned_file.language,
+                        result.error.as_deref().unwrap_or("unknown error")
+                    );
+                }
+            }
+        }
+    }
+    for (lang, n) in &logged_failures {
+        if *n > 5 {
+            tracing::warn!("{}: {} more parse failures not shown", lang, n - 5);
+        }
+    }
+    for w in extraction_warnings(&languages) {
+        tracing::warn!("{}", w);
+    }
+
     // Update cache with freshly parsed results
     if cache_enabled {
         for ((scanned_file, _content), result) in
@@ -393,6 +506,7 @@ fn scan_and_parse(
         files_scanned,
         files_parsed: cache_stats.misses,
         files_cached: cache_stats.hits,
+        languages,
     })
 }
 
@@ -1585,6 +1699,7 @@ pub fn bootstrap_pipeline(
             node_count: stats.node_count,
             edge_count: stats.edge_count,
             nodes_by_type: stats.type_counts,
+            languages: HashMap::new(),
             already_existed: true,
             files_scanned: 0,
             files_parsed: 0,
@@ -1616,6 +1731,7 @@ pub fn bootstrap_pipeline(
             node_count: 0,
             edge_count: 0,
             nodes_by_type: HashMap::new(),
+            languages: parsed.languages.clone(),
             duration_ms: start.elapsed().as_millis() as u64,
             config_created,
             gitignore_updated,
@@ -1805,6 +1921,7 @@ pub fn bootstrap_pipeline(
         node_count: stats.node_count,
         edge_count: stats.edge_count,
         nodes_by_type: stats.type_counts,
+        languages: parsed.languages,
         duration_ms: start.elapsed().as_millis() as u64,
         config_created,
         gitignore_updated,
@@ -2414,6 +2531,49 @@ fn resolve_call_site(
 
     // 8. Unresolved - return None (no edge created)
     None
+}
+
+#[cfg(test)]
+mod extraction_warning_tests {
+    use super::*;
+
+    fn stat(files: usize, failed: usize, symbols: usize) -> LanguageStat {
+        LanguageStat {
+            files,
+            failed,
+            symbols,
+        }
+    }
+
+    #[test]
+    fn language_with_files_but_no_symbols_is_flagged() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(8713, 0, 0));
+        m.insert("python".to_string(), stat(31, 0, 289));
+        let w = extraction_warnings(&m);
+        assert_eq!(w.len(), 1);
+        assert!(
+            w[0].starts_with("csharp: 8713 files scanned but no symbols"),
+            "{w:?}"
+        );
+    }
+
+    #[test]
+    fn all_files_failing_names_the_likely_cause() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(3, 3, 0));
+        let w = extraction_warnings(&m);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("all 3 files failed"), "{w:?}");
+    }
+
+    #[test]
+    fn healthy_languages_produce_no_warning() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(10, 1, 40));
+        m.insert("python".to_string(), stat(0, 0, 0));
+        assert!(extraction_warnings(&m).is_empty());
+    }
 }
 
 #[cfg(test)]

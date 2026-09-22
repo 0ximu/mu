@@ -699,3 +699,47 @@ fn test_bootstrap_json_has_required_fields() {
         );
     }
 }
+
+// ============================================================================
+// Per-language extraction report (regression: empty C# index, 2026-09-22)
+// ============================================================================
+
+#[test]
+fn test_bootstrap_reports_symbols_per_language_and_no_warning_for_csharp() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    std::fs::write(
+        temp_dir.path().join("Thing.cs"),
+        "namespace A;\npublic class Thing(int x)\n{\n    public int Do() => x + 1;\n}\n",
+    )
+    .unwrap();
+    std::fs::write(temp_dir.path().join("p.py"), "def f():\n    return 1\n").unwrap();
+
+    let output = run_mu(temp_dir.path(), &["bootstrap", "--force"]);
+    assert!(
+        output.status.success(),
+        "bootstrap failed: {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+
+    assert!(
+        out.contains("Languages"),
+        "missing Languages section:\n{out}"
+    );
+    let cs = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("csharp"))
+        .unwrap_or_else(|| panic!("no csharp row:\n{out}"));
+    assert!(
+        cs.contains("files      1"),
+        "csharp row should count 1 file: {cs}"
+    );
+    assert!(
+        cs.contains("symbols       2"),
+        "csharp row should count class + method: {cs}"
+    );
+    assert!(
+        !out.contains("WARN:"),
+        "healthy fixture must not warn:\n{out}"
+    );
+}

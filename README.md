@@ -40,11 +40,13 @@ Grab a prebuilt binary from [Releases](https://github.com/0ximu/mu/releases), or
 
 ```bash
 git clone https://github.com/0ximu/mu.git
-cd mu && cargo build --release
-
-# Put mu on your PATH (required for the MCP config below)
-cp target/release/mu ~/.local/bin/   # or /usr/local/bin
+cd mu && cargo install --path mu-cli --locked
 ```
+
+Always pass `--locked`. Without it cargo may pick a tree-sitter grammar built for a newer
+ABI than the pinned core; that grammar fails to load and every file in that language is
+indexed as empty. Bootstrap now prints a per-language table and warns when a language
+scanned files but extracted nothing, so you will see it - but the flag avoids it.
 
 Then index your project and hook it up to Claude Code:
 
