@@ -1,15 +1,15 @@
 <h1 align="center">MU</h1>
 
 <p align="center">
-  <strong>Your codebase, understood.</strong>
+  <strong>Who depends on this?</strong>
 </p>
 
 <p align="center">
-  <em>MCP server that gives AI assistants deep codebase understanding.<br/>
-  Semantic graph, BM25 search, impact analysis, code review - all via tool calls.</em>
+  <em>A polyglot code index for AI assistants and the CLI.<br/>
+  Semantic graph, BM25 search, blast radius across services and repos - via MCP tool calls.</em>
 </p>
 
-MU parses your codebase into a semantic graph stored in DuckDB, then exposes it through 13 MCP tools. Your AI assistant can search, navigate, review, and understand your code without stuffing the entire repo into a context window.
+MU parses a codebase into a semantic graph (files, classes, functions; imports, calls, inheritance, DI wiring, message-bus publish/consume) stored in DuckDB, and exposes it as 13 MCP tools and a CLI. It answers the questions grep cannot answer structurally: who depends on this symbol, transitively and across service boundaries; what is the riskiest code in this service; what does this repo look like in 8k tokens. `mu review` is a diff-impact query on top of the same graph. It is not a review bot and not a CI gate; see Known Limitations.
 
 [![Rust 1.70+](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
@@ -85,7 +85,7 @@ These are the tools your AI assistant can call:
 | `mu_read` | Bulk source code retrieval for specific nodes |
 | `mu_impact` | Downstream impact - what breaks if this symbol changes, transitively |
 | `mu_diff` | Semantic diff between git refs (branches, commits) |
-| `mu_review` | Full PR review: diff + impact + audit + risk score |
+| `mu_review` | Diff-impact query for a ref range: changed symbols, their dependents, audit hits, risk score |
 | `mu_audit` | Code quality rules - complexity, hardcoded secrets, code smells |
 | `mu_sus` | Find suspicious code - high complexity, security-sensitive, untested |
 | `mu_enrich` | Enrichment flywheel - LLM writes better summaries, improving future search |
@@ -201,6 +201,7 @@ exclude = ["vendor/", "node_modules/", ".git/", "__pycache__/"]
 
 ## Known Limitations
 
+- **`mu review` is a query, not a gate**: it lists what a diff touches and who depends on it, so you know where to look. Wired into a per-PR CI reviewer on a 920k-line C# monorepo (27 merged PRs, September 2026), it added nothing the compiler or the diff did not already cover. Cross-PR collisions, two green PRs that break the default branch together, are invisible to any per-PR analysis, MU included. Use it interactively and read the output as a list of places to look.
 - **Single-writer DuckDB**: Can't bootstrap while the MCP server is running. Stop the server, bootstrap, restart.
 - **Test coverage detection**: `mu_sus` finds tests by looking for test files in the scanned tree. If tests live in a sibling directory, they won't be found.
 - **.NET projects**: For solutions with code in `src/`, run `mu bootstrap` from the `src/` directory.
