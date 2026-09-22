@@ -340,7 +340,8 @@ pub fn run_review(
             }
 
             // Track unique dependents across all changes
-            let dep_names = lookup_dependent_names(mubase, &change.entity_name);
+            let dep_names =
+                lookup_dependent_names(mubase, &change.entity_name, change.file_path.as_deref());
             total_dependents_set.extend(dep_names);
 
             symbol_impacts.push(SymbolImpact {
@@ -410,18 +411,32 @@ fn sort_files_by_impact(counts: HashMap<String, usize>) -> Vec<String> {
     entries.into_iter().map(|(f, _)| f).collect()
 }
 
+/// Resolve the changed symbol to index nodes. Symbols are scoped to the file the
+/// diff saw them in: a bare-name match turned every changed `Id` or `Amount`
+/// property into "dependents of every Id in the codebase", which is what made
+/// the 2026-09 gateway reviews list commerce files under payments PRs.
+/// Nodes store repo-relative paths, so exact match first, then suffix match
+/// for callers whose project root sits below the git root.
+const TARGET_NODES_SQL: &str = "SELECT id FROM nodes WHERE name = ?1 AND (?2 IS NULL OR file_path = ?2 OR file_path LIKE '%/' || ?2)";
+
 /// Look up how many dependents a symbol has and which files they're in.
 fn lookup_impact(
     mubase: &crate::engine::storage::MUbase,
     symbol_name: &str,
-    _file_path: Option<&str>,
+    file_path: Option<&str>,
 ) -> (usize, Vec<String>) {
-    let result = match mubase.query_params(
+    let sql = format!(
         "SELECT DISTINCT n.name, n.file_path FROM edges e
          JOIN nodes n ON n.id = e.source_id
-         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
-         LIMIT 50",
-        &[&symbol_name as &dyn duckdb::ToSql],
+         WHERE e.target_id IN ({TARGET_NODES_SQL})
+         LIMIT 50"
+    );
+    let result = match mubase.query_params(
+        &sql,
+        &[
+            &symbol_name as &dyn duckdb::ToSql,
+            &file_path as &dyn duckdb::ToSql,
+        ],
     ) {
         Ok(r) => r,
         Err(_) => return (0, Vec::new()),
@@ -441,13 +456,20 @@ fn lookup_impact(
 fn lookup_dependent_names(
     mubase: &crate::engine::storage::MUbase,
     symbol_name: &str,
+    file_path: Option<&str>,
 ) -> Vec<String> {
-    match mubase.query_params(
+    let sql = format!(
         "SELECT DISTINCT n.name FROM edges e
          JOIN nodes n ON n.id = e.source_id
-         WHERE e.target_id IN (SELECT id FROM nodes WHERE name = ?1)
-         LIMIT 100",
-        &[&symbol_name as &dyn duckdb::ToSql],
+         WHERE e.target_id IN ({TARGET_NODES_SQL})
+         LIMIT 100"
+    );
+    match mubase.query_params(
+        &sql,
+        &[
+            &symbol_name as &dyn duckdb::ToSql,
+            &file_path as &dyn duckdb::ToSql,
+        ],
     ) {
         Ok(r) => r
             .rows
@@ -527,6 +549,83 @@ pub async fn run(base_ref: Option<&str>, format: OutputFormat) -> anyhow::Result
         run_review(&db, &project_root, &base, true, None).map_err(|e| anyhow::anyhow!(e))?;
 
     Output::new(result, format).render()
+}
+
+#[cfg(test)]
+mod impact_scope_tests {
+    use super::*;
+    use crate::engine::storage::schema::EdgeType;
+    use crate::engine::storage::{Edge, MUbase, Node};
+
+    fn db_with_two_ids() -> MUbase {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.mubase");
+        std::mem::forget(dir);
+        let db = MUbase::open(&path).unwrap();
+        // Two unrelated classes both expose `Id`; only one has a dependent.
+        let pay = Node::function("payments/Link.cs", "Id", Some("Link"), 1, 2, 1, None);
+        let com = Node::function(
+            "commerce/Supplier.cs",
+            "Id",
+            Some("Supplier"),
+            1,
+            2,
+            1,
+            None,
+        );
+        let user = Node::function(
+            "commerce/SupplierService.cs",
+            "Load",
+            Some("SupplierService"),
+            1,
+            9,
+            1,
+            None,
+        );
+        let user_id = user.id.clone();
+        let com_id = com.id.clone();
+        db.insert_nodes(&[pay, com, user]).unwrap();
+        db.insert_edges(&[Edge::new(&user_id, &com_id, EdgeType::Calls)])
+            .unwrap();
+        db
+    }
+
+    #[test]
+    fn changed_symbol_is_scoped_to_its_file() {
+        let db = db_with_two_ids();
+        let (n, files) = lookup_impact(&db, "Id", Some("payments/Link.cs"));
+        assert_eq!(
+            (n, files.len()),
+            (0, 0),
+            "payments Id must not inherit commerce dependents"
+        );
+        let (n, files) = lookup_impact(&db, "Id", Some("commerce/Supplier.cs"));
+        assert_eq!(n, 1);
+        assert_eq!(files, vec!["commerce/SupplierService.cs".to_string()]);
+        assert_eq!(
+            lookup_dependent_names(&db, "Id", Some("payments/Link.cs")),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            lookup_dependent_names(&db, "Id", Some("commerce/Supplier.cs")),
+            vec!["Load".to_string()]
+        );
+    }
+
+    #[test]
+    fn suffix_match_tolerates_a_project_root_below_the_git_root() {
+        let db = db_with_two_ids();
+        // Differ path is git-root relative; index path is project-root relative.
+        let (n, _) = lookup_impact(&db, "Id", Some("Supplier.cs"));
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn no_file_path_keeps_the_old_name_only_behaviour() {
+        let db = db_with_two_ids();
+        let (n, _) = lookup_impact(&db, "Id", None);
+        assert_eq!(n, 1);
+    }
 }
 
 #[cfg(test)]
