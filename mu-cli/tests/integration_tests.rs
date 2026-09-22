@@ -713,6 +713,8 @@ fn test_bootstrap_reports_symbols_per_language_and_no_warning_for_csharp() {
     )
     .unwrap();
     std::fs::write(temp_dir.path().join("p.py"), "def f():\n    return 1\n").unwrap();
+    // Scanned but never parsed: must not become a language row or a warning.
+    std::fs::write(temp_dir.path().join("settings.json"), "{\"a\": 1}\n").unwrap();
 
     let output = run_mu(temp_dir.path(), &["bootstrap", "--force"]);
     assert!(
@@ -741,5 +743,9 @@ fn test_bootstrap_reports_symbols_per_language_and_no_warning_for_csharp() {
     assert!(
         !out.contains("WARN:"),
         "healthy fixture must not warn:\n{out}"
+    );
+    assert!(
+        !out.lines().any(|l| l.trim_start().starts_with("json")),
+        "unparsed formats are not language rows:\n{out}"
     );
 }
