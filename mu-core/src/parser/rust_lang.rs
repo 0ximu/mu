@@ -117,7 +117,7 @@ pub fn parse(source: &str, file_path: &str) -> Result<ModuleDef, String> {
             extract_referenced_types(type_strings.iter().map(|s| s.as_str()), &class.name, "rust");
 
         // Merge field types (already in referenced_types from extract_struct) with method types
-        let mut all_types: Vec<String> = class.referenced_types.drain(..).collect();
+        let mut all_types: Vec<String> = std::mem::take(&mut class.referenced_types);
         all_types.extend(method_types);
         // Filter self-references and deduplicate
         all_types.retain(|t| t != &class.name);
