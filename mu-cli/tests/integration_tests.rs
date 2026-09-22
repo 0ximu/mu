@@ -840,6 +840,13 @@ fn test_review_reports_contract_parties_and_constructor_sites() {
       "namespace Orders;\npublic class Program\n{\n    public void Wire(IServiceCollection services)\n    {\n        services.AddScoped<Svc>();\n    }\n}\n");
     w("tests/orders.Tests/SvcTests.cs",
       "namespace Orders.Tests;\npublic class SvcTests\n{\n    private readonly Svc _sut = new Svc(1);\n}\n");
+    // Same class name in another service: never a site of the orders Svc.
+    w(
+        "src/billing/Svc.cs",
+        "namespace Billing;\npublic class Svc\n{\n    public Svc(int a, int b)\n    {\n    }\n}\n",
+    );
+    w("tests/billing.Tests/SvcTests.cs",
+      "namespace Billing.Tests;\npublic class SvcTests\n{\n    private readonly Svc _sut = new Svc(1, 2);\n}\n");
 
     git(root, &["init", "-q", "-b", "main"]);
     git(root, &["add", "."]);
