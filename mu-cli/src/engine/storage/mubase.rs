@@ -631,16 +631,25 @@ impl MUbase {
 
             let mut row_data = Vec::new();
             for i in 0..column_count {
-                let value = if let Ok(v) = row.get::<_, String>(i) {
-                    serde_json::Value::String(v)
-                } else if let Ok(v) = row.get::<_, i64>(i) {
-                    serde_json::Value::Number(v.into())
-                } else if let Ok(v) = row.get::<_, f64>(i) {
-                    serde_json::json!(v)
-                } else if let Ok(v) = row.get::<_, bool>(i) {
-                    serde_json::Value::Bool(v)
-                } else {
-                    serde_json::Value::Null
+                // FLOAT/DOUBLE must be read by their actual type: the blind
+                // get::<i64> coercion truncates them (importance_score came
+                // back as 0 for every node), so check the column type first.
+                let value = match row.get_ref(i) {
+                    Ok(duckdb::types::ValueRef::Float(v)) => serde_json::json!(v as f64),
+                    Ok(duckdb::types::ValueRef::Double(v)) => serde_json::json!(v),
+                    _ => {
+                        if let Ok(v) = row.get::<_, String>(i) {
+                            serde_json::Value::String(v)
+                        } else if let Ok(v) = row.get::<_, i64>(i) {
+                            serde_json::Value::Number(v.into())
+                        } else if let Ok(v) = row.get::<_, f64>(i) {
+                            serde_json::json!(v)
+                        } else if let Ok(v) = row.get::<_, bool>(i) {
+                            serde_json::Value::Bool(v)
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    }
                 };
                 row_data.push(value);
             }
@@ -741,6 +750,26 @@ mod tests {
         let stats = db.stats().unwrap();
         assert_eq!(stats.node_count, 2);
         assert_eq!(stats.edge_count, 1);
+    }
+
+    #[test]
+    fn test_float_columns_survive_generic_row_collection() {
+        // importance_score is a FLOAT (f32) column; duckdb-rs does not coerce
+        // it to f64, so collect_rows needs an explicit f32 arm. Regression
+        // test for mu_read showing "importance: 0.00" on every node.
+        let db = create_test_db();
+        let node = Node::module("src/a.py");
+        db.insert_nodes(&[node]).unwrap();
+        db.query("UPDATE nodes SET importance_score = 0.53 WHERE id = 'mod:src/a.py'")
+            .unwrap();
+
+        let result = db
+            .query("SELECT importance_score FROM nodes WHERE id = 'mod:src/a.py'")
+            .unwrap();
+        let value = result.rows[0][0]
+            .as_f64()
+            .expect("FLOAT column must come back as a JSON number, not Null");
+        assert!((value - 0.53).abs() < 1e-6);
     }
 
     #[test]

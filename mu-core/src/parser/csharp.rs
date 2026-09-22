@@ -652,6 +652,7 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "member_access_expression" | "member_binding_expression" => {
@@ -684,6 +685,7 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         "conditional_access_expression" => {
@@ -709,6 +711,7 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         "generic_name" => {
@@ -719,6 +722,7 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         _ => {
@@ -729,6 +733,7 @@ fn extract_invocation_call_site(node: &Node, source: &str) -> Option<CallSiteDef
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
     }
@@ -751,6 +756,7 @@ fn extract_object_creation_call_site(node: &Node, source: &str) -> Option<CallSi
         line,
         is_method_call: false,
         receiver: None,
+        arg_refs: Vec::new(),
     })
 }
 

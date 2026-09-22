@@ -550,6 +550,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "selector_expression" => {
@@ -565,6 +566,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: true,
                 receiver,
+                arg_refs: Vec::new(),
             })
         }
         "parenthesized_expression" => {
@@ -575,6 +577,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "call_expression" => {
@@ -585,6 +588,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "index_expression" => {
@@ -595,6 +599,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         "type_assertion_expression" => {
@@ -605,6 +610,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
         _ => {
@@ -615,6 +621,7 @@ fn extract_call_site(node: &Node, source: &str) -> Option<CallSiteDef> {
                 line,
                 is_method_call: false,
                 receiver: None,
+                arg_refs: Vec::new(),
             })
         }
     }

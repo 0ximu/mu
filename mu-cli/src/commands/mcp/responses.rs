@@ -474,7 +474,11 @@ pub fn format_read_response(resp: &ReadResponse, project_root: &Path) -> String 
         let _ = writeln!(out, "## {}{} [{}]{}", sigil, n.name, n.kind, cat);
         let _ = writeln!(out, "id: {}", n.node_id);
         let _ = writeln!(out, "location: {}", location);
-        let _ = writeln!(out, "importance: {:.2}", n.importance);
+        let _ = writeln!(
+            out,
+            "importance: {}",
+            importance_label(n.importance, n.importance_pct)
+        );
 
         match resp.mode.as_str() {
             "signature" => {

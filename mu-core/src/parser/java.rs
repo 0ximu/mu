@@ -498,6 +498,7 @@ fn extract_method_invocation(node: &Node, source: &str) -> Option<CallSiteDef> {
         line,
         is_method_call: receiver.is_some(),
         receiver,
+        arg_refs: Vec::new(),
     })
 }
 
@@ -517,6 +518,7 @@ fn extract_object_creation(node: &Node, source: &str) -> Option<CallSiteDef> {
                     line,
                     is_method_call: false,
                     receiver: None,
+                    arg_refs: Vec::new(),
                 });
             }
             "generic_type" => {
@@ -528,6 +530,7 @@ fn extract_object_creation(node: &Node, source: &str) -> Option<CallSiteDef> {
                         line,
                         is_method_call: false,
                         receiver: None,
+                        arg_refs: Vec::new(),
                     });
                 }
             }
@@ -539,6 +542,7 @@ fn extract_object_creation(node: &Node, source: &str) -> Option<CallSiteDef> {
                     line,
                     is_method_call: false,
                     receiver: None,
+                    arg_refs: Vec::new(),
                 });
             }
             _ => {}

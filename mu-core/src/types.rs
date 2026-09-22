@@ -44,6 +44,12 @@ pub struct CallSiteDef {
     pub is_method_call: bool,
     /// The receiver, e.g., "self", "user_service"
     pub receiver: Option<String>,
+    /// Bare identifiers passed as arguments (positional or keyword values).
+    /// Lets the graph link callback registration (`event.listen(..., my_hook)`)
+    /// to the referenced function. `serde(default)` keeps old parse caches
+    /// deserializable.
+    #[serde(default)]
+    pub arg_refs: Vec<String>,
 }
 
 impl CallSiteDef {
@@ -53,6 +59,7 @@ impl CallSiteDef {
             line,
             is_method_call,
             receiver,
+            arg_refs: Vec::new(),
         }
     }
 }

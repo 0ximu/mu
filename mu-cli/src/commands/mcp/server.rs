@@ -88,13 +88,32 @@ pub(crate) const IMPACT_TARGET_SQL: &str =
 /// Symbol lookup for mu_find: bare name, exact qualified name, dotted suffix
 /// of a qualified name, and `Class.Method` inputs via the id suffix (node ids
 /// end in `:Class.Method`).
+///
+/// Production matches rank before test/generated ones: an ambiguous name that
+/// is popular as a test-fake method (e.g. `chat` on a dozen stubs) must not
+/// crowd the real definitions out of the LIMIT window.
 pub(crate) const FIND_SYMBOL_SQL: &str =
     "SELECT type, name, file_path, line_start, line_end, node_category, id FROM nodes
      WHERE name = ?1
         OR qualified_name = ?1
         OR qualified_name LIKE '%.' || ?1
         OR id LIKE '%:' || ?1
+     ORDER BY CASE node_category
+                  WHEN 'production' THEN 0
+                  WHEN 'infrastructure' THEN 1
+                  WHEN 'generated' THEN 2
+                  ELSE 3
+              END,
+              importance_score DESC
      LIMIT 10";
+
+/// Total match count for the same predicate, so mu_find can say how many
+/// matches the LIMIT window hid.
+pub(crate) const FIND_SYMBOL_COUNT_SQL: &str = "SELECT COUNT(*) FROM nodes
+     WHERE name = ?1
+        OR qualified_name = ?1
+        OR qualified_name LIKE '%.' || ?1
+        OR id LIKE '%:' || ?1";
 
 // Tool parameter structs
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -367,13 +386,40 @@ impl MuMcpServer {
         }
         .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
+        // Total matches, so a LIMIT-truncated result can say what it hid.
+        let total_matches = if is_node_id {
+            result.rows.len()
+        } else {
+            state
+                .mubase
+                .query_params(FIND_SYMBOL_COUNT_SQL, &[&symbol.as_str()])
+                .ok()
+                .and_then(|r| {
+                    r.rows
+                        .first()
+                        .and_then(|row| row.first())
+                        .and_then(|v| v.as_i64())
+                })
+                .map(|n| n as usize)
+                .unwrap_or(result.rows.len())
+        };
+
         let mut output = String::new();
         if is_node_id {
             output.push_str(&format!("# find: \"{}\" (node ID lookup)\n", symbol));
         } else {
             output.push_str(&format!("# find: \"{}\"\n", symbol));
         }
-        output.push_str(&format!("# {} matches\n\n", result.rows.len()));
+        if total_matches > result.rows.len() {
+            output.push_str(&format!(
+                "# {} matches ({} shown, production-first; {} omitted - use a full node id to disambiguate)\n\n",
+                total_matches,
+                result.rows.len(),
+                total_matches - result.rows.len()
+            ));
+        } else {
+            output.push_str(&format!("# {} matches\n\n", result.rows.len()));
+        }
 
         for row in &result.rows {
             let node_type = row.first().and_then(|v| v.as_str()).unwrap_or("?");

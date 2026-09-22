@@ -38,8 +38,18 @@ pub fn check_staleness(
     let scan = mu_core::scanner::scan_with_options(root_str, options)
         .map_err(|e| anyhow::anyhow!("staleness scan failed: {}", e))?;
 
+    // The scanner also collects doc/config files (markdown, yaml, json, toml)
+    // that the parser never turns into nodes; a stale README must not tell the
+    // user the graph is outdated. Only count files the parser would index.
+    let parseable = mu_core::parser::supported_languages();
+
     let mut stale = 0usize;
+    let mut total = 0usize;
     for file in &scan.files {
+        if !parseable.contains(&file.language.as_str()) {
+            continue;
+        }
+        total += 1;
         let mtime = std::fs::metadata(root.join(&file.path))
             .and_then(|m| m.modified())
             .ok()
@@ -53,7 +63,7 @@ pub fn check_staleness(
 
     Ok(StalenessReport {
         stale_files: stale,
-        total_files: scan.files.len(),
+        total_files: total,
     })
 }
 
@@ -93,5 +103,21 @@ mod tests {
         let report = check_staleness(dir.path(), 1, vec![]).unwrap();
         assert_eq!(report.total_files, 0);
         assert!(!report.is_stale());
+    }
+
+    #[test]
+    fn test_doc_and_config_files_do_not_count_as_stale() {
+        // The scanner collects these, but the parser never indexes them, so
+        // they must not trip the "re-bootstrap your index" warning.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# docs").unwrap();
+        std::fs::write(dir.path().join("config.yaml"), "a: 1").unwrap();
+        std::fs::write(dir.path().join("data.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[package]").unwrap();
+        std::fs::write(dir.path().join("a.py"), "def f():\n    pass\n").unwrap();
+
+        let report = check_staleness(dir.path(), 1, vec![]).unwrap();
+        assert_eq!(report.total_files, 1, "only the .py file is parseable");
+        assert_eq!(report.stale_files, 1);
     }
 }

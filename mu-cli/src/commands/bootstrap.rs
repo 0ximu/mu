@@ -26,6 +26,42 @@ use crate::tsconfig::PathAliasResolver;
 /// captured before a rebuild for staleness detection.
 type PriorSummaries = HashMap<String, (Option<String>, Option<String>, Option<String>)>;
 
+/// Per-language extraction stats for one bootstrap run.
+#[derive(Debug, Default, Clone, Serialize, PartialEq)]
+pub struct LanguageStat {
+    /// Files scanned for this language (cached + freshly parsed).
+    pub files: usize,
+    /// Files whose parse returned an error.
+    pub failed: usize,
+    /// Classes + free functions + methods extracted.
+    pub symbols: usize,
+}
+
+/// Languages that had files but produced nothing. This is the shape of the
+/// 2026-09-22 regression: a grammar ABI mismatch made every .cs file parse
+/// into an empty module while the summary still said "Parsed: 8713".
+pub fn extraction_warnings(stats: &HashMap<String, LanguageStat>) -> Vec<String> {
+    let mut out: Vec<String> = stats
+        .iter()
+        .filter(|(_, st)| st.files > 0 && st.symbols == 0)
+        .map(|(lang, st)| {
+            if st.failed == st.files {
+                format!(
+                    "{}: all {} files failed to parse (grammar/ABI mismatch or unsupported syntax)",
+                    lang, st.files
+                )
+            } else {
+                format!(
+                    "{}: {} files scanned but no symbols extracted",
+                    lang, st.files
+                )
+            }
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 /// Result of bootstrap operation
 #[derive(Debug, Serialize)]
 pub struct BootstrapResult {
@@ -38,6 +74,9 @@ pub struct BootstrapResult {
     pub node_count: usize,
     pub edge_count: usize,
     pub nodes_by_type: HashMap<String, usize>,
+    /// Extraction stats per language; see `extraction_warnings`.
+    #[serde(default)]
+    pub languages: HashMap<String, LanguageStat>,
     pub duration_ms: u64,
     pub config_created: bool,
     pub gitignore_updated: bool,
@@ -95,6 +134,26 @@ impl TableDisplay for BootstrapResult {
             output.push_str(&format!("\n{}\n", "Node Types".cyan().bold()));
             for (node_type, count) in &self.nodes_by_type {
                 output.push_str(&format!("  {}: {}\n", node_type, count));
+            }
+        }
+
+        if !self.languages.is_empty() {
+            output.push_str(&format!("\n{}\n", "Languages".cyan().bold()));
+            let mut langs: Vec<_> = self.languages.iter().collect();
+            langs.sort_by(|a, b| b.1.files.cmp(&a.1.files).then(a.0.cmp(b.0)));
+            for (lang, st) in langs {
+                let mut line = format!(
+                    "  {:<12} files {:>6}  symbols {:>7}",
+                    lang, st.files, st.symbols
+                );
+                if st.failed > 0 {
+                    line.push_str(&format!("  failed {}", st.failed));
+                }
+                output.push_str(&line);
+                output.push('\n');
+            }
+            for w in extraction_warnings(&self.languages) {
+                output.push_str(&format!("  {} {}\n", "WARN:".yellow().bold(), w));
             }
         }
 
@@ -250,6 +309,17 @@ struct ParsedCodebase {
     files_scanned: usize,
     files_parsed: usize,
     files_cached: usize,
+    languages: HashMap<String, LanguageStat>,
+}
+
+fn symbols_in(module: &mu_core::types::ModuleDef) -> usize {
+    module.functions.len()
+        + module.classes.len()
+        + module
+            .classes
+            .iter()
+            .map(|c| c.methods.len())
+            .sum::<usize>()
 }
 
 /// Set spinner message if spinner is present.
@@ -297,6 +367,7 @@ fn scan_and_parse(
             files_scanned: 0,
             files_parsed: 0,
             files_cached: 0,
+            languages: HashMap::new(),
         });
     }
 
@@ -366,6 +437,57 @@ fn scan_and_parse(
 
     let fresh_parse_results = mu_core::parser::parse_files_parallel(file_infos, None);
 
+    // Per-language extraction stats. Cached modules count as parsed successes.
+    let mut languages: HashMap<String, LanguageStat> = HashMap::new();
+    for cached in &cached_modules {
+        if let Some(m) = &cached.module {
+            let st = languages.entry(m.language.clone()).or_default();
+            st.files += 1;
+            st.symbols += symbols_in(m);
+        }
+    }
+    let mut logged_failures: HashMap<String, usize> = HashMap::new();
+    for ((scanned_file, _content), result) in files_to_parse.iter().zip(fresh_parse_results.iter())
+    {
+        // Scanned but never parsed by design (json, markdown, ...): not a
+        // failure and not a language row.
+        if result
+            .error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("Unsupported language"))
+        {
+            continue;
+        }
+        let st = languages.entry(scanned_file.language.clone()).or_default();
+        st.files += 1;
+        match (&result.success, &result.module) {
+            (true, Some(m)) => st.symbols += symbols_in(m),
+            _ => {
+                st.failed += 1;
+                let n = logged_failures
+                    .entry(scanned_file.language.clone())
+                    .or_default();
+                *n += 1;
+                if *n <= 5 {
+                    tracing::warn!(
+                        "parse failed: {} ({}): {}",
+                        scanned_file.path,
+                        scanned_file.language,
+                        result.error.as_deref().unwrap_or("unknown error")
+                    );
+                }
+            }
+        }
+    }
+    for (lang, n) in &logged_failures {
+        if *n > 5 {
+            tracing::warn!("{}: {} more parse failures not shown", lang, n - 5);
+        }
+    }
+    for w in extraction_warnings(&languages) {
+        tracing::warn!("{}", w);
+    }
+
     // Update cache with freshly parsed results
     if cache_enabled {
         for ((scanned_file, _content), result) in
@@ -393,6 +515,7 @@ fn scan_and_parse(
         files_scanned,
         files_parsed: cache_stats.misses,
         files_cached: cache_stats.hits,
+        languages,
     })
 }
 
@@ -433,6 +556,13 @@ fn build_graph(
     let class_lookup = build_class_lookup(parse_results);
     tracing::debug!("Built class lookup with {} entries", class_lookup.len());
 
+    // Pre-pass: class ID set + unique-name map for constructor-call resolution
+    let (class_ids, unique_class_names) = build_class_id_sets(parse_results);
+
+    // Pre-pass: index Python module paths so absolute imports resolve even
+    // when the package root is not the scan root (PYTHONPATH layouts).
+    let python_module_index = PythonModuleIndex::build(parse_results);
+
     // Build nodes and containment/inheritance/import edges
     for result in parse_results {
         if !result.success {
@@ -444,6 +574,7 @@ fn build_graph(
                 &class_lookup,
                 path_alias_resolver.as_ref(),
                 &csharp_namespace_map,
+                &python_module_index,
                 &mut nodes,
                 &mut edges,
             );
@@ -477,6 +608,9 @@ fn build_graph(
         &receiver_type_map,
         &inherits_map,
         &class_lookup,
+        &class_ids,
+        &unique_class_names,
+        &python_module_index,
     );
     tracing::info!(
         "Call sites: {} found, {} resolved ({:.1}%)",
@@ -515,6 +649,114 @@ fn build_class_lookup(parse_results: &[mu_core::types::ParseResult]) -> HashMap<
         }
     }
     class_lookup
+}
+
+/// Build (all class node IDs, bare class name -> ID for unique names only).
+///
+/// The ID set lets call resolution check precise `cls:{path}:{Name}` candidates;
+/// the unique-name map lets constructor calls resolve across modules without
+/// creating false edges for ambiguous class names (mirrors the bare-name rule
+/// in [`build_function_lookup`]).
+fn build_class_id_sets(
+    parse_results: &[mu_core::types::ParseResult],
+) -> (HashSet<String>, HashMap<String, String>) {
+    let mut class_ids = HashSet::new();
+    let mut name_counts: HashMap<&str, usize> = HashMap::new();
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            for class in &module.classes {
+                class_ids.insert(format!("cls:{}:{}", module.path, class.name));
+                *name_counts.entry(class.name.as_str()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut unique_class_names = HashMap::new();
+    for result in parse_results {
+        if !result.success {
+            continue;
+        }
+        if let Some(ref module) = result.module {
+            for class in &module.classes {
+                if name_counts.get(class.name.as_str()).copied() == Some(1) {
+                    unique_class_names.insert(
+                        class.name.clone(),
+                        format!("cls:{}:{}", module.path, class.name),
+                    );
+                }
+            }
+        }
+    }
+    (class_ids, unique_class_names)
+}
+
+/// Index of Python module paths for absolute-import resolution.
+///
+/// Python projects often mount a subdirectory on `PYTHONPATH` (imports like
+/// `auth.token_forwarding` living at `src/pkg/auth/token_forwarding.py`), so
+/// absolute imports can't be resolved by joining the dotted path onto the
+/// scan root. Instead every dotted suffix of each module's path is indexed;
+/// an import resolves only when its dotted path matches exactly one module.
+struct PythonModuleIndex {
+    /// Dotted module path -> file path. `None` marks an ambiguous suffix
+    /// (multiple modules match) that must not resolve.
+    by_suffix: HashMap<String, Option<String>>,
+    /// Every Python module path in the scanned tree, for existence checks.
+    paths: HashSet<String>,
+}
+
+impl PythonModuleIndex {
+    fn build(parse_results: &[mu_core::types::ParseResult]) -> Self {
+        let mut by_suffix: HashMap<String, Option<String>> = HashMap::new();
+        let mut paths = HashSet::new();
+        for result in parse_results {
+            if !result.success {
+                continue;
+            }
+            let Some(ref module) = result.module else {
+                continue;
+            };
+            if module.language != "python" {
+                continue;
+            }
+            paths.insert(module.path.clone());
+            let Some(logical) = module
+                .path
+                .strip_suffix(".py")
+                .map(|p| p.strip_suffix("/__init__").unwrap_or(p))
+            else {
+                continue;
+            };
+            // A bare __init__.py at the scan root has no importable name.
+            if logical.is_empty() || logical == "__init__" {
+                continue;
+            }
+            let components: Vec<&str> = logical.split('/').collect();
+            for i in 0..components.len() {
+                let suffix = components[i..].join(".");
+                by_suffix
+                    .entry(suffix)
+                    .and_modify(|existing| {
+                        if existing.as_deref() != Some(module.path.as_str()) {
+                            *existing = None;
+                        }
+                    })
+                    .or_insert_with(|| Some(module.path.clone()));
+            }
+        }
+        Self { by_suffix, paths }
+    }
+
+    /// Resolve a dotted absolute import to a module path; unique matches only.
+    fn resolve(&self, dotted: &str) -> Option<&str> {
+        self.by_suffix.get(dotted)?.as_deref()
+    }
+
+    fn contains_path(&self, path: &str) -> bool {
+        self.paths.contains(path)
+    }
 }
 
 /// Build function name -> node ID lookup for call resolution.
@@ -722,6 +964,7 @@ fn build_module_graph(
     class_lookup: &HashMap<String, String>,
     path_alias_resolver: Option<&PathAliasResolver>,
     csharp_namespace_map: &HashMap<String, Vec<String>>,
+    python_module_index: &PythonModuleIndex,
     nodes: &mut Vec<crate::engine::storage::Node>,
     edges: &mut Vec<crate::engine::storage::Edge>,
 ) {
@@ -932,6 +1175,7 @@ fn build_module_graph(
             &module.language,
             path_alias_resolver,
             Some(csharp_namespace_map),
+            Some(python_module_index),
         );
         edges.push(crate::engine::storage::Edge::imports(
             &module_id, &target_id,
@@ -940,6 +1184,7 @@ fn build_module_graph(
 }
 
 /// Resolve all call sites across all modules. Returns (total, resolved) counts.
+#[allow(clippy::too_many_arguments)]
 fn resolve_all_call_sites(
     parse_results: &[mu_core::types::ParseResult],
     func_lookup: &HashMap<String, String>,
@@ -947,6 +1192,9 @@ fn resolve_all_call_sites(
     receiver_type_map: &HashMap<(String, String), String>,
     inherits_map: &HashMap<String, Vec<String>>,
     class_lookup: &HashMap<String, String>,
+    class_ids: &HashSet<String>,
+    unique_class_names: &HashMap<String, String>,
+    python_module_index: &PythonModuleIndex,
 ) -> (usize, usize) {
     let mut total = 0usize;
     let mut resolved = 0usize;
@@ -956,6 +1204,9 @@ fn resolve_all_call_sites(
         receiver_type_map,
         inherits_map,
         class_lookup,
+        class_ids,
+        unique_class_names,
+        python_module_index,
     };
 
     for result in parse_results {
@@ -969,6 +1220,7 @@ fn resolve_all_call_sites(
             for class in &module.classes {
                 for method in &class.methods {
                     let method_id = format!("fn:{}:{}.{}", rel_path, class.name, method.name);
+                    let param_types = param_type_map(&method.parameters);
                     total += method.call_sites.len();
                     for call in &method.call_sites {
                         if let Some(target_id) = resolve_call_site(
@@ -976,11 +1228,20 @@ fn resolve_all_call_sites(
                             rel_path,
                             Some(&class.name),
                             &module.imports,
+                            &param_types,
                             maps,
                         ) {
                             edges.push(crate::engine::storage::Edge::calls(&method_id, &target_id));
                             resolved += 1;
                         }
+                        push_arg_ref_edges(
+                            call,
+                            &method_id,
+                            rel_path,
+                            &module.imports,
+                            maps,
+                            edges,
+                        );
                     }
                 }
             }
@@ -988,20 +1249,47 @@ fn resolve_all_call_sites(
             // Module-level functions
             for func in &module.functions {
                 let func_id = format!("fn:{}:{}", rel_path, func.name);
+                let param_types = param_type_map(&func.parameters);
                 total += func.call_sites.len();
                 for call in &func.call_sites {
                     if let Some(target_id) =
-                        resolve_call_site(call, rel_path, None, &module.imports, maps)
+                        resolve_call_site(call, rel_path, None, &module.imports, &param_types, maps)
                     {
                         edges.push(crate::engine::storage::Edge::calls(&func_id, &target_id));
                         resolved += 1;
                     }
+                    push_arg_ref_edges(call, &func_id, rel_path, &module.imports, maps, edges);
                 }
             }
         }
     }
 
     (total, resolved)
+}
+
+/// Emit `uses` edges for function references passed as call arguments
+/// (callback registration: `event.listen(Session, "do_orm_execute", hook)`).
+/// Impact BFS traverses all edge types, so the hook stops looking like dead
+/// weight the moment something registers it.
+fn push_arg_ref_edges(
+    call: &mu_core::types::CallSiteDef,
+    from_id: &str,
+    current_module: &str,
+    imports: &[mu_core::types::ImportDef],
+    maps: CallResolutionMaps<'_>,
+    edges: &mut Vec<crate::engine::storage::Edge>,
+) {
+    for arg in &call.arg_refs {
+        if let Some(target_id) = resolve_arg_ref(
+            arg,
+            current_module,
+            imports,
+            maps.func_lookup,
+            maps.python_module_index,
+        ) {
+            edges.push(crate::engine::storage::Edge::uses(from_id, &target_id));
+        }
+    }
 }
 
 // ============================================================================
@@ -1420,6 +1708,7 @@ pub fn bootstrap_pipeline(
             node_count: stats.node_count,
             edge_count: stats.edge_count,
             nodes_by_type: stats.type_counts,
+            languages: HashMap::new(),
             already_existed: true,
             files_scanned: 0,
             files_parsed: 0,
@@ -1451,6 +1740,7 @@ pub fn bootstrap_pipeline(
             node_count: 0,
             edge_count: 0,
             nodes_by_type: HashMap::new(),
+            languages: parsed.languages.clone(),
             duration_ms: start.elapsed().as_millis() as u64,
             config_created,
             gitignore_updated,
@@ -1640,6 +1930,7 @@ pub fn bootstrap_pipeline(
         node_count: stats.node_count,
         edge_count: stats.edge_count,
         nodes_by_type: stats.type_counts,
+        languages: parsed.languages,
         duration_ms: start.elapsed().as_millis() as u64,
         config_created,
         gitignore_updated,
@@ -1830,7 +2121,11 @@ fn resolve_typescript_import(import_path: &str, source_file: &str) -> String {
 }
 
 /// Resolve a Python style relative import (..foo, .foo)
-fn resolve_python_import(import_path: &str, source_file: &str) -> String {
+fn resolve_python_import(
+    import_path: &str,
+    source_file: &str,
+    python_module_index: Option<&PythonModuleIndex>,
+) -> String {
     // Count leading dots
     let dot_count = import_path.chars().take_while(|&c| c == '.').count();
     let remainder = &import_path[dot_count..];
@@ -1868,6 +2163,19 @@ fn resolve_python_import(import_path: &str, source_file: &str) -> String {
         resolved_str
     };
 
+    // Relative imports can point at a package rather than a file
+    // (`from . import x`, `from .pkg import y`); map those onto the
+    // package's __init__.py when that file actually exists.
+    if let Some(index) = python_module_index {
+        if !index.contains_path(&final_path) {
+            let base = final_path.strip_suffix(".py").unwrap_or(&final_path);
+            let candidate = format!("{}/__init__.py", base);
+            if index.contains_path(&candidate) {
+                return format!("mod:{}", candidate);
+            }
+        }
+    }
+
     format!("mod:{}", final_path)
 }
 
@@ -1877,6 +2185,7 @@ fn resolve_import(
     language: &str,
     path_alias_resolver: Option<&PathAliasResolver>,
     csharp_namespace_map: Option<&HashMap<String, Vec<String>>>,
+    python_module_index: Option<&PythonModuleIndex>,
 ) -> String {
     // C# uses namespace-based imports - use our namespace map
     if language == "csharp" {
@@ -1902,7 +2211,17 @@ fn resolve_import(
 
     // Python style relative imports (..foo, .foo)
     if import_path.starts_with('.') {
-        return resolve_python_import(import_path, source_file);
+        return resolve_python_import(import_path, source_file, python_module_index);
+    }
+
+    // Python absolute imports: resolve against the module index, which knows
+    // the real file layout (including package roots below the scan root).
+    if language == "python" {
+        if let Some(index) = python_module_index {
+            if let Some(path) = index.resolve(import_path) {
+                return format!("mod:{}", path);
+            }
+        }
     }
 
     // Absolute imports
@@ -1916,6 +2235,72 @@ fn resolve_import(
     }
 }
 
+/// Map parameter names to their type annotations for one function.
+fn param_type_map(params: &[mu_core::types::ParameterDef]) -> HashMap<&str, &str> {
+    params
+        .iter()
+        .filter_map(|p| p.type_annotation.as_deref().map(|t| (p.name.as_str(), t)))
+        .collect()
+}
+
+/// Extract the class name from a parameter type annotation. Handles the
+/// common spellings: `Svc`, `Optional[Svc]`, `Svc | None`, `pkg.Svc`, and
+/// quoted forward references. Returns None for anything that doesn't reduce
+/// to a plain identifier (generics like `list[Svc]` are deliberately skipped:
+/// the receiver's methods are the container's, not the element's).
+fn annotation_class_name(annotation: &str) -> Option<&str> {
+    let mut s = annotation.trim().trim_matches('"').trim_matches('\'');
+    if let Some((head, tail)) = s.split_once('|') {
+        let head = head.trim();
+        let tail = tail.trim();
+        s = if head == "None" { tail } else { head };
+    }
+    if let Some(inner) = s
+        .strip_prefix("Optional[")
+        .and_then(|r| r.strip_suffix(']'))
+    {
+        s = inner.trim();
+    }
+    let s = s.rsplit('.').next().unwrap_or(s);
+    let valid = !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || c == '_');
+    valid.then_some(s)
+}
+
+/// Resolve a bare identifier passed as a call argument to a function node.
+/// Only precise resolutions (same module, or explicitly imported name) are
+/// attempted: argument identifiers are usually plain variables, so a global
+/// bare-name fallback would fabricate edges.
+fn resolve_arg_ref(
+    arg: &str,
+    current_module: &str,
+    imports: &[mu_core::types::ImportDef],
+    func_lookup: &HashMap<String, String>,
+    python_module_index: &PythonModuleIndex,
+) -> Option<String> {
+    let local_id = format!("fn:{}:{}", current_module, arg);
+    if func_lookup.contains_key(&local_id) {
+        return Some(local_id);
+    }
+    for import in imports {
+        if import.names.contains(&arg.to_string()) {
+            let import_path = import.module.replace('.', "/");
+            let mut candidates: Vec<String> = Vec::new();
+            if let Some(resolved) = python_module_index.resolve(&import.module) {
+                candidates.push(resolved.to_string());
+            }
+            candidates.push(import_path.clone());
+            candidates.push(format!("{}.py", import_path));
+            for path in &candidates {
+                let id = format!("fn:{}:{}", path, arg);
+                if func_lookup.contains_key(&id) {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// The project-wide lookup tables call-site resolution needs.
 #[derive(Clone, Copy)]
 struct CallResolutionMaps<'a> {
@@ -1923,6 +2308,9 @@ struct CallResolutionMaps<'a> {
     receiver_type_map: &'a HashMap<(String, String), String>,
     inherits_map: &'a HashMap<String, Vec<String>>,
     class_lookup: &'a HashMap<String, String>,
+    class_ids: &'a HashSet<String>,
+    unique_class_names: &'a HashMap<String, String>,
+    python_module_index: &'a PythonModuleIndex,
 }
 
 /// Resolve a call site to a function/method node ID.
@@ -1932,6 +2320,7 @@ fn resolve_call_site(
     current_module: &str,
     current_class: Option<&str>,
     imports: &[mu_core::types::ImportDef],
+    param_types: &HashMap<&str, &str>,
     maps: CallResolutionMaps<'_>,
 ) -> Option<String> {
     let CallResolutionMaps {
@@ -1939,6 +2328,9 @@ fn resolve_call_site(
         receiver_type_map,
         inherits_map,
         class_lookup,
+        class_ids,
+        unique_class_names,
+        python_module_index,
     } = maps;
     let callee = &call.callee;
 
@@ -1990,6 +2382,14 @@ fn resolve_call_site(
         }
     }
 
+    // 3.5. Constructor call to a class in the same module: `Foo()`
+    if !call.is_method_call {
+        let local_class_id = format!("cls:{}:{}", current_module, callee);
+        if class_ids.contains(&local_class_id) {
+            return Some(local_class_id);
+        }
+    }
+
     // 4. Check by simple name — only for free function calls or self/this calls.
     // Method calls on arbitrary receivers (e.g., `_items.Clear()`) cannot be resolved
     // without type information; matching by bare name creates false cross-project edges.
@@ -2021,6 +2421,37 @@ fn resolve_call_site(
                 }
             }
 
+            // Try the enclosing function's parameter annotations:
+            // `def go(s: Svc): s.run()` resolves through the declared type.
+            // The Python parser stores non-self attribute calls with the full
+            // dotted text as callee ("invoker.invoke"), so take the last
+            // segment as the method name.
+            if let Some(annotation) = param_types.get(receiver) {
+                if let Some(class_name) = annotation_class_name(annotation) {
+                    if let Some(class_id) = class_lookup.get(class_name) {
+                        let method_name = callee.rsplit('.').next().unwrap_or(callee);
+                        let module_path = class_id
+                            .strip_prefix("cls:")
+                            .and_then(|s| s.rsplit_once(':'))
+                            .map(|(p, _)| p)
+                            .unwrap_or(current_module);
+                        let method_id =
+                            format!("fn:{}:{}.{}", module_path, class_name, method_name);
+                        if func_lookup.contains_key(&method_id) {
+                            return Some(method_id);
+                        }
+                        if let Some(inherited) = resolve_inherited_method(
+                            class_id,
+                            method_name,
+                            func_lookup,
+                            inherits_map,
+                        ) {
+                            return Some(inherited);
+                        }
+                    }
+                }
+            }
+
             // Try treating the receiver itself as a class name (e.g., static calls)
             if let Some(class_id) = class_lookup.get(receiver) {
                 let class_name = class_id.rsplit(':').next().unwrap_or("");
@@ -2043,16 +2474,29 @@ fn resolve_call_site(
     // 5. Check imported names
     for import in imports {
         if import.names.contains(&callee.to_string()) {
-            // Resolve to imported module's function
+            // Candidate module paths for the import target: the module-index
+            // resolution (real file layout) first, then the naive dotted->slash
+            // spellings for layouts the index doesn't cover.
             let import_path = import.module.replace('.', "/");
-            let imported_fn_id = format!("fn:{}:{}", import_path, callee);
-            if func_lookup.contains_key(&imported_fn_id) {
-                return Some(imported_fn_id);
+            let mut candidate_paths: Vec<String> = Vec::new();
+            if let Some(resolved) = python_module_index.resolve(&import.module) {
+                candidate_paths.push(resolved.to_string());
             }
-            // Also try with .py extension for Python
-            let imported_fn_id_py = format!("fn:{}.py:{}", import_path, callee);
-            if func_lookup.contains_key(&imported_fn_id_py) {
-                return Some(imported_fn_id_py);
+            candidate_paths.push(import_path.clone());
+            candidate_paths.push(format!("{}.py", import_path));
+
+            for path in &candidate_paths {
+                let imported_fn_id = format!("fn:{}:{}", path, callee);
+                if func_lookup.contains_key(&imported_fn_id) {
+                    return Some(imported_fn_id);
+                }
+                // Imported class used as a constructor: `Foo()`
+                if !call.is_method_call {
+                    let imported_cls_id = format!("cls:{}:{}", path, callee);
+                    if class_ids.contains(&imported_cls_id) {
+                        return Some(imported_cls_id);
+                    }
+                }
             }
         }
     }
@@ -2084,13 +2528,85 @@ fn resolve_call_site(
         }
     }
 
-    // 7. Unresolved - return None (no edge created)
+    // 7. Constructor call to a uniquely-named class anywhere in the project.
+    // Covers re-exports (`from pkg import Foo` where pkg/__init__.py forwards
+    // Foo) that step 5 can't see. Unique names only — same rule as bare
+    // function names in step 4.
+    if !call.is_method_call && !callee.contains('.') {
+        if let Some(class_id) = unique_class_names.get(callee) {
+            return Some(class_id.clone());
+        }
+    }
+
+    // 8. Unresolved - return None (no edge created)
     None
+}
+
+#[cfg(test)]
+mod extraction_warning_tests {
+    use super::*;
+
+    fn stat(files: usize, failed: usize, symbols: usize) -> LanguageStat {
+        LanguageStat {
+            files,
+            failed,
+            symbols,
+        }
+    }
+
+    #[test]
+    fn language_with_files_but_no_symbols_is_flagged() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(8713, 0, 0));
+        m.insert("python".to_string(), stat(31, 0, 289));
+        let w = extraction_warnings(&m);
+        assert_eq!(w.len(), 1);
+        assert!(
+            w[0].starts_with("csharp: 8713 files scanned but no symbols"),
+            "{w:?}"
+        );
+    }
+
+    #[test]
+    fn all_files_failing_names_the_likely_cause() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(3, 3, 0));
+        let w = extraction_warnings(&m);
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("all 3 files failed"), "{w:?}");
+    }
+
+    #[test]
+    fn healthy_languages_produce_no_warning() {
+        let mut m = HashMap::new();
+        m.insert("csharp".to_string(), stat(10, 1, 40));
+        m.insert("python".to_string(), stat(0, 0, 0));
+        assert!(extraction_warnings(&m).is_empty());
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shadows [`super::resolve_import`] for the pre-existing tests, which
+    /// exercise resolution without a Python module index.
+    fn resolve_import(
+        import_path: &str,
+        source_file: &str,
+        language: &str,
+        path_alias_resolver: Option<&PathAliasResolver>,
+        csharp_namespace_map: Option<&HashMap<String, Vec<String>>>,
+    ) -> String {
+        super::resolve_import(
+            import_path,
+            source_file,
+            language,
+            path_alias_resolver,
+            csharp_namespace_map,
+            None,
+        )
+    }
 
     #[test]
     fn test_resolve_import_external() {
@@ -2962,11 +3478,17 @@ namespace Notifications {
         );
         let inherits_map = HashMap::new();
         let class_lookup = HashMap::new();
+        let class_ids = HashSet::new();
+        let unique_class_names = HashMap::new();
+        let python_module_index = PythonModuleIndex::build(&[]);
         let maps = CallResolutionMaps {
             func_lookup: &func_lookup,
             receiver_type_map: &receiver_type_map,
             inherits_map: &inherits_map,
             class_lookup: &class_lookup,
+            class_ids: &class_ids,
+            unique_class_names: &unique_class_names,
+            python_module_index: &python_module_index,
         };
 
         let call = mu_core::types::CallSiteDef {
@@ -2974,8 +3496,16 @@ namespace Notifications {
             line: 10,
             is_method_call: true,
             receiver: Some("this._notificationsService".to_string()),
+            arg_refs: Vec::new(),
         };
-        let resolved = resolve_call_site(&call, "caller.cs", Some("Caller"), &[], maps);
+        let resolved = resolve_call_site(
+            &call,
+            "caller.cs",
+            Some("Caller"),
+            &[],
+            &HashMap::new(),
+            maps,
+        );
         assert_eq!(
             resolved.as_deref(),
             Some("fn:svc.cs:NotificationsService.SendEmailAsync"),
@@ -2988,8 +3518,16 @@ namespace Notifications {
             line: 11,
             is_method_call: true,
             receiver: Some("_notificationsService".to_string()),
+            arg_refs: Vec::new(),
         };
-        let resolved = resolve_call_site(&bare, "caller.cs", Some("Caller"), &[], maps);
+        let resolved = resolve_call_site(
+            &bare,
+            "caller.cs",
+            Some("Caller"),
+            &[],
+            &HashMap::new(),
+            maps,
+        );
         assert_eq!(
             resolved.as_deref(),
             Some("fn:svc.cs:NotificationsService.SendEmailAsync")
@@ -3052,6 +3590,385 @@ namespace Demo {
             map.get(&("B.cs".to_string(), "_notifSvc".to_string())),
             Some(&"cls:A.cs:NotifSvc".to_string()),
             "DI receiver map must map _notifSvc to the concrete class"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // Python module index + constructor-call resolution
+    // ------------------------------------------------------------------
+
+    fn python_parse_results(paths: &[&str]) -> Vec<mu_core::types::ParseResult> {
+        paths
+            .iter()
+            .map(|p| mu_core::types::ParseResult {
+                success: true,
+                module: Some(mu_core::types::ModuleDef {
+                    name: std::path::Path::new(p)
+                        .file_stem()
+                        .unwrap()
+                        .to_string_lossy()
+                        .to_string(),
+                    path: p.to_string(),
+                    language: "python".to_string(),
+                    ..Default::default()
+                }),
+                error: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_python_module_index_resolves_suffixes() {
+        let results = python_parse_results(&[
+            "src/pkg/auth/token_forwarding.py",
+            "src/pkg/auth/__init__.py",
+        ]);
+        let index = PythonModuleIndex::build(&results);
+
+        // Imports as PYTHONPATH=src/pkg sees them
+        assert_eq!(
+            index.resolve("auth.token_forwarding"),
+            Some("src/pkg/auth/token_forwarding.py")
+        );
+        assert_eq!(index.resolve("auth"), Some("src/pkg/auth/__init__.py"));
+        // Full path from scan root also resolves
+        assert_eq!(
+            index.resolve("src.pkg.auth.token_forwarding"),
+            Some("src/pkg/auth/token_forwarding.py")
+        );
+        assert_eq!(index.resolve("does.not.exist"), None);
+    }
+
+    #[test]
+    fn test_python_module_index_ambiguous_suffix_does_not_resolve() {
+        let results = python_parse_results(&["src/a/models.py", "src/b/models.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        assert_eq!(index.resolve("models"), None, "ambiguous suffix");
+        assert_eq!(index.resolve("a.models"), Some("src/a/models.py"));
+        assert_eq!(index.resolve("b.models"), Some("src/b/models.py"));
+    }
+
+    #[test]
+    fn test_resolve_import_python_nested_package_root() {
+        let results = python_parse_results(&["src/pkg/auth/token_forwarding.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        assert_eq!(
+            super::resolve_import(
+                "auth.token_forwarding",
+                "src/pkg/clients/base_client.py",
+                "python",
+                None,
+                None,
+                Some(&index)
+            ),
+            "mod:src/pkg/auth/token_forwarding.py"
+        );
+        // Unknown qualified imports keep the legacy spelling
+        assert_eq!(
+            super::resolve_import(
+                "sqlalchemy.orm",
+                "src/pkg/clients/base_client.py",
+                "python",
+                None,
+                None,
+                Some(&index)
+            ),
+            "mod:sqlalchemy/orm"
+        );
+    }
+
+    #[test]
+    fn test_resolve_python_relative_import_to_package_init() {
+        let results = python_parse_results(&["src/pkg/auth/__init__.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        assert_eq!(
+            super::resolve_import(
+                ".auth",
+                "src/pkg/main.py",
+                "python",
+                None,
+                None,
+                Some(&index)
+            ),
+            "mod:src/pkg/auth/__init__.py"
+        );
+    }
+
+    fn empty_maps<'a>(
+        func_lookup: &'a HashMap<String, String>,
+        receiver_type_map: &'a HashMap<(String, String), String>,
+        inherits_map: &'a HashMap<String, Vec<String>>,
+        class_lookup: &'a HashMap<String, String>,
+        class_ids: &'a HashSet<String>,
+        unique_class_names: &'a HashMap<String, String>,
+        python_module_index: &'a PythonModuleIndex,
+    ) -> CallResolutionMaps<'a> {
+        CallResolutionMaps {
+            func_lookup,
+            receiver_type_map,
+            inherits_map,
+            class_lookup,
+            class_ids,
+            unique_class_names,
+            python_module_index,
+        }
+    }
+
+    #[test]
+    fn test_resolve_call_site_constructor_via_import() {
+        let results = python_parse_results(&["src/pkg/auth/token_forwarding.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let func_lookup = HashMap::new();
+        let receiver_type_map = HashMap::new();
+        let inherits_map = HashMap::new();
+        let class_lookup = HashMap::new();
+        let mut class_ids = HashSet::new();
+        class_ids.insert("cls:src/pkg/auth/token_forwarding.py:TokenForwardingHandler".to_string());
+        let unique_class_names = HashMap::new();
+
+        let maps = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &unique_class_names,
+            &index,
+        );
+
+        let call = mu_core::types::CallSiteDef {
+            callee: "TokenForwardingHandler".to_string(),
+            is_method_call: false,
+            ..Default::default()
+        };
+        let imports = vec![mu_core::types::ImportDef {
+            module: "auth.token_forwarding".to_string(),
+            names: vec!["TokenForwardingHandler".to_string()],
+            is_from: true,
+            ..Default::default()
+        }];
+
+        assert_eq!(
+            resolve_call_site(
+                &call,
+                "src/pkg/clients/base_client.py",
+                Some("BpHttpClient"),
+                &imports,
+                &HashMap::new(),
+                maps
+            ),
+            Some("cls:src/pkg/auth/token_forwarding.py:TokenForwardingHandler".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_call_site_constructor_same_module() {
+        let results = python_parse_results(&["app.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let func_lookup = HashMap::new();
+        let receiver_type_map = HashMap::new();
+        let inherits_map = HashMap::new();
+        let class_lookup = HashMap::new();
+        let mut class_ids = HashSet::new();
+        class_ids.insert("cls:app.py:Config".to_string());
+        let unique_class_names = HashMap::new();
+
+        let maps = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &unique_class_names,
+            &index,
+        );
+
+        let call = mu_core::types::CallSiteDef {
+            callee: "Config".to_string(),
+            is_method_call: false,
+            ..Default::default()
+        };
+
+        assert_eq!(
+            resolve_call_site(&call, "app.py", None, &[], &HashMap::new(), maps),
+            Some("cls:app.py:Config".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_call_site_constructor_unique_name_fallback() {
+        // Re-export case: `from auth import Handler` while the class lives in
+        // auth/handler.py — step 5 misses, the unique-name fallback hits.
+        let results = python_parse_results(&["auth/__init__.py", "auth/handler.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let func_lookup = HashMap::new();
+        let receiver_type_map = HashMap::new();
+        let inherits_map = HashMap::new();
+        let class_lookup = HashMap::new();
+        let mut class_ids = HashSet::new();
+        class_ids.insert("cls:auth/handler.py:Handler".to_string());
+        let mut unique_class_names = HashMap::new();
+        unique_class_names.insert(
+            "Handler".to_string(),
+            "cls:auth/handler.py:Handler".to_string(),
+        );
+
+        let maps = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &unique_class_names,
+            &index,
+        );
+
+        let call = mu_core::types::CallSiteDef {
+            callee: "Handler".to_string(),
+            is_method_call: false,
+            ..Default::default()
+        };
+        let imports = vec![mu_core::types::ImportDef {
+            module: "auth".to_string(),
+            names: vec!["Handler".to_string()],
+            is_from: true,
+            ..Default::default()
+        }];
+
+        assert_eq!(
+            resolve_call_site(&call, "main.py", None, &imports, &HashMap::new(), maps),
+            Some("cls:auth/handler.py:Handler".to_string())
+        );
+
+        // Ambiguous class names must NOT resolve through the fallback
+        let empty_unique = HashMap::new();
+        let maps_ambiguous = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &empty_unique,
+            &index,
+        );
+        assert_eq!(
+            resolve_call_site(&call, "main.py", None, &[], &HashMap::new(), maps_ambiguous),
+            None
+        );
+    }
+
+    #[test]
+    fn test_annotation_class_name_spellings() {
+        assert_eq!(annotation_class_name("Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("Optional[Svc]"), Some("Svc"));
+        assert_eq!(annotation_class_name("Svc | None"), Some("Svc"));
+        assert_eq!(annotation_class_name("None | Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("pkg.mod.Svc"), Some("Svc"));
+        assert_eq!(annotation_class_name("\"Svc\""), Some("Svc"));
+        // Containers are not the receiver's type
+        assert_eq!(annotation_class_name("list[Svc]"), None);
+        assert_eq!(annotation_class_name("dict[str, Svc]"), None);
+    }
+
+    #[test]
+    fn test_resolve_call_site_annotated_param_receiver() {
+        // def go(s: Svc): s.run()  ->  edge to Svc.run
+        let results = python_parse_results(&["src/svc.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let mut func_lookup = HashMap::new();
+        func_lookup.insert(
+            "fn:src/svc.py:Svc.run".to_string(),
+            "fn:src/svc.py:Svc.run".to_string(),
+        );
+        let receiver_type_map = HashMap::new();
+        let inherits_map = HashMap::new();
+        let mut class_lookup = HashMap::new();
+        class_lookup.insert("Svc".to_string(), "cls:src/svc.py:Svc".to_string());
+        let class_ids = HashSet::new();
+        let unique_class_names = HashMap::new();
+
+        let maps = empty_maps(
+            &func_lookup,
+            &receiver_type_map,
+            &inherits_map,
+            &class_lookup,
+            &class_ids,
+            &unique_class_names,
+            &index,
+        );
+
+        let call = mu_core::types::CallSiteDef {
+            // Python stores non-self attribute calls with the dotted text
+            callee: "s.run".to_string(),
+            is_method_call: true,
+            receiver: Some("s".to_string()),
+            ..Default::default()
+        };
+        let mut param_types = HashMap::new();
+        param_types.insert("s", "Svc");
+
+        assert_eq!(
+            resolve_call_site(&call, "src/caller.py", None, &[], &param_types, maps),
+            Some("fn:src/svc.py:Svc.run".to_string())
+        );
+
+        // Without the annotation the receiver stays unresolvable
+        assert_eq!(
+            resolve_call_site(&call, "src/caller.py", None, &[], &HashMap::new(), maps),
+            None
+        );
+    }
+
+    #[test]
+    fn test_resolve_arg_ref_local_and_imported() {
+        let results = python_parse_results(&["src/pkg/hooks.py", "src/pkg/main.py"]);
+        let index = PythonModuleIndex::build(&results);
+
+        let mut func_lookup = HashMap::new();
+        func_lookup.insert(
+            "fn:src/pkg/hooks.py:on_event".to_string(),
+            "fn:src/pkg/hooks.py:on_event".to_string(),
+        );
+        func_lookup.insert(
+            "fn:src/pkg/main.py:local_hook".to_string(),
+            "fn:src/pkg/main.py:local_hook".to_string(),
+        );
+
+        // Local function reference
+        assert_eq!(
+            resolve_arg_ref("local_hook", "src/pkg/main.py", &[], &func_lookup, &index),
+            Some("fn:src/pkg/main.py:local_hook".to_string())
+        );
+
+        // Imported function reference, resolved through the module index
+        let imports = vec![mu_core::types::ImportDef {
+            module: "hooks".to_string(),
+            names: vec!["on_event".to_string()],
+            is_from: true,
+            ..Default::default()
+        }];
+        assert_eq!(
+            resolve_arg_ref(
+                "on_event",
+                "src/pkg/main.py",
+                &imports,
+                &func_lookup,
+                &index
+            ),
+            Some("fn:src/pkg/hooks.py:on_event".to_string())
+        );
+
+        // Plain variables must not resolve
+        assert_eq!(
+            resolve_arg_ref("session", "src/pkg/main.py", &imports, &func_lookup, &index),
+            None
         );
     }
 }
