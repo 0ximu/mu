@@ -12,4 +12,5 @@ pub mod doctor;
 pub mod graph;
 pub mod mcp;
 pub mod review;
+pub mod review_sections;
 pub mod status;

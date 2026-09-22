@@ -13,6 +13,7 @@ use crate::commands::audit::{self, Severity, Violation};
 #[cfg(test)]
 use crate::commands::diff::SemanticChange;
 use crate::commands::diff::{self, DiffResult};
+use crate::commands::review_sections::{self, ConstructorChange, ContractImpact};
 use crate::mubase;
 use crate::output::{Output, OutputFormat, TableDisplay};
 
@@ -67,6 +68,10 @@ pub struct ReviewResult {
     pub audit_violations: Vec<Violation>,
     pub total_dependents: usize,
     pub affected_files: Vec<String>,
+    /// Changed types that have publish/subscribe edges, with both ends.
+    pub contracts: Vec<ContractImpact>,
+    /// Changed constructors and everything that constructs them.
+    pub constructors: Vec<ConstructorChange>,
     pub duration_ms: u64,
 }
 
@@ -93,6 +98,11 @@ impl TableDisplay for ReviewResult {
             self.diff.breaking_changes.len(),
             self.total_dependents,
             self.duration_ms
+        ));
+
+        out.push_str(&review_sections::render_text(
+            &self.contracts,
+            &self.constructors,
         ));
 
         // Breaking changes
@@ -232,6 +242,11 @@ pub fn format_as_markdown(result: &ReviewResult) -> String {
         result.total_dependents
     ));
 
+    md.push_str(&review_sections::render_markdown(
+        &result.contracts,
+        &result.constructors,
+    ));
+
     // Breaking changes
     if !result.diff.breaking_changes.is_empty() {
         md.push_str("## Breaking Changes\n\n");
@@ -332,16 +347,16 @@ pub fn run_review(
 
     if include_impact && !diff_result.changes.is_empty() {
         for change in &diff_result.changes {
+            let name = review_sections::bare_name(change);
             let (dep_count, affected_files) =
-                lookup_impact(mubase, &change.entity_name, change.file_path.as_deref());
+                lookup_impact(mubase, name, change.file_path.as_deref());
 
             for f in &affected_files {
                 *affected_file_counts.entry(f.clone()).or_default() += 1;
             }
 
             // Track unique dependents across all changes
-            let dep_names =
-                lookup_dependent_names(mubase, &change.entity_name, change.file_path.as_deref());
+            let dep_names = lookup_dependent_names(mubase, name, change.file_path.as_deref());
             total_dependents_set.extend(dep_names);
 
             symbol_impacts.push(SymbolImpact {
@@ -380,6 +395,12 @@ pub fn run_review(
         diff_scope: Some(base_ref.to_string()),
     });
 
+    // Stage 3b: cross-service sections
+    let contracts = review_sections::message_contracts(mubase, &diff_result.changes);
+    let changed_files = diff::get_changed_files(project_root, base_ref, "HEAD").unwrap_or_default();
+    let constructors =
+        review_sections::constructor_changes(project_root, &diff_result.changes, &changed_files);
+
     // Stage 4: Risk scoring
     let risk_score = compute_risk_score(
         &diff_result,
@@ -399,6 +420,8 @@ pub fn run_review(
         audit_violations: audit_result.violations,
         total_dependents,
         affected_files,
+        contracts,
+        constructors,
         duration_ms: start.elapsed().as_millis() as u64,
     })
 }
@@ -638,6 +661,7 @@ mod tests {
             base_ref: "main".into(),
             head_ref: "HEAD".into(),
             changes: vec![SemanticChange {
+                parent_name: None,
                 change_type: "added".into(),
                 entity_type: "function".into(),
                 entity_name: "new_fn".into(),
@@ -678,6 +702,7 @@ mod tests {
     #[test]
     fn test_risk_score_high_breaking() {
         let breaking = SemanticChange {
+            parent_name: None,
             change_type: "removed".into(),
             entity_type: "function".into(),
             entity_name: "important_fn".into(),
@@ -798,6 +823,8 @@ mod tests {
     #[test]
     fn test_format_markdown_empty() {
         let result = ReviewResult {
+            contracts: vec![],
+            constructors: vec![],
             base_ref: "main".into(),
             head_ref: "HEAD".into(),
             risk_level: RiskLevel::Low,

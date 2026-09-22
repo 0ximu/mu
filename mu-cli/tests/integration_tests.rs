@@ -743,3 +743,127 @@ fn test_bootstrap_reports_symbols_per_language_and_no_warning_for_csharp() {
         "healthy fixture must not warn:\n{out}"
     );
 }
+
+// ============================================================================
+// Review: message contracts and constructor changes (cross-service sections)
+// ============================================================================
+
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = Command::new("git")
+        .current_dir(dir)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "test")
+        .env("GIT_AUTHOR_EMAIL", "test@test")
+        .env("GIT_COMMITTER_NAME", "test")
+        .env("GIT_COMMITTER_EMAIL", "test@test")
+        .args(args)
+        .output()
+        .expect("git");
+    assert!(
+        out.status.success(),
+        "git {:?}: {}",
+        args,
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn test_review_reports_contract_parties_and_constructor_sites() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    let root = temp_dir.path();
+    let w = |rel: &str, content: &str| {
+        let p = root.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, content).unwrap();
+    };
+
+    w("src/contracts/OrderCreatedEvent.cs",
+      "namespace Contracts;\npublic class OrderCreatedEvent\n{\n    public int Id { get; set; }\n}\n");
+    w("src/orders/Publisher.cs",
+      "namespace Orders;\npublic class Publisher\n{\n    private readonly IBus _bus;\n    public async Task Go()\n    {\n        await _bus.Publish<OrderCreatedEvent>(new OrderCreatedEvent());\n    }\n}\n");
+    w("src/billing/OrderCreatedConsumer.cs",
+      "namespace Billing;\npublic class OrderCreatedConsumer : IConsumer<OrderCreatedEvent>\n{\n    public Task Consume(ConsumeContext<OrderCreatedEvent> ctx)\n    {\n        return Task.CompletedTask;\n    }\n}\n");
+    w(
+        "src/orders/Svc.cs",
+        "namespace Orders;\npublic class Svc\n{\n    public Svc(int a)\n    {\n    }\n}\n",
+    );
+    w("src/orders/User.cs",
+      "namespace Orders;\npublic class User\n{\n    private readonly Svc _s = new Svc(1);\n    private readonly Svc _t = new(1);\n}\n");
+    w("src/orders/Program.cs",
+      "namespace Orders;\npublic class Program\n{\n    public void Wire(IServiceCollection services)\n    {\n        services.AddScoped<Svc>();\n    }\n}\n");
+    w("tests/orders.Tests/SvcTests.cs",
+      "namespace Orders.Tests;\npublic class SvcTests\n{\n    private readonly Svc _sut = new Svc(1);\n}\n");
+
+    git(root, &["init", "-q", "-b", "main"]);
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "base"]);
+
+    let bs = run_mu(root, &["bootstrap", "--force"]);
+    assert!(bs.status.success(), "bootstrap failed: {}", stderr(&bs));
+
+    // The PR: widen the Svc constructor, touch one call site, add a field to the event.
+    w(
+        "src/orders/Svc.cs",
+        "namespace Orders;\npublic class Svc\n{\n    public Svc(int a, int b)\n    {\n    }\n}\n",
+    );
+    w("src/orders/User.cs",
+      "namespace Orders;\npublic class User\n{\n    private readonly Svc _s = new Svc(1, 2);\n    private readonly Svc _t = new(1, 2);\n}\n");
+    w("src/contracts/OrderCreatedEvent.cs",
+      "namespace Contracts;\npublic class OrderCreatedEvent\n{\n    public int Id { get; set; }\n    public int Amount { get; set; }\n}\n");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "pr"]);
+
+    let output = run_mu(root, &["review", "--base", "HEAD~1", "--format", "json"]);
+    assert!(
+        output.status.success(),
+        "review failed: {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    let json: serde_json::Value =
+        serde_json::from_str(&out).unwrap_or_else(|e| panic!("bad json ({e}):\n{out}"));
+
+    // Contract section: the changed event, its publisher and its consumer, by service.
+    let contracts = json["contracts"].as_array().expect("contracts array");
+    assert_eq!(contracts.len(), 1, "{out}");
+    let c = &contracts[0];
+    assert_eq!(c["name"], "OrderCreatedEvent");
+    assert_eq!(c["change_type"], "modified");
+    assert_eq!(c["publishers"][0]["service"], "orders");
+    assert_eq!(c["publishers"][0]["symbol"], "Go");
+    assert_eq!(c["consumers"][0]["service"], "billing");
+    assert_eq!(c["consumers"][0]["symbol"], "OrderCreatedConsumer");
+
+    // Constructor section: every construction site, and the one file the PR forgot.
+    let ctors = json["constructors"].as_array().expect("constructors array");
+    assert_eq!(ctors.len(), 1, "{out}");
+    let k = &ctors[0];
+    assert_eq!(k["class_name"], "Svc");
+    let files = |key: &str| -> Vec<String> {
+        k[key]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["file_path"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(
+        files("explicit_sites"),
+        vec!["src/orders/User.cs", "tests/orders.Tests/SvcTests.cs"]
+    );
+    assert_eq!(files("target_typed_sites"), vec!["src/orders/User.cs"]);
+    assert_eq!(files("di_registrations"), vec!["src/orders/Program.cs"]);
+    assert_eq!(
+        k["files_outside_diff"],
+        serde_json::json!(["tests/orders.Tests/SvcTests.cs"])
+    );
+
+    // Table output carries the same facts for humans.
+    let table = stdout(&run_mu(root, &["review", "--base", "HEAD~1"]));
+    assert!(table.contains("MESSAGE CONTRACTS TOUCHED (1)"), "{table}");
+    assert!(
+        table.contains("construction sites NOT in this diff:"),
+        "{table}"
+    );
+}

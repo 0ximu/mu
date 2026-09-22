@@ -23,6 +23,8 @@ pub struct SemanticChange {
     pub file_path: Option<String>,
     pub is_breaking: bool,
     pub description: Option<String>,
+    /// Enclosing type for methods and members.
+    pub parent_name: Option<String>,
 }
 
 /// Diff result collection
@@ -170,7 +172,7 @@ impl TableDisplay for DiffResult {
 }
 
 /// Get the list of changed files between two git refs
-fn get_changed_files(
+pub(crate) fn get_changed_files(
     repo_root: &Path,
     base_ref: &str,
     head_ref: &str,
@@ -274,6 +276,7 @@ fn convert_core_change(change: &mu_core::differ::EntityChange) -> SemanticChange
         file_path: Some(change.file_path.clone()),
         is_breaking: change.is_breaking,
         description,
+        parent_name: change.parent_name.clone(),
     }
 }
 
