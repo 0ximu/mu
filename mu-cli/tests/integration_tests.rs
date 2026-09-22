@@ -750,6 +750,46 @@ fn test_bootstrap_reports_symbols_per_language_and_no_warning_for_csharp() {
     );
 }
 
+#[test]
+fn test_bootstrap_update_refreshes_existing_index_without_force() {
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
+    std::fs::write(temp_dir.path().join("a.py"), "def a():\n    return 1\n").unwrap();
+    let output = run_mu(temp_dir.path(), &["bootstrap", "--force"]);
+    assert!(
+        output.status.success(),
+        "first bootstrap failed: {}",
+        stderr(&output)
+    );
+
+    std::fs::write(temp_dir.path().join("b.py"), "def b():\n    return 2\n").unwrap();
+
+    // Plain bootstrap on an existing index is a no-op.
+    let output = run_mu(temp_dir.path(), &["bootstrap"]);
+    assert!(output.status.success());
+    let out = stdout(&output);
+    assert!(
+        out.contains("already initialized"),
+        "expected early return:\n{out}"
+    );
+
+    // --update picks up the new file.
+    let output = run_mu(temp_dir.path(), &["bootstrap", "--update"]);
+    assert!(
+        output.status.success(),
+        "update failed: {}",
+        stderr(&output)
+    );
+    let out = stdout(&output);
+    let py = out
+        .lines()
+        .find(|l| l.trim_start().starts_with("python"))
+        .unwrap_or_else(|| panic!("no python row:\n{out}"));
+    assert!(
+        py.contains("files      2"),
+        "update should index both files: {py}"
+    );
+}
+
 // ============================================================================
 // Review: message contracts and constructor changes (cross-service sections)
 // ============================================================================

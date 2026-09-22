@@ -73,6 +73,12 @@ enum Commands {
         /// Force rebuild even if database exists
         #[arg(short, long)]
         force: bool,
+
+        /// Refresh an existing index: re-parse only files whose content changed
+        /// since the last run (parse cache), then rebuild the graph. Cheap on a
+        /// PR worktree seeded with a recent index.
+        #[arg(long, short = 'u')]
+        update: bool,
     },
 
     /// Compress codebase into hierarchical MU sigil format
@@ -279,7 +285,11 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match command {
-        Commands::Bootstrap { path, force } => bootstrap::run(&path, force, format).await,
+        Commands::Bootstrap {
+            path,
+            force,
+            update,
+        } => bootstrap::run(&path, force, update, format).await,
         Commands::Compress {
             path,
             output,

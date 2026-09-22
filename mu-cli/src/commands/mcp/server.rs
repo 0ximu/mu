@@ -1215,7 +1215,7 @@ impl MuMcpServer {
         // Drop existing connection so bootstrap can write
         self.reset_state().await;
 
-        let result = crate::commands::bootstrap::bootstrap_pipeline(&dir, force, None)
+        let result = crate::commands::bootstrap::bootstrap_pipeline(&dir, force, false, None)
             .map_err(|e| McpError::internal_error(format!("bootstrap failed: {}", e), None))?;
 
         // Format result as markdown
