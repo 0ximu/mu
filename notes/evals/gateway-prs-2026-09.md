@@ -57,3 +57,23 @@ rest, not to improve the graph.
 - Defect 6: `R1-orphan` fires on properties; breaking-change list includes test methods.
 - WP4 shape: "Message contracts touched" section, depth 1, grouped by service, tests
   separate, publishers and consumers labelled.
+
+## Round 2 (same day): the two new sections
+
+Built `MESSAGE CONTRACTS TOUCHED` and `CONSTRUCTOR CHANGES` into `mu review` and re-ran.
+
+| PR | section output | verdict |
+|---|---|---|
+| #3364 recurring R12 | 3 events, each with its payments publisher and its notifications + webhooks consumers, by service | this is the paste-into-PR output |
+| #3416 POS order sync | no contract section: OrderSyncEventV1 is an HTTP model, not a bus message; no constructor change | correct silence |
+| #2182 analytics cadence (2026-08-08 red-dev incident) | 6 widened constructors; ReportService constructed at 16 sites in 14 files, each with 1 DI registration; 0 sites outside the diff | correct: this PR alone was green, the red dev came from #2184 adding sites in parallel |
+
+Cost: the constructor scan reads every `.cs` file once, about 0.7 s on gateway.
+
+Limits found on the way, all recorded in the plan:
+- `Publish(new T(...))` without the generic argument is not detected as a publish edge.
+- Primary constructors (`class Foo(int x)`) are not parsed as constructors. 5 uses in gateway.
+- The "sites outside this diff" check is per PR. The 2026-08-08 incident needs the same
+  check against the OTHER open PRs' heads, which is poller work, not MU work.
+- The index is at origin/dev while the PR head may add consumers; the poller must run
+  `mu bootstrap` (incremental) on the PR worktree before `mu review`.
